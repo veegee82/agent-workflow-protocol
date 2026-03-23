@@ -163,6 +163,147 @@ this works without any external framework.
 Third-party platforms provide their own adapters. Each adapter
 translates the AWP interface to the platform's native agent system.
 
+## MCP Tools -- Generate, Register, Use
+
+AWP agents interact with the outside world through **MCP tools** -- functions
+identified by a Fully Qualified Name (`namespace.action`) that return a standard
+result format. Tools are declared per agent in `agent.awp.yaml` and resolved at
+runtime by the `ToolRegistry`.
+
+### Built-in Tools
+
+The AWP runtime ships with these tools out of the box:
+
+| Tool | Description |
+|------|-------------|
+| `web.search` | Web search via DuckDuckGo (no API key needed) |
+| `http.request` | Arbitrary HTTP requests (GET, POST, ...) |
+| `file.read` / `file.write` / `file.list` | File system operations |
+| `shell.execute` | Sandboxed shell commands |
+| `memory.read` / `memory.write` / `memory.search` | Persistent memory |
+| `arithmetic.add` / `subtract` / `multiply` / `divide` | Basic math |
+
+These are registered automatically when the runtime starts. No extra files needed.
+
+### Declaring Tools for an Agent
+
+In `agent.awp.yaml`, list which tools an agent may use:
+
+```yaml
+tools:
+  execute: true
+  max_calls: 15
+  allowed:
+    - web.search
+    - http.request
+    - memory.*        # glob patterns work
+```
+
+If `allowed` is empty and `execute` is `true`, the agent can use all registered tools.
+
+### Custom MCP Tools
+
+For domain-specific functionality, create custom tools in the `mcp/` directory
+at the workflow root. Use the **FastMCP decorator pattern**:
+
+```
+my-workflow/
+  mcp/
+    legal_search.py     ← custom tool
+    pdf_extract.py      ← custom tool
+  agents/
+    ...
+```
+
+```python
+# mcp/legal_search.py
+from mcp.server.fastmcp import FastMCP
+
+app = FastMCP("legal")
+
+@app.tool("legal.search_cases")
+def search_cases(*, query: str, court: str = "BGH", max_results: int = 10) -> dict:
+    """Search court decisions by keyword.
+
+    Args:
+        query: Search query.
+        court: Court filter (BGH, OLG, AG).
+        max_results: Maximum results to return.
+    """
+    try:
+        # ... implementation ...
+        return {"ok": True, "status": 200, "data": {"cases": [...]}, "error": None}
+    except Exception as e:
+        return {"ok": False, "status": 500, "data": {}, "error": str(e)}
+```
+
+**Rules for custom tools:**
+- FQN must follow `namespace.action` format
+- Custom namespaces must NOT collide with reserved ones (`web`, `http`, `file`,
+  `shell`, `agent`, `memory`, `arithmetic`)
+- Return the standard `{"ok", "status", "data", "error"}` format
+- Filenames must not start with `_`
+
+### Auto-Discovery at Runtime
+
+The `ToolRegistry` automatically discovers and registers tools:
+
+```
+1. _register_builtins()              → web.search, file.read, memory.*, ...
+2. _discover_custom_tools(mcp/)      → scans @app.tool() decorators
+3. get_definitions(agent.allowed)    → filters to agent's allowed list
+```
+
+Custom tools in `mcp/` can **override** built-in tools by using the same FQN.
+For example, a `mcp/web_search.py` with `@app.tool("web.search")` replaces the
+default DuckDuckGo implementation with your own.
+
+### Tool Implementation Mode (Standalone Workflows)
+
+When generating a workflow with the AWP Skill, you can enable **tool implementation
+mode**. This generates working MCP implementations for every referenced built-in
+tool, making the workflow fully self-contained:
+
+```
+my-workflow/
+  mcp/
+    web_search.py         ← generated: DuckDuckGo search
+    http_request.py       ← generated: HTTP client
+    memory_write.py       ← generated: file-based memory
+    memory_search.py      ← generated: keyword search
+  agents/
+    ...
+```
+
+This is useful when you don't want to depend on the AWP runtime's built-in tools
+or need to customize the implementation (e.g., use a different search API).
+
+To enable, tell the AI skill: *"generate tool implementations"* or *"standalone tools"*.
+
+### End-to-End Example
+
+```python
+from awp.runtime.tools import ToolRegistry
+
+# 1. Create registry (discovers mcp/ tools automatically)
+registry = ToolRegistry(workflow_dir=Path("my-workflow"))
+
+# 2. See what's available
+print(registry.tool_names)
+# ['arithmetic.add', ..., 'legal.search_cases', ..., 'web.search']
+
+# 3. Call a tool directly
+result = registry.call("web.search", {"query": "§ 1671 BGB", "language": "de"})
+print(result)
+# {"ok": True, "status": 200, "data": {"results": [...], "count": 5}, "error": None}
+
+# 4. Get OpenAI function-calling definitions for an agent
+defs = registry.get_definitions(["web.search", "legal.*"])
+# Pass these to the LLM as tool definitions
+```
+
+For the full tool reference, see [docs/tools.md](docs/tools.md).
+
 ## Three Ways to Build Workflows
 
 ### 1. AI-Generated (Skill)
