@@ -4,20 +4,9 @@ description: >
   Generate complete Agent Workflow Protocol (AWP) compliant multi-agent
   workflows from natural language descriptions. Produces workflow.awp.yaml,
   agent configs, prompts, schemas, and optionally custom tools and skills.
-version: 1.0.0
-metadata:
-  openclaw:
-    requires:
-      env: []
-      bins: []
-    emoji: "\U0001F916"
-    homepage: https://github.com/user/agent-workflow-protocol
-    tags:
-      - agents
-      - workflow
-      - orchestration
-      - multi-agent
-      - awp
+version: "1.0.0"
+user-invocable: true
+allowed-tools: Read Write Edit Bash Glob Grep
 ---
 
 # AWP Workflow Builder
