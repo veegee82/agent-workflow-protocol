@@ -293,7 +293,7 @@ print(registry.tool_names)
 # ['arithmetic.add', ..., 'legal.search_cases', ..., 'web.search']
 
 # 3. Call a tool directly
-result = registry.call("web.search", {"query": "§ 1671 BGB", "language": "de"})
+result = registry.call("web.search", {"query": "quantum error correction 2026"})
 print(result)
 # {"ok": True, "status": 200, "data": {"results": [...], "count": 5}, "error": None}
 
@@ -335,21 +335,22 @@ At runtime, `StandaloneAgent._build_system_prompt()` loads skills from two locat
 A skill is a plain Markdown file. Use the template at `skill/templates/project-skill.md`:
 
 ```markdown
-# German Family Law
+# Cloud Security Best Practices
 
 ## Purpose
-Domain knowledge for German family law research agents.
+Domain knowledge for cloud infrastructure security analysis agents.
 
 ## Domain Knowledge
-### BGB Book 4 -- Familienrecht
-- §§ 1297–1352: Verlöbnis, Eheschließung
-- §§ 1564–1587: Scheidung der Ehe
+### Core Frameworks
+- CIS Benchmarks for AWS, Azure, GCP
+- NIST 800-53 security controls
+- SOC 2 Type II compliance requirements
 ...
 
 ## Rules
-- Always check the current version of statutes
-- Cite in standard German legal format: § 1671 Abs. 1 BGB
-- Kindeswohl (§ 1697a BGB) is the central standard for all child custody cases
+- Always reference the specific CIS control ID when citing a benchmark
+- Distinguish between "must" (compliance requirement) and "should" (best practice)
+- Flag any publicly accessible storage buckets as critical severity
 ```
 
 ### Project Layout
@@ -357,9 +358,9 @@ Domain knowledge for German family law research agents.
 ```
 my-workflow/
   skills/
-    german-family-law/
+    cloud-security/
       SKILL.md              ← project-level skill (all agents see this)
-    financial-regulations/
+    compliance-frameworks/
       SKILL.md
   agents/
     researcher/
@@ -378,10 +379,10 @@ domain knowledge is needed (Phase 1, question 7). If yes, it generates a
 
 Example prompt:
 
-> "Build a deep-research workflow for German family law, with domain knowledge."
+> "Build a deep-research workflow for cloud security audits, with domain knowledge."
 
-The AI generates `skills/german-family-law/SKILL.md` containing relevant statutes,
-court hierarchies, important deadlines, citation formats, and procedural rules.
+The AI generates `skills/cloud-security/SKILL.md` containing relevant frameworks,
+compliance controls, severity classifications, and remediation patterns.
 
 ### Skills + MCP Tools -- The Combination
 
@@ -392,20 +393,20 @@ Skills and MCP tools serve complementary roles:
 | **What** | Static knowledge (Markdown) | Dynamic actions (Python functions) |
 | **When** | Injected into prompt before LLM call | Called by the LLM during execution |
 | **Where** | `skills/` directory | `mcp/` directory |
-| **Example** | "§ 1671 BGB governs child custody" | `web.search("§ 1671 BGB case law")` |
+| **Example** | "CIS 2.1.1 requires S3 bucket encryption" | `web.search("AWS S3 encryption best practices")` |
 
 The real power comes from **combining both**. A skill tells the agent *what it
 should know*; a tool lets the agent *act on that knowledge*:
 
 ```
-skills/german-family-law/SKILL.md
-  → Agent knows: "Düsseldorfer Tabelle is the standard for child support"
+skills/cloud-security/SKILL.md
+  → Agent knows: "CIS 2.1.1 requires encryption at rest for all S3 buckets"
 
 mcp/web_search.py (web.search tool)
-  → Agent can: search for the current Düsseldorfer Tabelle online
+  → Agent can: search for the latest AWS security advisories online
 
-mcp/legal_search.py (legal.search_cases tool)
-  → Agent can: query court decisions from openjur.de
+mcp/cloud_audit.py (cloud.check_compliance tool)
+  → Agent can: query cloud resources against CIS benchmark controls
 ```
 
 When tool implementation mode is enabled, the AI generates both the skill files

@@ -220,7 +220,7 @@ Dateispeicher)? Ohne dies sind Tools nur Platzhalter, die eine AWP-Runtime berei
 **7.1 Braucht der Workflow spezifisches Domänenwissen?** (Wird als SKILL.md in die Prompts injiziert)
 > a) Nein
 > b) Ja — bitte Thema/Domain beschreiben: ___
-> c) Vorschlag: `{suggest a skill based on user's domain, e.g.: "german-family-law"}`
+> c) Vorschlag: `{suggest a skill based on user's domain, e.g.: "industry-regulations"}`
 > d) Sonstiges: ___
 
 ---
