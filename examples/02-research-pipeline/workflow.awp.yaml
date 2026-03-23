@@ -1,0 +1,53 @@
+# AWP Workflow Manifest — Research Pipeline
+# Compliance Level: L1 Composable
+
+awp: "1.0.0"
+
+workflow:
+  name: "research-pipeline"
+  version: "1.0.0"
+  description: >
+    Three-agent research pipeline demonstrating DAG dependencies and state sharing.
+    The planner designs the research approach, the researcher gathers information,
+    and the writer produces the final article.
+
+orchestration:
+  engine: "dag"
+  graph:
+    - id: "planner"
+      agent: "planner"
+      enabled: true
+      depends_on: []
+      share_input: {}
+      description: "Analyzes the research topic and produces a structured plan with subtopics."
+    - id: "researcher"
+      agent: "researcher"
+      enabled: true
+      depends_on:
+        - "planner"
+      share_input:
+        planner:
+          - "research_plan"
+          - "subtopics"
+      description: "Investigates each subtopic from the planner and compiles findings."
+    - id: "writer"
+      agent: "writer"
+      enabled: true
+      depends_on:
+        - "researcher"
+      share_input:
+        researcher:
+          - "findings"
+          - "sources"
+      description: "Transforms research findings into a polished article."
+  execution:
+    mode: "sequential"
+    timeout:
+      per_agent: 120
+      total: 300
+
+state:
+  persistence:
+    enabled: true
+  sharing:
+    strategy: "full"

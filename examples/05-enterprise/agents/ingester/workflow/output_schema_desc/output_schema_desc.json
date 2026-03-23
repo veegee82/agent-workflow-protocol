@@ -1,0 +1,6 @@
+{
+  "raw_data": "The ingested raw data or a reference to where it is stored.",
+  "data_summary": "Summary of the ingested data including record count, fields, and quality issues.",
+  "source_metadata": "Metadata about the data source including type, URI, and ingestion timestamp.",
+  "confidence": "Confidence score from 0.0 to 1.0 indicating data quality and completeness."
+}

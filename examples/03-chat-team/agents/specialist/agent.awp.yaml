@@ -1,0 +1,48 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "specialist"
+  role: "specialist"
+  description: "Receives questions from the coordinator and provides expert responses."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.2
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+tools:
+  enabled: true
+  max_calls: 5
+  allowed:
+    - "agent.list_messages"
+    - "agent.send_message"
+
+output:
+  format: "json"
+  contract:
+    response:
+      type: "string"
+      description: "Expert response to the coordinator's question"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

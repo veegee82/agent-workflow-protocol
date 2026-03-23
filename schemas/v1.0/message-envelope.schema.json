@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://awp-protocol.org/schemas/v1.0/message-envelope.schema.json",
+  "title": "AWP Message Envelope",
+  "description": "Schema for the standardized AWP message envelope used on the communication bus.",
+  "type": "object",
+  "required": ["id", "timestamp", "from", "to"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique message identifier (UUID v7 recommended)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of message creation."
+    },
+    "version": {
+      "type": "string",
+      "default": "1.0.0",
+      "description": "Envelope schema version."
+    },
+    "from": {
+      "type": "string",
+      "description": "Sending agent ID."
+    },
+    "to": {
+      "type": "string",
+      "description": "Receiving agent ID or '*' for broadcast."
+    },
+    "channel": {
+      "type": "string",
+      "default": "direct",
+      "description": "Communication channel name."
+    },
+    "reply_to": {
+      "type": ["string", "null"],
+      "description": "Message ID this is a reply to."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["request", "response", "event", "error", "ack"],
+      "default": "event",
+      "description": "Message type."
+    },
+    "correlation_id": {
+      "type": ["string", "null"],
+      "description": "Correlation ID for request-response patterns."
+    },
+    "content_type": {
+      "type": "string",
+      "default": "application/json",
+      "description": "MIME type of the content field."
+    },
+    "content": {
+      "description": "Message payload (any JSON value)."
+    },
+    "metadata": {
+      "type": ["object", "null"],
+      "properties": {
+        "priority": {
+          "type": "string",
+          "enum": ["normal", "high", "critical"],
+          "default": "normal"
+        },
+        "ttl": {
+          "type": ["integer", "null"],
+          "description": "Time-to-live in seconds."
+        },
+        "requires_ack": {
+          "type": "boolean",
+          "default": false
+        },
+        "trace_id": {
+          "type": ["string", "null"]
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

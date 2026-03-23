@@ -1,0 +1,6 @@
+{
+  "findings": "Research findings for the current topic.",
+  "memory_context": "Summary of relevant information retrieved from memory.",
+  "prior_knowledge_used": "Whether prior knowledge from memory was incorporated into the findings.",
+  "confidence": "Confidence score from 0.0 to 1.0 indicating research quality."
+}

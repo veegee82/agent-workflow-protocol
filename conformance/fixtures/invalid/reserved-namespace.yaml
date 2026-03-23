@@ -1,0 +1,15 @@
+# Invalid: R15 -- Custom tool uses a reserved namespace
+awp: "1.0.0"
+
+workflow:
+  name: reserved-namespace
+  version: "1.0.0"
+  description: "Workflow with a custom tool using reserved namespace."
+
+custom_tools:
+  source_dir: mcp/
+  auto_discovery: false
+  declarations:
+    - fqn: "web.custom_search"
+      description: "Custom search tool using reserved 'web' namespace"
+      file: "mcp/custom_search.py"

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://awp-protocol.org/schemas/v1.0/tool-result.schema.json",
+  "title": "AWP Tool Result",
+  "description": "Standard result envelope returned by all AWP MCP tool calls.",
+  "type": "object",
+  "required": ["ok", "status"],
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "description": "Whether the tool call succeeded."
+    },
+    "status": {
+      "type": "integer",
+      "description": "HTTP-style status code (200 = success, 400 = bad request, 500 = internal error)."
+    },
+    "data": {
+      "description": "Result payload (any JSON value). Present on success."
+    },
+    "error": {
+      "type": ["string", "null"],
+      "description": "Error message. Present on failure, null on success."
+    },
+    "log": {
+      "type": ["string", "null"],
+      "description": "Optional log message for debugging or audit."
+    }
+  },
+  "additionalProperties": false
+}

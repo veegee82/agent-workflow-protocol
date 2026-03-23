@@ -1,0 +1,46 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "writer"
+  role: "writer"
+  description: "Transforms research findings into a polished, well-structured article."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.5
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+output:
+  format: "json"
+  contract:
+    article:
+      type: "string"
+      description: "The polished article"
+      shareable: true
+      required: true
+    summary:
+      type: "string"
+      description: "A brief summary of the article"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

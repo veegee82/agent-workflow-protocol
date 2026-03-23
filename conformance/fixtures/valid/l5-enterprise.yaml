@@ -1,0 +1,80 @@
+# L5 Enterprise -- Full workflow with all layers
+awp: "1.0.0"
+
+workflow:
+  name: l5-enterprise
+  version: "1.0.0"
+  description: "L5 enterprise workflow with all features."
+
+orchestration:
+  engine: dag
+  graph:
+    - id: planner
+      agent: planner
+      depends_on: []
+      description: "Planning agent"
+
+    - id: executor
+      agent: executor
+      depends_on:
+        - planner
+      description: "Execution agent"
+
+  execution:
+    mode: parallel
+    timeout:
+      per_agent: 120
+      total: 600
+
+communication:
+  bus:
+    type: internal
+    persistence: run
+    delivery: at_least_once
+  channels:
+    - name: direct
+      type: direct
+    - name: broadcast
+      type: broadcast
+
+memory:
+  enabled: true
+  workspace_dir: workspace
+  long_term:
+    enabled: true
+    inject: true
+    max_tokens: 4000
+  daily_log:
+    enabled: true
+    auto_write: true
+  episodic:
+    enabled: true
+    max_entries: 200
+
+observability:
+  logging:
+    level: INFO
+    format: json
+  metrics:
+    enabled: true
+    collector: internal
+    export_interval: 30
+  tracing:
+    enabled: true
+    exporter: internal
+    sample_rate: 1.0
+  audit:
+    enabled: true
+    format: jsonl
+    hash_chain: true
+
+security:
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    reset_timeout: 60
+  rate_limit:
+    enabled: true
+    max_calls_per_minute: 120
+  secrets_backend: env
+  audit_security_events: true

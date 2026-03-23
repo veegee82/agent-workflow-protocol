@@ -1,0 +1,48 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "coordinator"
+  role: "coordinator"
+  description: "Coordinates research by sending questions to the specialist via the message bus."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.3
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+tools:
+  enabled: true
+  max_calls: 5
+  allowed:
+    - "agent.send_message"
+    - "agent.list_messages"
+
+output:
+  format: "json"
+  contract:
+    task_summary:
+      type: "string"
+      description: "Summary of the coordinated research task"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

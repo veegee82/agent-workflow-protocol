@@ -1,0 +1,22 @@
+# Invalid: R7 -- Cyclic dependency between agents
+awp: "1.0.0"
+
+workflow:
+  name: cyclic-graph
+  version: "1.0.0"
+  description: "Workflow with a cyclic graph."
+
+orchestration:
+  engine: dag
+  graph:
+    - id: alpha
+      agent: alpha
+      depends_on:
+        - beta
+      description: "Alpha depends on beta"
+
+    - id: beta
+      agent: beta
+      depends_on:
+        - alpha
+      description: "Beta depends on alpha"

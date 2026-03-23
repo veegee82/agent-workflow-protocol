@@ -1,0 +1,5 @@
+# Invalid: missing required 'awp' version field
+workflow:
+  name: broken-wf
+  version: "1.0.0"
+  description: "This workflow is missing the awp version field."

@@ -1,0 +1,4 @@
+{
+  "greeting": "A warm, friendly greeting message for the user.",
+  "confidence": "Confidence score from 0.0 to 1.0 indicating how well the greeting matches the user's request."
+}

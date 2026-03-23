@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "findings": {
+      "type": "string"
+    },
+    "memory_context": {
+      "type": "string"
+    },
+    "prior_knowledge_used": {
+      "type": "boolean"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "required": ["findings", "memory_context", "prior_knowledge_used", "confidence"],
+  "additionalProperties": false
+}

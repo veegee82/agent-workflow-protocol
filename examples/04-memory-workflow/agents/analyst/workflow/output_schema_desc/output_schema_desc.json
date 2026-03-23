@@ -1,0 +1,6 @@
+{
+  "analysis": "Detailed analysis of the research findings including patterns and insights.",
+  "recommendations": "List of actionable recommendations based on the analysis.",
+  "written_to_memory": "Whether key findings were written to the daily log or long-term memory.",
+  "confidence": "Confidence score from 0.0 to 1.0 indicating analysis quality."
+}

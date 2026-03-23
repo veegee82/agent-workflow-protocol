@@ -1,0 +1,5 @@
+{
+  "response": "A summary of the specialist's overall response to the coordinator's questions.",
+  "answers": "Array of question-answer pairs addressed by the specialist.",
+  "confidence": "Confidence score from 0.0 to 1.0 indicating the quality of the expert answers."
+}

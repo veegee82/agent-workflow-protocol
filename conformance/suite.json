@@ -1,0 +1,17 @@
+{
+  "awp_conformance": "1.0.0",
+  "fixtures": {
+    "valid": [
+      {"file": "fixtures/valid/l0-minimal.yaml", "expected_level": "L0"},
+      {"file": "fixtures/valid/l1-dag.yaml", "expected_level": "L1"},
+      {"file": "fixtures/valid/l3-memory.yaml", "expected_level": "L3"},
+      {"file": "fixtures/valid/l5-enterprise.yaml", "expected_level": "L5"}
+    ],
+    "invalid": [
+      {"file": "fixtures/invalid/missing-awp-version.yaml", "expected_error": "awp field required"},
+      {"file": "fixtures/invalid/cyclic-graph.yaml", "expected_error": "R7"},
+      {"file": "fixtures/invalid/missing-confidence.yaml", "expected_error": "R17"},
+      {"file": "fixtures/invalid/reserved-namespace.yaml", "expected_error": "R15"}
+    ]
+  }
+}

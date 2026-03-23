@@ -1,0 +1,23 @@
+# Invalid: R17 -- Agent output contract missing 'confidence' field
+# This fixture represents an agent.awp.yaml that omits the required confidence field.
+awp_agent: "1.0.0"
+
+identity:
+  id: researcher
+  role: "Research analyst"
+  description: "Performs deep research"
+
+model:
+  name: "gpt-4"
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+
+output:
+  format: json
+  contract:
+    summary:
+      type: string
+      description: "Research summary"
+      required: true
+    # confidence field is intentionally missing -- violates R17

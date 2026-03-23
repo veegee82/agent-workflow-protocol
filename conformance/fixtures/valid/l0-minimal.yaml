@@ -1,0 +1,7 @@
+# L0 Minimal -- Core manifest with one agent reference
+awp: "1.0.0"
+
+workflow:
+  name: l0-minimal
+  version: "1.0.0"
+  description: "Minimal L0 workflow with a single agent."

@@ -1,0 +1,56 @@
+# AWP Workflow Manifest — Memory Workflow
+# Compliance Level: L3 Memorable
+
+awp: "1.0.0"
+
+workflow:
+  name: "memory-workflow"
+  version: "1.0.0"
+  description: >
+    Research workflow with memory integration. The researcher reads from
+    long-term memory and searches for relevant past findings. The analyst
+    writes analysis results to the daily log for future reference.
+
+orchestration:
+  engine: "dag"
+  graph:
+    - id: "researcher"
+      agent: "researcher"
+      enabled: true
+      depends_on: []
+      share_input: {}
+      description: "Researches topics using memory for context from past sessions."
+    - id: "analyst"
+      agent: "analyst"
+      enabled: true
+      depends_on:
+        - "researcher"
+      share_input:
+        researcher:
+          - "findings"
+          - "memory_context"
+      description: "Analyzes findings and writes results to memory for future sessions."
+  execution:
+    mode: "sequential"
+    timeout:
+      per_agent: 120
+      total: 300
+
+memory:
+  tiers:
+    long_term:
+      enabled: true
+      backend: "file"
+      inject_into_prompt: true
+      max_tokens: 2000
+    working:
+      enabled: true
+      backend: "file"
+      daily_log: true
+      auto_write: true
+
+state:
+  persistence:
+    enabled: true
+  sharing:
+    strategy: "full"

@@ -1,0 +1,46 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "researcher"
+  role: "researcher"
+  description: "Investigates subtopics from the planner and compiles detailed findings."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.2
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+output:
+  format: "json"
+  contract:
+    findings:
+      type: "string"
+      description: "Compiled research findings"
+      shareable: true
+      required: true
+    sources:
+      type: "array"
+      description: "List of sources consulted"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

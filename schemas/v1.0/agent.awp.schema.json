@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://awp-protocol.org/schemas/v1.0/agent.awp.schema.json",
+  "title": "AWP Agent Definition",
+  "description": "Schema for agent.awp.yaml -- defines an agent's identity, model, prompt, and output contract.",
+  "type": "object",
+  "required": ["awp_agent", "identity", "model", "prompt"],
+  "properties": {
+    "awp_agent": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$",
+      "description": "AWP agent schema version (SemVer)."
+    },
+    "identity": {
+      "type": "object",
+      "required": ["id", "role", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,46}[a-z0-9]$",
+          "description": "Agent ID in snake_case."
+        },
+        "role": { "type": "string" },
+        "description": { "type": "string" },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+",
+          "default": "1.0.0"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "class_name": { "type": "string", "default": "Agent" },
+        "strategy_folder": { "type": "string", "default": "workflow" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "provider": { "type": "string" },
+        "name": { "type": "string" },
+        "fallback": { "type": "string" },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "temperature": { "type": "number", "default": 0.0 },
+            "max_tokens": { "type": "integer" },
+            "top_p": { "type": "number", "default": 1.0 }
+          }
+        },
+        "reasoning": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "effort": { "type": "string", "enum": ["low", "medium", "high"] },
+            "force": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "required": ["system"],
+      "properties": {
+        "system": { "type": "string", "description": "Path to system prompt file." },
+        "user_template": { "type": "string" },
+        "additional": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "variables": { "type": "object" },
+        "injection_order": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "format": { "type": "string", "enum": ["json", "text", "markdown"], "default": "json" },
+        "schema": { "type": "string" },
+        "schema_description": { "type": "string" },
+        "contract": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "description": { "type": "string" },
+              "shareable": { "type": "boolean", "default": true },
+              "sensitive": { "type": "boolean", "default": false },
+              "required": { "type": "boolean", "default": false },
+              "minimum": { "type": "number" },
+              "maximum": { "type": "number" },
+              "max_length": { "type": "integer" },
+              "default": {},
+              "examples": { "type": "array" }
+            }
+          }
+        },
+        "validation": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["strict", "lenient", "none"] },
+            "on_invalid": { "type": "string", "enum": ["retry", "skip", "abort", "use_partial"] },
+            "max_retries": { "type": "integer" },
+            "retry_prompt": { "type": "string" }
+          }
+        }
+      }
+    },
+    "vision": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "model": { "type": "string" },
+        "supported_formats": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "max_images": { "type": "integer" },
+        "max_size_mb": { "type": "integer" }
+      }
+    },
+    "preprocessor": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "pipeline": { "type": "string", "default": "default" }
+      }
+    },
+    "capabilities": { "type": "object" },
+    "memory": { "type": "object" }
+  },
+  "additionalProperties": false
+}

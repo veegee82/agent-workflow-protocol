@@ -1,0 +1,6 @@
+{
+  "processed_data": "The processed and transformed data or a reference to where it is stored.",
+  "transformations_applied": "List of transformations applied to the data with descriptions.",
+  "quality_score": "Overall data quality score from 0.0 to 1.0 after processing.",
+  "confidence": "Confidence score from 0.0 to 1.0 indicating processing completeness."
+}

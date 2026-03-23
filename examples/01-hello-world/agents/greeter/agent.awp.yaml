@@ -1,0 +1,41 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "greeter"
+  role: "greeter"
+  description: "A simple agent that greets the user with a friendly message."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.7
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+output:
+  format: "json"
+  contract:
+    greeting:
+      type: "string"
+      description: "A friendly greeting message for the user"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

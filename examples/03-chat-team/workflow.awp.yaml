@@ -1,0 +1,52 @@
+# AWP Workflow Manifest — Chat Team
+# Compliance Level: L2 Communicative
+
+awp: "1.0.0"
+
+workflow:
+  name: "chat-team"
+  version: "1.0.0"
+  description: >
+    Two agents communicating via the message bus. The coordinator sends
+    research requests to the specialist, who responds with results.
+    Demonstrates inter-agent messaging outside the DAG flow.
+
+orchestration:
+  engine: "dag"
+  graph:
+    - id: "coordinator"
+      agent: "coordinator"
+      enabled: true
+      depends_on: []
+      share_input: {}
+      description: "Coordinates research by sending questions to the specialist via the message bus."
+    - id: "specialist"
+      agent: "specialist"
+      enabled: true
+      depends_on:
+        - "coordinator"
+      share_input:
+        coordinator:
+          - "task_summary"
+      description: "Receives questions from the coordinator and provides expert responses."
+  execution:
+    mode: "sequential"
+    timeout:
+      per_agent: 120
+      total: 300
+
+communication:
+  bus:
+    type: "in_memory"
+    max_message_size: 65536
+  channels:
+    - name: "research_requests"
+      type: "direct"
+      from: "coordinator"
+      to: "specialist"
+
+state:
+  persistence:
+    enabled: true
+  sharing:
+    strategy: "full"

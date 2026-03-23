@@ -1,0 +1,67 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "reporter"
+  role: "reporter"
+  description: "Generates structured reports from processed data with full audit trail."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.3
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+tools:
+  enabled: true
+  max_calls: 15
+  allowed:
+    - "file.write"
+    - "file.read"
+    - "memory.write"
+    - "memory.read"
+    - "memory.search"
+    - "memory.curate"
+    - "agent.list_messages"
+
+output:
+  format: "json"
+  contract:
+    report:
+      type: "string"
+      description: "The generated structured report"
+      shareable: true
+      required: true
+    summary:
+      type: "string"
+      description: "Executive summary of the report"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+memory:
+  enabled: true
+  long_term_inject: true
+  long_term_max_tokens: 4000
+  daily_log:
+    enabled: true
+    auto_write: true
+  search_enabled: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

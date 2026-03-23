@@ -1,0 +1,40 @@
+# L3 Memorable -- Workflow with memory (2+ tiers), communication, and DAG
+awp: "1.0.0"
+
+workflow:
+  name: l3-memory
+  version: "1.0.0"
+  description: "L3 workflow with multi-tier memory."
+
+orchestration:
+  engine: dag
+  graph:
+    - id: analyzer
+      agent: analyzer
+      depends_on: []
+      description: "Analysis agent"
+
+  execution:
+    mode: sequential
+
+communication:
+  bus:
+    type: internal
+    persistence: run
+  channels:
+    - name: direct
+      type: direct
+
+memory:
+  enabled: true
+  workspace_dir: workspace
+  long_term:
+    enabled: true
+    inject: true
+    max_tokens: 2000
+  daily_log:
+    enabled: true
+    auto_write: true
+  episodic:
+    enabled: true
+    max_entries: 100

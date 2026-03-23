@@ -1,0 +1,32 @@
+# AWP Workflow Manifest — Hello World
+# Compliance Level: L0 Core
+
+awp: "1.0.0"
+
+workflow:
+  name: "hello-world"
+  version: "1.0.0"
+  description: >
+    Minimal AWP workflow with a single agent that greets the user.
+    Demonstrates the smallest possible compliant workflow.
+
+orchestration:
+  engine: "dag"
+  graph:
+    - id: "greeter"
+      agent: "greeter"
+      enabled: true
+      depends_on: []
+      share_input: {}
+      description: "Greets the user with a friendly message."
+  execution:
+    mode: "sequential"
+    timeout:
+      per_agent: 30
+      total: 60
+
+state:
+  persistence:
+    enabled: false
+  sharing:
+    strategy: "full"

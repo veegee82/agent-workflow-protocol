@@ -1,0 +1,46 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: "planner"
+  role: "planner"
+  description: "Analyzes a research topic and produces a structured plan with subtopics."
+
+runtime:
+  class_name: "Agent"
+  strategy_folder: "workflow"
+
+model:
+  name: "provider/model-name"
+  parameters:
+    temperature: 0.3
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+
+output:
+  format: "json"
+  contract:
+    research_plan:
+      type: "string"
+      description: "The structured research plan"
+      shareable: true
+      required: true
+    subtopics:
+      type: "array"
+      description: "List of subtopics to investigate"
+      shareable: true
+      required: true
+    confidence:
+      type: "number"
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence score"
+      shareable: true
+      required: true
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false

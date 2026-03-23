@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://awp-protocol.org/schemas/v1.0/workflow.awp.schema.json",
+  "title": "AWP Workflow Manifest",
+  "description": "Schema for workflow.awp.yaml -- the root document of an AWP workflow.",
+  "type": "object",
+  "required": ["awp", "workflow"],
+  "properties": {
+    "awp": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$",
+      "description": "AWP specification version (SemVer)."
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["name", "version", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,62}[a-z0-9]$",
+          "description": "Workflow name in kebab-case or snake_case."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$",
+          "description": "Workflow version (SemVer)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable description of the workflow."
+        },
+        "author": { "type": "string" },
+        "license": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "homepage": { "type": "string", "format": "uri" },
+        "repository": { "type": "string" },
+        "runtime": {
+          "type": "object",
+          "properties": {
+            "min_awp_version": { "type": "string" },
+            "python": { "type": "string", "default": ">=3.10" },
+            "required_providers": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "required_capabilities": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "properties": {
+            "tools": { "type": "array" },
+            "workflows": { "type": "array" },
+            "skills": { "type": "array" },
+            "python": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "array" },
+            "defaults": { "type": "object" }
+          }
+        },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "llm": {
+              "type": "object",
+              "properties": {
+                "default_provider": { "type": "string" },
+                "models": { "type": "object" },
+                "temperature": { "type": "number" }
+              }
+            },
+            "custom": { "type": "object" }
+          }
+        }
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "properties": {
+        "engine": { "type": "string", "default": "dag" },
+        "graph": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "agent"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,46}[a-z0-9]$"
+              },
+              "agent": { "type": "string" },
+              "enabled": { "type": "boolean", "default": true },
+              "depends_on": { "type": "array" },
+              "share_input": { "type": "object" },
+              "description": { "type": "string" },
+              "on_failure": { "type": "string", "enum": ["continue", "skip", "abort"] },
+              "timeout": { "type": "integer" },
+              "retry": { "type": "integer" }
+            }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["sequential", "parallel", "conditional"] },
+            "timeout": {
+              "type": "object",
+              "properties": {
+                "per_agent": { "type": "integer" },
+                "total": { "type": "integer" }
+              }
+            },
+            "max_parallel_agents": { "type": "integer" },
+            "error_handling": { "type": "object" }
+          }
+        },
+        "subworkflows": { "type": "array" }
+      }
+    },
+    "state": { "type": "object" },
+    "memory": { "type": "object" },
+    "communication": { "type": "object" },
+    "observability": { "type": "object" },
+    "custom_tools": { "type": "object" },
+    "security": { "type": "object" }
+  },
+  "additionalProperties": false
+}
