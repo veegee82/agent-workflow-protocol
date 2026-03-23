@@ -304,6 +304,144 @@ defs = registry.get_definitions(["web.search", "legal.*"])
 
 For the full tool reference, see [docs/tools.md](docs/tools.md).
 
+## Skills -- Domain Knowledge for Agents
+
+Skills are **Markdown files** that get injected into an agent's system prompt at
+runtime. They provide domain expertise, rules, terminology, or reference data
+that the LLM needs to do its job well -- without cramming everything into the
+system prompt itself.
+
+### How Skills Work
+
+```
+                      System Prompt Assembly
+                      ─────────────────────
+                      ┌─────────────────────────────┐
+                      │ 1. SYSTEM_PROMPT.md (base)   │  ← agent role & instructions
+                      │ 2. Skills (injected)         │  ← domain knowledge
+                      │ 3. MEMORY.md (if enabled)    │  ← long-term memory
+                      └─────────────────────────────┘
+```
+
+At runtime, `StandaloneAgent._build_system_prompt()` loads skills from two locations:
+
+1. **Project-level skills** -- `{workflow}/skills/{skill_name}/SKILL.md`
+   Shared by all agents in the workflow.
+2. **Agent-level skills** -- `{agent}/workflow/skills/*.md`
+   Only available to that specific agent.
+
+### Skill File Structure
+
+A skill is a plain Markdown file. Use the template at `skill/templates/project-skill.md`:
+
+```markdown
+# German Family Law
+
+## Purpose
+Domain knowledge for German family law research agents.
+
+## Domain Knowledge
+### BGB Book 4 -- Familienrecht
+- §§ 1297–1352: Verlöbnis, Eheschließung
+- §§ 1564–1587: Scheidung der Ehe
+...
+
+## Rules
+- Always check the current version of statutes
+- Cite in standard German legal format: § 1671 Abs. 1 BGB
+- Kindeswohl (§ 1697a BGB) is the central standard for all child custody cases
+```
+
+### Project Layout
+
+```
+my-workflow/
+  skills/
+    german-family-law/
+      SKILL.md              ← project-level skill (all agents see this)
+    financial-regulations/
+      SKILL.md
+  agents/
+    researcher/
+      workflow/
+        skills/
+          search-strategy.md  ← agent-level skill (only researcher sees this)
+    analyst/
+      ...
+```
+
+### Generating Skills with the AWP Skill
+
+When the AI generates a workflow via the AWP build skill, it asks whether
+domain knowledge is needed (Phase 1, question 7). If yes, it generates a
+`SKILL.md` with relevant domain knowledge during Phase 2, Step 8.
+
+Example prompt:
+
+> "Build a deep-research workflow for German family law, with domain knowledge."
+
+The AI generates `skills/german-family-law/SKILL.md` containing relevant statutes,
+court hierarchies, important deadlines, citation formats, and procedural rules.
+
+### Skills + MCP Tools -- The Combination
+
+Skills and MCP tools serve complementary roles:
+
+| | Skills | MCP Tools |
+|---|--------|-----------|
+| **What** | Static knowledge (Markdown) | Dynamic actions (Python functions) |
+| **When** | Injected into prompt before LLM call | Called by the LLM during execution |
+| **Where** | `skills/` directory | `mcp/` directory |
+| **Example** | "§ 1671 BGB governs child custody" | `web.search("§ 1671 BGB case law")` |
+
+The real power comes from **combining both**. A skill tells the agent *what it
+should know*; a tool lets the agent *act on that knowledge*:
+
+```
+skills/german-family-law/SKILL.md
+  → Agent knows: "Düsseldorfer Tabelle is the standard for child support"
+
+mcp/web_search.py (web.search tool)
+  → Agent can: search for the current Düsseldorfer Tabelle online
+
+mcp/legal_search.py (legal.search_cases tool)
+  → Agent can: query court decisions from openjur.de
+```
+
+When tool implementation mode is enabled, the AI generates both the skill files
+*and* the MCP tool implementations -- a fully self-contained, domain-aware
+workflow.
+
+### Skills via Extensions
+
+For reusable domain knowledge, AWP supports **extensions** -- domain-specific
+overlays that automatically inject skills, tools, and rules into generated
+workflows. Extensions work like class inheritance on top of the base build skill:
+
+```
+skill/SKILL.md (base)
+  └── extensions/examples/financial.md
+        ├── Required agent: risk_assessor
+        ├── Additional rules: F1–F7
+        ├── Additional skills: financial_regulations, disclaimer
+        └── Additional tools: finance.market_data, finance.risk_calc
+```
+
+Tell the AI: *"Build a portfolio analysis workflow using the financial extension"*
+-- and the extension's skills, tools, and rules are automatically merged.
+
+Available extensions:
+
+| Extension | Domain | Injected Skills |
+|-----------|--------|----------------|
+| `financial.md` | Finance | `financial_regulations`, `disclaimer` |
+| `devops.md` | DevOps/Infra | Safety procedures, rollback policies |
+
+Create your own: copy an existing extension from `skill/extensions/examples/`
+and adjust it to your domain.
+
+For the full skill system reference, see [docs/skill-system.md](docs/skill-system.md).
+
 ## Three Ways to Build Workflows
 
 ### 1. AI-Generated (Skill)
