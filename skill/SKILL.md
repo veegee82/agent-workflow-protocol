@@ -22,8 +22,6 @@ metadata:
 
 # AWP Workflow Builder
 
----
-
 ## AWP 7-Layer Model
 
 The Agent Workflow Protocol defines seven layers, each building on the previous:
@@ -63,7 +61,6 @@ The Agent Workflow Protocol defines seven layers, each building on the previous:
 | Preprocessor | agent workflow/preprocessor/ | Data extraction and feature engineering before LLM call. |
 | Vision | agent.awp.yaml vision | Image processing via base64-encoded data URLs. |
 
----
 
 ## STRICT RULES
 
@@ -88,7 +85,6 @@ These rules define compliance requirements for AWP workflows. Rules marked **(re
 - **R17:** All output schemas MUST include a `confidence` field (number, 0.0-1.0).
 - **R18:** All `output_schema.json` files MUST be valid JSON Schema draft-07 with `"type": "object"` at the root.
 
----
 
 ## Workflow Generation Phases
 
@@ -228,7 +224,6 @@ Present to the user:
 - Compliance badge: `AWP L{N} {Level Name} Compliant`.
 - Any assumptions made or recommendations for improvement.
 
----
 
 ## Templates
 
@@ -281,7 +276,6 @@ analysis workflow"), load the appropriate extension alongside this base skill:
 See `extensions/README.md` for the full extension format and how to create
 custom extensions.
 
----
 
 ## ClawHub Integration
 
@@ -307,7 +301,6 @@ clawhub publish my-workflow/
 See `adapters/clawhub.md` for the complete ClawHub integration guide including
 packaging workflows, publishing extensions, and discovery tag conventions.
 
----
 
 ## Adapters
 
@@ -318,7 +311,6 @@ packaging workflows, publishing extensions, and discovery tag conventions.
 
 Third-party platforms can add their own adapters following the same pattern.
 
----
 
 ## References
 
