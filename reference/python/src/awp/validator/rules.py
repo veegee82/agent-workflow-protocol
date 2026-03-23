@@ -129,6 +129,18 @@ def validate_rules(
                 )
 
     # R15: Custom tool namespace collision
+    # Built-in tool FQNs that may be overridden with local implementations.
+    # These are tools defined in the AWP spec (tools-reference.md) that custom
+    # implementations may provide when no full AWP runtime is available.
+    BUILTIN_TOOL_FQNS = frozenset({
+        "web.search", "http.request",
+        "file.read", "file.write", "file.list",
+        "shell.execute",
+        "memory.read", "memory.write", "memory.search", "memory.curate",
+        "agent.send_message", "agent.list_messages",
+        "arithmetic.add", "arithmetic.subtract", "arithmetic.multiply",
+        "arithmetic.divide",
+    })
     mcp_dir = workflow_path / "mcp"
     tools_dir = workflow_path / "tools"
     for tools_path in [mcp_dir, tools_dir]:
@@ -140,6 +152,10 @@ def validate_rules(
                     r'@app\.tool\(["\']([^"\']+)["\']\)', content
                 ):
                     fqn = match.group(1)
+                    # Allow overriding known built-in tools with local
+                    # implementations (tool implementation mode).
+                    if fqn in BUILTIN_TOOL_FQNS:
+                        continue
                     namespace = fqn.split(".")[0] if "." in fqn else fqn
                     if namespace in RESERVED_TOOL_NAMESPACES:
                         errors.append(

@@ -68,7 +68,7 @@ These rules define compliance requirements for AWP workflows. Rules marked **(re
 - **R11:** `depends_on` MUST only reference agent names defined in the same graph.
 - **R12:** The agent graph MUST be a DAG (no cycles).
 - **R13:** `share_output` fields MUST match keys in the agent's output schema.
-- **R14:** Tool names in `tools.allowed` MUST reference registered MCP tools.
+- **R14:** Tool names in `tools.allowed` MUST reference registered MCP tools. When tool implementation mode is enabled, built-in tools MUST have generated implementations in `mcp/`. When disabled, built-in tools are assumed to be provided by the target runtime.
 - **R15:** If `tools.execute` is false, `tools.allowed` MUST be empty or omitted.
 - **R16:** `execution.mode` MUST be one of: `sequential`, `parallel`, `conditional`.
 - **R17:** All output schemas MUST include a `confidence` field (number, 0.0-1.0).
@@ -88,6 +88,7 @@ Before generating any files, analyze the user's requirements:
 5. **Identify tools.** Which MCP tools does each agent need? (web.search, file.read, etc.)
 6. **Plan memory.** Does the workflow benefit from cross-session persistence?
 7. **Plan communication.** Do agents need to message each other outside the DAG?
+8. **Tool implementation mode.** Does the user want tool implementations generated? (See "Tool Implementation Generation" below.)
 
 ### Phase 1: Requirements Gathering
 
@@ -99,6 +100,7 @@ Confirm with the user:
 - Required tools per agent.
 - Memory and communication needs.
 - Target compliance level.
+- **Tool implementation** (optional): Whether to auto-generate MCP tool implementations for referenced built-in tools. Default: **no** (assumes an AWP runtime provides built-in tools). If the user explicitly requests tool implementations (e.g., "with tools", "generate tool implementations", "standalone tools"), set tool implementation mode to **yes**.
 
 If the user provides a brief description, infer reasonable defaults. Ask only if critical information is ambiguous.
 
@@ -176,6 +178,45 @@ All schemas MUST have `"type": "object"` at root and include a `confidence` fiel
 
 If the workflow needs custom MCP tools, create `{workflow_dir}/mcp/{tool_file}.py` using the FastMCP pattern. See `templates/mcp-tool.py`.
 
+#### Step 7b: Built-in Tool Implementations (if tool implementation mode is enabled)
+
+When tool implementation mode is **enabled**, generate MCP implementations for every
+built-in tool referenced in any agent's `tools.allowed` list that is **not** already
+provided by an external runtime or custom tool. This ensures the workflow is
+self-contained and can run without a full AWP runtime providing built-in tool stubs.
+
+**Process:**
+
+1. Collect all unique tool FQNs from every agent's `tools.allowed` across the workflow.
+2. For each tool FQN that belongs to a **reserved namespace** (`web`, `http`, `file`,
+   `shell`, `agent`, `memory`, `arithmetic`):
+   - Generate a working MCP implementation in `{workflow_dir}/mcp/{namespace}_{action}.py`.
+   - Use the FastMCP pattern from `templates/mcp-tool.py`.
+   - Implement real logic (not stubs) appropriate to the tool's purpose.
+   - Match the parameter signature from `references/tools-reference.md`.
+3. Tools that the user explicitly provides (e.g., as external MCP servers or custom
+   implementations already in `mcp/`) are **skipped** — do not overwrite them.
+
+**Implementation guidelines per namespace:**
+
+| Tool | Implementation approach |
+|------|----------------------|
+| `web.search` | Use `httpx` or `requests` to call a search API (e.g., DuckDuckGo, SearXNG, or a configurable endpoint). Return structured results. |
+| `http.request` | Use `httpx` to make arbitrary HTTP requests with timeout and error handling. |
+| `file.read` / `file.write` / `file.list` | Use Python `pathlib` with sandboxed path validation. |
+| `shell.execute` | Use `subprocess.run` with timeout and cwd support. |
+| `memory.write` / `memory.read` / `memory.search` / `memory.curate` | Use file-based storage in a `{workflow_dir}/.memory/` directory. |
+| `agent.send_message` / `agent.list_messages` | Use file-based message queue in `{workflow_dir}/.messages/`. |
+| `arithmetic.*` | Direct Python arithmetic operations. |
+
+**Note:** When tool implementation mode is **disabled** (the default), this step is
+skipped entirely. Built-in tool FQNs in `tools.allowed` are assumed to be provided
+by the target runtime, per the AWP specification ("runtimes SHOULD provide").
+
+**R14 compliance:** When tool implementation mode is enabled, R14 ("tools.allowed MUST
+reference registered MCP tools") is satisfied by the generated implementations. When
+disabled, R14 compliance depends on the target runtime registering these tools.
+
 #### Step 8: Project Skills (if needed)
 
 If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`. See `templates/project-skill.md`.
@@ -197,7 +238,7 @@ After generating all files, verify:
 - [ ] R11: depends_on references only graph-defined agents.
 - [ ] R12: No cycles in the agent graph.
 - [ ] R13: share_output fields match output schema keys.
-- [ ] R14: tools.allowed references valid MCP tools.
+- [ ] R14: tools.allowed references valid MCP tools (if tool implementation mode: verify generated implementations exist in mcp/).
 - [ ] R15: tools.execute=false implies empty allowed list.
 - [ ] R16: execution.mode is sequential, parallel, or conditional.
 - [ ] R17: All output schemas include confidence field.
@@ -210,6 +251,7 @@ Present to the user:
 - Workflow name and compliance level.
 - Agent graph visualization (text-based DAG).
 - Files generated (count and list).
+- Tool implementation mode: whether built-in tool implementations were generated (list them if yes).
 - Compliance badge: `AWP L{N} {Level Name} Compliant`.
 - Any assumptions made or recommendations for improvement.
 

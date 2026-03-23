@@ -1,8 +1,11 @@
 """AWP Tool Registry -- Built-in and custom MCP tool execution.
 
-Provides built-in tools (file.read, file.write, file.list, shell.execute,
-arithmetic.*, memory.*) and discovers custom tools from the workflow's
-mcp/ directory.
+Provides built-in tools (web.search, http.request, file.read, file.write,
+file.list, shell.execute, arithmetic.*, memory.*) and discovers custom
+tools from the workflow's mcp/ directory.
+
+Custom tools in mcp/ may override built-in tools by using the same FQN
+(e.g., a project can provide its own web.search implementation).
 
 All tools return the standard AWP result format:
     {"ok": bool, "status": int, "data": Any, "error": str | None}
@@ -183,6 +186,28 @@ class ToolRegistry:
             "required": ["query"],
         }, "Search across memory files")
 
+        self._register("web.search", self._web_search, {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query (1-500 chars)"},
+                "max_results": {"type": "integer", "description": "Maximum results (1-100)", "default": 10},
+                "language": {"type": "string", "description": "Language filter (ISO 639-1)", "default": "en"},
+            },
+            "required": ["query"],
+        }, "Search the web for information")
+
+        self._register("http.request", self._http_request, {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Target URL"},
+                "method": {"type": "string", "description": "HTTP method", "default": "GET"},
+                "headers": {"type": "object", "description": "HTTP headers", "default": {}},
+                "body": {"type": "string", "description": "Request body"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+            },
+            "required": ["url"],
+        }, "Make an HTTP request")
+
     def _register(self, name: str, fn: ToolFunc, params: dict, desc: str) -> None:
         self._tools[name] = fn
         self._definitions[name] = {
@@ -344,6 +369,93 @@ class ToolRegistry:
                     break
 
         return _ok({"results": results[:max_results], "total": len(results)})
+
+    # -- Web tools ----------------------------------------------------
+
+    def _web_search(self, *, query: str, max_results: int = 10, language: str = "en") -> dict[str, Any]:
+        """Search the web via DuckDuckGo HTML (no API key required)."""
+        import urllib.parse
+        import urllib.request
+
+        try:
+            encoded = urllib.parse.urlencode({
+                "q": query,
+                "kl": f"{language}-{language}",
+            })
+            url = f"https://html.duckduckgo.com/html/?{encoded}"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "AWP-Runtime/1.0",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+
+            # Extract result snippets from DuckDuckGo HTML
+            results: list[dict[str, str]] = []
+            # Simple regex extraction of result blocks
+            import re as _re
+            for match in _re.finditer(
+                r'class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>.*?'
+                r'class="result__snippet"[^>]*>(.*?)</span>',
+                html,
+                _re.DOTALL,
+            ):
+                if len(results) >= max_results:
+                    break
+                href, title, snippet = match.groups()
+                # DuckDuckGo wraps URLs in a redirect; extract the actual URL
+                actual_url = href
+                ud_match = _re.search(r'uddg=([^&]+)', href)
+                if ud_match:
+                    actual_url = urllib.parse.unquote(ud_match.group(1))
+                results.append({
+                    "title": title.strip(),
+                    "url": actual_url,
+                    "snippet": _re.sub(r'<[^>]+>', '', snippet).strip(),
+                })
+
+            return _ok({"results": results, "count": len(results), "query": query})
+        except Exception as e:
+            return _err(f"Web search failed: {e}")
+
+    def _http_request(
+        self, *, url: str, method: str = "GET",
+        headers: Optional[dict[str, str]] = None,
+        body: Optional[str] = None, timeout: int = 30,
+    ) -> dict[str, Any]:
+        """Make an HTTP request using urllib (no external dependencies)."""
+        import urllib.request
+        import urllib.error
+
+        timeout = min(timeout, 120)  # hard cap
+        try:
+            req = urllib.request.Request(
+                url,
+                data=body.encode("utf-8") if body else None,
+                headers=headers or {},
+                method=method.upper(),
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                resp_body = resp.read().decode("utf-8", errors="replace")
+                return _ok({
+                    "status_code": resp.status,
+                    "headers": dict(resp.headers),
+                    "body": resp_body[:100000],  # cap response size
+                })
+        except urllib.error.HTTPError as e:
+            body_text = ""
+            try:
+                body_text = e.read().decode("utf-8", errors="replace")[:10000]
+            except Exception:
+                pass
+            return _ok({
+                "status_code": e.code,
+                "headers": dict(e.headers) if e.headers else {},
+                "body": body_text,
+            })
+        except urllib.error.URLError as e:
+            return _err(f"URL error: {e.reason}")
+        except Exception as e:
+            return _err(f"HTTP request failed: {e}")
 
     # -- Custom tool discovery ----------------------------------------
 
