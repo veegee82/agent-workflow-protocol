@@ -90,19 +90,176 @@ Before generating any files, analyze the user's requirements:
 7. **Plan communication.** Do agents need to message each other outside the DAG?
 8. **Tool implementation mode.** Does the user want tool implementations generated? (See "Tool Implementation Generation" below.)
 
-### Phase 1: Requirements Gathering
+### Phase 1: Requirements Gathering (Interactive Questionnaire)
 
-Confirm with the user:
+**IMPORTANT:** Before generating anything, you MUST present the user with a structured
+questionnaire. Do NOT skip this phase. Even if the user gave a detailed description,
+there are always decisions that need clarification. Present ALL questions at once in a
+single message so the user can answer them together.
 
-- Workflow name and description.
-- Number and roles of agents.
-- Data flow between agents.
-- Required tools per agent.
-- Memory and communication needs.
-- Target compliance level.
-- **Tool implementation** (optional): Whether to auto-generate MCP tool implementations for referenced built-in tools. Default: **no** (assumes an AWP runtime provides built-in tools). If the user explicitly requests tool implementations (e.g., "with tools", "generate tool implementations", "standalone tools"), set tool implementation mode to **yes**.
+For every question: provide concrete suggestions based on what the user already told you,
+mark one as the recommended default (with `← empfohlen` / `← recommended`), and always
+include a "Sonstiges / Other" option so the user can specify something not listed.
 
-If the user provides a brief description, infer reasonable defaults. Ask only if critical information is ambiguous.
+If the user already answered a question clearly in their initial request, pre-fill the
+answer and mark it with `✓ (aus deiner Beschreibung)` — but still show it so the user
+can correct it.
+
+---
+
+**Present the following questionnaire:**
+
+#### 1. Workflow-Grundlagen / Workflow Basics
+
+**1.1 Name:** Wie soll der Workflow heißen?
+> Vorschläge: `{suggest 2-3 snake_case names based on user's description}`
+> Sonstiges: ___
+
+**1.2 Beschreibung:** Was soll der Workflow in einem Satz tun?
+> Vorschlag: `{1-sentence summary based on user's description}`
+> Sonstiges: ___
+
+**1.3 Sprache der Prompts:** In welcher Sprache sollen die System-Prompts und Ausgaben sein?
+> a) Deutsch ← empfohlen (wenn User auf Deutsch schreibt)
+> b) Englisch
+> c) Sonstiges: ___
+
+---
+
+#### 2. Agents & Rollen
+
+**2.1 Welche Agents soll der Workflow haben?** Jeder Agent hat eine klar definierte Rolle.
+> Vorschläge (basierend auf deiner Beschreibung):
+> {list each suggested agent with id, role name, and 1-line description}
+>
+> Sollen Agents hinzugefügt, entfernt oder umbenannt werden?
+> Sonstiges: ___
+
+**2.2 Ausführungsreihenfolge:** Wie sollen die Agents ausgeführt werden?
+> a) Sequenziell (einer nach dem anderen in fester Reihenfolge) ← empfohlen
+> b) Parallel (unabhängige Agents gleichzeitig)
+> c) Bedingt (Agents werden je nach Ergebnis übersprungen)
+> d) Sonstiges: ___
+
+**2.3 Datenfluss:** Welche Daten gibt jeder Agent an den nächsten weiter?
+> Vorschlag:
+> {show suggested data flow: agent_a → [fields] → agent_b → [fields] → agent_c}
+>
+> Änderungen? Sonstiges: ___
+
+---
+
+#### 3. LLM-Konfiguration
+
+**3.1 Modell:** Welches LLM soll verwendet werden?
+> a) `openrouter/anthropic/claude-sonnet-4-20250514` ← empfohlen
+> b) `openrouter/anthropic/claude-opus-4-20250514`
+> c) `openrouter/google/gemini-2.5-pro`
+> d) `ollama/llama3` (lokal)
+> e) Unterschiedliche Modelle pro Agent (bitte angeben)
+> f) Sonstiges: ___
+
+**3.2 Temperatur:** Wie kreativ sollen die Agents antworten?
+> a) Niedrig (0.1) — faktisch, präzise ← empfohlen für Analyse/Recherche
+> b) Mittel (0.3) — ausgewogen
+> c) Hoch (0.7) — kreativ, variabel
+> d) Pro Agent unterschiedlich (bitte angeben)
+> e) Sonstiges: ___
+
+---
+
+#### 4. Tools & Fähigkeiten
+
+**4.1 Welche Tools brauchen die Agents?**
+> Vorschläge pro Agent:
+> {for each agent, list suggested tools with brief explanation, e.g.:}
+> - `{agent_id}`: `web.search` (Webrecherche), `memory.write` (Ergebnisse speichern)
+> - `{agent_id}`: keine Tools (reiner LLM-Agent)
+>
+> Änderungen? Sonstiges: ___
+
+**4.2 Tool-Implementierungen generieren?** Sollen funktionierende Implementierungen
+für die Tools miterzeugt werden (z.B. `web.search` mit DuckDuckGo, `memory.*` mit
+Dateispeicher)? Ohne dies sind Tools nur Platzhalter, die eine AWP-Runtime bereitstellen muss.
+> a) Ja — alle verwendeten Tools als MCP-Implementierungen generieren ← empfohlen für Standalone
+> b) Nein — nur Tool-Deklarationen, Runtime stellt sie bereit ← empfohlen für AWP-Runtime
+> c) Nur bestimmte Tools implementieren (bitte angeben)
+> d) Sonstiges: ___
+
+---
+
+#### 5. Ausgabeformat & Schemas
+
+**5.1 Ausgabeformat der Agents:**
+> a) JSON (strukturiert, maschinenlesbar) ← empfohlen
+> b) Markdown (Freitext, menschenlesbar)
+> c) Gemischt (manche JSON, manche Markdown — bitte angeben)
+> d) Sonstiges: ___
+
+**5.2 Welche Felder soll jeder Agent ausgeben?**
+> Vorschläge:
+> {for each agent, list suggested output fields with types}
+> (Hinweis: `confidence` (0.0-1.0) wird automatisch ergänzt — AWP-Pflichtfeld.)
+>
+> Änderungen? Sonstiges: ___
+
+---
+
+#### 6. Memory & Persistenz
+
+**6.1 Soll der Workflow ein Langzeitgedächtnis haben?** (Ergebnisse über Sessions hinweg speichern)
+> a) Nein — jeder Lauf ist unabhängig ← empfohlen für einfache Workflows
+> b) Ja — MEMORY.md für übergreifende Erkenntnisse
+> c) Ja — mit täglichen Logs und MEMORY.md ← empfohlen für wiederkehrende Aufgaben
+> d) Sonstiges: ___
+
+---
+
+#### 7. Skills & Domänenwissen
+
+**7.1 Braucht der Workflow spezifisches Domänenwissen?** (Wird als SKILL.md in die Prompts injiziert)
+> a) Nein
+> b) Ja — bitte Thema/Domain beschreiben: ___
+> c) Vorschlag: `{suggest a skill based on user's domain, e.g.: "german-family-law"}`
+> d) Sonstiges: ___
+
+---
+
+#### 8. Ausgabeverzeichnis & Projektstruktur
+
+**8.1 Wo soll der Workflow gespeichert werden?**
+> a) `{suggest path based on context, e.g.: ~/projects/{workflow_name}/}`
+> b) Aktuelles Verzeichnis
+> c) Sonstiges: ___
+
+---
+
+#### 9. Compliance Level
+
+**9.1 Welches AWP-Compliance-Level?**
+> a) **L0 Core** — einfacher Workflow, nur Orchestrierung ← empfohlen für Einstieg
+> b) **L1 Composable** — Multi-Agent mit State Sharing ← empfohlen für die meisten Workflows
+> c) **L2 Communicative** — mit Inter-Agent-Messaging
+> d) **L3 Memorable** — mit Langzeitgedächtnis
+> e) **L4 Observable** — mit Tracing, Metriken, Logging
+> f) **L5 Enterprise** — alle Features, produktionsreif
+> g) Sonstiges: ___
+
+---
+
+#### 10. Sonstiges
+
+**10.1 Gibt es weitere Anforderungen, Einschränkungen oder Wünsche?**
+> z.B. Timeouts, Fehlerbehandlung, Sicherheitsanforderungen, spezielle Datenquellen,
+> Zielgruppe der Ausgabe, …
+> ___
+
+---
+
+**After receiving answers:** Analyze the responses, resolve any conflicts, and proceed
+to Phase 2. If answers are ambiguous or contradictory, ask targeted follow-up questions
+(but not another full questionnaire). If the user says "defaults" or "passt so", use
+all recommended defaults.
 
 ### Phase 2: Generate the Project
 
