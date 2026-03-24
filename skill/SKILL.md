@@ -523,7 +523,7 @@ After generating all files, verify:
 - [ ] R17: All output schemas include confidence field.
 - [ ] R18: All output_schema.json are valid JSON Schema draft-07 with type: object.
 
-### Phase 5: Summary
+### Phase 5: Summary & Workflow Overview
 
 Present to the user:
 
@@ -533,6 +533,107 @@ Present to the user:
 - Tool implementation mode: whether built-in tool implementations were generated (list them if yes).
 - Compliance badge: `AWP L{N} {Level Name} Compliant`.
 - Any assumptions made or recommendations for improvement.
+
+#### Workflow Diagram
+
+Generate a visual diagram of the workflow using a text-based box-and-arrow format.
+The diagram MUST show:
+
+1. **All agents** as labeled boxes with their role name.
+2. **Data flow** between agents as arrows with the shared field names.
+3. **Tools** attached to the agents that use them (as small labels).
+4. **Memory** tiers if the workflow uses persistence.
+5. **Input** (top) and **Output** (bottom) clearly marked.
+
+Use the following format:
+
+```
+                        ┌─────────────────┐
+                        │   User Input    │
+                        │  "{description}" │
+                        └────────┬────────┘
+                                 │
+                                 ▼
+                  ┌──────────────────────────────┐
+                  │  {agent_id} ({role_name})     │
+                  │  Tools: {tool_1}, {tool_2}    │
+                  │  Output: {field_1}, {field_2} │
+                  └──────────────┬───────────────┘
+                                 │ shares: {field_1}
+                                 ▼
+                  ┌──────────────────────────────┐
+                  │  {agent_id} ({role_name})     │
+                  │  Tools: {tool_1}              │
+                  │  Output: {field_3}            │
+                  └──────────────┬───────────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │  Final Output   │
+                        │  {description}  │
+                        └─────────────────┘
+```
+
+For parallel agents, show them side by side. For conditional execution, annotate
+the arrows with the condition. Adapt the layout to the actual complexity of the
+workflow -- a 2-agent workflow gets a simple diagram, a 6-agent DAG with branches
+gets a more detailed one.
+
+#### Workflow Description
+
+Below the diagram, provide a **narrative walkthrough** that explains the workflow
+in 3-5 sentences. Describe what happens at each stage in plain language, as if
+explaining it to someone who hasn't read the config files. Mention key design
+decisions (why this agent order, why these tools, why this data flow).
+
+#### How to Use
+
+Provide ready-to-use commands for running the workflow:
+
+**Install dependencies:**
+
+```bash
+cd {workflow_name}/
+pip install -r requirements.txt    # if requirements.txt was generated
+# or
+pip install awp-protocol
+```
+
+**Run the workflow:**
+
+```bash
+awp run {workflow_name}/ --task "{example_task_description}"
+```
+
+**Run with Python:**
+
+```python
+from awp.runtime import WorkflowRunner
+
+runner = WorkflowRunner("{workflow_name}")
+result = runner.run("{example_task_description}")
+print(result["{final_agent_id}"])
+```
+
+**Customize:**
+
+- Edit agent prompts in `agents/{agent_id}/workflow/instructions/SYSTEM_PROMPT.md`
+- Adjust output schemas in `agents/{agent_id}/workflow/output_schema/`
+- Add or change tools in `agents/{agent_id}/agent.awp.yaml` under `tools.allowed`
+- Add domain knowledge in `skills/{skill_name}/SKILL.md`
+
+If the workflow uses secrets, also show:
+
+```bash
+cp secrets.yaml.example secrets.yaml
+# Edit secrets.yaml with your API keys
+```
+
+**Validate the workflow:**
+
+```bash
+awp validate {workflow_name}/
+```
 
 
 ## Templates
