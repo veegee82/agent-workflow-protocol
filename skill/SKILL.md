@@ -13,28 +13,46 @@ allowed-tools: Read Write Edit Bash Glob Grep
 
 ## AWP 7-Layer Model
 
-The Agent Workflow Protocol defines seven layers, each building on the previous:
+AWP organizes a workflow into seven protocol layers. Each layer answers one question:
 
-| Layer | Name | Purpose |
-|-------|------|---------|
-| L0 | Orchestration | DAG-based agent graph, execution modes, timeouts, error handling. |
-| L1 | State | Persistent state, sharing strategies, required fields, auto-inject. |
-| L2 | Communication | Message bus for inter-agent messaging, channels, direct/broadcast. |
-| L3 | Memory | Long-term memory (MEMORY.md), daily logs, search, curation. |
-| L4 | Observability | Structured logging, distributed tracing, metrics collection. |
-| L5 | Governance | Security audit, rate limiting, circuit breakers, access control. |
-| L6 | Extension | Custom MCP tools, project-level skills, hooks, preprocessors. |
+```
+ Layer 6  OBSERVABILITY     How do I monitor this workflow?
+ Layer 5  ORCHESTRATION     In what order and under what conditions?
+ Layer 4  MEMORY & STATE    What does the workflow remember?
+ Layer 3  COMMUNICATION     How do agents talk to each other?
+ Layer 2  CAPABILITIES      What can an agent do? (tools, skills)
+ Layer 1  AGENT IDENTITY    Who is this agent?
+ Layer 0  MANIFEST          What is this workflow?
+```
+
+You start at the bottom. Layer 0 (manifest) and Layer 1 (agent identity)
+are always required. Everything above is opt-in.
+
+## Compliance Feature Layers
+
+Each compliance level adds a set of features. These feature layers map to the
+protocol layers above:
+
+| Feature Layer | Name | Purpose |
+|---------------|------|---------|
+| F0 | Orchestration | DAG-based agent graph, execution modes, timeouts, error handling. |
+| F1 | State | Persistent state, sharing strategies, required fields, auto-inject. |
+| F2 | Communication | Message bus for inter-agent messaging, channels, direct/broadcast. |
+| F3 | Memory | Long-term memory (MEMORY.md), daily logs, search, curation. |
+| F4 | Observability | Structured logging, distributed tracing, metrics collection. |
+| F5 | Governance | Security audit, rate limiting, circuit breakers, access control. |
+| F6 | Extension | Custom MCP tools, project-level skills, hooks, preprocessors. |
 
 ## Compliance Levels
 
-| Level | Name | Required Layers | Description |
-|-------|------|----------------|-------------|
-| L0 Core | Core | L0 | Single agent, basic orchestration. Minimum viable workflow. |
-| L1 Composable | Composable | L0 + L1 | Multi-agent DAG with state sharing. |
-| L2 Communicative | Communicative | L0-L2 | Inter-agent messaging via message bus. |
-| L3 Memorable | Memorable | L0-L3 | Memory tiers for cross-session persistence. |
-| L4 Observable | Observable | L0-L4 | Full observability: tracing, metrics, structured logs. |
-| L5 Enterprise | Enterprise | L0-L6 | All layers, production-grade governance and extensibility. |
+| Level | Name | Required Features | Description |
+|-------|------|-------------------|-------------|
+| L0 Core | Core | F0 | Single agent, basic orchestration. Minimum viable workflow. |
+| L1 Composable | Composable | F0 + F1 | Multi-agent DAG with state sharing. |
+| L2 Communicative | Communicative | F0-F2 | Inter-agent messaging via message bus. |
+| L3 Memorable | Memorable | F0-F3 | Memory tiers for cross-session persistence. |
+| L4 Observable | Observable | F0-F4 | Full observability: tracing, metrics, structured logs. |
+| L5 Enterprise | Enterprise | F0-F6 | All features, production-grade governance and extensibility. |
 
 ## Platform Features
 
