@@ -91,9 +91,13 @@ implementation:
 4. **Tool & Capability Mapping** -- Which tools, memory tiers, and skills each agent needs.
 5. **File Manifest** -- Every file that will be generated, listed and explained.
 6. **Validation Preview** -- Which rules apply, what compliance level is targeted.
+7. **Validation Menu** -- Multiple-choice questions to confirm or correct each
+   design decision (agents, data flow, tools, compliance level, memory).
 
-You review the plan. Adjust it. Approve it. Only then does code generation start.
-The plan is the contract between you and the AI.
+You validate the plan point by point through the menu. The AI pre-selects
+its recommendations -- you confirm, adjust, or override. Only when you
+approve does code generation start. The plan is the contract between you
+and the AI.
 
 ### Step 4: The AWP Skill generates your workflow
 

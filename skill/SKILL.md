@@ -393,13 +393,90 @@ List which of the 18 rules (R1-R18) apply and confirm they will be satisfied:
 
 ---
 
-**After presenting the plan:** Wait for user confirmation. The user may:
-- Approve the plan → proceed to Phase 3 (file generation).
-- Request changes → update the plan and re-present the changed sections.
-- Ask questions → answer them and wait for explicit approval.
+#### Step 7: Plan Validation Menu
 
-Do NOT generate any files until the plan is approved. The plan is the contract
-between AI and user.
+After presenting the plan (Steps 1-6), you MUST present a **dynamic validation menu**
+as a set of multiple-choice questions. Each question targets one key design decision
+from the plan. For every question: pre-select the answer that matches your plan
+(marked with `→`), provide 2-4 concrete alternatives, and always include a free-text
+option. The user validates by confirming or correcting each point.
+
+**IMPORTANT:** The questions must be **specific** to the generated plan -- not generic.
+Use actual agent names, field names, tool names, and values from the plan. The menu
+is a focused checklist, not a second questionnaire.
+
+---
+
+**Plan-Validierung -- bitte prüfe die folgenden Punkte:**
+
+**V1. Agent-Anzahl und -Rollen**
+> → a) {N} Agents: `{agent_1}` ({role_1}), `{agent_2}` ({role_2}), ... ← aus dem Plan
+> b) Agent hinzufügen: z.B. `{suggested_extra_agent}` ({suggested_role})
+> c) Agent entfernen: welchen? ___
+> d) Agent umbenennen: welchen? ___
+> e) Sonstiges: ___
+
+**V2. Ausführungsreihenfolge**
+> → a) {mode aus dem Plan}: `{agent_1}` → `{agent_2}` → `{agent_3}` ← aus dem Plan
+> b) {alternative_mode}: {concrete alternative, e.g., agent_1 + agent_2 parallel, dann agent_3}
+> c) Bedingt: {suggest a condition, e.g., "agent_2 nur wenn agent_1.confidence > 0.7"}
+> d) Sonstiges: ___
+
+**V3. Datenfluss zwischen Agents**
+> → a) Wie geplant: `{agent_1}` teilt `{field_1}, {field_2}` → `{agent_2}` teilt `{field_3}` → `{agent_3}` ← aus dem Plan
+> b) Feld hinzufügen: welches, bei welchem Agent? ___
+> c) Feld entfernen: welches? ___
+> d) Sonstiges: ___
+
+**V4. Tools pro Agent**
+> Für jeden Agent eine Zeile:
+> → a) `{agent_1}`: `{tool_1}`, `{tool_2}` ← aus dem Plan
+> → b) `{agent_2}`: keine Tools ← aus dem Plan
+> → c) `{agent_3}`: `{tool_3}` ← aus dem Plan
+> Änderungen? Tool hinzufügen/entfernen? ___
+
+**V5. Ausgabefelder pro Agent**
+> Für jeden Agent die geplanten Output-Felder:
+> → a) `{agent_1}`: `{field_1}` (string), `{field_2}` (array), `confidence` (number) ← aus dem Plan
+> → b) `{agent_2}`: `{field_3}` (object), `confidence` (number) ← aus dem Plan
+> Felder ändern/hinzufügen/entfernen? ___
+
+**V6. Compliance Level**
+> → a) L{N} {Level Name} ← aus dem Plan
+> b) Niedriger: L{N-1} {Name} (entfernt: {was wegfällt})
+> c) Höher: L{N+1} {Name} (fügt hinzu: {was dazukommt})
+> d) Sonstiges: ___
+
+**V7. Memory & Persistenz**
+> → a) {geplante Memory-Konfiguration, z.B. "Kein Memory" oder "MEMORY.md + tägliche Logs"} ← aus dem Plan
+> b) {alternative, z.B. "Memory hinzufügen: MEMORY.md für übergreifende Erkenntnisse"}
+> c) {alternative, z.B. "Nur tägliche Logs, kein Langzeitgedächtnis"}
+> d) Sonstiges: ___
+
+**V8. Tool-Implementierungen**
+> → a) {geplanter Modus, z.B. "Ja -- alle Tools als MCP-Implementierungen"} ← aus dem Plan
+> b) {alternative, z.B. "Nein -- nur Deklarationen, Runtime stellt sie bereit"}
+> c) Nur bestimmte implementieren: welche? ___
+> d) Sonstiges: ___
+
+**V9. Gesamtbewertung**
+> → a) Plan ist korrekt -- bitte generieren
+> b) Plan anpassen (bitte oben die betroffenen Punkte korrigieren)
+> c) Plan verwerfen und neu planen
+> d) Fragen zum Plan: ___
+
+---
+
+**After receiving validation answers:**
+- If V9 = a) (approved): proceed directly to Phase 3 (file generation).
+- If V9 = b) (adjustments): apply the corrections from V1-V8, re-present
+  **only the changed sections** of the plan (not the full plan), and show
+  an updated validation menu with only the changed questions.
+- If V9 = c) (discard): return to Phase 1 or Phase 2 Step 1.
+- If V9 = d) (questions): answer the questions, then re-present V9.
+
+Iterate until the user selects V9 = a). Do NOT generate any files until
+the plan is explicitly approved. The plan is the contract between AI and user.
 
 ### Phase 3: Generate the Project
 
