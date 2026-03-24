@@ -1,4 +1,4 @@
-# AWP -- Agent Workflow Protocol
+# AWP - Agent Workflow Protocol
 
 An open standard for describing multi-agent workflows.
 Declarative. Runtime-agnostic. Portable.
