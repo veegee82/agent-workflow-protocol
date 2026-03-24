@@ -488,3 +488,56 @@ orchestration:
 | R16 | Memory & State | MUST | Sharing strategy enforced |
 | R17 | Orchestration | MUST | Timeouts enforced |
 | R18 | Observability | MUST | Audit hash chain integrity |
+| R19 | Capabilities | MUST | Code Mode requires tools enabled |
+| R20 | Capabilities | MUST | Code Mode requires sandbox (not `none`) |
+| R21 | Capabilities | MUST | Code Mode language is valid |
+| R22 | Capabilities | MUST | Explicit SDK surface has tools |
+| R23 | Capabilities | MUST | SDK excludes reference valid tools |
+| R24 | Capabilities | MUST | Isolate sandbox requires network config |
+| CT10 | Custom Tools | MUST | Code Mode tools must be async |
+
+---
+
+## 4. Code Mode & Sandbox Rules (R19–R24, CT10)
+
+### R19: Code Mode Requires Tools Enabled
+
+- **Category:** Capabilities
+- **Requirement:** If `capabilities.codemode.enabled` is `true`, then `capabilities.tools.enabled` MUST be `true`.
+- **Rationale:** Code Mode generates an SDK from the allowed tools. Without tools enabled, the SDK would be empty.
+
+### R20: Code Mode Requires Sandbox
+
+- **Category:** Capabilities
+- **Requirement:** If `capabilities.codemode.enabled` is `true`, then `capabilities.sandbox.type` MUST be set and MUST NOT be `"none"`.
+- **Rationale:** Agent-generated code MUST run in a sandbox for security. Executing untrusted LLM-generated code without isolation is unsafe.
+
+### R21: Code Mode Language Validation
+
+- **Category:** Capabilities
+- **Requirement:** `capabilities.codemode.language` MUST be one of: `"typescript"`, `"python"`, `"javascript"`.
+- **Rationale:** The runtime must know which language the generated SDK and agent code use.
+
+### R22: Explicit SDK Surface Must Have Tools
+
+- **Category:** Capabilities
+- **Requirement:** If `capabilities.codemode.sdk_surface.mode` is `"explicit"`, then `capabilities.codemode.sdk_surface.include` MUST contain at least one tool FQN.
+- **Rationale:** An explicit SDK surface with zero tools would generate an empty SDK.
+
+### R23: SDK Excludes Must Reference Valid Tools
+
+- **Category:** Capabilities
+- **Requirement:** Every entry in `capabilities.codemode.sdk_surface.exclude` MUST match at least one tool in `capabilities.tools.allowed`.
+- **Rationale:** Excluding a tool that is not allowed is a configuration error.
+
+### R24: Isolate Sandbox Requires Network Config
+
+- **Category:** Capabilities
+- **Requirement:** If `capabilities.sandbox.type` is `"isolate"`, the `capabilities.sandbox.network` section MUST be present with at least `network.enabled` defined.
+- **Rationale:** V8 isolates have configurable network access. The default for isolates SHOULD be `enabled: false` (no network) for security.
+
+### CT10: Code Mode Custom Tools Must Be Async
+
+- **Category:** Custom Tools
+- **Requirement:** Custom tools used with Code Mode (`codemode.enabled: true`) MUST be async/Promise-based (or use `async def` in Python).
+- **Rationale:** The Code Mode SDK exposes all tools as async methods. Synchronous tools would break the async execution model.

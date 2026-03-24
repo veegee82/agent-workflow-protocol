@@ -210,7 +210,7 @@ The `capabilities.sandbox` section configures sandboxed code execution.
 
 | Field | Type | Status | Default | Description |
 |-------|------|--------|---------|-------------|
-| `type` | string | OPTIONAL | `"subprocess"` | Sandbox type: `"subprocess"`, `"docker"`, `"wasm"`, `"none"`. |
+| `type` | string | OPTIONAL | `"subprocess"` | Sandbox type: `"subprocess"`, `"docker"`, `"wasm"`, `"isolate"`, `"none"`. |
 | `constraints` | object | OPTIONAL | — | Resource constraints. |
 | `constraints.max_memory_mb` | integer | OPTIONAL | `256` | Maximum memory in megabytes. |
 | `constraints.max_cpu_seconds` | integer | OPTIONAL | `30` | Maximum CPU time in seconds. |
@@ -223,9 +223,141 @@ The `capabilities.sandbox` section configures sandboxed code execution.
 | `commands.allowed` | list | OPTIONAL | `[]` | Shell commands the sandbox MAY execute. |
 | `commands.denied` | list | OPTIONAL | `[]` | Shell commands the sandbox MUST NOT execute. |
 
+### 7.1 Sandbox Types
+
+| Type | Startup | Isolation | Network | Use Case |
+|------|---------|-----------|---------|----------|
+| `subprocess` | ~100ms | Process-level | Host | Python, local development |
+| `docker` | ~1-5s | Container | Configurable | Full-stack, heavy workloads |
+| `wasm` | ~10ms | WASM sandbox | None | Lightweight, browser |
+| `isolate` | ~5ms | V8 Isolate | Configurable | Edge, Cloudflare Workers, Code Mode |
+| `none` | 0ms | None | Host | Trusted code only |
+
+### 7.2 Network Isolation
+
+When `type` is `"isolate"`, the `network` field MUST be present:
+
+| Field | Type | Status | Default | Description |
+|-------|------|--------|---------|-------------|
+| `network.enabled` | boolean | REQUIRED (for `isolate`) | `false` | Whether the sandbox has network access. |
+| `network.allowed_hosts` | list | OPTIONAL | `[]` | Host whitelist when `enabled` is `true`. Empty means all hosts allowed. |
+| `network.intercept` | boolean | OPTIONAL | `false` | Whether to intercept and log outbound requests. |
+
 ---
 
-## 8. Complete Example
+## 8. Code Mode
+
+Code Mode is an alternative tool execution strategy where the agent writes code
+against a typed SDK instead of calling tools individually. This reduces token
+usage and LLM roundtrips, especially for agents with large tool surfaces.
+
+Code Mode is OPTIONAL at all compliance levels. Runtimes that do not support
+Code Mode MUST fall back to classic tool execution.
+
+### 8.1 Overview
+
+In **classic mode**, an agent calls tools one at a time:
+
+```
+Agent → LLM → tool_call("web.search") → result → LLM → tool_call("file.write") → result → LLM
+```
+
+In **Code Mode**, the agent writes a code block that chains multiple operations:
+
+```
+Agent → LLM → generates code → sandbox executes code → result → LLM
+```
+
+The SDK wraps each allowed MCP tool as a typed method. The runtime auto-generates
+the SDK interface from `capabilities.tools.allowed`.
+
+### 8.2 Configuration
+
+The `capabilities.codemode` section configures Code Mode:
+
+| Field | Type | Status | Default | Description |
+|-------|------|--------|---------|-------------|
+| `enabled` | boolean | REQUIRED | `false` | Whether Code Mode is active for this agent. |
+| `language` | string | REQUIRED (if enabled) | — | Target language: `"typescript"`, `"python"`, or `"javascript"`. |
+| `sdk_surface.mode` | string | OPTIONAL | `"auto"` | `"auto"` maps all allowed tools; `"explicit"` maps only listed tools. |
+| `sdk_surface.include` | list | OPTIONAL | `[]` | Tool FQNs to include (only with `mode: "explicit"`). |
+| `sdk_surface.exclude` | list | OPTIONAL | `[]` | Tool FQNs to exclude from the SDK. |
+| `execution.sandbox_ref` | string | OPTIONAL | `"capabilities.sandbox"` | Reference to the sandbox configuration. |
+| `execution.timeout` | integer | OPTIONAL | `30` | Code execution timeout in seconds. |
+| `execution.max_retries` | integer | OPTIONAL | `1` | Number of retries on execution failure. |
+| `execution.capture_console` | boolean | OPTIONAL | `true` | Whether to capture stdout/stderr. |
+| `state.enabled` | boolean | OPTIONAL | `false` | Whether the code has access to persistent state. |
+| `state.backend` | string | OPTIONAL | `"memory"` | State backend: `"memory"`, `"filesystem"`, or `"workspace"`. |
+
+### 8.3 SDK Generation
+
+The runtime MUST auto-generate a typed SDK interface from the agent's
+`capabilities.tools.allowed` list. Each allowed tool becomes an SDK method,
+grouped by namespace:
+
+- Tool `web.search` → `sdk.web.search(query, maxResults)`
+- Tool `file.read` → `sdk.file.read(path)`
+- Tool `memory.write` → `sdk.memory.write(key, value)`
+
+The SDK interface is injected into the agent's system prompt as type
+definitions, replacing the individual tool definitions used in classic mode.
+
+### 8.4 Execution Flow
+
+1. Runtime builds system prompt with SDK type definitions (instead of tool defs).
+2. LLM generates a code block using the SDK.
+3. Runtime extracts the code block from the LLM response.
+4. Runtime executes the code in the configured sandbox (`capabilities.sandbox`).
+5. SDK method calls are intercepted and routed to the MCP tool registry.
+6. The code's return value is validated against `output_schema.json`.
+7. If execution fails and `max_retries > 0`, the error is fed back to the LLM.
+
+### 8.5 Output Contract
+
+Code Mode does NOT change the output contract. The code MUST return a JSON
+object matching `output_schema.json`, including the `confidence` field.
+This ensures that Code Mode agents are interchangeable with classic agents
+in the DAG.
+
+### 8.6 Runtime Implementations
+
+Code Mode is runtime-agnostic. Each runtime implements it using its sandbox:
+
+| Runtime | Sandbox Type | SDK Transport |
+|---------|-------------|---------------|
+| Python (standalone) | `subprocess` | In-process function calls |
+| Cloudflare Workers | `isolate` | RPC stubs via Worker Loader |
+| Docker | `docker` | HTTP API on localhost |
+
+### 8.7 Example
+
+```yaml
+capabilities:
+  tools:
+    enabled: true
+    allowed: ["web.*", "file.*"]
+
+  sandbox:
+    type: isolate
+    constraints:
+      max_memory_mb: 128
+      max_cpu_seconds: 30
+    network:
+      enabled: false
+
+  codemode:
+    enabled: true
+    language: typescript
+    sdk_surface:
+      mode: auto
+    execution:
+      timeout: 30
+      capture_console: true
+```
+
+---
+
+## 9. Complete Example
 
 ```yaml
 awp_agent: "1.0.0"
