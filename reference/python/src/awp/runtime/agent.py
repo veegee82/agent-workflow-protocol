@@ -65,7 +65,12 @@ class StandaloneAgent(AWPAgent):
         self._workflow_dir = Path(workflow_dir)
         self._config = parse_agent(self._agent_dir / "agent.awp.yaml")
         self._llm = llm or LLMClient(model=self._config.model.name)
-        self._tools = tool_registry or ToolRegistry(self._workflow_dir)
+        if tool_registry:
+            self._tools = tool_registry
+        else:
+            from .secrets import load_secrets
+            secrets = load_secrets(self._workflow_dir)
+            self._tools = ToolRegistry(self._workflow_dir, secrets=secrets)
 
         # Load manifest for memory/skill config
         manifest_path = self._workflow_dir / "workflow.awp.yaml"

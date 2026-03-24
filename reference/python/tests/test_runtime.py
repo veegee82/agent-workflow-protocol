@@ -297,3 +297,104 @@ class TestStandaloneAgentCapabilities:
             prompt = agent._build_system_prompt()
             assert "Long-term Memory" in prompt
             assert "detailed explanations" in prompt
+
+
+# -- Tool secrets ---------------------------------------------------------
+
+class TestToolSecrets:
+    def _make_tool_file(self, mcp_dir: Path) -> None:
+        """Create a custom tool that declares secrets."""
+        mcp_dir.mkdir(exist_ok=True)
+        (mcp_dir / "search.py").write_text('''
+class _FastMCP:
+    def __init__(self, name): self.name = name
+    def tool(self, _name, *, secrets=None):
+        def _d(fn):
+            fn._awp_secrets = secrets or []
+            return fn
+        return _d
+
+app = _FastMCP("search")
+
+@app.tool("search.query", secrets=["SEARCH_API_KEY"])
+def query(*, q: str, _secrets: dict = {}) -> dict:
+    """Search with an API key."""
+    key = _secrets.get("SEARCH_API_KEY", "")
+    return {"ok": True, "status": 200, "data": {"q": q, "has_key": bool(key), "key_val": key}, "error": None}
+''')
+
+    def test_secrets_injected_to_custom_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_tool_file(Path(tmp) / "mcp")
+            reg = ToolRegistry(Path(tmp), secrets={"SEARCH_API_KEY": "sk-test123"})
+            result = reg.call("search.query", {"q": "test"})
+            assert result["ok"] is True
+            assert result["data"]["has_key"] is True
+            assert result["data"]["key_val"] == "sk-test123"
+
+    def test_secrets_not_in_definitions(self):
+        """_secrets must NOT appear in tool definitions sent to the LLM."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_tool_file(Path(tmp) / "mcp")
+            reg = ToolRegistry(Path(tmp), secrets={"SEARCH_API_KEY": "sk-test"})
+            defs = reg.get_definitions(["search.query"])
+            assert len(defs) == 1
+            params = defs[0]["function"]["parameters"]
+            assert "_secrets" not in params["properties"]
+            assert "_secrets" not in params.get("required", [])
+
+    def test_only_declared_keys_passed(self):
+        """Tool receives only the keys it declared, not all secrets."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_tool_file(Path(tmp) / "mcp")
+            reg = ToolRegistry(
+                Path(tmp),
+                secrets={"SEARCH_API_KEY": "sk-123", "OTHER_KEY": "other"},
+            )
+            result = reg.call("search.query", {"q": "test"})
+            # Tool only declared SEARCH_API_KEY, should not get OTHER_KEY
+            assert result["data"]["key_val"] == "sk-123"
+
+    def test_tool_without_secrets_unchanged(self):
+        """Tools that declare no secrets work as before."""
+        reg = ToolRegistry(secrets={"SOME_KEY": "val"})
+        result = reg.call("arithmetic.add", {"a": 2, "b": 3})
+        assert result["ok"] is True
+        assert result["data"]["result"] == 5
+
+    def test_validate_secrets_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_tool_file(Path(tmp) / "mcp")
+            reg = ToolRegistry(Path(tmp), secrets={"SEARCH_API_KEY": "sk-ok"})
+            reg.validate_secrets()  # should not raise
+
+    def test_validate_secrets_fails_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._make_tool_file(Path(tmp) / "mcp")
+            reg = ToolRegistry(Path(tmp), secrets={})
+            with pytest.raises(RuntimeError, match="SEARCH_API_KEY"):
+                reg.validate_secrets()
+
+    def test_ast_extraction_of_secrets(self):
+        """AST parser extracts secrets=["K1", "K2"] from decorator."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mcp_dir = Path(tmp) / "mcp"
+            mcp_dir.mkdir()
+            (mcp_dir / "multi.py").write_text('''
+class _FastMCP:
+    def __init__(self, name): self.name = name
+    def tool(self, _name, *, secrets=None):
+        def _d(fn):
+            fn._awp_secrets = secrets or []
+            return fn
+        return _d
+
+app = _FastMCP("multi")
+
+@app.tool("multi.action", secrets=["KEY_A", "KEY_B"])
+def action(*, param: str, _secrets: dict = {}) -> dict:
+    """Multi-key tool."""
+    return {"ok": True, "status": 200, "data": {}, "error": None}
+''')
+            reg = ToolRegistry(Path(tmp), secrets={"KEY_A": "a", "KEY_B": "b"})
+            assert reg._tool_secrets.get("multi.action") == ["KEY_A", "KEY_B"]

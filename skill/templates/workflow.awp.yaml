@@ -50,6 +50,20 @@ state:
   required_fields: []
   auto_inject: {}
 
+# --- Environment & Secrets (L0+) ---
+# Declare required environment variables. Variables with sensitive: true
+# are loaded from secrets.yaml > .env > os.environ and never logged.
+# env:
+#   required:
+#     - name: SEARCH_API_KEY
+#       description: "API key for premium web search"
+#       sensitive: true
+#     - name: AUTH_TOKEN
+#       description: "Bearer token for external API"
+#       sensitive: true
+#   defaults:
+#     SEARCH_PROVIDER: "duckduckgo"
+
 # --- Memory (L3+) ---
 # Uncomment for L3 Memorable compliance.
 # memory:

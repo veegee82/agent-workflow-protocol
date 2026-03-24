@@ -5,6 +5,9 @@ logs/
 data/state/
 *.awp.zip
 
+# AWP secrets (NEVER commit)
+secrets.yaml
+
 # IDE
 .idea/
 

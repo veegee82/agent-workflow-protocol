@@ -30,6 +30,7 @@ from ..parser import parse_manifest
 from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency
 from .agent import StandaloneAgent
 from .llm import LLMClient
+from .secrets import load_secrets
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,8 @@ class WorkflowRunner:
         self._dir = Path(workflow_dir)
         self._manifest = parse_manifest(self._dir / "workflow.awp.yaml")
         self._llm = llm
-        self._tools = ToolRegistry(self._dir)
+        secrets = load_secrets(self._dir)
+        self._tools = ToolRegistry(self._dir, secrets=secrets)
 
     @property
     def name(self) -> str:
@@ -69,6 +71,9 @@ class WorkflowRunner:
         """Execute the workflow."""
         state = dict(state or {})
         state["task"] = task
+
+        # Fail-fast: validate all tool secrets before running any agents
+        self._tools.validate_secrets()
 
         # Auto-inject fields
         if self._manifest.state and hasattr(self._manifest.state, "auto_inject"):

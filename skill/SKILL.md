@@ -188,6 +188,23 @@ Dateispeicher)? Ohne dies sind Tools nur Platzhalter, die eine AWP-Runtime berei
 
 ---
 
+#### 4b. API Keys & Secrets
+
+**4b.1 Brauchen die Tools API-Schlüssel oder Zugangsdaten?** Secrets werden über
+`secrets.yaml` (gitignored) bereitgestellt und sicher an Tools injiziert — das LLM
+sieht sie nie.
+> Vorschläge basierend auf den gewählten Tools:
+> {for each tool that typically needs API keys, e.g.:}
+> - `web.search`: Optional — DuckDuckGo (kostenlos, kein Key) oder Premium-API (Google, Bing, SearXNG)
+> - `http.request`: Abhängig vom Ziel-API — Bearer Token, API Key, etc.
+> - Eigene Tools: bitte Keys auflisten
+>
+> a) Keine API-Schlüssel nötig ← empfohlen für Einstieg
+> b) Ja — folgende Keys werden gebraucht: ___
+> c) Sonstiges: ___
+
+---
+
 #### 5. Ausgabeformat & Schemas
 
 **5.1 Ausgabeformat der Agents:**

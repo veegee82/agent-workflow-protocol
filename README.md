@@ -280,26 +280,60 @@ or need to customize the implementation (e.g., use a different search API).
 
 To enable, tell the AI skill: *"generate tool implementations"* or *"standalone tools"*.
 
+### Tool Secrets -- API Keys Without Exposing Them to the LLM
+
+Tools that need API keys declare them in the decorator. The runtime injects them
+as a separate `_secrets` channel that the LLM never sees:
+
+```python
+# mcp/premium_search.py
+@app.tool("search.query", secrets=["SEARCH_API_KEY"])
+def query(*, q: str, max_results: int = 10, _secrets: dict = {}) -> dict:
+    """Search using a premium API."""
+    api_key = _secrets["SEARCH_API_KEY"]    # injected by runtime
+    # ... use api_key for real API call
+```
+
+Provide the actual values in `secrets.yaml` (gitignored):
+
+```yaml
+# secrets.yaml
+secrets:
+  SEARCH_API_KEY: "sk-abc123"
+  AUTH_TOKEN: "{{ env.PROD_AUTH_TOKEN }}"   # reference env var
+```
+
+The runner validates all secrets at startup -- fail-fast before any agent runs:
+
+```
+$ awp run my-workflow/ --task "..."
+ERROR: Missing secrets for 1 tool(s):
+  - search.query: SEARCH_API_KEY
+```
+
+Resolution priority: `secrets.yaml` > `.env` > `os.environ`.
+
 ### End-to-End Example
 
 ```python
+from awp.runtime.secrets import load_secrets
 from awp.runtime.tools import ToolRegistry
 
-# 1. Create registry (discovers mcp/ tools automatically)
-registry = ToolRegistry(workflow_dir=Path("my-workflow"))
+# 1. Load secrets and create registry
+secrets = load_secrets(Path("my-workflow"))
+registry = ToolRegistry(workflow_dir=Path("my-workflow"), secrets=secrets)
 
-# 2. See what's available
-print(registry.tool_names)
-# ['arithmetic.add', ..., 'legal.search_cases', ..., 'web.search']
+# 2. Validate all tool secrets are present (fail-fast)
+registry.validate_secrets()
 
-# 3. Call a tool directly
+# 3. Call a tool -- secrets are injected automatically
 result = registry.call("web.search", {"query": "quantum error correction 2026"})
 print(result)
 # {"ok": True, "status": 200, "data": {"results": [...], "count": 5}, "error": None}
 
-# 4. Get OpenAI function-calling definitions for an agent
-defs = registry.get_definitions(["web.search", "legal.*"])
-# Pass these to the LLM as tool definitions
+# 4. Get tool definitions for the LLM (_secrets is excluded)
+defs = registry.get_definitions(["web.search", "search.*"])
+# LLM sees: query, max_results, language -- never sees API keys
 ```
 
 For the full tool reference, see [docs/tools.md](docs/tools.md).

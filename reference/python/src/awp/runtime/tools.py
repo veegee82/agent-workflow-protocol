@@ -45,9 +45,15 @@ class ToolRegistry:
     a workflow's mcp/ directory.
     """
 
-    def __init__(self, workflow_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        workflow_dir: Optional[Path] = None,
+        secrets: Optional[dict[str, str]] = None,
+    ) -> None:
         self._tools: dict[str, ToolFunc] = {}
         self._definitions: dict[str, dict[str, Any]] = {}
+        self._tool_secrets: dict[str, list[str]] = {}  # tool FQN → declared secret keys
+        self._secrets: dict[str, str] = secrets or {}
         self._workflow_dir = workflow_dir
         self._memory_dir: Optional[Path] = None
 
@@ -63,9 +69,13 @@ class ToolRegistry:
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a tool by FQN name.
 
+        If the tool declared secrets via ``secrets=["KEY"]`` in its decorator
+        and those secrets are available, they are injected as a ``_secrets``
+        kwarg. The LLM never sees these values.
+
         Args:
             name: Tool fully qualified name (e.g., "file.read").
-            arguments: Tool arguments dict.
+            arguments: Tool arguments dict (from LLM).
 
         Returns:
             Standard AWP tool result.
@@ -74,6 +84,12 @@ class ToolRegistry:
         if fn is None:
             return _err(f"Unknown tool: {name}", 404)
         try:
+            declared = self._tool_secrets.get(name, [])
+            if declared and self._secrets:
+                tool_secrets = {
+                    k: self._secrets[k] for k in declared if k in self._secrets
+                }
+                return fn(**arguments, _secrets=tool_secrets)
             return fn(**arguments)
         except TypeError as exc:
             return _err(f"Invalid arguments for {name}: {exc}", 400)
@@ -107,6 +123,52 @@ class ToolRegistry:
     @property
     def tool_names(self) -> list[str]:
         return sorted(self._tools.keys())
+
+    def validate_secrets(self, allowed_tools: Optional[list[str]] = None) -> None:
+        """Validate that all declared secrets are present.
+
+        Checks every registered tool (or only those matching *allowed_tools*)
+        and verifies that all keys listed in its ``secrets=[...]`` declaration
+        exist in the loaded secrets dict.
+
+        Args:
+            allowed_tools: Optional list of tool FQNs or patterns to check.
+                           If ``None``, all registered tools are checked.
+
+        Raises:
+            RuntimeError: If any declared secrets are missing, with a message
+                          listing each tool and its missing keys.
+        """
+        tools_to_check: list[str]
+        if allowed_tools:
+            tools_to_check = []
+            for name in self._tools:
+                for pattern in allowed_tools:
+                    if pattern == name:
+                        tools_to_check.append(name)
+                        break
+                    if "*" in pattern:
+                        regex = pattern.replace(".", r"\.").replace("*", ".*")
+                        if re.match(f"^{regex}$", name):
+                            tools_to_check.append(name)
+                            break
+        else:
+            tools_to_check = list(self._tools.keys())
+
+        missing: dict[str, list[str]] = {}
+        for tool_name in tools_to_check:
+            declared = self._tool_secrets.get(tool_name, [])
+            for key in declared:
+                if key not in self._secrets:
+                    missing.setdefault(tool_name, []).append(key)
+
+        if missing:
+            lines = [f"  - {tool}: {', '.join(keys)}" for tool, keys in missing.items()]
+            raise RuntimeError(
+                f"Missing secrets for {len(missing)} tool(s):\n"
+                + "\n".join(lines)
+                + "\n\nProvide them in secrets.yaml, .env, or as environment variables."
+            )
 
     # -- Built-in tools -----------------------------------------------
 
@@ -208,7 +270,10 @@ class ToolRegistry:
             "required": ["url"],
         }, "Make an HTTP request")
 
-    def _register(self, name: str, fn: ToolFunc, params: dict, desc: str) -> None:
+    def _register(
+        self, name: str, fn: ToolFunc, params: dict, desc: str,
+        secrets_keys: Optional[list[str]] = None,
+    ) -> None:
         self._tools[name] = fn
         self._definitions[name] = {
             "type": "function",
@@ -218,6 +283,7 @@ class ToolRegistry:
                 "parameters": params,
             },
         }
+        self._tool_secrets[name] = secrets_keys or []
 
     # -- File tools ---------------------------------------------------
 
@@ -480,7 +546,7 @@ class ToolRegistry:
             logger.warning("Failed to parse custom tool %s: %s", py_file.name, exc)
             return
 
-        # Find @app.tool("fqn") decorators
+        # Find @app.tool("fqn", secrets=["KEY"]) decorators
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -491,9 +557,19 @@ class ToolRegistry:
                 if isinstance(func, ast.Attribute) and func.attr == "tool":
                     if dec.args and isinstance(dec.args[0], ast.Constant):
                         fqn = dec.args[0].value
-                        self._register_custom_tool(fqn, py_file, node)
+                        # Extract secrets=["KEY1", "KEY2"] from decorator kwargs
+                        secrets_keys: list[str] = []
+                        for kw in dec.keywords:
+                            if kw.arg == "secrets" and isinstance(kw.value, ast.List):
+                                for elt in kw.value.elts:
+                                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                        secrets_keys.append(elt.value)
+                        self._register_custom_tool(fqn, py_file, node, secrets_keys)
 
-    def _register_custom_tool(self, fqn: str, py_file: Path, func_node: ast.FunctionDef) -> None:
+    def _register_custom_tool(
+        self, fqn: str, py_file: Path, func_node: ast.FunctionDef,
+        secrets_keys: Optional[list[str]] = None,
+    ) -> None:
         """Register a discovered custom tool."""
         # Load the module
         spec = importlib.util.spec_from_file_location(
@@ -514,12 +590,19 @@ class ToolRegistry:
         if fn is None:
             return
 
-        # Extract parameters from function signature
+        # Merge AST-extracted secrets with runtime attribute (fallback)
+        merged_secrets = list(secrets_keys or [])
+        if hasattr(fn, "_awp_secrets"):
+            for k in fn._awp_secrets:
+                if k not in merged_secrets:
+                    merged_secrets.append(k)
+
+        # Extract parameters from function signature (excluding _secrets)
         import inspect
         sig = inspect.signature(fn)
         params: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
         for pname, param in sig.parameters.items():
-            if pname in ("self", "cls"):
+            if pname in ("self", "cls", "_secrets"):
                 continue
             ptype = "string"
             if param.annotation != inspect.Parameter.empty:
@@ -539,9 +622,5 @@ class ToolRegistry:
             and isinstance(func_node.body[0].value, ast.Constant)
         ) else f"Custom tool: {fqn}"
 
-        self._tools[fqn] = fn
-        self._definitions[fqn] = {
-            "type": "function",
-            "function": {"name": fqn, "description": desc, "parameters": params},
-        }
+        self._register(fqn, fn, params, desc, secrets_keys=merged_secrets)
         logger.info("Registered custom tool: %s from %s", fqn, py_file.name)

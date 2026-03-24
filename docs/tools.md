@@ -102,6 +102,78 @@ capabilities:
           max_per_minute: 10
 ```
 
+## Tool Secrets
+
+Tools that need API keys or credentials declare them via the `secrets` parameter in the `@app.tool()` decorator. The AWP runtime injects the values at call time through a `_secrets` dict — the LLM never sees them.
+
+### Declaring Secrets in a Tool
+
+```python
+@app.tool("search.query", secrets=["SEARCH_API_KEY"])
+def query(*, q: str, _secrets: dict = {}) -> dict:
+    """Search using a premium API."""
+    api_key = _secrets.get("SEARCH_API_KEY", "")
+    # ... use api_key ...
+```
+
+- `secrets=["KEY1", "KEY2"]` — declares which keys the tool needs.
+- `_secrets: dict = {}` — receives the injected values at runtime. **Must** have a default so the tool works without secrets too.
+- The `_secrets` parameter is automatically excluded from the tool definition sent to the LLM.
+
+### Providing Secrets
+
+Create a `secrets.yaml` file at the workflow root (this file is gitignored):
+
+```yaml
+secrets:
+  SEARCH_API_KEY: "sk-abc123"
+  DATABASE_URL: "{{ env.PROD_DATABASE_URL }}"  # reference an env var
+```
+
+Resolution priority (later wins): `os.environ` → `.env` file → `secrets.yaml`.
+
+The `{{ env.VAR_NAME }}` template syntax lets you reference environment variables without hardcoding values.
+
+### Declaring Required Secrets in the Manifest
+
+Document required secrets in `workflow.awp.yaml` so users know what to provide:
+
+```yaml
+env:
+  required:
+    - name: SEARCH_API_KEY
+      description: "API key for premium search"
+      sensitive: true
+    - name: AUTH_TOKEN
+      description: "Bearer token for external API"
+      sensitive: true
+```
+
+Variables with `sensitive: true` are never logged.
+
+### Fail-Fast Validation
+
+The runtime validates all secrets at startup before any agent runs. If a tool declares `secrets=["KEY"]` but the key is not found in `secrets.yaml`, `.env`, or `os.environ`:
+
+```
+ERROR: Missing secrets for 1 tool(s):
+  - search.query: SEARCH_API_KEY
+
+Provide them in secrets.yaml, .env, or as environment variables.
+```
+
+### How It Works at Runtime
+
+```
+1. load_secrets(workflow_dir)         → merge os.environ + .env + secrets.yaml
+2. ToolRegistry(dir, secrets=dict)    → stores secrets
+3. Tool registration                  → AST extracts secrets=["KEY"] from decorator
+4. validate_secrets()                 → fail-fast check before agents run
+5. call("tool.name", {args})          → injects _secrets={KEY: val} for declared keys only
+```
+
+The LLM only sees the tool's regular parameters (query, max_results, etc.). The `_secrets` dict is injected by the runtime as a separate channel.
+
 ## Custom MCP Tools
 
 Workflows may define custom tools in the `mcp/` directory at the workflow root.
