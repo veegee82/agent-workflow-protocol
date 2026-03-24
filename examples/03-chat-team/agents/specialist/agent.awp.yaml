@@ -1,48 +1,49 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "specialist"
-  role: "specialist"
-  description: "Receives questions from the coordinator and provides expert responses."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: specialist
+  role: domain_specialist
+  description: "Executes specialized analysis tasks and reports back via message bus"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
     temperature: 0.2
+    max_tokens: 1536
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
-
-tools:
-  enabled: true
-  max_calls: 5
-  allowed:
-    - "agent.list_messages"
-    - "agent.send_message"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
-    response:
-      type: "string"
-      description: "Expert response to the coordinator's question"
-      shareable: true
+    analysis:
+      type: string
+      description: "Detailed analysis results"
+      required: true
+    recommendations:
+      type: array
+      description: "Actionable recommendations based on analysis"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in analysis quality"
       required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
 
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 5
+    allowed:
+      - "agent.send_message"
+      - "agent.list_messages"
+      - "arithmetic.add"
+      - "arithmetic.multiply"

@@ -52,7 +52,7 @@ agents:
       model: openai/gpt-4o-mini
 ```
 
-This is an L0 (Minimal) compliance workflow. It has no tools, no memory, no orchestration beyond a single agent. It is enough to validate the format and test a runtime.
+This is an L0 (Core) compliance workflow. It has no tools, no memory, no orchestration beyond a single agent. It is enough to validate the format and test a runtime.
 
 ### Can agents communicate outside the DAG?
 
@@ -100,12 +100,12 @@ Compliance levels (L0 through L5) define progressive tiers of AWP support. They 
 
 | Level | Name | What It Requires |
 |-------|------|-----------------|
-| L0 | Minimal | Manifest + agent identity |
-| L1 | Capable | L0 + tools, skills, data sources |
-| L2 | Stateful | L1 + state management, memory, output contracts |
-| L3 | Collaborative | L2 + message bus, inter-agent communication |
-| L4 | Orchestrated | L3 + DAG orchestration, execution modes, error handling |
-| L5 | Enterprise | L4 + observability, audit logs, health checks |
+| L0 | Core | Manifest + 1 agent + output contract |
+| L1 | Composable | Multi-agent DAG + state sharing |
+| L2 | Communicative | Message bus + agent-to-agent messaging |
+| L3 | Memorable | Multi-tier memory (long-term + daily logs) |
+| L4 | Observable | Tracing + metrics + audit trail |
+| L5 | Enterprise | All above + security + circuit breaker |
 
 A workflow that uses tools but not memory requires at least an L1 runtime. A workflow with full orchestration and observability requires L5. This prevents the "all or nothing" problem where a simple workflow is forced to deal with enterprise features it does not need.
 
@@ -113,7 +113,7 @@ A workflow that uses tools but not memory requires at least an L1 runtime. A wor
 
 ### How does validation work?
 
-AWP defines 18 validation rules that can be checked before execution. The `awp validate` command checks:
+AWP defines 24 validation rules (R1-R24) that can be checked before execution. The `awp validate` command checks:
 
 - YAML syntax and schema conformance
 - Agent reference integrity (every agent in the graph has a directory)

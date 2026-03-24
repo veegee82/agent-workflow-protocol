@@ -3,7 +3,7 @@
 **Status:** Draft Standard
 **Version:** 1.0.0
 **Date:** 2026-03-23
-**License:** Apache 2.0
+**License:** MIT
 
 ---
 
@@ -102,7 +102,7 @@ Security ──cross-cuts──▶ All Layers
 | Document | Description |
 |----------|-------------|
 | [compliance.md](compliance.md) | Conformance levels L0–L5 |
-| [validation-rules.md](validation-rules.md) | Validation rules R1–R18 |
+| [validation-rules.md](validation-rules.md) | Validation rules R1–R24 |
 | [file-structure.md](file-structure.md) | Required directory layout |
 | [packaging.md](packaging.md) | `.awp.zip` exchange format |
 

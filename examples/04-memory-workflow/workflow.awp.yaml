@@ -1,56 +1,56 @@
-# AWP Workflow Manifest — Memory Workflow
-# Compliance Level: L3 Memorable
-
 awp: "1.0.0"
 
 workflow:
-  name: "memory-workflow"
+  name: memory-workflow
   version: "1.0.0"
-  description: >
-    Research workflow with memory integration. The researcher reads from
-    long-term memory and searches for relevant past findings. The analyst
-    writes analysis results to the daily log for future reference.
+  description: "Memory-enabled research workflow demonstrating L3 Memorable compliance"
+  author: "AWP Examples"
+  tags: ["example", "l3", "memorable", "memory"]
 
 orchestration:
-  engine: "dag"
-  graph:
-    - id: "researcher"
-      agent: "researcher"
-      enabled: true
-      depends_on: []
-      share_input: {}
-      description: "Researches topics using memory for context from past sessions."
-    - id: "analyst"
-      agent: "analyst"
-      enabled: true
-      depends_on:
-        - "researcher"
-      share_input:
-        researcher:
-          - "findings"
-          - "memory_context"
-      description: "Analyzes findings and writes results to memory for future sessions."
   execution:
-    mode: "sequential"
+    mode: sequential
     timeout:
-      per_agent: 120
+      per_agent: 60
       total: 300
+    max_parallel_agents: 4
+    error_handling:
+      default: continue
+      max_retries: 1
+      retry_delay: 2.0
+  graph:
+    - id: researcher
+      agent: researcher
+      depends_on: []
+      share_output:
+        - findings
+        - key_facts
+    - id: analyst
+      agent: analyst
+      depends_on: ["researcher"]
+      share_output:
+        - analysis
+        - insights
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: selective
+
+communication:
+  bus:
+    type: internal
 
 memory:
+  enabled: true
   tiers:
     long_term:
       enabled: true
-      backend: "file"
-      inject_into_prompt: true
-      max_tokens: 2000
-    working:
+      type: file
+      path: workspace/MEMORY.md
+      inject: true
+    daily_log:
       enabled: true
-      backend: "file"
-      daily_log: true
+      type: file
+      path: workspace/memory
       auto_write: true
-
-state:
-  persistence:
-    enabled: true
-  sharing:
-    strategy: "full"

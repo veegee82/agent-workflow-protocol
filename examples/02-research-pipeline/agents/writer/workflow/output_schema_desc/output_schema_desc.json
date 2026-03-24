@@ -1,5 +1,4 @@
 {
-  "article": "The complete article text with sections, formatted in markdown.",
-  "summary": "A brief 2-3 sentence summary of the article.",
-  "confidence": "Confidence score from 0.0 to 1.0 indicating the quality and completeness of the article."
+  "report": "The complete research report",
+  "confidence": "Confidence in the report quality (0.0 to 1.0)"
 }

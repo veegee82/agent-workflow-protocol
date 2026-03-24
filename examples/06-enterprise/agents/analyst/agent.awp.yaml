@@ -1,0 +1,67 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: analyst
+  role: risk_analyst
+  description: "Analyzes data for risks and provides risk scores using memory and skills"
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.2
+    max_tokens: 2048
+  reasoning:
+    enabled: true
+    effort: medium
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
+  contract:
+    risk_score:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Calculated risk score"
+      required: true
+    analysis:
+      type: string
+      description: "Detailed risk analysis"
+      required: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence in the risk assessment"
+      required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 10
+    allowed:
+      - "memory.*"
+      - "arithmetic.*"
+      - "custom.analyze_risk"
+  skills:
+    foundation: true
+    shared: true
+    agent_specific:
+      - "workflow/skills/risk_methodology.md"
+
+memory:
+  enabled: true
+  tiers:
+    long_term:
+      enabled: true
+      type: file
+      path: "workspace/MEMORY.md"
+      inject: true

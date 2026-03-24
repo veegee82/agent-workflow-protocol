@@ -1,0 +1,4 @@
+{
+  "communication_log": "Log of all agent communications processed",
+  "confidence": "Confidence in communication completeness (0.0 to 1.0)"
+}

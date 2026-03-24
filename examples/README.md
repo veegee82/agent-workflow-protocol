@@ -1,61 +1,65 @@
 # AWP Example Workflows
 
-This directory contains complete, self-contained example workflows demonstrating the Agent Workflow Protocol at each compliance level.
+Complete example workflows covering all AWP compliance levels and features.
 
 ## Examples
 
-| # | Name | Compliance | Difficulty | Description |
-|---|------|-----------|------------|-------------|
-| 01 | [hello-world](./01-hello-world/) | L0 Core | Beginner | Single agent that greets the user. Minimal possible AWP workflow. |
-| 02 | [research-pipeline](./02-research-pipeline/) | L1 Composable | Intermediate | Three-agent DAG: planner, researcher, writer with state sharing. |
-| 03 | [chat-team](./03-chat-team/) | L2 Communicative | Intermediate | Two agents communicating via the message bus. |
-| 04 | [memory-workflow](./04-memory-workflow/) | L3 Memorable | Advanced | Research workflow with long-term and working memory. |
-| 05 | [enterprise](./05-enterprise/) | L5 Enterprise | Expert | Full enterprise workflow with all seven AWP layers. |
+| Example | Level | Features Demonstrated |
+|---------|-------|----------------------|
+| [01-hello-world](01-hello-world/) | L0 Core | Single agent, basic orchestration, output contract |
+| [02-research-pipeline](02-research-pipeline/) | L1 Composable | Multi-agent DAG, state sharing, web search tools |
+| [03-chat-team](03-chat-team/) | L2 Communicative | Message bus, agent communication, channels |
+| [04-memory-workflow](04-memory-workflow/) | L3 Memorable | Long-term memory, daily logs, memory tools |
+| [05-observable-analytics](05-observable-analytics/) | L4 Observable | Tracing, metrics, audit trail, code execution |
+| [06-enterprise](06-enterprise/) | L5 Enterprise | All features: security, skills, MCPs, code mode, conditional execution |
+
+## Feature Coverage Matrix
+
+| Feature | L0 | L1 | L2 | L3 | L4 | L5 |
+|---------|----|----|----|----|----|----|
+| Agent DAG | x | x | x | x | x | x |
+| State Sharing | | x | x | x | x | x |
+| Tool Calling (MCP) | | x | x | x | x | x |
+| Message Bus | | | x | | | x |
+| Agent Communication | | | x | | | x |
+| Long-term Memory | | | | x | x | x |
+| Daily Logs | | | | x | x | x |
+| Memory Tools | | | | x | x | x |
+| Observability/Tracing | | | | | x | x |
+| Metrics Collection | | | | | x | x |
+| Audit Trail | | | | | x | x |
+| Code Execution | | | | | x | x |
+| Security/ACL | | | | | | x |
+| Circuit Breaker | | | | | | x |
+| Rate Limiting | | | | | | x |
+| Custom MCP Tools | | | | | | x |
+| Skills Injection | | | | | | x |
+| Conditional Execution | | | | | | x |
+| Code Mode | | | | | | x |
+
+## Running Examples
+
+```bash
+# Set your LLM API key
+export LLM_API_KEY="your-openrouter-key"
+export LLM_MODEL="anthropic/claude-sonnet-4"
+
+# Run a specific example
+cd reference/python
+python -m awp run ../../examples/01-hello-world --task "Greet Alice"
+
+# Run E2E tests (requires LLM_API_KEY)
+pytest tests/test_examples_e2e.py -v --tb=short
+
+# Run validation-only tests (no LLM needed)
+pytest tests/test_e2e.py -v
+```
 
 ## Compliance Levels
 
-- **L0 Core** -- Single agent, basic orchestration, output schema required.
-- **L1 Composable** -- Multi-agent DAG with dependencies and state sharing.
-- **L2 Communicative** -- Inter-agent messaging via the message bus.
-- **L3 Memorable** -- Memory tiers (long-term, daily logs, search).
-- **L4 Observable** -- Structured logging, tracing, and metrics.
-- **L5 Enterprise** -- All layers plus security, audit, rate limiting, circuit breakers.
-
-## Running an Example
-
-Each example is a self-contained workflow directory. To run one:
-
-```bash
-# Copy the example to your workflows directory
-cp -r examples/01-hello-world workflows/hello-world
-
-# Start the server
-PYTHONPATH=src/ python src/server/main.py
-
-# Use the API to start a run
-curl -X POST http://localhost:8000/api/runs/hello-world/start \
-  -H "Content-Type: application/json" \
-  -d '{"task": "Say hello to the world"}'
-```
-
-## Structure
-
-Every example follows the same directory layout:
-
-```
-{example}/
-  workflow.awp.yaml          # Workflow manifest
-  agents/
-    {agent_name}/
-      agent.awp.yaml         # Agent configuration
-      agent.py               # Agent implementation
-      workflow/
-        instructions/
-          SYSTEM_PROMPT.md   # System prompt
-        prompt/
-          00_INTRO.md        # Intro prompt
-        output_schema/
-          output_schema.json # Output JSON Schema
-        output_schema_desc/
-          output_schema_desc.json  # Field descriptions
-```
+- **L0 Core**: Valid manifest + single agent + output contract
+- **L1 Composable**: Multi-agent DAG + state sharing
+- **L2 Communicative**: Message bus + channels
+- **L3 Memorable**: 2+ memory tiers (long-term + daily)
+- **L4 Observable**: Tracing + metrics + audit
+- **L5 Enterprise**: All features + security (circuit breaker, ACL, rate limiting)

@@ -1,4 +1,4 @@
-# Validation Rules R1-R18
+# Validation Rules R1-R24
 
 AWP runtimes must enforce these validation rules when loading a workflow. Each rule has a unique identifier, category, and description. Rules marked RECOMMENDED apply primarily to the Python reference implementation; other runtimes may adapt them.
 
@@ -24,6 +24,12 @@ AWP runtimes must enforce these validation rules when loading a workflow. Each r
 | R16 | Memory & State | MUST | Sharing strategy enforced |
 | R17 | Orchestration | MUST | Timeouts enforced |
 | R18 | Observability | MUST | Audit hash chain integrity |
+| R19 | Capabilities | MUST | Code Mode requires tools enabled |
+| R20 | Capabilities | MUST | Code Mode requires sandbox |
+| R21 | Capabilities | MUST | Code Mode language is valid |
+| R22 | Capabilities | MUST | Explicit SDK surface has tools |
+| R23 | Capabilities | MUST | SDK excludes reference valid tools |
+| R24 | Capabilities | MUST | Isolate sandbox requires network config |
 
 ## R1: Valid AWP Version
 
@@ -309,3 +315,39 @@ See [Orchestration Reference](orchestration.md) for details.
 (Missing `prev_hash` field.)
 
 See [Observability Reference](observability.md) for details.
+
+## R19: Code Mode Requires Tools Enabled
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** If `capabilities.codemode.enabled` is `true`, then `capabilities.tools.enabled` MUST be `true`. Code Mode generates an SDK from the allowed tools.
+
+## R20: Code Mode Requires Sandbox
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** If `capabilities.codemode.enabled` is `true`, then `capabilities.sandbox.type` MUST be set and MUST NOT be `"none"`.
+
+## R21: Code Mode Language Validation
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** `capabilities.codemode.language` MUST be one of: `"typescript"`, `"python"`, `"javascript"`.
+
+## R22: Explicit SDK Surface Must Have Tools
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** If `capabilities.codemode.sdk_surface.mode` is `"explicit"`, then `capabilities.codemode.sdk_surface.include` MUST contain at least one tool FQN.
+
+## R23: SDK Excludes Must Reference Valid Tools
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** Every entry in `capabilities.codemode.sdk_surface.exclude` MUST match at least one tool in `capabilities.tools.allowed`.
+
+## R24: Isolate Sandbox Requires Network Config
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** If `capabilities.sandbox.type` is `"isolate"`, the `capabilities.sandbox.network` section MUST be present with at least `network.enabled` defined.

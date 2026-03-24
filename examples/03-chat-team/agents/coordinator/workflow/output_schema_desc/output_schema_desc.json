@@ -1,5 +1,5 @@
 {
-  "task_summary": "A summary of the coordination task: what questions were sent and why.",
-  "questions_sent": "List of questions sent to the specialist agent.",
-  "confidence": "Confidence score from 0.0 to 1.0 indicating how well the questions cover the user's request."
+  "task_breakdown": "List of subtasks identified from the main task",
+  "assignments": "Task assignments sent to specialist agents via message bus",
+  "confidence": "Confidence in task coordination quality (0.0 to 1.0)"
 }

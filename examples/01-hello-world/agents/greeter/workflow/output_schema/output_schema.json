@@ -3,14 +3,19 @@
   "type": "object",
   "properties": {
     "greeting": {
-      "type": "string"
+      "type": "string",
+      "description": "The personalized greeting message"
+    },
+    "tone": {
+      "type": "string",
+      "description": "The tone of the greeting (formal, casual, humorous, etc.)"
     },
     "confidence": {
       "type": "number",
       "minimum": 0.0,
-      "maximum": 1.0
+      "maximum": 1.0,
+      "description": "Confidence score for the greeting quality"
     }
   },
-  "required": ["greeting", "confidence"],
-  "additionalProperties": false
+  "required": ["greeting", "tone", "confidence"]
 }

@@ -1,63 +1,58 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "analyst"
-  role: "analyst"
-  description: "Analyzes research findings and writes results to memory for future reference."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: analyst
+  role: memory_analyst
+  description: "Analyzes findings using memory context and arithmetic tools"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
-    temperature: 0.3
+    temperature: 0.2
+    max_tokens: 1536
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
-
-tools:
-  enabled: true
-  max_calls: 10
-  allowed:
-    - "memory.write"
-    - "memory.read"
-    - "memory.search"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
     analysis:
-      type: "string"
-      description: "Detailed analysis of the research findings"
-      shareable: true
+      type: string
+      description: "Comprehensive analysis combining current and historical data"
       required: true
-    recommendations:
-      type: "array"
-      description: "List of actionable recommendations"
-      shareable: true
+    insights:
+      type: array
+      description: "Key insights derived from the analysis"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in analysis quality"
       required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 10
+    allowed:
+      - "memory.read"
+      - "memory.write"
+      - "memory.search"
+      - "arithmetic.*"
 
 memory:
   enabled: true
-  long_term_inject: true
-  long_term_max_tokens: 2000
-  daily_log:
-    enabled: true
-    auto_write: true
-  search_enabled: true
-
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+  tiers:
+    long_term:
+      enabled: true
+      type: file
+      path: "workspace/MEMORY.md"
+      inject: true

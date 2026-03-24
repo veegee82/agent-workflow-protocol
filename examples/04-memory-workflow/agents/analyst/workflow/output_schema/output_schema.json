@@ -3,21 +3,20 @@
   "type": "object",
   "properties": {
     "analysis": {
-      "type": "string"
+      "type": "string",
+      "description": "Comprehensive analysis combining current and historical data"
     },
-    "recommendations": {
+    "insights": {
       "type": "array",
-      "items": { "type": "string" }
-    },
-    "written_to_memory": {
-      "type": "boolean"
+      "items": {"type": "string"},
+      "description": "Key insights derived from the analysis"
     },
     "confidence": {
       "type": "number",
       "minimum": 0.0,
-      "maximum": 1.0
+      "maximum": 1.0,
+      "description": "Confidence in analysis quality"
     }
   },
-  "required": ["analysis", "recommendations", "written_to_memory", "confidence"],
-  "additionalProperties": false
+  "required": ["analysis", "insights", "confidence"]
 }

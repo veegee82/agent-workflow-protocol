@@ -17,7 +17,7 @@ from awp.runtime.security import SecurityContext, AccessController
 from awp.runtime.state_persistence import StatePersistence
 from awp.runtime.tools import ToolRegistry
 
-ENTERPRISE_DIR = Path(__file__).parent.parent.parent.parent / "examples" / "enterprise_feature_test"
+ENTERPRISE_DIR = Path(__file__).parent.parent.parent.parent / "examples" / "06-enterprise"
 
 
 @pytest.fixture

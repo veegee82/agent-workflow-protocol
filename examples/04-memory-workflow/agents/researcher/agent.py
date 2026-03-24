@@ -1,26 +1,10 @@
-from __future__ import annotations
-
-from typing import Any, Dict
-
-from awp.agent import AWPAgent
-
+"""Researcher agent -- uses persistent memory."""
+from awp import AWPAgent
 
 class Agent(AWPAgent):
-    """AWP agent: researcher."""
-
     @property
     def name(self) -> str:
         return "researcher"
 
-    def run(self, task: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the agent.
-
-        When using WorkflowRunner (awp.runtime), this method is not
-        called directly -- the runner uses StandaloneAgent which reads
-        agent.awp.yaml and handles LLM calls automatically.
-
-        Override this method for custom agent logic beyond the
-        standard prompt-LLM-parse cycle.
-        """
-        state = state or {}
-        return {self.name: {"result": "default", "confidence": 0.0}}
+    def run(self, task: str, state: dict) -> dict:
+        return {self.name: {"findings": [], "key_facts": [], "confidence": 0.0}}

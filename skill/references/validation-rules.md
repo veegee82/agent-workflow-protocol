@@ -1,4 +1,4 @@
-# AWP Validation Rules -- R1 through R18
+# AWP Validation Rules -- R1 through R24
 
 Use this checklist to validate AWP workflow compliance. All rules are mandatory unless noted.
 
@@ -40,3 +40,12 @@ Use this checklist to validate AWP workflow compliance. All rules are mandatory 
 
 - [ ] **R17:** Every `output_schema.json` MUST include a `confidence` property of type `number` with `minimum: 0.0` and `maximum: 1.0`. This field MUST also be listed in `required`.
 - [ ] **R18:** Every `output_schema.json` MUST be valid JSON Schema draft-07 (indicated by `"$schema": "http://json-schema.org/draft-07/schema#"`) and MUST have `"type": "object"` at the root level.
+
+## Code Mode & Sandbox (R19-R24)
+
+- [ ] **R19:** If `capabilities.codemode.enabled` is `true`, then `capabilities.tools.enabled` MUST be `true`. Code Mode generates an SDK from the allowed tools.
+- [ ] **R20:** If `capabilities.codemode.enabled` is `true`, then `capabilities.sandbox.type` MUST be set and MUST NOT be `"none"`. Agent-generated code MUST run in a sandbox.
+- [ ] **R21:** `capabilities.codemode.language` MUST be one of: `"typescript"`, `"python"`, `"javascript"`.
+- [ ] **R22:** If `capabilities.codemode.sdk_surface.mode` is `"explicit"`, then `capabilities.codemode.sdk_surface.include` MUST contain at least one tool FQN.
+- [ ] **R23:** Every entry in `capabilities.codemode.sdk_surface.exclude` MUST match at least one tool in `capabilities.tools.allowed`.
+- [ ] **R24:** If `capabilities.sandbox.type` is `"isolate"`, the `capabilities.sandbox.network` section MUST be present with at least `network.enabled` defined.

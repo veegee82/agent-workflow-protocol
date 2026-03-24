@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "processed_data": {
+      "type": "object",
+      "description": "Processed and cleaned data"
+    },
+    "statistics": {
+      "type": "object",
+      "description": "Computed statistics and metrics"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in processing accuracy"
+    }
+  },
+  "required": ["processed_data", "statistics", "confidence"]
+}

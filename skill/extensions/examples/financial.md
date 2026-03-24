@@ -115,7 +115,7 @@ fields:
 
 ## Additional Rules
 
-These rules apply on top of the base R1-R18:
+These rules apply on top of the base R1-R24:
 
 - **F1:** Every workflow MUST have `observability.audit.enabled: true` with `hash_chain: true`.
 - **F2:** No agent MAY use `shell.execute` (code execution is a compliance risk).
@@ -342,4 +342,4 @@ The AI will:
 7. Place `finance.market_data` and `finance.risk_calc` tools in `mcp/`
 8. Place `financial_regulations` and `disclaimer` skills in `skills/`
 9. Deny `shell.execute` and `file.write` tools
-10. Validate against R1-R18 + F1-F7
+10. Validate against R1-R24 + F1-F7

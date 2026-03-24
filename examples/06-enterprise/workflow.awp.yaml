@@ -1,0 +1,139 @@
+awp: "1.0.0"
+
+workflow:
+  name: enterprise
+  version: "1.0.0"
+  description: "Full enterprise workflow demonstrating L5 compliance with all AWP features"
+  author: "AWP Examples"
+  tags: ["example", "l5", "enterprise", "full-featured"]
+  runtime:
+    min_awp_version: "1.0.0"
+    python: ">=3.10"
+
+orchestration:
+  execution:
+    mode: conditional
+    timeout:
+      per_agent: 120
+      total: 300
+    max_parallel_agents: 2
+    error_handling:
+      default: continue
+      max_retries: 2
+      retry_delay: 2.0
+  graph:
+    - id: data_collector
+      agent: data_collector
+      depends_on: []
+      share_output:
+        - collected_data
+        - data_summary
+    - id: code_executor
+      agent: code_executor
+      depends_on: ["data_collector"]
+      share_output:
+        - computation_result
+        - metrics
+    - id: analyst
+      agent: analyst
+      depends_on: ["data_collector"]
+      share_output:
+        - risk_score
+        - analysis
+    - id: communicator
+      agent: communicator
+      depends_on: ["code_executor", "analyst"]
+      share_output:
+        - communication_log
+    - id: report_writer
+      agent: report_writer
+      depends_on:
+        - agent: communicator
+          when: "state.get('analyst', {}).get('risk_score', 0) > 0.3"
+      share_output:
+        - final_report
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: selective
+  auto_inject:
+    run_id: "{{RUN_ID}}"
+    timestamp: "{{TIMESTAMP}}"
+
+communication:
+  bus:
+    type: internal
+    persistence: "run"
+    max_message_size: 65536
+    delivery: at_least_once
+    ordering: fifo
+  channels:
+    - name: alerts
+      type: broadcast
+      participants:
+        publishers: ["analyst", "communicator"]
+        subscribers: ["*"]
+    - name: metrics_feed
+      type: direct
+      participants:
+        publishers: ["code_executor"]
+        subscribers: ["communicator"]
+    - name: analysis_results
+      type: direct
+      participants:
+        publishers: ["analyst"]
+        subscribers: ["communicator", "report_writer"]
+
+memory:
+  enabled: true
+  tiers:
+    long_term:
+      enabled: true
+      type: file
+      path: workspace/MEMORY.md
+      inject: true
+    daily_log:
+      enabled: true
+      type: file
+      path: workspace/memory
+      auto_write: true
+
+observability:
+  tracing:
+    enabled: true
+    export:
+      format: jsonl
+      path: data/traces
+  metrics:
+    enabled: true
+    export:
+      format: json
+      path: data/metrics
+  audit:
+    enabled: true
+    export:
+      format: jsonl
+      path: data/audit
+
+security:
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    recovery_timeout: 60
+  rate_limiting:
+    enabled: true
+    max_per_minute: 30
+  access_control:
+    enabled: true
+    rules:
+      - agent: data_collector
+        allowed_tools: ["web.search", "http.request", "file.read"]
+      - agent: code_executor
+        allowed_tools: ["code.execute", "shell.execute", "arithmetic.*"]
+      - agent: analyst
+        allowed_tools: ["memory.*", "arithmetic.*", "custom.analyze_risk"]
+      - agent: communicator
+        allowed_tools: ["agent.send_message", "agent.list_messages"]
+      - agent: report_writer
+        allowed_tools: ["file.write", "memory.write"]

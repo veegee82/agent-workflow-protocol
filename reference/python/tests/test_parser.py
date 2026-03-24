@@ -74,7 +74,7 @@ class TestManifestParsing:
         assert m.memory is not None
 
     def test_enterprise(self):
-        m = parse_manifest(EXAMPLES / "05-enterprise" / "workflow.awp.yaml")
+        m = parse_manifest(EXAMPLES / "06-enterprise" / "workflow.awp.yaml")
         assert m.orchestration is not None
         assert m.security is not None
 

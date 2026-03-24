@@ -11,11 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial AWP 1.0.0 specification
 - 7-layer protocol model (Manifest, Agent Identity, Capabilities, Communication, Memory & State, Orchestration, Observability)
-- Compliance levels L0-L5 (Minimal, Capable, Stateful, Collaborative, Orchestrated, Enterprise)
-- 18 validation rules for pre-execution checking
+- Compliance levels L0-L5 (Core, Composable, Communicative, Memorable, Observable, Enterprise)
+- 24 validation rules (R1-R24) for pre-execution checking
 - Python reference implementation
 - Build skill for AI assistants
-- 5 example workflows (hello-world, two-agents, tool-use, memory, full-stack)
+- 6 example workflows (hello-world, research-pipeline, chat-team, memory-workflow, observable-analytics, enterprise)
+- Code Mode: agents write code against a typed SDK instead of calling tools one-by-one
+- Custom MCP tools with secret injection
+- Cloudflare Workers adapter for edge deployment
 - Primer documentation (motivation, concepts, quickstart, comparison, FAQ)
 - Normative specification documents for all 7 layers
 - `.awp.zip` packaging format

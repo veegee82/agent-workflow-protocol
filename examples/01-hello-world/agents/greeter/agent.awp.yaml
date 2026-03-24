@@ -1,41 +1,39 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "greeter"
-  role: "greeter"
-  description: "A simple agent that greets the user with a friendly message."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: greeter
+  role: greeting_specialist
+  description: "Generates personalized greetings based on user input"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
     temperature: 0.7
+    max_tokens: 512
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
     greeting:
-      type: "string"
-      description: "A friendly greeting message for the user"
-      shareable: true
+      type: string
+      description: "The personalized greeting message"
+      required: true
+    tone:
+      type: string
+      description: "The tone of the greeting (formal, casual, humorous, etc.)"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence score for the greeting quality"
       required: true
-
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2

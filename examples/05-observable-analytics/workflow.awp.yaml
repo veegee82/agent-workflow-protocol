@@ -1,0 +1,81 @@
+awp: "1.0.0"
+
+workflow:
+  name: observable-analytics
+  version: "1.0.0"
+  description: "Analytics pipeline with full observability demonstrating L4 Observable compliance"
+  author: "AWP Examples"
+  tags: ["example", "l4", "observable", "analytics"]
+
+orchestration:
+  execution:
+    mode: sequential
+    timeout:
+      per_agent: 60
+      total: 300
+    max_parallel_agents: 4
+    error_handling:
+      default: continue
+      max_retries: 1
+      retry_delay: 2.0
+  graph:
+    - id: collector
+      agent: collector
+      depends_on: []
+      share_output:
+        - raw_data
+        - data_quality
+    - id: processor
+      agent: processor
+      depends_on: ["collector"]
+      share_output:
+        - processed_data
+        - statistics
+    - id: reporter
+      agent: reporter
+      depends_on: ["processor"]
+      share_output:
+        - report
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: selective
+  auto_inject:
+    run_id: "{{RUN_ID}}"
+    timestamp: "{{TIMESTAMP}}"
+
+communication:
+  bus:
+    type: internal
+
+memory:
+  enabled: true
+  tiers:
+    long_term:
+      enabled: true
+      type: file
+      path: workspace/MEMORY.md
+      inject: true
+    daily_log:
+      enabled: true
+      type: file
+      path: workspace/memory
+      auto_write: true
+
+observability:
+  tracing:
+    enabled: true
+    export:
+      format: jsonl
+      path: data/traces
+  metrics:
+    enabled: true
+    export:
+      format: json
+      path: data/metrics
+  audit:
+    enabled: true
+    export:
+      format: jsonl
+      path: data/audit

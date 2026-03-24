@@ -1,46 +1,39 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "planner"
-  role: "planner"
-  description: "Analyzes a research topic and produces a structured plan with subtopics."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: planner
+  role: research_planner
+  description: "Analyzes research topics and creates structured research plans"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
     temperature: 0.3
+    max_tokens: 1024
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
-    research_plan:
-      type: "string"
-      description: "The structured research plan"
-      shareable: true
+    research_questions:
+      type: array
+      description: "List of specific research questions to investigate"
       required: true
-    subtopics:
-      type: "array"
-      description: "List of subtopics to investigate"
-      shareable: true
+    search_strategy:
+      type: string
+      description: "Strategy for conducting the research"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in the research plan quality"
       required: true
-
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2

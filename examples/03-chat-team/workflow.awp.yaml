@@ -1,52 +1,57 @@
-# AWP Workflow Manifest — Chat Team
-# Compliance Level: L2 Communicative
-
 awp: "1.0.0"
 
 workflow:
-  name: "chat-team"
+  name: chat-team
   version: "1.0.0"
-  description: >
-    Two agents communicating via the message bus. The coordinator sends
-    research requests to the specialist, who responds with results.
-    Demonstrates inter-agent messaging outside the DAG flow.
+  description: "Agent team with message bus communication demonstrating L2 Communicative compliance"
+  author: "AWP Examples"
+  tags: ["example", "l2", "communicative", "messaging"]
 
 orchestration:
-  engine: "dag"
-  graph:
-    - id: "coordinator"
-      agent: "coordinator"
-      enabled: true
-      depends_on: []
-      share_input: {}
-      description: "Coordinates research by sending questions to the specialist via the message bus."
-    - id: "specialist"
-      agent: "specialist"
-      enabled: true
-      depends_on:
-        - "coordinator"
-      share_input:
-        coordinator:
-          - "task_summary"
-      description: "Receives questions from the coordinator and provides expert responses."
   execution:
-    mode: "sequential"
+    mode: sequential
     timeout:
-      per_agent: 120
+      per_agent: 45
       total: 300
+    max_parallel_agents: 4
+    error_handling:
+      default: continue
+      max_retries: 1
+      retry_delay: 2.0
+  graph:
+    - id: coordinator
+      agent: coordinator
+      depends_on: []
+      share_output:
+        - task_breakdown
+        - assignments
+    - id: specialist
+      agent: specialist
+      depends_on: ["coordinator"]
+      share_output:
+        - analysis
+        - recommendations
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: selective
 
 communication:
   bus:
-    type: "in_memory"
+    type: internal
+    persistence: "run"
     max_message_size: 65536
+    delivery: at_least_once
+    ordering: fifo
   channels:
-    - name: "research_requests"
-      type: "direct"
-      from: "coordinator"
-      to: "specialist"
-
-state:
-  persistence:
-    enabled: true
-  sharing:
-    strategy: "full"
+    - name: task_assignments
+      type: direct
+      participants:
+        publishers: ["coordinator"]
+        subscribers: ["specialist"]
+    - name: status_updates
+      type: broadcast
+      participants:
+        publishers: ["specialist"]
+        subscribers: ["coordinator"]

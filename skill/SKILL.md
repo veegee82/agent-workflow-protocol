@@ -403,7 +403,7 @@ State the total file count and the target compliance level.
 
 #### Step 6: Validation Preview
 
-List which of the 18 rules (R1-R18) apply and confirm they will be satisfied:
+List which of the 24 rules (R1-R24) apply and confirm they will be satisfied:
 
 > **Compliance Target:** L{N} {Level Name}
 > **Applicable Rules:** R1-R{max} (all satisfied by this plan)
@@ -1082,6 +1082,6 @@ The `references/` directory contains condensed documentation for AI context:
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification (~2000 words). |
 | `compliance-levels.md` | Quick reference for L0-L5 compliance. |
-| `validation-rules.md` | R1-R18 checklist format. |
+| `validation-rules.md` | R1-R24 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |

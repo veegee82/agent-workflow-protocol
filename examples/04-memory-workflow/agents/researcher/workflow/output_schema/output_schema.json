@@ -3,20 +3,21 @@
   "type": "object",
   "properties": {
     "findings": {
-      "type": "string"
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Research findings from this session"
     },
-    "memory_context": {
-      "type": "string"
-    },
-    "prior_knowledge_used": {
-      "type": "boolean"
+    "key_facts": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Key facts extracted and saved to memory"
     },
     "confidence": {
       "type": "number",
       "minimum": 0.0,
-      "maximum": 1.0
+      "maximum": 1.0,
+      "description": "Confidence in research findings"
     }
   },
-  "required": ["findings", "memory_context", "prior_knowledge_used", "confidence"],
-  "additionalProperties": false
+  "required": ["findings", "key_facts", "confidence"]
 }

@@ -1,48 +1,47 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "coordinator"
-  role: "coordinator"
-  description: "Coordinates research by sending questions to the specialist via the message bus."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: coordinator
+  role: team_coordinator
+  description: "Coordinates team tasks and assigns work via message bus"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
     temperature: 0.3
+    max_tokens: 1024
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
-
-tools:
-  enabled: true
-  max_calls: 5
-  allowed:
-    - "agent.send_message"
-    - "agent.list_messages"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
-    task_summary:
-      type: "string"
-      description: "Summary of the coordinated research task"
-      shareable: true
+    task_breakdown:
+      type: array
+      description: "List of subtasks identified"
+      required: true
+    assignments:
+      type: array
+      description: "Task assignments sent to specialists"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in task coordination quality"
       required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
 
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 5
+    allowed:
+      - "agent.send_message"
+      - "agent.list_messages"

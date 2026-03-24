@@ -1,26 +1,10 @@
-from __future__ import annotations
-
-from typing import Any, Dict
-
-from awp.agent import AWPAgent
-
+"""Coordinator agent -- manages team via message bus."""
+from awp import AWPAgent
 
 class Agent(AWPAgent):
-    """AWP agent: coordinator."""
-
     @property
     def name(self) -> str:
         return "coordinator"
 
-    def run(self, task: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the agent.
-
-        When using WorkflowRunner (awp.runtime), this method is not
-        called directly -- the runner uses StandaloneAgent which reads
-        agent.awp.yaml and handles LLM calls automatically.
-
-        Override this method for custom agent logic beyond the
-        standard prompt-LLM-parse cycle.
-        """
-        state = state or {}
-        return {self.name: {"result": "default", "confidence": 0.0}}
+    def run(self, task: str, state: dict) -> dict:
+        return {self.name: {"task_breakdown": [], "assignments": [], "confidence": 0.0}}

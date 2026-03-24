@@ -1,4 +1,4 @@
-"""Rule validation (R1-R18) for AWP workflows."""
+"""Rule validation (R1-R24) for AWP workflows."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def validate_rules(
     agents: dict[str, AWPAgent],
     workflow_path: Path,
 ) -> ValidationResult:
-    """Validate all 18 rules against AWP structures.
+    """Validate all 24 rules (R1-R24) against AWP structures.
 
     Args:
         manifest: Parsed AWPManifest.

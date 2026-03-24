@@ -1,46 +1,35 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "writer"
-  role: "writer"
-  description: "Transforms research findings into a polished, well-structured article."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: writer
+  role: report_writer
+  description: "Writes comprehensive research reports from findings"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
     temperature: 0.5
+    max_tokens: 2048
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
-    article:
-      type: "string"
-      description: "The polished article"
-      shareable: true
-      required: true
-    summary:
-      type: "string"
-      description: "A brief summary of the article"
-      shareable: true
+    report:
+      type: string
+      description: "The complete research report"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in the report quality"
       required: true
-
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2

@@ -1,6 +1,6 @@
 # Validation Rules
 
-**AWP Specification v1.0.0 — Validation Rules R1–R18**
+**AWP Specification v1.0.0 — Validation Rules R1–R24**
 **Status:** Draft Standard
 
 ---

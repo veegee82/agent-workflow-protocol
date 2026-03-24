@@ -370,4 +370,4 @@ The AI will:
 7. Enable memory (L3) for incident knowledge
 8. Place `infra.health_check` and `infra.run_command` tools in `mcp/`
 9. Place `incident_response` and `infrastructure_patterns` skills in `skills/`
-10. Validate against R1-R18 + D1-D7
+10. Validate against R1-R24 + D1-D7

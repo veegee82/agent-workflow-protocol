@@ -1,3 +1,1 @@
-# Research Task
-
-Using the research plan and subtopics from the planner, investigate each subtopic thoroughly. Compile your findings with supporting sources.
+Research the topic using the provided research plan. Use web search tools to gather information and compile your findings.

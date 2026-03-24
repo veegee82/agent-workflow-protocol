@@ -178,7 +178,7 @@ workflow:
     A two-agent workflow that researches a topic using web search
     and produces a structured written report.
   author: "AWP Contributors"
-  license: "Apache-2.0"
+  license: "MIT"
   tags:
     - research
     - writing

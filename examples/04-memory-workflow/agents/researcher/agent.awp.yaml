@@ -1,62 +1,58 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "researcher"
-  role: "researcher"
-  description: "Researches topics using memory for context from past sessions."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: researcher
+  role: memory_researcher
+  description: "Researches topics and stores findings in persistent memory"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
-    temperature: 0.2
+    temperature: 0.3
+    max_tokens: 1536
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
-
-tools:
-  enabled: true
-  max_calls: 10
-  allowed:
-    - "memory.read"
-    - "memory.search"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
     findings:
-      type: "string"
-      description: "Research findings compiled from investigation"
-      shareable: true
+      type: array
+      description: "Research findings from this session"
       required: true
-    memory_context:
-      type: "string"
-      description: "Relevant context retrieved from memory"
-      shareable: true
+    key_facts:
+      type: array
+      description: "Key facts extracted and saved to memory"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in research findings"
       required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 10
+    allowed:
+      - "memory.read"
+      - "memory.write"
+      - "memory.search"
+      - "web.search"
 
 memory:
   enabled: true
-  long_term_inject: true
-  long_term_max_tokens: 2000
-  daily_log:
-    enabled: true
-    auto_write: true
-  search_enabled: true
-
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+  tiers:
+    long_term:
+      enabled: true
+      type: file
+      path: "workspace/MEMORY.md"
+      inject: true

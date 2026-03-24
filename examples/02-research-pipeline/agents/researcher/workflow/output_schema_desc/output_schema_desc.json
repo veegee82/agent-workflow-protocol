@@ -1,5 +1,5 @@
 {
-  "findings": "Array of finding objects, one per subtopic, each containing a summary and key points.",
-  "sources": "Array of source references cited in the findings.",
-  "confidence": "Confidence score from 0.0 to 1.0 indicating the depth and reliability of the research."
+  "findings": "Key research findings",
+  "sources": "Sources and references used",
+  "confidence": "Confidence in research findings quality (0.0 to 1.0)"
 }

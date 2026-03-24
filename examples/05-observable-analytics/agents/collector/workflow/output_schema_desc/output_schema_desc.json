@@ -1,0 +1,5 @@
+{
+  "raw_data": "Collected raw data for analytics processing",
+  "data_quality": "Assessment of data quality (completeness, accuracy)",
+  "confidence": "Confidence in data quality (0.0 to 1.0)"
+}

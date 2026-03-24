@@ -2,18 +2,16 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "article": {
-      "type": "string"
-    },
-    "summary": {
-      "type": "string"
+    "report": {
+      "type": "string",
+      "description": "The complete research report"
     },
     "confidence": {
       "type": "number",
       "minimum": 0.0,
-      "maximum": 1.0
+      "maximum": 1.0,
+      "description": "Confidence in the report quality"
     }
   },
-  "required": ["article", "summary", "confidence"],
-  "additionalProperties": false
+  "required": ["report", "confidence"]
 }

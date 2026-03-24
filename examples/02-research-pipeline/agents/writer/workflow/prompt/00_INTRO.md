@@ -1,3 +1,1 @@
-# Writing Task
-
-Using the research findings and sources provided, write a polished article. Structure it clearly with an introduction, body sections, and conclusion. Also provide a brief summary.
+Write a comprehensive research report based on the findings from the researcher. Include an introduction, key findings, analysis, and conclusion.

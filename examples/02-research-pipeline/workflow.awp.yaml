@@ -1,53 +1,43 @@
-# AWP Workflow Manifest — Research Pipeline
-# Compliance Level: L1 Composable
-
 awp: "1.0.0"
 
 workflow:
-  name: "research-pipeline"
+  name: research-pipeline
   version: "1.0.0"
-  description: >
-    Three-agent research pipeline demonstrating DAG dependencies and state sharing.
-    The planner designs the research approach, the researcher gathers information,
-    and the writer produces the final article.
+  description: "Multi-agent research pipeline demonstrating L1 Composable compliance with state sharing"
+  author: "AWP Examples"
+  tags: ["example", "l1", "composable", "research"]
 
 orchestration:
-  engine: "dag"
-  graph:
-    - id: "planner"
-      agent: "planner"
-      enabled: true
-      depends_on: []
-      share_input: {}
-      description: "Analyzes the research topic and produces a structured plan with subtopics."
-    - id: "researcher"
-      agent: "researcher"
-      enabled: true
-      depends_on:
-        - "planner"
-      share_input:
-        planner:
-          - "research_plan"
-          - "subtopics"
-      description: "Investigates each subtopic from the planner and compiles findings."
-    - id: "writer"
-      agent: "writer"
-      enabled: true
-      depends_on:
-        - "researcher"
-      share_input:
-        researcher:
-          - "findings"
-          - "sources"
-      description: "Transforms research findings into a polished article."
   execution:
-    mode: "sequential"
+    mode: sequential
     timeout:
-      per_agent: 120
+      per_agent: 60
       total: 300
+    max_parallel_agents: 4
+    error_handling:
+      default: continue
+      max_retries: 1
+      retry_delay: 2.0
+  graph:
+    - id: planner
+      agent: planner
+      depends_on: []
+      share_output:
+        - research_questions
+        - search_strategy
+    - id: researcher
+      agent: researcher
+      depends_on: ["planner"]
+      share_output:
+        - findings
+        - sources
+    - id: writer
+      agent: writer
+      depends_on: ["researcher"]
+      share_output:
+        - report
 
 state:
-  persistence:
-    enabled: true
+  model: shared_dict
   sharing:
-    strategy: "full"
+    strategy: selective

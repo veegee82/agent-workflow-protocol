@@ -1,5 +1,5 @@
 {
-  "research_plan": "A high-level narrative describing the overall research approach and strategy.",
-  "subtopics": "An array of subtopic objects, each with a name, description, and priority (1=highest).",
-  "confidence": "Confidence score from 0.0 to 1.0 indicating how well-structured the plan is."
+  "research_questions": "List of specific research questions to investigate",
+  "search_strategy": "Strategy for conducting the research",
+  "confidence": "Confidence in the research plan quality (0.0 to 1.0)"
 }

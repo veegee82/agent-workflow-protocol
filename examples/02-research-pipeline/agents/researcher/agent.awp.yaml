@@ -1,46 +1,47 @@
 awp_agent: "1.0.0"
 
 identity:
-  id: "researcher"
-  role: "researcher"
-  description: "Investigates subtopics from the planner and compiles detailed findings."
-
-runtime:
-  class_name: "Agent"
-  strategy_folder: "workflow"
+  id: researcher
+  role: research_analyst
+  description: "Conducts research based on the plan using web search tools"
 
 model:
-  name: "provider/model-name"
+  name: ""
   parameters:
     temperature: 0.2
+    max_tokens: 2048
 
 prompt:
-  system: "instructions/SYSTEM_PROMPT.md"
-  user_template: "prompt/00_INTRO.md"
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
 
 output:
-  format: "json"
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
   contract:
     findings:
-      type: "string"
-      description: "Compiled research findings"
-      shareable: true
+      type: array
+      description: "Key research findings"
       required: true
     sources:
-      type: "array"
-      description: "List of sources consulted"
-      shareable: true
+      type: array
+      description: "Sources and references used"
       required: true
     confidence:
-      type: "number"
+      type: number
       minimum: 0.0
       maximum: 1.0
-      description: "Confidence score"
-      shareable: true
+      description: "Confidence in research findings quality"
       required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
 
-vision:
-  enabled: false
-
-preprocessor:
-  enabled: false
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 10
+    allowed:
+      - "web.search"
+      - "http.request"

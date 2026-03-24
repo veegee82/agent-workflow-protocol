@@ -1,0 +1,5 @@
+{
+  "processed_data": "Processed and cleaned analytics data",
+  "statistics": "Computed statistics and metrics from the data",
+  "confidence": "Confidence in processing accuracy (0.0 to 1.0)"
+}

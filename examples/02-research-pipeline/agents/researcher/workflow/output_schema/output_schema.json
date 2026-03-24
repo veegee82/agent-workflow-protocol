@@ -4,36 +4,20 @@
   "properties": {
     "findings": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "subtopic": { "type": "string" },
-          "summary": { "type": "string" },
-          "key_points": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "required": ["subtopic", "summary", "key_points"]
-      }
+      "items": {"type": "string"},
+      "description": "Key research findings"
     },
     "sources": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": { "type": "string" },
-          "reference": { "type": "string" }
-        },
-        "required": ["title", "reference"]
-      }
+      "items": {"type": "string"},
+      "description": "Sources and references used"
     },
     "confidence": {
       "type": "number",
       "minimum": 0.0,
-      "maximum": 1.0
+      "maximum": 1.0,
+      "description": "Confidence in research findings quality"
     }
   },
-  "required": ["findings", "sources", "confidence"],
-  "additionalProperties": false
+  "required": ["findings", "sources", "confidence"]
 }

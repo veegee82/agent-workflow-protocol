@@ -1,0 +1,43 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: report_writer
+  role: report_writer
+  description: "Writes final reports when risk threshold is exceeded"
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.4
+    max_tokens: 3000
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
+  contract:
+    final_report:
+      type: string
+      description: "The complete final report"
+      required: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence in report quality"
+      required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 5
+    allowed:
+      - "file.write"
+      - "memory.write"

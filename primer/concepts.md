@@ -112,12 +112,12 @@ AWP defines six compliance levels. Each level adds protocol layers and capabilit
 
 | Level | Name | Layers Required | What It Adds |
 |-------|------|-----------------|--------------|
-| **L0** | Minimal | 0 + 1 | Manifest and agent identity only. Enough to describe a single-agent workflow. |
-| **L1** | Capable | 0 + 1 + 2 | Tool access (MCP), skills, data sources. Agents can act on the world. |
-| **L2** | Stateful | 0 + 1 + 2 + 4 | State management, memory tiers, output contracts. Agents remember and share. |
-| **L3** | Collaborative | 0 + 1 + 2 + 3 + 4 | Message bus, channels, inter-agent communication outside the DAG. |
-| **L4** | Orchestrated | 0 + 1 + 2 + 3 + 4 + 5 | Full DAG orchestration, execution modes, error handling, loops. |
-| **L5** | Enterprise | All (0-6) | Observability, audit logs, health checks, OpenTelemetry integration. |
+| **L0** | Core | 0 + 1 | Manifest + 1 agent + output contract. Enough to describe a single-agent workflow. |
+| **L1** | Composable | 0 + 1 + 2 | Multi-agent DAG + state sharing. Agents can act on the world. |
+| **L2** | Communicative | 0 + 1 + 2 + 3 | Message bus, channels, inter-agent communication outside the DAG. |
+| **L3** | Memorable | 0 + 1 + 2 + 3 + 4 | Multi-tier memory (long-term + daily logs). Agents remember and share. |
+| **L4** | Observable | 0 + 1 + 2 + 3 + 4 + 5 | Tracing + metrics + audit trail. Full DAG orchestration with monitoring. |
+| **L5** | Enterprise | All (0-6) | All above + security (circuit breaker, ACL, rate limiting). |
 
 A runtime advertises the highest compliance level it supports. A workflow declares the minimum level it requires. If the runtime's level meets or exceeds the workflow's requirement, execution can proceed.
 

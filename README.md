@@ -1,7 +1,21 @@
-# AWP - Agent Workflow Protocol
+<p align="center">
+  <img src="assets/awp_logo.png" alt="AWP Logo" width="200" />
+</p>
 
-An open standard for describing multi-agent workflows.
-Declarative. Runtime-agnostic. Portable.
+<h1 align="center">AWP - Agent Workflow Protocol</h1>
+
+<p align="center">
+  <strong>An open standard for describing multi-agent workflows.</strong><br/>
+  Declarative. Runtime-agnostic. Portable.
+</p>
+
+<p align="center">
+  <a href="docs/">Docs</a> &middot;
+  <a href="primer/quickstart.md">Quickstart</a> &middot;
+  <a href="examples/">Examples</a> &middot;
+  <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
+  <a href="skill/SKILL.md">AWP Skill</a>
+</p>
 
 ---
 
@@ -22,19 +36,86 @@ full picture:
 | A2A | Agent communication | No orchestration, no memory, no tools |
 | OpenAPI | HTTP API description | No agent concept, no DAG structure |
 
-AWP fills this gap. It describes a **complete** multi-agent workflow in a
+**AWP fills this gap.** It describes a **complete** multi-agent workflow in a
 single, portable format that any runtime can execute.
 
-## The Idea
+## The Core Idea
 
 AWP is to agentic workflows what **Docker Compose** is to container stacks:
 
-- A declarative YAML describes the entire system
+- A **declarative YAML** describes the entire system
 - Services (= Agents) are defined with their dependencies
 - Volumes (= Memory), Networks (= Communication), Health-Checks (= Observability)
 - Portable across different container runtimes (= agent platforms)
 
-One manifest. Any runtime. Full workflow.
+**One manifest. Any runtime. Full workflow.**
+
+But AWP goes further. It doesn't just describe workflows -- it provides a
+complete **capability stack** that turns any LLM agent into a powerful,
+autonomous system:
+
+```
+  ┌──────────────────────────────────────────────────────────────┐
+  │                    AWP Capability Stack                       │
+  │                                                              │
+  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────────┐ │
+  │  │  Generated   │  │    MCP      │  │     Code Mode        │ │
+  │  │   Skills     │  │   Tools     │  │  (SDK + Sandbox)     │ │
+  │  │             │  │             │  │                      │ │
+  │  │ Domain know- │  │ Dynamic     │  │ Write code against   │ │
+  │  │ ledge as     │  │ actions:    │  │ a typed SDK instead  │ │
+  │  │ Markdown,    │  │ web.search  │  │ of calling tools     │ │
+  │  │ injected     │  │ file.write  │  │ one by one.          │ │
+  │  │ into the     │  │ memory.*    │  │                      │ │
+  │  │ agent's      │  │ shell.exec  │  │ 10 tool calls in     │ │
+  │  │ system       │  │ custom.*    │  │ one LLM roundtrip.   │ │
+  │  │ prompt.      │  │             │  │                      │ │
+  │  └─────────────┘  └─────────────┘  └──────────────────────┘ │
+  │                                                              │
+  │  ┌─────────────────────────────────────────────────────────┐ │
+  │  │                    CLI Runtime                           │ │
+  │  │  awp run / awp validate / awp pack / awp visualize      │ │
+  │  └─────────────────────────────────────────────────────────┘ │
+  └──────────────────────────────────────────────────────────────┘
+```
+
+### What This Combination Makes Possible
+
+The real power of AWP lies in the synergy of its four pillars:
+
+**1. Generated Skills** -- Domain expertise on demand.
+Tell the AI *"build a compliance workflow for cloud security"* and it generates
+`skills/cloud-security/SKILL.md` with CIS benchmarks, NIST controls, and
+severity classifications. The skill is injected into the agent's system prompt
+at runtime, giving the LLM deep domain knowledge without manual prompt engineering.
+
+**2. MCP Tools** -- The agent's hands.
+Every agent can call tools: search the web, read/write files, query APIs, run
+shell commands, access memory. Tools are declared in YAML and resolved at
+runtime. Need a custom tool? Drop a Python file into `mcp/` -- auto-discovered,
+auto-registered. Need to override a built-in? Use the same FQN.
+
+**3. Code Mode** -- 10x efficiency for complex tasks.
+Instead of calling tools one-at-a-time (one LLM roundtrip per tool), Code Mode
+lets the agent write a complete program against a typed SDK. One roundtrip,
+ten tool calls. The code runs in a sandboxed environment (subprocess, Docker,
+or V8 isolate). Same output contract, dramatically fewer tokens.
+
+**4. CLI Runtime** -- From YAML to results in one command.
+`awp run my-workflow/ --task "..."` validates the workflow, resolves tools,
+builds prompts with skills, orchestrates the agent DAG, and collects results.
+No framework lock-in. No boilerplate. Just run it.
+
+**Together, these four pillars let you build workflows that:**
+- Understand their domain deeply (Skills)
+- Act on that understanding (MCP Tools)
+- Do it efficiently (Code Mode)
+- Run anywhere (CLI + portable YAML)
+
+Example: A security audit workflow where the analyst agent *knows* CIS benchmarks
+(Skill), *queries* cloud resources for violations (MCP Tool), and *generates*
+a complete remediation script in one shot (Code Mode) -- all described in
+declarative YAML that runs on any AWP-compatible runtime.
 
 ## The 7-Layer Model
 
@@ -55,10 +136,70 @@ are always required. Everything above is opt-in -- add layers only when
 you need them. A simple single-agent workflow uses two layers. A
 production enterprise system uses all seven.
 
+## Installation
+
+### Quick Install (Linux / macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/veegee82/agent-workflow-protocol/main/install.sh | bash
+```
+
+Or clone and run locally:
+
+```bash
+git clone https://github.com/veegee82/agent-workflow-protocol.git
+cd agent-workflow-protocol
+./install.sh
+```
+
+The installer:
+1. Checks for Python >= 3.10, pip, and git
+2. Creates `~/.awp/` with an isolated Python virtual environment
+3. Installs the `awp-protocol` package
+4. Creates the `awp` CLI wrapper in `~/.awp/bin/`
+5. Adds `~/.awp/bin` to your PATH (`.bashrc`, `.zshrc`, or `.profile`)
+6. Runs an interactive **LLM Configuration Wizard** that sets up your preferred provider (OpenRouter, Ollama, OpenAI, Groq, Together, or custom)
+
+After installation, restart your shell or run:
+
+```bash
+source ~/.bashrc   # or ~/.zshrc
+awp --help
+```
+
+### Quick Install (Windows)
+
+```powershell
+# PowerShell (Administrator)
+irm https://raw.githubusercontent.com/veegee82/agent-workflow-protocol/main/install.ps1 | iex
+```
+
+Or run `install.bat` from the cloned repository.
+
+### Manual Install (pip)
+
+If you prefer a manual setup:
+
+```bash
+pip install awp-protocol
+
+# Set LLM credentials
+export LLM_API_KEY=sk-...
+export LLM_MODEL=anthropic/claude-sonnet-4-20250514
+export LLM_BASE_URL=https://openrouter.ai/api/v1    # optional
+```
+
+### Verify Installation
+
+```bash
+awp --help                       # Show available commands
+awp validate examples/01-hello-world/   # Validate an example workflow
+awp run examples/01-hello-world/ --task "Say hello to the world"
+```
+
 ## From Idea to Workflow -- The Red Thread
 
-AWP follows a deliberate path from abstract idea to running code. Each step
-adds more detail, so you stay in control and nothing gets lost in translation.
+AWP follows a deliberate path from abstract idea to running code:
 
 ```
  Idea → Requirements → Plan → Code → Run → Share
@@ -94,10 +235,8 @@ implementation:
 7. **Validation Menu** -- Multiple-choice questions to confirm or correct each
    design decision (agents, data flow, tools, compliance level, memory).
 
-You validate the plan point by point through the menu. The AI pre-selects
-its recommendations -- you confirm, adjust, or override. Only when you
-approve does code generation start. The plan is the contract between you
-and the AI.
+You validate the plan point by point. The AI pre-selects its recommendations --
+you confirm, adjust, or override. Only when you approve does code generation start.
 
 ### Step 4: The AWP Skill generates your workflow
 
@@ -126,7 +265,11 @@ ready to run.
 
 ### Step 5: Run it
 
-With the standalone AWP runtime:
+```bash
+awp run research-pipeline/ --task "Research quantum computing trends in 2026"
+```
+
+Or via the Python API:
 
 ```python
 from awp.runtime import WorkflowRunner
@@ -136,31 +279,17 @@ result = runner.run("Research quantum computing trends in 2026")
 print(result["writer"]["article"])
 ```
 
-Or via CLI:
-
-```bash
-pip install awp-protocol
-awp run research-pipeline/ --task "Research quantum computing"
-```
-
 ### Step 6: Share it
 
-Pack your workflow as a portable archive:
-
 ```bash
+# Pack as portable archive
 awp pack research-pipeline/
-# Creates research-pipeline.awp.zip
-```
+# → Creates research-pipeline.awp.zip
 
-Or publish to ClawHub (the open skill registry):
-
-```bash
+# Or publish to ClawHub
 clawhub publish research-pipeline/
-```
 
-Anyone can install and run it:
-
-```bash
+# Anyone can install and run it
 clawhub install research-pipeline
 awp run research-pipeline/ --task "Research AI safety"
 ```
@@ -186,10 +315,6 @@ class Agent(AWPAgent):
         return {self.name: {"findings": "...", "confidence": 0.85}}
 ```
 
-Any platform that implements the `AWPAgent` interface can run AWP
-workflows. The standalone runtime included in `awp-protocol` proves
-this works without any external framework.
-
 ### Available Runtimes
 
 | Runtime | Language | Deployment | Best for |
@@ -199,6 +324,155 @@ this works without any external framework.
 
 Third-party platforms can provide their own adapters. Each adapter
 translates the AWP interface to the platform's native agent system.
+
+## Enterprise Integration -- Bring Your Own Infrastructure
+
+Most companies already have production systems for memory, RAG, tools, and
+observability. AWP doesn't replace them -- it **plugs into them**. The protocol
+defines clear interfaces at every layer, so you swap implementations without
+touching the workflow definition.
+
+### The Principle: Interfaces, Not Implementations
+
+AWP workflows describe **what** an agent needs (`memory.search`, `web.search`,
+a skill with domain knowledge). They never describe **how** those capabilities
+are implemented. This separation is the key to enterprise adoption:
+
+```
+  AWP Workflow (portable)          Your Infrastructure (custom)
+  ─────────────────────           ──────────────────────────────
+  memory.write  ──────────────→   Pinecone / Weaviate / pgvector / Redis
+  memory.search ──────────────→   Your RAG pipeline (embeddings + reranker)
+  web.search    ──────────────→   Internal search API / Elasticsearch
+  shell.execute ──────────────→   Your sandboxed execution environment
+  custom.erp    ──────────────→   SAP / Salesforce / internal APIs
+  Skills (.md)  ──────────────→   Your knowledge base / Confluence export
+  Tracing       ──────────────→   Datadog / Grafana / your OTEL collector
+```
+
+### How It Works in Practice
+
+**1. Replace the Memory Backend**
+
+AWP defines a standard memory interface (`memory.read`, `memory.write`,
+`memory.search`). The standalone runtime uses file-based storage. Your company
+replaces it with a single MCP tool file:
+
+```python
+# mcp/memory_search.py -- overrides the built-in memory.search
+from mcp.server.fastmcp import FastMCP
+import your_vector_db  # Pinecone, Weaviate, Qdrant, pgvector, ...
+
+app = FastMCP("memory")
+
+@app.tool("memory.search")
+def search(*, query: str, top_k: int = 5, namespace: str = "default") -> dict:
+    """Semantic search across company knowledge base."""
+    results = your_vector_db.query(
+        embedding=embed(query),
+        top_k=top_k,
+        namespace=namespace
+    )
+    return {"ok": True, "status": 200, "data": {"results": results}, "error": None}
+```
+
+Drop this file into `mcp/` and every agent in the workflow that calls
+`memory.search` now queries your vector database. No YAML changes. No
+agent code changes. The workflow is identical -- only the backend differs.
+
+**2. Plug In Your RAG Pipeline**
+
+If your company has a sophisticated RAG system (chunking, embeddings, reranking,
+hybrid search), expose it as a custom MCP tool:
+
+```python
+# mcp/knowledge_base.py
+@app.tool("kb.query")
+def query(*, question: str, sources: list[str] = [], rerank: bool = True) -> dict:
+    """Query the company knowledge base with RAG."""
+    chunks = your_rag_pipeline.retrieve(question, sources=sources)
+    if rerank:
+        chunks = your_reranker.rerank(question, chunks)
+    return {"ok": True, "status": 200, "data": {"chunks": chunks}, "error": None}
+```
+
+Agents declare `kb.query` in their `tools.allowed` list, and the existing
+RAG infrastructure is available to every workflow -- without rebuilding anything.
+
+**3. Connect Your Internal Tool Ecosystem**
+
+Most enterprises have internal APIs, ERPs, ticketing systems, and databases.
+Each becomes an MCP tool:
+
+```python
+# mcp/erp_connector.py     → erp.query_orders, erp.update_status
+# mcp/jira_ops.py           → jira.create_ticket, jira.search
+# mcp/salesforce.py          → crm.get_account, crm.update_opportunity
+# mcp/internal_auth.py       → auth.validate_token, auth.get_permissions
+```
+
+These tools live in a shared `mcp/` library that all workflows can reference.
+API keys are managed via `secrets.yaml` -- the LLM never sees credentials.
+
+**4. Inject Company Knowledge via Skills**
+
+Your compliance rules, coding standards, product documentation, or domain
+expertise become Skills -- Markdown files injected into the agent's context:
+
+```
+my-workflow/
+  skills/
+    company-policies/
+      SKILL.md              ← exported from Confluence / Notion
+    product-catalog/
+      SKILL.md              ← generated from your PIM system
+    coding-standards/
+      SKILL.md              ← your internal style guide
+```
+
+Skills can be generated from existing documentation, exported from wikis,
+or maintained as living documents. They give every agent in the workflow
+access to institutional knowledge without fine-tuning.
+
+**5. Route Observability to Your Stack**
+
+AWP's observability layer (L4) emits OpenTelemetry-compatible traces and
+metrics. Point them at your existing collector:
+
+```yaml
+# workflow.awp.yaml
+observability:
+  tracing:
+    enabled: true
+    exporter: otlp
+    endpoint: "https://otel-collector.internal:4317"
+  metrics:
+    enabled: true
+    exporter: prometheus
+    endpoint: "https://prometheus.internal:9090"
+```
+
+Every agent execution, tool call, and state transition shows up in your
+Datadog, Grafana, or Splunk dashboards -- the same monitoring your team
+already uses.
+
+### Enterprise Integration Summary
+
+| Your System | AWP Integration Point | How |
+|-------------|----------------------|-----|
+| Vector DB (Pinecone, Weaviate, ...) | `memory.*` tools | Override in `mcp/` |
+| RAG Pipeline | Custom MCP tool (`kb.query`) | Add to `mcp/` |
+| Internal APIs / ERP / CRM | Custom MCP tools | Add to `mcp/` |
+| Knowledge Base / Wiki | Skills (`.md` files) | Export to `skills/` |
+| Auth / SSO | Secrets + custom tools | `secrets.yaml` + `mcp/` |
+| Observability (Datadog, Grafana) | OTEL exporter config | `workflow.awp.yaml` |
+| Sandboxing / Security | Custom sandbox config | `agent.awp.yaml` |
+| LLM Provider (Azure OpenAI, Bedrock) | Runtime config | `.env` or `secrets.yaml` |
+
+**The bottom line:** AWP workflows are portable descriptions of *what* agents
+should do. Your infrastructure decides *how* they do it. Teams write workflows
+once and run them against dev, staging, and production backends by swapping
+only the `mcp/` implementations and environment config -- the YAML never changes.
 
 ## MCP Tools -- Generate, Register, Use
 
@@ -220,13 +494,10 @@ The AWP runtime ships with these tools out of the box:
 | `memory.read` / `memory.write` / `memory.search` | Persistent memory |
 | `arithmetic.add` / `subtract` / `multiply` / `divide` | Basic math |
 
-These are registered automatically when the runtime starts. No extra files needed.
-
 ### Declaring Tools for an Agent
 
-In `agent.awp.yaml`, list which tools an agent may use:
-
 ```yaml
+# In agent.awp.yaml
 tools:
   execute: true
   max_calls: 15
@@ -236,21 +507,9 @@ tools:
     - memory.*        # glob patterns work
 ```
 
-If `allowed` is empty and `execute` is `true`, the agent can use all registered tools.
-
 ### Custom MCP Tools
 
-For domain-specific functionality, create custom tools in the `mcp/` directory
-at the workflow root. Use the **FastMCP decorator pattern**:
-
-```
-my-workflow/
-  mcp/
-    legal_search.py     ← custom tool
-    pdf_extract.py      ← custom tool
-  agents/
-    ...
-```
+For domain-specific functionality, create custom tools in the `mcp/` directory:
 
 ```python
 # mcp/legal_search.py
@@ -260,13 +519,7 @@ app = FastMCP("legal")
 
 @app.tool("legal.search_cases")
 def search_cases(*, query: str, court: str = "BGH", max_results: int = 10) -> dict:
-    """Search court decisions by keyword.
-
-    Args:
-        query: Search query.
-        court: Court filter (BGH, OLG, AG).
-        max_results: Maximum results to return.
-    """
+    """Search court decisions by keyword."""
     try:
         # ... implementation ...
         return {"ok": True, "status": 200, "data": {"cases": [...]}, "error": None}
@@ -274,115 +527,36 @@ def search_cases(*, query: str, court: str = "BGH", max_results: int = 10) -> di
         return {"ok": False, "status": 500, "data": {}, "error": str(e)}
 ```
 
-**Rules for custom tools:**
-- FQN must follow `namespace.action` format
-- Custom namespaces must NOT collide with reserved ones (`web`, `http`, `file`,
-  `shell`, `agent`, `memory`, `arithmetic`)
-- Return the standard `{"ok", "status", "data", "error"}` format
-- Filenames must not start with `_`
-
-### Auto-Discovery at Runtime
-
-The `ToolRegistry` automatically discovers and registers tools:
-
-```
-1. _register_builtins()              → web.search, file.read, memory.*, ...
-2. _discover_custom_tools(mcp/)      → scans @app.tool() decorators
-3. get_definitions(agent.allowed)    → filters to agent's allowed list
-```
-
-Custom tools in `mcp/` can **override** built-in tools by using the same FQN.
-For example, a `mcp/web_search.py` with `@app.tool("web.search")` replaces the
-default DuckDuckGo implementation with your own.
-
-### Tool Implementation Mode (Standalone Workflows)
-
-When generating a workflow with the AWP Skill, you can enable **tool implementation
-mode**. This generates working MCP implementations for every referenced built-in
-tool, making the workflow fully self-contained:
-
-```
-my-workflow/
-  mcp/
-    web_search.py         ← generated: DuckDuckGo search
-    http_request.py       ← generated: HTTP client
-    memory_write.py       ← generated: file-based memory
-    memory_search.py      ← generated: keyword search
-  agents/
-    ...
-```
-
-This is useful when you don't want to depend on the AWP runtime's built-in tools
-or need to customize the implementation (e.g., use a different search API).
-
-To enable, tell the AI skill: *"generate tool implementations"* or *"standalone tools"*.
+Custom tools are auto-discovered from `mcp/` at runtime. They can override
+built-in tools by using the same FQN.
 
 ### Tool Secrets -- API Keys Without Exposing Them to the LLM
 
 Tools that need API keys declare them in the decorator. The runtime injects them
-as a separate `_secrets` channel that the LLM never sees:
+via a `_secrets` channel that the LLM never sees:
 
 ```python
-# mcp/premium_search.py
 @app.tool("search.query", secrets=["SEARCH_API_KEY"])
 def query(*, q: str, max_results: int = 10, _secrets: dict = {}) -> dict:
-    """Search using a premium API."""
     api_key = _secrets["SEARCH_API_KEY"]    # injected by runtime
-    # ... use api_key for real API call
+    # ...
 ```
 
-Provide the actual values in `secrets.yaml` (gitignored):
+Provide values in `secrets.yaml` (gitignored):
 
 ```yaml
-# secrets.yaml
 secrets:
   SEARCH_API_KEY: "sk-abc123"
   AUTH_TOKEN: "{{ env.PROD_AUTH_TOKEN }}"   # reference env var
 ```
 
-The runner validates all secrets at startup -- fail-fast before any agent runs:
-
-```
-$ awp run my-workflow/ --task "..."
-ERROR: Missing secrets for 1 tool(s):
-  - search.query: SEARCH_API_KEY
-```
-
 Resolution priority: `secrets.yaml` > `.env` > `os.environ`.
-
-### End-to-End Example
-
-```python
-from awp.runtime.secrets import load_secrets
-from awp.runtime.tools import ToolRegistry
-
-# 1. Load secrets and create registry
-secrets = load_secrets(Path("my-workflow"))
-registry = ToolRegistry(workflow_dir=Path("my-workflow"), secrets=secrets)
-
-# 2. Validate all tool secrets are present (fail-fast)
-registry.validate_secrets()
-
-# 3. Call a tool -- secrets are injected automatically
-result = registry.call("web.search", {"query": "quantum error correction 2026"})
-print(result)
-# {"ok": True, "status": 200, "data": {"results": [...], "count": 5}, "error": None}
-
-# 4. Get tool definitions for the LLM (_secrets is excluded)
-defs = registry.get_definitions(["web.search", "search.*"])
-# LLM sees: query, max_results, language -- never sees API keys
-```
-
-For the full tool reference, see [docs/tools.md](docs/tools.md).
 
 ## Skills -- Domain Knowledge for Agents
 
 Skills are **Markdown files** that get injected into an agent's system prompt at
-runtime. They provide domain expertise, rules, terminology, or reference data
-that the LLM needs to do its job well -- without cramming everything into the
-system prompt itself.
-
-### How Skills Work
+runtime. They provide domain expertise, rules, and reference data that the LLM
+needs to do its job well.
 
 ```
                       System Prompt Assembly
@@ -394,125 +568,33 @@ system prompt itself.
                       └─────────────────────────────┘
 ```
 
-At runtime, `StandaloneAgent._build_system_prompt()` loads skills from two locations:
+### Skill Locations
 
-1. **Project-level skills** -- `{workflow}/skills/{skill_name}/SKILL.md`
-   Shared by all agents in the workflow.
-2. **Agent-level skills** -- `{agent}/workflow/skills/*.md`
-   Only available to that specific agent.
+1. **Project-level** -- `{workflow}/skills/{skill_name}/SKILL.md` (all agents)
+2. **Agent-level** -- `{agent}/workflow/skills/*.md` (single agent)
 
-### Skill File Structure
+### Generating Skills
 
-A skill is a plain Markdown file. Use the template at `skill/templates/project-skill.md`:
-
-```markdown
-# Cloud Security Best Practices
-
-## Purpose
-Domain knowledge for cloud infrastructure security analysis agents.
-
-## Domain Knowledge
-### Core Frameworks
-- CIS Benchmarks for AWS, Azure, GCP
-- NIST 800-53 security controls
-- SOC 2 Type II compliance requirements
-...
-
-## Rules
-- Always reference the specific CIS control ID when citing a benchmark
-- Distinguish between "must" (compliance requirement) and "should" (best practice)
-- Flag any publicly accessible storage buckets as critical severity
-```
-
-### Project Layout
-
-```
-my-workflow/
-  skills/
-    cloud-security/
-      SKILL.md              ← project-level skill (all agents see this)
-    compliance-frameworks/
-      SKILL.md
-  agents/
-    researcher/
-      workflow/
-        skills/
-          search-strategy.md  ← agent-level skill (only researcher sees this)
-    analyst/
-      ...
-```
-
-### Generating Skills with the AWP Skill
-
-When the AI generates a workflow via the AWP build skill, it asks whether
-domain knowledge is needed (Phase 1, question 7). If yes, it generates a
-`SKILL.md` with relevant domain knowledge during Phase 3, Step 8.
-
-Example prompt:
+When the AI generates a workflow, it asks whether domain knowledge is needed.
+If yes, it generates a `SKILL.md` with relevant domain expertise:
 
 > "Build a deep-research workflow for cloud security audits, with domain knowledge."
 
 The AI generates `skills/cloud-security/SKILL.md` containing relevant frameworks,
-compliance controls, severity classifications, and remediation patterns.
-
-### Skills + MCP Tools -- The Combination
-
-Skills and MCP tools serve complementary roles:
-
-| | Skills | MCP Tools |
-|---|--------|-----------|
-| **What** | Static knowledge (Markdown) | Dynamic actions (Python functions) |
-| **When** | Injected into prompt before LLM call | Called by the LLM during execution |
-| **Where** | `skills/` directory | `mcp/` directory |
-| **Example** | "CIS 2.1.1 requires S3 bucket encryption" | `web.search("AWS S3 encryption best practices")` |
-
-The real power comes from **combining both**. A skill tells the agent *what it
-should know*; a tool lets the agent *act on that knowledge*:
-
-```
-skills/cloud-security/SKILL.md
-  → Agent knows: "CIS 2.1.1 requires encryption at rest for all S3 buckets"
-
-mcp/web_search.py (web.search tool)
-  → Agent can: search for the latest AWS security advisories online
-
-mcp/cloud_audit.py (cloud.check_compliance tool)
-  → Agent can: query cloud resources against CIS benchmark controls
-```
-
-When tool implementation mode is enabled, the AI generates both the skill files
-*and* the MCP tool implementations -- a fully self-contained, domain-aware
-workflow.
+compliance controls, and remediation patterns.
 
 ### Skills via Extensions
 
-For reusable domain knowledge, AWP supports **extensions** -- domain-specific
-overlays that automatically inject skills, tools, and rules into generated
-workflows. Extensions work like class inheritance on top of the base build skill:
-
-```
-skill/SKILL.md (base)
-  └── extensions/examples/financial.md
-        ├── Required agent: risk_assessor
-        ├── Additional rules: F1–F7
-        ├── Additional skills: financial_regulations, disclaimer
-        └── Additional tools: finance.market_data, finance.risk_calc
-```
-
-Tell the AI: *"Build a portfolio analysis workflow using the financial extension"*
--- and the extension's skills, tools, and rules are automatically merged.
-
-Available extensions:
+AWP supports **extensions** -- domain-specific overlays that inject skills, tools,
+and rules into generated workflows:
 
 | Extension | Domain | Injected Skills |
 |-----------|--------|----------------|
 | `financial.md` | Finance | `financial_regulations`, `disclaimer` |
 | `devops.md` | DevOps/Infra | Safety procedures, rollback policies |
 
-Create your own: copy an existing extension from `skill/extensions/examples/`
-and adjust it to your domain.
-
-For the full skill system reference, see [docs/skill-system.md](docs/skill-system.md).
+Tell the AI: *"Build a portfolio workflow using the financial extension"* -- and
+the extension's skills, tools, and rules are automatically merged.
 
 ## Code Mode -- Write Code, Not Tool Calls
 
@@ -525,64 +607,41 @@ Classic:  Agent → LLM → tool("web.search") → result → LLM → tool("file
 Code:     Agent → LLM → generates code block → sandbox executes → result → LLM
 ```
 
-### How It Works
-
-1. The runtime auto-generates a typed SDK from the agent's `tools.allowed`.
-2. SDK type definitions replace tool definitions in the system prompt.
-3. The LLM writes a function using the SDK (e.g., `sdk.web.search()`).
-4. The code runs in a sandbox (subprocess, Docker, or V8 isolate).
-5. The result is validated against `output_schema.json` — same contract as classic mode.
-
 ### Configuration
 
 ```yaml
 # In agent.awp.yaml
 capabilities:
-  tools:
-    enabled: true
-    allowed: ["web.*", "file.*", "memory.*"]
-
-  sandbox:
-    type: isolate                       # or subprocess, docker
-    constraints:
-      max_memory_mb: 128
-      max_cpu_seconds: 30
-    network:
-      enabled: false                    # blocked by default
-
   codemode:
     enabled: true
-    language: typescript                # typescript | python | javascript
+    language: typescript      # typescript | python | javascript
     sdk_surface:
-      mode: auto                        # all allowed tools → SDK methods
+      mode: auto              # all allowed tools → SDK methods
     execution:
       timeout: 30
       capture_console: true
+  sandbox:
+    type: isolate             # or subprocess, docker
+    constraints:
+      max_memory_mb: 128
+      max_cpu_seconds: 30
 ```
 
 ### Why Code Mode?
 
 | | Classic Mode | Code Mode |
 |---|-------------|-----------|
-| **Token usage** | ~200 tokens/tool × N tools | SDK types once (~500 tokens total) |
+| **Token usage** | ~200 tokens/tool x N tools | SDK types once (~500 tokens total) |
 | **LLM roundtrips** | 1 per tool call | 1 total |
 | **Best for** | Simple flows, few tools | Complex orchestration, many tools |
 
-### Runtime Agnostic
-
-Code Mode is a **protocol feature**, not a platform feature. Each runtime
-implements it with its own sandbox:
+Code Mode is a **protocol feature**. Each runtime implements it with its own sandbox:
 
 | Runtime | Sandbox | SDK Transport |
 |---------|---------|---------------|
 | Python (standalone) | `subprocess` | In-process calls |
 | Cloudflare Workers | `isolate` (V8) | RPC stubs |
 | Docker | `docker` | HTTP on localhost |
-
-The output contract is identical regardless of mode — Code Mode agents and
-classic agents are fully interchangeable in the DAG.
-
-For the full specification, see [spec/versions/1.0/layers/02-capabilities.md](spec/versions/1.0/layers/02-capabilities.md).
 
 ## Three Ways to Build Workflows
 
@@ -593,14 +652,12 @@ Tell any AI assistant with the AWP skill installed:
 > "Build a customer support workflow with triage, research, and response agents.
 >  Use memory for case history. Compliance level L3."
 
-The AI gathers requirements, builds a structured plan (goal → agents → data flow
-→ tools → file manifest), and waits for your approval. Once confirmed, it
-generates all files, validates against 18 rules, and reports the compliance
-level. This is the fastest path from idea to working workflow.
+The AI gathers requirements, builds a plan, waits for your approval, generates
+all files, validates against 24 rules (R1-R24), and reports the compliance level.
 
-### 2. Standalone (Manual)
+### 2. Manual (YAML)
 
-Create the YAML files yourself following the spec:
+Create the files yourself following the spec:
 
 ```yaml
 # workflow.awp.yaml
@@ -631,24 +688,16 @@ Validate with: `awp validate my-workflow/`
 
 ### 3. ClawHub (Community)
 
-Browse and install pre-built workflows from the ClawHub registry:
-
 ```bash
 clawhub search awp                    # Find AWP workflows
 clawhub install research-pipeline     # Install one
 awp run research-pipeline/            # Run it
-```
-
-Publish your own workflows for others to use:
-
-```bash
-clawhub publish my-workflow/          # Share with the community
+clawhub publish my-workflow/          # Share your own
 ```
 
 ## Compliance Levels
 
 Workflows declare what they need. Runtimes declare what they support.
-If the runtime meets the requirement, execution proceeds.
 
 | Level | Name | What it adds |
 |-------|------|-------------|
@@ -672,27 +721,42 @@ Start at L0. Add layers as your workflow grows.
 | Memory | Custom per-project | 4-tier standard (long-term, daily, episodic, semantic) |
 | Communication | Not standardized | Message bus with typed channels |
 | Observability | Manual logging | OpenTelemetry-compatible tracing + metrics |
-| Validation | None (runtime errors) | 18 rules checked before execution |
+| Validation | None (runtime errors) | 24 rules checked before execution (R1-R24) |
 | Portability | Zero | `.awp.zip` + ClawHub registry |
-| Documentation | Scattered | Self-describing YAML with field descriptions |
 
 ## Repository Structure
 
 ```
 agent-workflow-protocol/
-  docs/                     Complete protocol reference
-  primer/                   Introduction and tutorials
-  spec/                     Normative specification (RFC 2119)
-  schemas/                  JSON Schemas for validation
-  examples/                 5 runnable example workflows (L0-L5)
-  skill/                    Build skill for AI assistants
-    adapters/               Platform adapters (standalone, Cloudflare, ClawHub)
-    extensions/             Domain extensions (financial, devops)
-    templates/              File templates for generation
-    references/             Condensed docs for AI context
-  reference/                Python reference implementation
-    python/                 awp-protocol package (parser, validator, runtime)
-  conformance/              Conformance test suite
+  install.sh                  Linux/macOS installer with LLM config wizard
+  install.ps1                 Windows PowerShell installer
+  install.bat                 Windows batch installer
+  skill.zip                   Packaged AWP skill (portable)
+  docs/                       Complete protocol reference
+  primer/                     Introduction and tutorials
+  spec/                       Normative specification (RFC 2119)
+  schemas/                    JSON Schemas for validation
+  examples/                   Runnable example workflows (L0-L5)
+  skill/                      Build skill for AI assistants
+    adapters/                 Platform adapters (standalone, Cloudflare, ClawHub)
+    extensions/               Domain extensions (financial, devops)
+    templates/                File templates for generation
+    references/               Condensed docs for AI context
+  reference/                  Python reference implementation
+    python/                   awp-protocol package (parser, validator, runtime)
+  conformance/                Conformance test suite
+  assets/                     Logo and media
+```
+
+## CLI Reference
+
+```bash
+awp run <workflow-dir> --task "..."      # Run a workflow
+awp validate <workflow-dir>              # Validate structure and rules (R1-R24)
+awp compliance <workflow-dir> --level L3 # Check compliance level
+awp visualize <workflow-dir> --format mermaid  # Visualize the agent DAG
+awp pack <workflow-dir>                  # Pack as .awp.zip for sharing
+awp identity-card <agent.awp.yaml>      # Show agent capabilities
 ```
 
 ## Quick Links
@@ -708,99 +772,6 @@ agent-workflow-protocol/
 | [Cloudflare Adapter](skill/adapters/cloudflare-dynamic-workers.md) | Want to deploy on Cloudflare Workers |
 | [ClawHub Adapter](skill/adapters/clawhub.md) | Want to publish workflows to ClawHub |
 | [FAQ](primer/faq.md) | Have questions |
-
-## Install & Run
-
-### Option 1: Python Standalone
-
-```bash
-# Install
-pip install awp-protocol
-
-# Set LLM credentials
-export LLM_API_KEY=sk-...
-export LLM_MODEL=anthropic/claude-sonnet-4-20250514
-export LLM_BASE_URL=https://openrouter.ai/api/v1    # optional, default
-
-# Validate a workflow
-awp validate my-workflow/
-
-# Run a workflow
-awp run my-workflow/ --task "Research quantum computing trends"
-
-# Run via Python API
-python -c "
-from awp.runtime import WorkflowRunner
-runner = WorkflowRunner('my-workflow')
-result = runner.run('Research quantum computing trends')
-print(result)
-"
-
-# Pack for sharing
-awp pack my-workflow/
-# → Creates my-workflow.awp.zip
-```
-
-### Option 2: Cloudflare Workers
-
-```bash
-# Install Wrangler CLI
-npm install -g wrangler
-wrangler login
-
-# Generate a workflow (tell the AWP skill: "use the Cloudflare adapter")
-# The skill generates a TypeScript project with wrangler.toml
-
-# Setup Cloudflare resources
-cd my-workflow/
-npm install
-wrangler kv namespace create STATE
-# → Copy the id into wrangler.toml
-
-# Set secrets
-wrangler secret put LLM_API_KEY
-
-# Deploy
-wrangler deploy
-
-# Run
-curl -X POST https://my-workflow.your-account.workers.dev \
-  -H "Content-Type: application/json" \
-  -d '{"task": "Research quantum computing trends"}'
-
-# Local development
-wrangler dev
-curl http://localhost:8787 -d '{"task": "Research quantum computing trends"}'
-```
-
-### Option 3: ClawHub (Community)
-
-```bash
-# Install a pre-built workflow
-clawhub install research-pipeline
-
-# Run it
-awp run research-pipeline/ --task "Research AI safety"
-
-# Publish your own
-clawhub publish my-workflow/
-```
-
-### Validation & Tooling
-
-```bash
-# Validate workflow structure and rules (R1-R24)
-awp validate my-workflow/
-
-# Check compliance level
-awp compliance my-workflow/ --level L3
-
-# Visualize the agent DAG
-awp visualize my-workflow/ --format mermaid
-
-# Show agent capabilities
-awp identity-card my-workflow/agents/researcher/agent.awp.yaml
-```
 
 ## License
 

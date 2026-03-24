@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "communication_log": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Log of all communications processed"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in communication completeness"
+    }
+  },
+  "required": ["communication_log", "confidence"]
+}
