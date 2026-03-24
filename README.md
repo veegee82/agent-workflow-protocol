@@ -57,21 +57,47 @@ production enterprise system uses all seven.
 
 ## From Idea to Workflow -- The Red Thread
 
+AWP follows a deliberate path from abstract idea to running code. Each step
+adds more detail, so you stay in control and nothing gets lost in translation.
+
+```
+ Idea → Requirements → Plan → Code → Run → Share
+  abstract ─────────────────────────────── concrete
+```
+
 ### Step 1: You have an idea
 
 > "I need a research pipeline that plans, investigates, and writes articles."
 
-### Step 2: The AWP Skill generates your workflow
+### Step 2: You clarify requirements
 
-AWP includes a **build skill** -- a set of instructions that any AI assistant
-(Claude, GPT, Clawdbot, etc.) can use to generate a complete AWP workflow
-from your description.
-
-Tell your AI:
+Tell your AI assistant:
 
 > "Build an AWP research pipeline with three agents: planner, researcher, writer."
 
-The AI reads the AWP skill and produces:
+The AI presents a structured questionnaire -- agent roles, tools, data flow,
+compliance level, memory, output format. You answer (or accept defaults), and
+the AI has everything it needs to plan your workflow.
+
+### Step 3: The AI builds a Workflow Plan
+
+Before writing a single file, the AI creates a **Workflow Plan** -- a structured
+document that transitions step by step from the abstract goal to the concrete
+implementation:
+
+1. **Goal Statement** -- What does the workflow do? What goes in, what comes out?
+2. **Agent Roles** -- Each agent's responsibility in plain language.
+3. **Data Flow & Contracts** -- What data moves between agents, with types and fields.
+4. **Tool & Capability Mapping** -- Which tools, memory tiers, and skills each agent needs.
+5. **File Manifest** -- Every file that will be generated, listed and explained.
+6. **Validation Preview** -- Which rules apply, what compliance level is targeted.
+
+You review the plan. Adjust it. Approve it. Only then does code generation start.
+The plan is the contract between you and the AI.
+
+### Step 4: The AWP Skill generates your workflow
+
+With the approved plan, the AI generates all files:
 
 ```
 research-pipeline/
@@ -94,7 +120,7 @@ research-pipeline/
 Every file follows the AWP spec. Every rule is validated. The workflow is
 ready to run.
 
-### Step 3: Run it
+### Step 5: Run it
 
 With the standalone AWP runtime:
 
@@ -113,7 +139,7 @@ pip install awp-protocol
 awp run research-pipeline/ --task "Research quantum computing"
 ```
 
-### Step 4: Share it
+### Step 6: Share it
 
 Pack your workflow as a portable archive:
 
@@ -409,7 +435,7 @@ my-workflow/
 
 When the AI generates a workflow via the AWP build skill, it asks whether
 domain knowledge is needed (Phase 1, question 7). If yes, it generates a
-`SKILL.md` with relevant domain knowledge during Phase 2, Step 8.
+`SKILL.md` with relevant domain knowledge during Phase 3, Step 8.
 
 Example prompt:
 
@@ -486,8 +512,10 @@ Tell any AI assistant with the AWP skill installed:
 > "Build a customer support workflow with triage, research, and response agents.
 >  Use memory for case history. Compliance level L3."
 
-The AI generates all files, validates against 18 rules, and reports the
-compliance level. This is the fastest path from idea to working workflow.
+The AI gathers requirements, builds a structured plan (goal → agents → data flow
+→ tools → file manifest), and waits for your approval. Once confirmed, it
+generates all files, validates against 18 rules, and reports the compliance
+level. This is the fastest path from idea to working workflow.
 
 ### 2. Standalone (Manual)
 

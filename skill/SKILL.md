@@ -278,7 +278,112 @@ to Phase 2. If answers are ambiguous or contradictory, ask targeted follow-up qu
 (but not another full questionnaire). If the user says "defaults" or "passt so", use
 all recommended defaults.
 
-### Phase 2: Generate the Project
+### Phase 2: Workflow-Plan (From Abstract to Concrete)
+
+**IMPORTANT:** Before generating any files, you MUST create a structured workflow plan
+and present it to the user for confirmation. This plan bridges the gap between the
+abstract idea and the concrete implementation. It ensures that the user understands
+exactly what will be built before a single file is created.
+
+The plan follows a **top-down refinement** -- starting with the high-level goal and
+progressively adding detail until every file, field, and dependency is specified.
+
+Present the plan as a single, structured document:
+
+---
+
+#### Step 1: Goal Statement (Abstract)
+
+Summarize the workflow's purpose in 2-3 sentences. What problem does it solve?
+What is the expected input and output? This is the "elevator pitch" for the workflow.
+
+> **Goal:** {what the workflow does, in plain language}
+> **Input:** {what the user provides to start the workflow}
+> **Output:** {what the user gets at the end}
+
+#### Step 2: Agent Roles & Responsibilities (Conceptual)
+
+For each agent, describe its role in non-technical terms. Focus on **what** it does,
+not **how**. Think of this as a team of people -- what is each person's job?
+
+| Agent | Role | Receives from | Delivers to |
+|-------|------|--------------|-------------|
+| `{id}` | {role in plain language} | {upstream agent or "user input"} | {downstream agent or "final output"} |
+
+#### Step 3: Data Flow & Contracts (Architectural)
+
+Now make the data flow concrete. Define what data moves between agents:
+
+```
+User Input
+  │
+  ▼
+[agent_a] ──── produces: {field_1, field_2, confidence}
+  │                shares: {field_1, field_2}
+  ▼
+[agent_b] ──── receives: {field_1, field_2}
+  │                produces: {field_3, field_4, confidence}
+  │                shares: {field_3}
+  ▼
+[agent_c] ──── receives: {field_3}
+                   produces: {final_output, confidence}
+```
+
+For each shared field, specify the type and a one-line description.
+
+#### Step 4: Tool & Capability Mapping (Technical)
+
+Map each agent to its concrete capabilities:
+
+| Agent | Tools | Memory | Skills | Reasoning |
+|-------|-------|--------|--------|-----------|
+| `{id}` | `{tool.fqn}`, ... | {yes/no, tier} | {skill name or none} | {enabled/disabled} |
+
+#### Step 5: File Manifest (Implementation)
+
+List every file that will be generated, grouped by agent:
+
+```
+{workflow_name}/
+  workflow.awp.yaml
+  secrets.yaml.example          (if secrets needed)
+  mcp/
+    {tool_file}.py              ← {purpose}
+  skills/
+    {skill_name}/SKILL.md       ← {purpose}
+  agents/
+    {agent_id}/
+      agent.awp.yaml
+      agent.py
+      workflow/
+        instructions/SYSTEM_PROMPT.md
+        prompt/00_INTRO.md
+        output_schema/output_schema.json
+        output_schema_desc/output_schema_desc.json
+    ...
+```
+
+State the total file count and the target compliance level.
+
+#### Step 6: Validation Preview
+
+List which of the 18 rules (R1-R18) apply and confirm they will be satisfied:
+
+> **Compliance Target:** L{N} {Level Name}
+> **Applicable Rules:** R1-R{max} (all satisfied by this plan)
+> **Special Considerations:** {any edge cases, e.g., conditional execution, cyclic risk}
+
+---
+
+**After presenting the plan:** Wait for user confirmation. The user may:
+- Approve the plan → proceed to Phase 3 (file generation).
+- Request changes → update the plan and re-present the changed sections.
+- Ask questions → answer them and wait for explicit approval.
+
+Do NOT generate any files until the plan is approved. The plan is the contract
+between AI and user.
+
+### Phase 3: Generate the Project
 
 Generate files in this order:
 
@@ -395,7 +500,7 @@ disabled, R14 compliance depends on the target runtime registering these tools.
 
 If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`. See `templates/project-skill.md`.
 
-### Phase 3: Validation Checklist
+### Phase 4: Validation Checklist
 
 After generating all files, verify:
 
@@ -418,7 +523,7 @@ After generating all files, verify:
 - [ ] R17: All output schemas include confidence field.
 - [ ] R18: All output_schema.json are valid JSON Schema draft-07 with type: object.
 
-### Phase 4: Summary
+### Phase 5: Summary
 
 Present to the user:
 
