@@ -764,73 +764,189 @@ rendering. Follow these rules:
 
 ### Phase 5: Summary & Workflow Overview
 
-Present to the user:
+**CRITICAL — This is the final presentation to the user.** Phase 5 MUST always
+be displayed **in Claude's terminal output** before any zip/pack file is offered.
+The user should see the complete workflow at a glance — diagram, description,
+files, and compliance — directly in the conversation. This is NOT optional.
+Do not skip to the zip output. Do not abbreviate. The terminal presentation
+IS the deliverable that the user reviews before accepting the workflow.
 
-- Workflow name and compliance level.
-- Agent graph visualization (text-based DAG) — **rendered with the same quality as in WORKFLOW.md**.
-- Files generated (count and list).
-- Tool implementation mode: whether built-in tool implementations were generated (list them if yes).
-- Compliance badge: `AWP L{N} {Level Name} Compliant`.
+Present the following sections **in this exact order**:
+
+---
+
+#### 5a. Workflow Header
+
+```
+═══════════════════════════════════════════════════════════════
+  AWP Workflow: {workflow_name}
+  Compliance: L{N} {Level Name} │ Agents: {count} │ Mode: {execution_mode}
+═══════════════════════════════════════════════════════════════
+```
+
+#### 5b. Workflow Architecture Diagram
+
+**This is the visual centerpiece.** The ASCII diagram MUST be rendered directly
+in Claude's output with maximum visual quality. It is the first thing the user
+sees and must immediately convey the workflow's structure.
+
+Rendering rules:
+- Use Unicode box-drawing characters (`┌ ┐ └ ┘ │ ─ ├ ┤ ┬ ┴ ┼ ▼ ▶ ◀ ▲`)
+- Align all boxes cleanly, consistent widths per level
+- Balance whitespace so the diagram is visually centered
+- A well-rendered diagram is worth more than paragraphs of text
+
+The diagram MUST show:
+
+1. **All agents** as labeled boxes with their role name
+2. **Data flow** between agents as arrows with shared field names
+3. **Tools** attached to each agent (as labels inside the box)
+4. **Code Mode** indicator (`⚡ Code Mode`) for agents with codemode enabled
+5. **Skills** indicator (`📖 {skill_name}`) for agents with injected skills
+6. **Memory** tiers if the workflow uses persistence
+7. **Input** (top) and **Output** (bottom) clearly marked
+
+Use this format:
+
+```
+                        ┌─────────────────────┐
+                        │     User Input       │
+                        │  "{task_description}" │
+                        └──────────┬──────────┘
+                                   │
+                                   ▼
+                  ┌────────────────────────────────────┐
+                  │  {agent_id}                         │
+                  │  Role: {role_description}           │
+                  │  Tools: {tool_1}, {tool_2}          │
+                  │  ⚡ Code Mode ({language})           │
+                  │  📖 Skill: {skill_name}              │
+                  │  Output: {field_1}, {field_2}       │
+                  └──────────────────┬─────────────────┘
+                                     │ shares: {field_1}
+                                     ▼
+                  ┌────────────────────────────────────┐
+                  │  {agent_id}                         │
+                  │  Role: {role_description}           │
+                  │  Tools: {tool_1}                    │
+                  │  Output: {field_3}, confidence      │
+                  └──────────────────┬─────────────────┘
+                                     │
+                                     ▼
+                        ┌─────────────────────┐
+                        │    Final Output      │
+                        │  {output_description} │
+                        └─────────────────────┘
+```
+
+For parallel agents, show them side by side with a horizontal spread.
+For conditional execution, annotate arrows with the condition in `[brackets]`.
+Adapt the layout to the actual complexity — a 2-agent workflow gets a simple
+diagram, a 6-agent DAG with branches gets a more detailed one.
+
+#### 5c. Workflow Description (Narrative Walkthrough)
+
+Directly below the diagram, provide a **narrative walkthrough** of the workflow
+in 4-8 sentences. This description must:
+
+1. **Explain the purpose** — What problem does this workflow solve? What goes in,
+   what comes out?
+2. **Walk through each stage** — Describe what happens at each agent in plain
+   language, as if explaining it to someone who hasn't read the config files.
+3. **Highlight the generated capabilities** — Which skills were generated and why?
+   Which custom MCP tools were created? Which agents use Code Mode and what
+   advantage does it give them?
+4. **Explain key design decisions** — Why this agent order? Why these tools?
+   Why this data flow? Why this compliance level?
+
+Example:
+
+> This workflow automates cloud security audits by orchestrating three specialized
+> agents in a sequential pipeline. The **scanner** agent uses Code Mode (TypeScript)
+> to execute 14 AWS API calls in a single LLM roundtrip via the generated
+> `mcp/aws_scanner.py` tool — checking security groups, IAM policies, and S3
+> bucket configurations. Its findings flow to the **analyzer** agent, which uses
+> the generated `skills/aws-compliance/SKILL.md` (containing CIS Benchmark v8.0
+> controls and NIST 800-53 mappings) to classify each finding by severity and
+> recommend remediations. Finally, the **reporter** agent produces an executive
+> summary with risk scores, using the `skills/report-writing/SKILL.md` for
+> formatting standards. The workflow is L1 compliant (multi-agent DAG with state
+> sharing) and requires only an OpenRouter API key to run.
+
+#### 5d. Generated Capabilities Summary
+
+Present a table of all generated skills, MCP tools, and Code Mode configurations:
+
+```
+  Generated Capabilities
+  ──────────────────────────────────────────────────────────
+  Skills:
+    • skills/{name}/SKILL.md — {what domain knowledge it contains}
+    • skills/{name}/SKILL.md — {what domain knowledge it contains}
+
+  Custom MCP Tools:
+    • mcp/{file}.py — {tool_fqn}: {what it does}
+    • mcp/{file}.py — {tool_fqn}: {what it does}
+
+  Code Mode Agents:
+    • {agent_id} — {language}, sandbox: {type}, SDK surface: {tool_count} tools
+  ──────────────────────────────────────────────────────────
+```
+
+If no custom skills, tools, or Code Mode agents were generated, state it
+explicitly (e.g., "No custom MCP tools generated — workflow uses only built-in tools.").
+
+#### 5e. Files Generated
+
+List all generated files with count:
+
+```
+  Files Generated: {count}
+  ──────────────────────────────────────────────────────────
+  {workflow_name}/
+    workflow.awp.yaml
+    WORKFLOW.md
+    agents/
+      {agent_id}/
+        agent.awp.yaml
+        agent.py
+        workflow/
+          instructions/SYSTEM_PROMPT.md
+          prompt/00_INTRO.md
+          output_schema/output_schema.json
+          output_schema_desc/output_schema_desc.json
+    skills/
+      {skill_name}/SKILL.md
+    mcp/
+      {tool_file}.py
+  ──────────────────────────────────────────────────────────
+```
+
+#### 5f. Compliance Badge & Validation
+
+```
+  ✅ Validation: All {count}/24 applicable rules passed
+  🏷️  AWP L{N} {Level Name} Compliant
+```
+
 - Reference to `WORKFLOW.md` for the full project documentation.
 - Any assumptions made or recommendations for improvement.
 
-**IMPORTANT — Diagram rendering priority:** The workflow diagram is the visual
-centerpiece of both the terminal output and the `WORKFLOW.md` file. Invest effort
-in making it visually appealing: use Unicode box-drawing characters, align boxes
-cleanly, balance whitespace, and ensure the diagram is immediately understandable
-at a glance. A well-rendered diagram is worth more than paragraphs of text.
+#### 5g. Transition to Zip / Pack
 
-#### Workflow Diagram
-
-Generate a visual diagram of the workflow using a text-based box-and-arrow format.
-The diagram MUST show:
-
-1. **All agents** as labeled boxes with their role name.
-2. **Data flow** between agents as arrows with the shared field names.
-3. **Tools** attached to the agents that use them (as small labels).
-4. **Memory** tiers if the workflow uses persistence.
-5. **Input** (top) and **Output** (bottom) clearly marked.
-
-Use the following format:
+**Only after the complete Phase 5 presentation above has been displayed**, offer
+the packaged workflow:
 
 ```
-                        ┌─────────────────┐
-                        │   User Input    │
-                        │  "{description}" │
-                        └────────┬────────┘
-                                 │
-                                 ▼
-                  ┌──────────────────────────────┐
-                  │  {agent_id} ({role_name})     │
-                  │  Tools: {tool_1}, {tool_2}    │
-                  │  Output: {field_1}, {field_2} │
-                  └──────────────┬───────────────┘
-                                 │ shares: {field_1}
-                                 ▼
-                  ┌──────────────────────────────┐
-                  │  {agent_id} ({role_name})     │
-                  │  Tools: {tool_1}              │
-                  │  Output: {field_3}            │
-                  └──────────────┬───────────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │  Final Output   │
-                        │  {description}  │
-                        └─────────────────┘
+  ──────────────────────────────────────────────────────────
+  📦 Ready to pack: awp pack {workflow_name}/
+     → {workflow_name}.awp.zip
+  ──────────────────────────────────────────────────────────
 ```
 
-For parallel agents, show them side by side. For conditional execution, annotate
-the arrows with the condition. Adapt the layout to the actual complexity of the
-workflow -- a 2-agent workflow gets a simple diagram, a 6-agent DAG with branches
-gets a more detailed one.
-
-#### Workflow Description
-
-Below the diagram, provide a **narrative walkthrough** that explains the workflow
-in 3-5 sentences. Describe what happens at each stage in plain language, as if
-explaining it to someone who hasn't read the config files. Mention key design
-decisions (why this agent order, why these tools, why this data flow).
+If the user requested a zip output, generate it now. If not, remind them that
+`awp pack` is available. The Phase 5 terminal output is the **review step** —
+the user validates the architecture visually before accepting the deliverable.
 
 #### How to Use
 
