@@ -1,0 +1,6 @@
+{
+  "consolidated_report": "Gesamtbericht mit Metriken, Analyse, Risk Score, Empfehlungen und Datenqualität",
+  "broadcast_status": "Status der Message-Bus-Kommunikation: Anzahl Nachrichten, verwendete Channels, Empfänger",
+  "message_log": "Detailliertes Log aller gesendeten/empfangenen Nachrichten mit Ziel, Channel und Typ",
+  "confidence": "Konfidenz-Score (0.0-1.0) für die Qualität der Konsolidierung"
+}

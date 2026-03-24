@@ -84,4 +84,10 @@ def _extract_manifest_data(resolved: dict[str, Any]) -> dict[str, Any]:
     if "security" in resolved:
         data["security"] = SecurityConfig(**resolved["security"])
 
+    # Pass through top-level env and settings
+    if "env" in resolved:
+        data["env"] = resolved["env"]
+    if "settings" in resolved:
+        data["settings"] = resolved["settings"]
+
     return data

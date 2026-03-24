@@ -14,6 +14,7 @@ class BusConfig(BaseModel):
     delivery: str = "at_least_once"  # at_most_once | at_least_once | exactly_once
     ordering: str = "fifo"  # fifo | priority | timestamp
     max_message_size_kb: int = 256
+    max_message_size: int = 65536  # Alternative: bytes
     config: dict[str, Any] = Field(default_factory=dict)
 
 

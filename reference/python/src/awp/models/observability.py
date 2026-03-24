@@ -10,12 +10,25 @@ from pydantic import BaseModel, Field
 class LoggingConfig(BaseModel):
     """Logging configuration."""
     level: str = "INFO"
-    format: str = "json"  # json | text
+    format: str = "json"  # json | text | structured
+    destination: str = "stdout"  # stdout | file | otlp
     log_agent_io: bool = True
     log_state_transitions: bool = True
     log_llm_prompts: bool = True
     log_tool_calls: bool = True
     path: str = "logs"
+
+    model_config = {"extra": "allow"}
+
+
+class CustomMetric(BaseModel):
+    """Custom metric definition."""
+    name: str
+    type: str = "counter"  # counter | gauge | histogram
+    description: str = ""
+    labels: list[str] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
 
 
 class MetricsConfig(BaseModel):
@@ -32,7 +45,10 @@ class MetricsConfig(BaseModel):
             "memory_usage",
         ]
     )
+    custom_metrics: list[CustomMetric] = Field(default_factory=list)
     endpoint: Optional[str] = None
+
+    model_config = {"extra": "allow"}
 
 
 class TracingConfig(BaseModel):
@@ -60,8 +76,12 @@ class AuditConfig(BaseModel):
             "security_event",
         ]
     )
+    include_inputs: bool = False
+    include_outputs: bool = False
     path: str = "logs/audit"
     retention_days: int = 90
+
+    model_config = {"extra": "allow"}
 
 
 class LivenessFailureConfig(BaseModel):
@@ -110,3 +130,5 @@ class ObservabilityConfig(BaseModel):
     tracing: TracingConfig = Field(default_factory=TracingConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     health: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+
+    model_config = {"extra": "allow"}

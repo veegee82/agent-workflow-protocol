@@ -56,6 +56,10 @@ class ToolRegistry:
         self._secrets: dict[str, str] = secrets or {}
         self._workflow_dir = workflow_dir
         self._memory_dir: Optional[Path] = None
+        self._message_bus: Any = None
+        self._code_executor: Any = None
+        self._security_context: Any = None
+        self._current_agent_id: str = ""
 
         if workflow_dir:
             ws = workflow_dir / "workspace"
@@ -80,6 +84,15 @@ class ToolRegistry:
         Returns:
             Standard AWP tool result.
         """
+        # Access control check
+        if self._security_context and self._current_agent_id:
+            ac = self._security_context.access_controller
+            if ac and not ac.is_allowed(self._current_agent_id, name):
+                return _err(
+                    f"Access denied: agent '{self._current_agent_id}' cannot use '{name}'",
+                    403,
+                )
+
         fn = self._tools.get(name)
         if fn is None:
             return _err(f"Unknown tool: {name}", 404)
@@ -250,6 +263,8 @@ class ToolRegistry:
             },
             "required": ["query"],
         }, "Search across memory files")
+
+        self._register_memory_curate()
 
         self._register("web.search", self._web_search, {
             "type": "object",
@@ -643,3 +658,132 @@ class ToolRegistry:
 
         self._register(fqn, fn, params, desc, secrets_keys=merged_secrets)
         logger.info("Registered custom tool: %s from %s", fqn, py_file.name)
+
+    # -- Integration methods (called by WorkflowRunner) -------------------
+
+    def set_message_bus(self, bus: Any) -> None:
+        """Wire message bus tools into the registry."""
+        self._message_bus = bus
+
+        self._register("agent.send_message", self._agent_send_message, {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient agent ID or '*' for broadcast"},
+                "content": {"description": "Message content (any JSON-serializable value)"},
+                "channel": {"type": "string", "description": "Channel name", "default": "direct"},
+                "type": {"type": "string", "description": "Message type: request, response, event", "default": "event"},
+            },
+            "required": ["to", "content"],
+        }, "Send a message to another agent via the message bus")
+
+        self._register("agent.list_messages", self._agent_list_messages, {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "description": "Filter by channel name"},
+                "from_agent": {"type": "string", "description": "Filter by sender agent ID"},
+                "limit": {"type": "integer", "description": "Maximum messages to return", "default": 50},
+            },
+        }, "List messages received by this agent")
+
+    def set_code_executor(self, executor: Any) -> None:
+        """Wire code execution tool into the registry."""
+        self._code_executor = executor
+
+        self._register("code.execute", self._code_execute, {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to execute"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+            },
+            "required": ["code"],
+        }, "Execute Python code in a sandboxed subprocess")
+
+    def set_security_context(self, security_ctx: Any) -> None:
+        """Set security context for access control enforcement."""
+        self._security_context = security_ctx
+
+    # -- Message bus tools ------------------------------------------------
+
+    def _agent_send_message(
+        self, *, to: str, content: Any, channel: str = "direct", type: str = "event",
+    ) -> dict[str, Any]:
+        if not self._message_bus:
+            return _err("Message bus not configured", 503)
+        from_agent = self._current_agent_id or "unknown"
+        if to == "*":
+            msg_id = self._message_bus.broadcast(from_agent, content, channel=channel)
+        else:
+            msg_id = self._message_bus.send(from_agent, to, content, channel=channel, msg_type=type)
+        return _ok({"message_id": msg_id, "from": from_agent, "to": to, "channel": channel})
+
+    def _agent_list_messages(
+        self, *, channel: Optional[str] = None, from_agent: Optional[str] = None, limit: int = 50,
+    ) -> dict[str, Any]:
+        if not self._message_bus:
+            return _err("Message bus not configured", 503)
+        agent_id = self._current_agent_id or "unknown"
+        messages = self._message_bus.list_messages(agent_id, channel=channel, from_agent=from_agent, limit=limit)
+        return _ok({"messages": messages, "count": len(messages)})
+
+    # -- Code execution tool ----------------------------------------------
+
+    def _code_execute(self, *, code: str, timeout: int = 30) -> dict[str, Any]:
+        if not self._code_executor:
+            return _err("Code executor not configured", 503)
+        return self._code_executor.execute(code, timeout=timeout)
+
+    # -- Memory curate tool -----------------------------------------------
+
+    def _register_memory_curate(self) -> None:
+        """Register the memory.curate tool (called during builtin registration)."""
+        self._register("memory.curate", self._memory_curate, {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Number of recent days to curate from", "default": 7},
+            },
+        }, "Extract stable facts from recent daily logs into long-term memory")
+
+    def _memory_curate(self, *, days: int = 7) -> dict[str, Any]:
+        """Extract key facts from recent daily logs and append to MEMORY.md."""
+        if not self._memory_dir:
+            return _err("No workspace directory configured", 404)
+
+        mem_dir = self._memory_dir / "memory"
+        if not mem_dir.exists():
+            return _ok({"curated": 0, "message": "No daily logs found"})
+
+        # Collect recent daily logs
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        entries: list[str] = []
+        for log_file in sorted(mem_dir.glob("*.md"), reverse=True):
+            try:
+                date_str = log_file.stem
+                file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if file_date < cutoff:
+                    break
+                content = log_file.read_text(encoding="utf-8").strip()
+                if content:
+                    entries.append(f"## {date_str}\n{content}")
+            except (ValueError, OSError):
+                continue
+
+        if not entries:
+            return _ok({"curated": 0, "message": "No recent entries to curate"})
+
+        # Write curation summary to MEMORY.md
+        mem_file = self._memory_dir / "MEMORY.md"
+        mem_file.parent.mkdir(parents=True, exist_ok=True)
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        curation = f"\n\n---\n### Curation {date_str}\n"
+        curation += f"Curated from {len(entries)} daily log(s):\n"
+        for entry in entries[:5]:  # Limit to 5 most recent
+            # Extract first meaningful line from each entry
+            lines = [l.strip() for l in entry.split("\n") if l.strip() and not l.startswith("##")]
+            if lines:
+                curation += f"- {lines[0][:200]}\n"
+
+        with mem_file.open("a", encoding="utf-8") as f:
+            f.write(curation)
+
+        return _ok({"curated": len(entries), "path": str(mem_file)})

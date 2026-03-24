@@ -1,0 +1,6 @@
+{
+  "raw_data": "Gesammelte Rohdaten als strukturiertes Objekt mit allen Marktdaten-Feldern",
+  "data_sources": "Liste aller verwendeten Quellen mit URL, Typ (web/api/custom) und Qualitätsbewertung",
+  "screenshot_summary": "Zusammenfassung der per Vision erkannten Inhalte eines Screenshots",
+  "confidence": "Konfidenz-Score (0.0-1.0) für die Gesamtqualität der gesammelten Daten"
+}

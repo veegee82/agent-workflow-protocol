@@ -104,3 +104,9 @@ class AWPManifest(BaseModel):
     observability: Optional[Any] = None  # ObservabilityConfig
     custom_tools: Optional[Any] = None  # CustomToolsConfig
     security: Optional[Any] = None  # SecurityConfig
+
+    # Top-level env and settings (alternative to inside workflow)
+    env: Optional[Any] = None
+    settings: Optional[Any] = None
+
+    model_config = {"extra": "allow"}

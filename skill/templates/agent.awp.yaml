@@ -13,7 +13,7 @@ runtime:
   strategy_folder: workflow
 
 model:
-  name: "openrouter/anthropic/claude-sonnet-4"
+  name: ""                                         # Set at runtime via LLM_MODEL env var or run wizard
   parameters:
     temperature: 0.2
 

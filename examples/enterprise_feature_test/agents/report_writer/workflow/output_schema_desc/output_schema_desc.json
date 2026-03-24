@@ -1,0 +1,7 @@
+{
+  "final_report_path": "Absoluter Dateipfad zum generierten Markdown-Report",
+  "report_hash": "SHA-256 Hash des Reports im Format sha256:<hash> (signiert mit REPORT_SIGNING_KEY)",
+  "report_content": "Vollständiger Inhalt des Reports als Markdown (min. 500 Wörter)",
+  "governance_log": "Log aller Governance-Events: blockierte Tools, Rate-Limit-Treffer, Circuit-Breaker-Events",
+  "confidence": "Konfidenz-Score (0.0-1.0) für die Qualität des Reports"
+}

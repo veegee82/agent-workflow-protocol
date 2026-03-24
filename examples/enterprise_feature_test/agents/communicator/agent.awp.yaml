@@ -1,0 +1,114 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: communicator
+  role: "Kommunikator"
+  description: >
+    Konsolidiert Ergebnisse aus parallelen Agents (Code Executor + Analyst).
+    Nutzt den Message Bus für Inter-Agent-Kommunikation über verschiedene
+    Channels (direct, broadcast, metrics).
+  version: "1.0.0"
+  tags: [communication, message-bus, consolidation, channels]
+
+runtime:
+  class_name: Agent
+  strategy_folder: workflow
+
+model:
+  name: ""
+  fallback: ""
+  parameters:
+    temperature: 0.2
+    max_tokens: 4096
+    top_p: 1.0
+  reasoning:
+    enabled: true
+    effort: medium
+    force: false
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+  additional: []
+  variables:
+    broadcast_channel: "alerts"
+    metrics_channel: "metrics"
+  injection_order:
+    - system_prompt
+    - skills
+    - memory
+    - previous_agents
+    - user_prompt
+    - context
+
+output:
+  format: json
+  contract:
+    consolidated_report:
+      type: object
+      description: "Konsolidierter Bericht mit Metriken und Analyse-Ergebnissen"
+      shareable: true
+      sensitive: false
+      required: true
+    broadcast_status:
+      type: object
+      description: "Status der gesendeten Broadcast-Nachrichten (channel, recipients, timestamp)"
+      shareable: true
+      sensitive: false
+      required: true
+    message_log:
+      type: array
+      description: "Log aller gesendeten und empfangenen Nachrichten"
+      shareable: false
+      sensitive: false
+      required: false
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Konfidenz der Konsolidierung"
+      shareable: true
+      required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 15
+    max_parallel: 4
+    timeout_per_call: 15
+    allowed:
+      - agent.send_message
+      - agent.list_messages
+      - memory.write
+      - memory.read
+    denied:
+      - shell.execute
+      - web.search
+      - http.request
+
+  skills:
+    agent_skills: []
+    project_skills: true
+  data_sources: []
+
+vision:
+  enabled: false
+
+preprocessor:
+  enabled: false
+  pipeline: default
+
+memory:
+  enabled: true
+  long_term:
+    enabled: true
+    inject: true
+    max_tokens: 2000
+  daily_log:
+    enabled: true
+    auto_write: true
+  search_enabled: true

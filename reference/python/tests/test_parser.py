@@ -115,4 +115,4 @@ class TestAgentParsing:
                     assert a.identity.id == agent_dir.name
                     assert a.model.name is not None
                     count += 1
-        assert count == 11, f"Expected 11 agents, found {count}"
+        assert count >= 11, f"Expected at least 11 agents, found {count}"

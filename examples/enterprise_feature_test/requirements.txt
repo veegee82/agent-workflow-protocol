@@ -1,0 +1,2 @@
+# AWP Enterprise Feature Test — Dependencies
+awp-protocol>=1.0.0

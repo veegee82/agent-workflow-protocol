@@ -169,16 +169,12 @@ can correct it.
 
 #### 3. LLM-Konfiguration
 
-**3.1 Modell:** Welches LLM soll verwendet werden?
-> a) `openrouter/anthropic/claude-sonnet-4` ← empfohlen
-> b) `openrouter/anthropic/claude-opus-4`
-> c) `openrouter/google/gemini-2.5-pro`
-> d) `ollama/nemotron-3-super:cloud` (cloud, kostenlos)
-> d2) `ollama/llama3` (lokal)
-> e) Unterschiedliche Modelle pro Agent (bitte angeben)
-> f) Sonstiges: ___
+> **Hinweis:** LLM-Modelle werden **nicht** im Workflow festgelegt. Sie werden
+> beim Start über den **Run-Wizard** (`awp run`) oder die Umgebungsvariable
+> `LLM_MODEL` konfiguriert. So kann der User das Modell jederzeit wechseln,
+> ohne den Workflow zu ändern.
 
-**3.2 Temperatur:** Wie kreativ sollen die Agents antworten?
+**3.1 Temperatur:** Wie kreativ sollen die Agents antworten?
 > a) Niedrig (0.1) — faktisch, präzise ← empfohlen für Analyse/Recherche
 > b) Mittel (0.3) — ausgewogen
 > c) Hoch (0.7) — kreativ, variabel
@@ -196,6 +192,10 @@ can correct it.
 > - `{agent_id}`: keine Tools (reiner LLM-Agent)
 >
 > Änderungen? Sonstiges: ___
+
+> **Hinweis:** Erweiterte Tool-Calling-Optionen (`tool_choice`, `parallel_calls`)
+> können pro Agent in `agent.awp.yaml` unter `capabilities.tools` konfiguriert werden.
+> Defaults sind sinnvoll für die meisten Workflows — nur bei Bedarf anpassen.
 
 **4.2 Tool-Implementierungen generieren?** Sollen funktionierende Implementierungen
 für die Tools miterzeugt werden (z.B. `web.search` mit DuckDuckGo, `memory.*` mit
@@ -647,6 +647,13 @@ When an agent has `capabilities.codemode.enabled: true`:
 
 If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`. See `templates/project-skill.md`.
 
+#### Step 9: WORKFLOW.md (Project Overview)
+
+Generate `{workflow_dir}/WORKFLOW.md` as specified in Phase 4b. This file MUST always
+be generated — it is not optional. It serves as the human-readable entry point for
+anyone opening the project. The file uses only plain-text ASCII diagrams so it is
+universally readable without rendering tools.
+
 ### Phase 4: Validation Checklist
 
 After generating all files, verify:
@@ -675,17 +682,103 @@ After generating all files, verify:
 - [ ] R22: If sdk_surface.mode is "explicit", include list is non-empty.
 - [ ] R23: sdk_surface.exclude entries match tools in tools.allowed.
 - [ ] R24: If sandbox.type is "isolate", sandbox.network is defined.
+- [ ] R25: WORKFLOW.md exists at project root with ASCII diagram and abstract-to-concrete description.
+
+### Phase 4b: Generate WORKFLOW.md (Project-Level Overview)
+
+**IMPORTANT:** After validation and before presenting the summary, you MUST generate
+a `{workflow_dir}/WORKFLOW.md` file at the project root. This file serves as the
+always-readable, self-contained documentation of the workflow. It MUST use only
+plain-text ASCII diagrams (no Mermaid, no HTML, no images) so it renders correctly
+in any Markdown viewer, terminal, or text editor.
+
+The file follows a **top-down structure** from abstract to concrete:
+
+```markdown
+# {Workflow Name}
+
+> {One-sentence elevator pitch: what this workflow does and why.}
+
+**AWP Compliance:** L{N} {Level Name} | **Agents:** {count} | **Execution:** {mode}
+
+---
+
+## Workflow-Diagramm
+
+{ASCII box-and-arrow diagram — see format below}
+
+---
+
+## Überblick (Abstract)
+
+{2-3 sentences: What problem does this workflow solve? What is the input,
+what is the output? Written for someone who has never seen AWP.}
+
+## Agent-Rollen (Conceptual)
+
+{For each agent: name, role in plain language, what it receives, what it delivers.
+Use a table or bullet list.}
+
+| Agent | Rolle | Empfängt von | Liefert an |
+|-------|-------|-------------|-----------|
+| `{id}` | {role} | {upstream or "User-Eingabe"} | {downstream or "Endausgabe"} |
+
+## Datenfluss (Architectural)
+
+{Concrete data contracts: which fields flow between agents, with types.
+Use the ASCII arrow notation from Phase 2 Step 3.}
+
+## Tools & Fähigkeiten (Technical)
+
+{Table mapping each agent to its tools, memory, skills, code mode.}
+
+## Dateistruktur (Implementation)
+
+{Tree listing of all generated files, grouped by agent.}
+
+## Wie starten
+
+{Ready-to-use commands: install, run, validate.}
+
+---
+
+*Generiert von AWP Workflow Builder — {date}*
+```
+
+**Diagram rendering rules:**
+
+The ASCII diagram in `WORKFLOW.md` MUST be rendered with care for visual quality.
+Use Unicode box-drawing characters (`┌ ┐ └ ┘ │ ─ ├ ┤ ┬ ┴ ┼ ▼ ▶ ◀ ▲`) for clean
+rendering. Follow these rules:
+
+1. **All agents** appear as labeled boxes with their role name.
+2. **Data flow** between agents as arrows with the shared field names on the edge.
+3. **Tools** attached to the agents that use them (as small labels inside the box).
+4. **Memory** tiers if the workflow uses persistence.
+5. **Input** (top) and **Output** (bottom) clearly marked.
+6. **Consistent box widths** — all boxes at the same level should have the same width.
+7. **Center-aligned** — the diagram should be visually centered and balanced.
+8. For **parallel agents**, show them side by side with a horizontal spread.
+9. For **conditional execution**, annotate arrows with the condition in `[brackets]`.
+10. **No Mermaid, no HTML** — only plain-text ASCII so the file is universally readable.
 
 ### Phase 5: Summary & Workflow Overview
 
 Present to the user:
 
 - Workflow name and compliance level.
-- Agent graph visualization (text-based DAG).
+- Agent graph visualization (text-based DAG) — **rendered with the same quality as in WORKFLOW.md**.
 - Files generated (count and list).
 - Tool implementation mode: whether built-in tool implementations were generated (list them if yes).
 - Compliance badge: `AWP L{N} {Level Name} Compliant`.
+- Reference to `WORKFLOW.md` for the full project documentation.
 - Any assumptions made or recommendations for improvement.
+
+**IMPORTANT — Diagram rendering priority:** The workflow diagram is the visual
+centerpiece of both the terminal output and the `WORKFLOW.md` file. Invest effort
+in making it visually appealing: use Unicode box-drawing characters, align boxes
+cleanly, balance whitespace, and ensure the diagram is immediately understandable
+at a glance. A well-rendered diagram is worth more than paragraphs of text.
 
 #### Workflow Diagram
 
@@ -806,6 +899,78 @@ cp secrets.yaml.example secrets.yaml
 awp validate {workflow_name}/
 ```
 
+#### Required API Keys & Secrets
+
+After the "How to Use" section, you MUST present a summary of **all API keys and
+secrets** that are required (or optional) to run this workflow. This allows the
+user to prepare everything before the first run.
+
+Generate this section dynamically based on the workflow's actual configuration:
+
+1. **LLM API Key:** Derived from the model the user will select at runtime.
+   Always show the most common providers and their key sources.
+2. **Tool Secrets:** Derived from the tools used across all agents (from
+   `tools.allowed` in each `agent.awp.yaml`). Map each tool to the API key
+   it typically needs.
+3. **Custom Secrets:** Any secrets declared in the workflow's `env.required`
+   section of `workflow.awp.yaml`.
+
+Present in this format:
+
+---
+
+**Erforderliche API Keys / Required API Keys**
+
+> Das LLM-Modell wird beim Start über den **Run-Wizard** oder `LLM_MODEL`
+> gewählt. Je nach Modell wird ein passender API Key benötigt:
+
+| Zweck | Env-Variable | Anbieter | Key besorgen |
+|-------|-------------|----------|-------------|
+| LLM (OpenRouter) | `OPENROUTER_API_KEY` | OpenRouter | https://openrouter.ai/keys (kostenlos) |
+| LLM (OpenAI) | `OPENAI_API_KEY` | OpenAI | https://platform.openai.com/api-keys |
+| LLM (Groq) | `GROQ_API_KEY` | Groq | https://console.groq.com/keys (kostenlos) |
+| LLM (Ollama) | — | Ollama (lokal) | Kein Key nötig — https://ollama.com |
+| LLM (Deepseek) | `DEEPSEEK_API_KEY` | DeepSeek | https://platform.deepseek.com/api_keys |
+| LLM (Mistral) | `MISTRAL_API_KEY` | Mistral | https://console.mistral.ai/api-keys |
+| LLM (Together) | `TOGETHER_API_KEY` | Together AI | https://api.together.xyz/settings/api-keys |
+| LLM (Fireworks) | `FIREWORKS_API_KEY` | Fireworks | https://fireworks.ai/account/api-keys |
+| LLM (universell) | `LLM_API_KEY` | Beliebig | Überschreibt alle provider-spezifischen Keys |
+
+> **Tipp:** Es wird nur **ein** LLM-Key benötigt — passend zum gewählten Provider.
+> OpenRouter ist empfohlen, da es Zugang zu vielen Modellen über einen Key bietet.
+
+{If the workflow uses tools that need API keys, add a second table:}
+
+| Tool | Env-Variable | Beschreibung | Key besorgen |
+|------|-------------|-------------|-------------|
+| `web.search` (Premium) | `SEARCH_API_KEY` | Optional — DuckDuckGo funktioniert ohne Key | Abhängig vom Anbieter (Google, Bing, SearXNG) |
+| `http.request` | `AUTH_TOKEN` | Nur wenn Ziel-API Authentifizierung braucht | Vom jeweiligen API-Anbieter |
+| {custom_tool} | `{SECRET_NAME}` | {description} | {where to get it} |
+
+{Only include tool rows that are actually used in this workflow. Omit the tool
+table entirely if no tools need secrets.}
+
+> **Secrets einrichten:**
+>
+> ```bash
+> # Option 1: Environment-Variable setzen
+> export OPENROUTER_API_KEY="sk-or-..."
+>
+> # Option 2: In secrets.yaml speichern (wird beim ersten `awp run` angeboten)
+> cp secrets.yaml.example secrets.yaml
+> # Datei editieren und Keys eintragen
+>
+> # Option 3: In ~/.awp/.env für alle Workflows global setzen
+> echo 'OPENROUTER_API_KEY=sk-or-...' >> ~/.awp/.env
+> ```
+
+---
+
+**IMPORTANT:** The API key table must be **specific** to this workflow. Do not
+list providers that are irrelevant. If the workflow only uses web.search with
+the free DuckDuckGo fallback, state that no tool secrets are required. Always
+highlight which keys are **required** vs. **optional**.
+
 
 ## Templates
 
@@ -827,6 +992,12 @@ The `templates/` directory contains starter files for all workflow components:
 | `codemode-sdk.ts.tmpl` | TypeScript SDK interface for Code Mode. |
 | `codemode-sdk.py.tmpl` | Python SDK class for Code Mode. |
 | `adapters/cloudflare/` | Cloudflare Workers project templates (wrangler.toml, src/). |
+
+**Auto-generated files (not templates, always created):**
+
+| File | Purpose |
+|------|---------|
+| `WORKFLOW.md` | Project-level overview with ASCII diagram and abstract-to-concrete description. Always generated at project root. |
 
 ## Extensions (Skill Inheritance)
 

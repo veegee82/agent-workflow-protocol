@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run = subparsers.add_parser("run", help="Run an AWP workflow (standalone runtime)")
     p_run.add_argument("path", help="Path to workflow directory")
     p_run.add_argument("--task", "-t", required=True, help="Task description")
+    p_run.add_argument("--model", "-m", help="LLM model to use (skips model wizard, sets LLM_MODEL)")
     p_run.add_argument("--debug", "-d", action="store_true", help="Enable debug mode (verbose output)")
 
     args = parser.parse_args(argv)
@@ -285,13 +286,22 @@ def cmd_run(args: argparse.Namespace) -> int:
     import time as _time
     from .runtime import WorkflowRunner
 
+    import os as _os
+
     wf_dir = Path(args.path).resolve()
     debug = getattr(args, "debug", False)
+
+    # --model flag sets LLM_MODEL before anything else
+    if getattr(args, "model", None):
+        _os.environ["LLM_MODEL"] = args.model
 
     runner = WorkflowRunner(wf_dir)
 
     # -- Pre-run wizard ------------------------------------------------
     if sys.stdin.isatty():
+        # Model wizard: let user choose LLM model if not already set
+        _model_wizard()
+
         missing = runner.get_missing_secrets()
         if missing:
             _secrets_wizard(runner, missing, wf_dir)
@@ -353,7 +363,7 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
     print("=" * 60)
 
     # LLM settings
-    llm_model = os.getenv("LLM_MODEL", "(not set)")
+    llm_model = os.getenv("LLM_MODEL", "(not set — use run wizard or set LLM_MODEL)")
     llm_provider = os.getenv("LLM_PROVIDER", "(auto)")
     llm_fallback = os.getenv("LLM_PROVIDER_FALLBACK", "(none)")
     print(f"  LLM Model:     {llm_model}")
@@ -436,9 +446,14 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             agent_yaml = agent_dir / "agent.awp.yaml"
             model_name = "(default)"
             try:
+                import os as _os
                 import yaml
                 cfg = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
-                model_name = cfg.get("model", {}).get("name", "(default)")
+                cfg_model = cfg.get("model", {}).get("name", "")
+                if cfg_model:
+                    model_name = cfg_model
+                else:
+                    model_name = _os.getenv("LLM_MODEL", "(not set)") + " (from env)"
             except Exception:
                 pass
 
@@ -470,18 +485,34 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                 else:
                     print(f"    Status:  OK ({elapsed:.1f}s, confidence: {confidence})")
 
-                    # Show output keys and sizes
+                    # Show output keys and content (expanded in debug)
                     for k, v in agent_result.items():
                         if k in ("confidence", "error"):
                             continue
                         if isinstance(v, list):
                             print(f"    Output:  {k} → {len(v)} items")
+                            for i, item in enumerate(v):
+                                prefix = f"      [{i}] "
+                                if isinstance(item, dict):
+                                    print(f"{prefix}{json.dumps(item, indent=2, default=str, ensure_ascii=False)}")
+                                else:
+                                    item_str = str(item)
+                                    if len(item_str) > 200:
+                                        item_str = item_str[:200] + "..."
+                                    print(f"{prefix}{item_str}")
                         elif isinstance(v, dict):
                             print(f"    Output:  {k} → {len(v)} fields")
+                            for fk, fv in v.items():
+                                fv_str = str(fv)
+                                if len(fv_str) > 200:
+                                    fv_str = fv_str[:200] + "..."
+                                print(f"      {fk}: {fv_str}")
                         elif isinstance(v, str):
                             lines = v.count("\n") + 1
                             chars = len(v)
                             print(f"    Output:  {k} → {chars} chars ({lines} lines)")
+                            for line in v.splitlines():
+                                print(f"      {line}")
                         else:
                             print(f"    Output:  {k} → {v}")
 
@@ -534,6 +565,22 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                 size_str = f"{size / 1024:.1f}KB"
             print(f"    {f.relative_to(wf_dir)}  ({size_str})")
 
+    # Observability files
+    obs_dirs = ["data/traces", "data/metrics", "data/audit", "data/state"]
+    obs_files = []
+    for d in obs_dirs:
+        obs_path = wf_dir / d
+        if obs_path.exists():
+            for f in sorted(obs_path.rglob("*")):
+                if f.is_file():
+                    obs_files.append(f)
+    if obs_files:
+        print(f"  Observability:")
+        for f in obs_files:
+            size = f.stat().st_size
+            size_str = f"{size}B" if size < 1024 else f"{size / 1024:.1f}KB"
+            print(f"    {f.relative_to(wf_dir)}  ({size_str})")
+
     # Per-agent confidence summary
     print()
     print("  Results:")
@@ -562,6 +609,78 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             print()
 
     return state
+
+
+_MODEL_CHOICES: list[tuple[str, str]] = [
+    ("openrouter/anthropic/claude-sonnet-4", "Claude Sonnet 4 via OpenRouter"),
+    ("openrouter/anthropic/claude-opus-4", "Claude Opus 4 via OpenRouter"),
+    ("openrouter/google/gemini-2.5-pro", "Gemini 2.5 Pro via OpenRouter"),
+    ("openrouter/deepseek/deepseek-r1", "DeepSeek R1 via OpenRouter"),
+    ("ollama/llama3", "Llama 3 (lokal via Ollama)"),
+]
+
+
+def _model_wizard() -> None:
+    """Interactive wizard to select the LLM model for this run.
+
+    Sets the ``LLM_MODEL`` environment variable so that all agents
+    resolve it at runtime. Skipped when ``LLM_MODEL`` is already set.
+    """
+    import os
+
+    current = os.getenv("LLM_MODEL", "")
+    if current:
+        print(f"  LLM Model: {current} (from LLM_MODEL env)")
+        print()
+        return
+
+    print("=" * 60)
+    print("  LLM Model Selection")
+    print("=" * 60)
+    print("  No LLM_MODEL environment variable set.")
+    print("  Choose a model for this run:\n")
+
+    for idx, (model_id, label) in enumerate(_MODEL_CHOICES, 1):
+        print(f"    {idx}) {model_id}")
+        print(f"       {label}")
+    print(f"    {len(_MODEL_CHOICES) + 1}) Custom model (enter manually)")
+    print()
+
+    try:
+        choice = input(f"  Select [1-{len(_MODEL_CHOICES) + 1}]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  Skipping model selection — agents will fail without a model.\n")
+        return
+
+    if not choice:
+        print("  No selection — agents will fail without a model.\n")
+        return
+
+    try:
+        idx = int(choice)
+    except ValueError:
+        # Treat as custom model name
+        os.environ["LLM_MODEL"] = choice
+        print(f"  → Using model: {choice}\n")
+        return
+
+    if 1 <= idx <= len(_MODEL_CHOICES):
+        model_id = _MODEL_CHOICES[idx - 1][0]
+        os.environ["LLM_MODEL"] = model_id
+        print(f"  → Using model: {model_id}\n")
+    elif idx == len(_MODEL_CHOICES) + 1:
+        try:
+            custom = input("  Enter model name (e.g. openrouter/meta/llama-3-70b): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Skipping.\n")
+            return
+        if custom:
+            os.environ["LLM_MODEL"] = custom
+            print(f"  → Using model: {custom}\n")
+        else:
+            print("  No model entered.\n")
+    else:
+        print(f"  Invalid choice: {idx}\n")
 
 
 def _secrets_wizard(

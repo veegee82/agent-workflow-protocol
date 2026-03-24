@@ -1,0 +1,6 @@
+{
+  "computed_metrics": "Berechnete statistische Metriken: mean, median, stddev, trend, momentum",
+  "execution_log": "Vollständiger Console-Output der TypeScript-Code-Ausführung in der Sandbox",
+  "code_snippet": "Der vom Agent geschriebene und ausgeführte TypeScript-Code",
+  "confidence": "Konfidenz-Score (0.0-1.0) für die Korrektheit der Berechnungen"
+}

@@ -13,6 +13,7 @@ class ConditionalDependency(BaseModel):
     """Dependency with condition."""
     agent: AgentId
     condition: str = "success"  # success | failure | always | expression
+    when: Optional[str] = None  # Safe expression evaluated at runtime
 
 
 class LoopConfig(BaseModel):
@@ -40,8 +41,10 @@ class GraphNode(BaseModel):
     enabled: bool = True
     depends_on: list[str | ConditionalDependency] = Field(default_factory=list)
     share_input: dict[str, list[str]] = Field(default_factory=dict)
+    share_output: list[str] = Field(default_factory=list)
     description: str = ""
     on_failure: str = "continue"  # continue | skip | abort
+    when: Optional[str] = None  # Safe expression: "state.analyst.risk_score > 0.3"
     loop: Optional[LoopConfig] = None
     fan_out: Optional[FanOutConfig] = None
     timeout: Optional[int] = None  # Override per-agent timeout

@@ -16,8 +16,8 @@ runtime:
   strategy_folder: workflow
 
 model:
-  name: "openrouter/anthropic/claude-sonnet-4"
-  fallback: "openrouter/anthropic/claude-sonnet-4"
+  name: ""                                         # Set at runtime via LLM_MODEL env var or run wizard
+  fallback: ""                                     # Set at runtime via LLM_MODEL env var or run wizard
   parameters:
     temperature: 0.2
     max_tokens: 4096
@@ -67,6 +67,8 @@ capabilities:
     max_calls: 15
     max_parallel: 4
     timeout_per_call: 30
+    # tool_choice: auto                                 # auto | none | required | {tool_name}
+    # parallel_calls: true                              # true = model may issue multiple tool calls per response
     allowed:
       - web.search
       - http.request

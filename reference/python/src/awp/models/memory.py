@@ -38,6 +38,15 @@ class SemanticMemoryConfig(BaseModel):
     config: dict = Field(default_factory=dict)
 
 
+class CurationConfig(BaseModel):
+    """Memory curation configuration."""
+    enabled: bool = False
+    schedule: str = "after_run"  # after_run | daily | weekly
+    days: int = 7
+
+    model_config = {"extra": "allow"}
+
+
 class MemoryConfig(BaseModel):
     """Complete memory configuration (Layer 4)."""
     enabled: bool = True
@@ -46,4 +55,7 @@ class MemoryConfig(BaseModel):
     daily_log: DailyLogConfig = Field(default_factory=DailyLogConfig)
     episodic: EpisodicMemoryConfig = Field(default_factory=EpisodicMemoryConfig)
     semantic: SemanticMemoryConfig = Field(default_factory=SemanticMemoryConfig)
+    curation: CurationConfig = Field(default_factory=CurationConfig)
     search_enabled: bool = True
+
+    model_config = {"extra": "allow"}

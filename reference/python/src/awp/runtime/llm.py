@@ -240,6 +240,8 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         tools: Optional[list[dict[str, Any]]] = None,
         response_format: Optional[dict[str, Any]] = None,
+        tool_choice: Optional[str | dict[str, Any]] = None,
+        parallel_tool_calls: Optional[bool] = None,
     ) -> dict[str, Any]:
         """Send a chat completion request with automatic fallback.
 
@@ -253,6 +255,10 @@ class LLMClient:
             max_tokens: Max response tokens.
             tools: Tool definitions (OpenAI function calling format).
             response_format: Structured output schema.
+            tool_choice: Tool selection strategy — ``"auto"``, ``"none"``,
+                ``"required"``, or a specific tool name.
+            parallel_tool_calls: Whether the model may issue multiple tool
+                calls in a single response. ``None`` = provider default.
 
         Returns:
             Raw API response dict.
@@ -265,7 +271,8 @@ class LLMClient:
 
         try:
             return self._do_chat(use_model, messages, temperature,
-                                 max_tokens, tools, response_format)
+                                 max_tokens, tools, response_format,
+                                 tool_choice, parallel_tool_calls)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             if 400 <= status < 500:
@@ -276,7 +283,8 @@ class LLMClient:
                         use_model, status, fallback,
                     )
                     return self._do_chat(fallback, messages, temperature,
-                                         max_tokens, tools, response_format)
+                                         max_tokens, tools, response_format,
+                                         tool_choice, parallel_tool_calls)
             raise
 
     def _do_chat(
@@ -287,6 +295,8 @@ class LLMClient:
         max_tokens: Optional[int],
         tools: Optional[list[dict[str, Any]]],
         response_format: Optional[dict[str, Any]],
+        tool_choice: Optional[str | dict[str, Any]] = None,
+        parallel_tool_calls: Optional[bool] = None,
     ) -> dict[str, Any]:
         """Execute a single chat completion request."""
         payload: dict[str, Any] = {
@@ -302,9 +312,30 @@ class LLMClient:
         if response_format is not None:
             payload["response_format"] = response_format
 
+        # Tool calling control parameters (OpenRouter / OpenAI compatible)
+        if tool_choice is not None:
+            if isinstance(tool_choice, str) and tool_choice not in ("auto", "none", "required"):
+                # Specific tool name → force that tool
+                safe_name = tool_choice.replace(".", "_")
+                payload["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": safe_name},
+                }
+            else:
+                payload["tool_choice"] = tool_choice
+        if parallel_tool_calls is not None:
+            payload["parallel_tool_calls"] = parallel_tool_calls
+
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key and self.api_key != "ollama":
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # OpenRouter-specific headers for better rate-limiting and tracking
+        if self._provider == "openrouter":
+            headers["X-Title"] = os.getenv("OPENROUTER_APP_TITLE", "AWP Runtime")
+            app_url = os.getenv("OPENROUTER_APP_URL", "")
+            if app_url:
+                headers["HTTP-Referer"] = app_url
 
         logger.debug("LLM request: model=%s, messages=%d, tools=%d",
                       use_model, len(messages), len(tools or []))
@@ -351,6 +382,8 @@ class LLMClient:
         tools: list[dict[str, Any]],
         tool_executor: Any,
         max_rounds: int = 10,
+        tool_choice: Optional[str | dict[str, Any]] = None,
+        parallel_tool_calls: Optional[bool] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Chat with automatic tool calling loop.
@@ -364,6 +397,9 @@ class LLMClient:
             tools: Tool definitions in OpenAI format.
             tool_executor: Callable(name, arguments) -> result dict.
             max_rounds: Max tool-calling rounds.
+            tool_choice: Tool selection strategy (``"auto"``, ``"none"``,
+                ``"required"``, or a specific tool name).
+            parallel_tool_calls: Allow parallel tool calls per response.
 
         Returns:
             Final assistant message dict with 'content'.
@@ -374,13 +410,26 @@ class LLMClient:
         _, name_map = _sanitize_tool_names(tools)
 
         for round_num in range(max_rounds):
-            data = self.chat(current_messages, tools=tools, **kwargs)
+            data = self.chat(
+                current_messages, tools=tools,
+                tool_choice=tool_choice,
+                parallel_tool_calls=parallel_tool_calls,
+                **kwargs,
+            )
             choice = data.get("choices", [{}])[0]
             msg = choice.get("message", {})
+            finish_reason = choice.get("finish_reason", "")
 
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
                 return msg
+
+            # Log warning if finish_reason is inconsistent with tool_calls
+            if finish_reason and finish_reason != "tool_calls":
+                logger.warning(
+                    "Got tool_calls but finish_reason='%s' (expected 'tool_calls')",
+                    finish_reason,
+                )
 
             # Append assistant message with tool calls
             current_messages.append(msg)

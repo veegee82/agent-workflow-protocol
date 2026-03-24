@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -37,9 +37,27 @@ class AgentAccessPolicy(BaseModel):
 
 
 class AccessControlConfig(BaseModel):
-    """Access control for tools and resources."""
+    """Access control for tools and resources.
+
+    Supports two formats:
+    1. ``agent_policies`` dict: agent_id → AgentAccessPolicy
+    2. ``rules`` list: [{agent, deny_tools, ...}] (enterprise style)
+    """
+    enabled: bool = False
     default_policy: str = "allow"  # allow | deny
     agent_policies: dict[str, AgentAccessPolicy] = Field(default_factory=dict)
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
+
+
+class SecretsConfig(BaseModel):
+    """Secrets management configuration."""
+    provider: str = "file"  # file | env | vault | aws_secrets
+    path: str = "secrets.yaml"
+    required: list[str] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
 
 
 class SecurityConfig(BaseModel):
@@ -49,5 +67,8 @@ class SecurityConfig(BaseModel):
     )
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     access_control: Optional[AccessControlConfig] = None
+    secrets: Optional[SecretsConfig] = None
     secrets_backend: str = "env"  # env | vault | aws_secrets
     audit_security_events: bool = True
+
+    model_config = {"extra": "allow"}

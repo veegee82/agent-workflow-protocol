@@ -16,6 +16,8 @@ class ToolsCapability(BaseModel):
     namespaces: list[str] = Field(default_factory=list)
     max_parallel: int = 16
     timeout_per_call: int = 30
+    tool_choice: Optional[str] = None  # "auto" | "none" | "required" | specific tool name
+    parallel_calls: Optional[bool] = None  # None = provider default, True/False = explicit
 
 
 class SkillsCapability(BaseModel):
@@ -26,19 +28,34 @@ class SkillsCapability(BaseModel):
 
 class DataSourceConfig(BaseModel):
     """Data source configuration (e.g., RAG, HTTP, file)."""
-    name: str
-    type: str  # rag | http | file | database
+    name: str = ""
+    type: str = ""  # rag | http | file | database | web | api | memory
+    description: str = ""
     config: dict = Field(default_factory=dict)
 
 
 class SandboxConfig(BaseModel):
     """Sandbox configuration for code execution."""
     enabled: bool = False
+    type: str = "subprocess"  # subprocess | docker | wasm | isolate | none
     runtime: str = "python"
     timeout: int = 30
     max_memory_mb: int = 256
+    max_cpu_seconds: int = 30
+    max_output_bytes: int = 1_048_576
     allowed_modules: list[str] = Field(default_factory=list)
     network_access: bool = False
+
+    model_config = {"extra": "allow"}
+
+
+class CodeModeConfig(BaseModel):
+    """Code Mode configuration (Layer 2 extension)."""
+    enabled: bool = False
+    language: str = "python"  # python | typescript | javascript
+    sdk_surface: dict = Field(default_factory=dict)
+
+    model_config = {"extra": "allow"}
 
 
 class AgentCapabilities(BaseModel):
@@ -47,3 +64,6 @@ class AgentCapabilities(BaseModel):
     skills: SkillsCapability = Field(default_factory=SkillsCapability)
     data_sources: list[DataSourceConfig] = Field(default_factory=list)
     sandbox: Optional[SandboxConfig] = None
+    codemode: Optional[CodeModeConfig] = None
+
+    model_config = {"extra": "allow"}

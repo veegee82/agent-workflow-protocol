@@ -39,9 +39,14 @@ class ReasoningConfig(BaseModel):
 
 
 class ModelConfig(BaseModel):
-    """LLM model configuration."""
+    """LLM model configuration.
+
+    When ``name`` is empty or not set, the runtime resolves the model from
+    the ``LLM_MODEL`` environment variable (set interactively via the run
+    wizard or in the shell environment).
+    """
     provider: Optional[str] = None  # Inherits from manifest if None
-    name: str
+    name: str = ""  # Empty = resolve from LLM_MODEL env var at runtime
     fallback: Optional[str] = None
     parameters: ModelParameters = Field(default_factory=ModelParameters)
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
@@ -110,6 +115,9 @@ class PreprocessorConfig(BaseModel):
     """Preprocessor configuration."""
     enabled: bool = False
     pipeline: str = "default"
+    steps: list[Any] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
 
 
 class AWPAgent(BaseModel):

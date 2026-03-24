@@ -1,0 +1,7 @@
+{
+  "analysis_summary": "Zusammenfassung der Marktanalyse in 3-5 Sätzen mit Kernaussagen",
+  "risk_score": "Risikobewertung von 0.0 (kein Risiko) bis 1.0 (maximales Risiko), basierend auf min. 3 Faktoren",
+  "recommendations": "Liste von Handlungsempfehlungen mit Aktion, Priorität (high/medium/low) und Begründung",
+  "historical_comparison": "Vergleich mit früheren Analysen aus dem Memory: vorheriger Risk Score, Trend-Änderung, Datum",
+  "confidence": "Konfidenz-Score (0.0-1.0) für die Analyse-Qualität"
+}

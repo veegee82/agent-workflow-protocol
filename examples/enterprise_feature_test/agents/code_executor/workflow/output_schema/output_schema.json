@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["computed_metrics", "execution_log", "confidence"],
+  "properties": {
+    "computed_metrics": {
+      "type": "object",
+      "properties": {
+        "mean": { "type": "number" },
+        "median": { "type": "number" },
+        "stddev": { "type": "number" },
+        "trend": { "type": "string", "enum": ["bullish", "bearish", "neutral"] },
+        "momentum": { "type": "number", "minimum": -1.0, "maximum": 1.0 }
+      },
+      "description": "Berechnete statistische Metriken"
+    },
+    "execution_log": {
+      "type": "string",
+      "description": "Console-Output der Code-Ausführung"
+    },
+    "code_snippet": {
+      "type": "string",
+      "description": "Der ausgeführte TypeScript-Code"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Konfidenz der Berechnungsergebnisse"
+    }
+  },
+  "additionalProperties": false
+}

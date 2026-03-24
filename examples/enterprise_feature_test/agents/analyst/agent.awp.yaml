@@ -1,0 +1,138 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: analyst
+  role: "Markt-Analyst"
+  description: >
+    Analysiert Rohdaten mit Memory-Zugriff, Arithmetic-Tools und
+    einem Preprocessor. Nutzt den Project Skill 'market_analysis'
+    für Domänenwissen. Extended Reasoning aktiviert.
+  version: "1.0.0"
+  tags: [analysis, memory, arithmetic, skills, preprocessor, reasoning]
+
+runtime:
+  class_name: Agent
+  strategy_folder: workflow
+
+model:
+  name: ""
+  fallback: ""
+  parameters:
+    temperature: 0.3
+    max_tokens: 6144
+    top_p: 0.95
+  reasoning:
+    enabled: true
+    effort: high
+    force: true
+
+prompt:
+  system: "instructions/SYSTEM_PROMPT.md"
+  user_template: "prompt/00_INTRO.md"
+  additional:
+    - "skills/analysis_methodology.md"   # Agent-level skill
+  variables:
+    risk_threshold: "0.7"
+    analysis_depth: "comprehensive"
+  injection_order:
+    - system_prompt
+    - skills
+    - memory
+    - previous_agents
+    - user_prompt
+    - context
+
+output:
+  format: json
+  contract:
+    analysis_summary:
+      type: string
+      description: "Zusammenfassung der Marktanalyse in 3-5 Sätzen"
+      shareable: true
+      sensitive: false
+      required: true
+    risk_score:
+      type: number
+      description: "Risiko-Bewertung 0.0 (kein Risiko) bis 1.0 (maximales Risiko)"
+      shareable: true
+      sensitive: false
+      required: true
+    recommendations:
+      type: array
+      description: "Liste von Handlungsempfehlungen mit Priorität"
+      shareable: true
+      sensitive: false
+      required: true
+    historical_comparison:
+      type: object
+      description: "Vergleich mit früheren Analysen aus Memory"
+      shareable: false
+      sensitive: false
+      required: false
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Konfidenz der Analyse"
+      shareable: true
+      required: true
+  validation:
+    mode: strict
+    on_invalid: use_partial
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 20
+    max_parallel: 3
+    timeout_per_call: 30
+    allowed:
+      - file.read
+      - memory.write
+      - memory.read
+      - memory.search
+      - memory.curate
+      - arithmetic.add
+      - arithmetic.subtract
+      - arithmetic.multiply
+      - arithmetic.divide
+    denied:
+      - shell.execute
+      - web.search                       # Analyst should not search — only analyze
+
+  skills:
+    agent_skills:
+      - analysis_methodology             # Agent-level skill
+    project_skills: true                 # Also inject market_analysis + compliance_rules
+  data_sources:
+    - type: memory
+      description: "Historische Analysen aus MEMORY.md"
+
+vision:
+  enabled: false
+
+# ── Preprocessor (F6 Extension) ──
+preprocessor:
+  enabled: true
+  pipeline: default
+  steps:
+    - name: normalize_market_data
+      type: python
+      script: "preprocessor/normalize.py"
+      description: "Normalisiert Rohdaten: ATR-Normalisierung, Z-Scores, fehlende Werte"
+    - name: extract_features
+      type: python
+      script: "preprocessor/features.py"
+      description: "Feature Engineering: Trend-Labels, Volatilitäts-Klassen, Momentum"
+
+memory:
+  enabled: true
+  long_term:
+    enabled: true
+    inject: true
+    max_tokens: 3000
+  daily_log:
+    enabled: true
+    auto_write: true
+  search_enabled: true

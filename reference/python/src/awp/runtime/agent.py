@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -35,6 +36,21 @@ from .llm import LLMClient
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_model_name(config_name: str) -> str:
+    """Resolve the effective model name.
+
+    If the agent config has an empty or unset model name, fall back to
+    the ``LLM_MODEL`` environment variable (typically set by the run
+    wizard or the user's shell).
+    """
+    if config_name:
+        return config_name
+    env_model = os.getenv("LLM_MODEL", "")
+    if env_model:
+        return env_model
+    return ""
 
 
 class StandaloneAgent(AWPAgent):
@@ -64,7 +80,8 @@ class StandaloneAgent(AWPAgent):
         self._agent_dir = Path(agent_dir)
         self._workflow_dir = Path(workflow_dir)
         self._config = parse_agent(self._agent_dir / "agent.awp.yaml")
-        self._llm = llm or LLMClient(model=self._config.model.name)
+        resolved_model = _resolve_model_name(self._config.model.name)
+        self._llm = llm or LLMClient(model=resolved_model)
         if tool_registry:
             self._tools = tool_registry
         else:
@@ -103,7 +120,7 @@ class StandaloneAgent(AWPAgent):
         ]
 
         llm_kwargs: dict[str, Any] = {
-            "model": self._config.model.name,
+            "model": _resolve_model_name(self._config.model.name),
             "temperature": self._config.model.parameters.temperature,
             "max_tokens": self._config.model.parameters.max_tokens,
         }
@@ -148,9 +165,13 @@ class StandaloneAgent(AWPAgent):
     def _run_with_tools(self, messages: list[dict], tool_defs: list[dict], **kwargs: Any) -> dict[str, Any]:
         """LLM call with tool calling loop."""
         max_calls = 10
+        tool_choice = None
+        parallel_calls = None
         caps = self._config.capabilities
         if caps and hasattr(caps, "tools"):
             max_calls = caps.tools.max_calls or 10
+            tool_choice = getattr(caps.tools, "tool_choice", None)
+            parallel_calls = getattr(caps.tools, "parallel_calls", None)
 
         try:
             final_msg = self._llm.chat_with_tools(
@@ -158,6 +179,8 @@ class StandaloneAgent(AWPAgent):
                 tools=tool_defs,
                 tool_executor=self._tools.call,
                 max_rounds=max_calls,
+                tool_choice=tool_choice,
+                parallel_tool_calls=parallel_calls,
                 **kwargs,
             )
 
