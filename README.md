@@ -340,13 +340,75 @@ AWP follows a deliberate path from abstract idea to running code:
   abstract ─────────────────────────────── concrete
 ```
 
+### Step 0: Install the AWP Skill in Claude
+
+Before you can describe your idea, Claude needs the AWP skill -- the domain
+knowledge that tells it how to plan and generate complete AWP workflows.
+
+**Option A: Add the skill file directly (Claude Code / Claude Desktop)**
+
+The AWP skill is a single Markdown file (`skill/SKILL.md`) that contains the
+complete AWP specification, all 24 validation rules, the 5-phase generation
+process, and the file templates. You add it to Claude's context so it becomes
+part of the conversation:
+
+```
+# Claude Code -- add as project skill
+# Copy skill/SKILL.md into your project, then reference it:
+/add-skill skill/SKILL.md
+
+# Or simply paste the content of SKILL.md at the start of the conversation.
+```
+
+For **Claude Desktop**, add the skill as a Project Knowledge file:
+1. Create a new Project (or open an existing one)
+2. Go to Project Knowledge → Add Content
+3. Upload `skill/SKILL.md` (or paste its contents)
+4. Every conversation in this project now has AWP generation capability
+
+For **Claude Code (CLI)**, the skill can be loaded in multiple ways:
+```bash
+# Option 1: Reference in CLAUDE.md (auto-loaded for every conversation)
+echo "Read and follow the instructions in skill/SKILL.md" >> CLAUDE.md
+
+# Option 2: Install via ClawHub (if available)
+clawhub install awp-workflow-builder
+
+# Option 3: Use the packaged skill.zip
+unzip skill.zip -d ~/.claude/skills/awp/
+```
+
+**Option B: Use the portable `skill.zip`**
+
+The repository includes a pre-packaged `skill.zip` that bundles the base skill
+with all adapters (Standalone, Cloudflare Workers, ClawHub) and extensions
+(Financial, DevOps). Extract and add it to your AI assistant's context.
+
+**What the skill gives Claude:**
+
+Once loaded, Claude gains:
+- The complete AWP 7-layer model and compliance levels (L0-L5)
+- The 5-phase generation process (Requirements → Plan → Generate → Validate → Summary)
+- All 24 validation rules (R1-R24) for structural correctness
+- File templates for every artifact (YAML configs, schemas, prompts, agent code)
+- Platform adapters for choosing the right deployment target
+- The interactive questionnaire and validation menu
+
+Without the skill, Claude is a general-purpose assistant. **With the skill,
+Claude becomes an AWP workflow architect** -- it knows how to ask the right
+questions, plan the agent graph, generate every file, and validate the result
+against the specification. The skill is the bridge between your idea and a
+running multi-agent system.
+
+Now you're ready to describe your idea.
+
 ### Step 1: You have an idea
 
 > "I need a research pipeline that plans, investigates, and writes articles."
 
 ### Step 2: You clarify requirements
 
-Tell your AI assistant:
+Tell Claude:
 
 > "Build an AWP research pipeline with three agents: planner, researcher, writer."
 
