@@ -184,6 +184,81 @@ The standalone runtime reads these environment variables:
 | `LLM_MODEL` | Model identifier (e.g., `"anthropic/claude-sonnet-4"`). | -- |
 | `LLM_BASE_URL` | API base URL. | `https://openrouter.ai/api/v1` |
 
+## Cloudflare Workers Runtime
+
+AWP workflows can run on **Cloudflare Workers** using the Dynamic Workers adapter.
+Each workflow deploys as a single Dispatch Worker that orchestrates the agent DAG.
+
+### Architecture
+
+- **Dispatch Worker** — Central orchestrator that reads the DAG, calls LLMs, validates outputs
+- **KV Namespace** — Workflow state between agents
+- **D1 (SQLite)** — Short-term memory and daily logs (L3+)
+- **R2 Bucket** — Long-term memory / MEMORY.md (L3+)
+- **Workers AI** — Optional LLM backend (alternative to external APIs)
+
+### Installation & Deployment
+
+```bash
+# Install Wrangler CLI
+npm install -g wrangler
+wrangler login
+
+# Generate workflow with Cloudflare adapter
+# (tell the AWP skill: "use the Cloudflare adapter")
+
+# Setup and deploy
+cd my-workflow/
+npm install
+wrangler kv namespace create STATE
+# → copy id into wrangler.toml
+wrangler secret put LLM_API_KEY
+wrangler deploy
+```
+
+### Running
+
+```bash
+# HTTP invocation
+curl -X POST https://my-workflow.account.workers.dev \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Research quantum computing trends"}'
+
+# Local development
+wrangler dev
+curl http://localhost:8787 -d '{"task": "..."}'
+
+# Health check
+curl https://my-workflow.account.workers.dev/health
+```
+
+### LLM Configuration
+
+The Cloudflare adapter supports two LLM backends:
+
+```yaml
+# External (OpenAI-compatible) — default
+model:
+  name: "anthropic/claude-sonnet-4-20250514"
+
+# Cloudflare Workers AI
+model:
+  provider: workers-ai
+  name: "@cf/meta/llama-3.1-70b-instruct"
+```
+
+### Memory Mapping
+
+| AWP Tier | Cloudflare Service | Lifecycle |
+|----------|-------------------|-----------|
+| Working | JS variables | Request-scoped |
+| Short-term | D1 (SQLite) | Persistent, queryable |
+| Long-term | R2 (Object Storage) | Unlimited |
+
+For the full adapter reference, see [skill/adapters/cloudflare-dynamic-workers.md](../skill/adapters/cloudflare-dynamic-workers.md).
+
+---
+
 ## Building a Platform Adapter
 
 To run AWP workflows on a different platform (e.g., LangGraph, CrewAI, a custom framework), you need to:

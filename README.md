@@ -45,7 +45,7 @@ AWP organizes a workflow into seven layers. Each layer answers one question:
  Layer 5  ORCHESTRATION     In what order and under what conditions?
  Layer 4  MEMORY & STATE    What does the workflow remember?
  Layer 3  COMMUNICATION     How do agents talk to each other?
- Layer 2  CAPABILITIES      What can an agent do? (tools, skills)
+ Layer 2  CAPABILITIES      What can an agent do? (tools, skills, code mode)
  Layer 1  AGENT IDENTITY    Who is this agent?
  Layer 0  MANIFEST          What is this workflow?
 ```
@@ -190,7 +190,14 @@ Any platform that implements the `AWPAgent` interface can run AWP
 workflows. The standalone runtime included in `awp-protocol` proves
 this works without any external framework.
 
-Third-party platforms provide their own adapters. Each adapter
+### Available Runtimes
+
+| Runtime | Language | Deployment | Best for |
+|---------|----------|-----------|----------|
+| **Standalone** (`awp-protocol`) | Python | Local / Server | Development, prototyping, self-hosted |
+| **Cloudflare Workers** | TypeScript | Edge (serverless) | Production, global scale, low latency |
+
+Third-party platforms can provide their own adapters. Each adapter
 translates the AWP interface to the platform's native agent system.
 
 ## MCP Tools -- Generate, Register, Use
@@ -507,6 +514,76 @@ and adjust it to your domain.
 
 For the full skill system reference, see [docs/skill-system.md](docs/skill-system.md).
 
+## Code Mode -- Write Code, Not Tool Calls
+
+When an agent needs many tools, the classic one-tool-at-a-time approach burns
+tokens and LLM roundtrips. **Code Mode** is the alternative: the agent writes
+code against a typed SDK that wraps all allowed tools as methods.
+
+```
+Classic:  Agent → LLM → tool("web.search") → result → LLM → tool("file.write") → result → LLM
+Code:     Agent → LLM → generates code block → sandbox executes → result → LLM
+```
+
+### How It Works
+
+1. The runtime auto-generates a typed SDK from the agent's `tools.allowed`.
+2. SDK type definitions replace tool definitions in the system prompt.
+3. The LLM writes a function using the SDK (e.g., `sdk.web.search()`).
+4. The code runs in a sandbox (subprocess, Docker, or V8 isolate).
+5. The result is validated against `output_schema.json` — same contract as classic mode.
+
+### Configuration
+
+```yaml
+# In agent.awp.yaml
+capabilities:
+  tools:
+    enabled: true
+    allowed: ["web.*", "file.*", "memory.*"]
+
+  sandbox:
+    type: isolate                       # or subprocess, docker
+    constraints:
+      max_memory_mb: 128
+      max_cpu_seconds: 30
+    network:
+      enabled: false                    # blocked by default
+
+  codemode:
+    enabled: true
+    language: typescript                # typescript | python | javascript
+    sdk_surface:
+      mode: auto                        # all allowed tools → SDK methods
+    execution:
+      timeout: 30
+      capture_console: true
+```
+
+### Why Code Mode?
+
+| | Classic Mode | Code Mode |
+|---|-------------|-----------|
+| **Token usage** | ~200 tokens/tool × N tools | SDK types once (~500 tokens total) |
+| **LLM roundtrips** | 1 per tool call | 1 total |
+| **Best for** | Simple flows, few tools | Complex orchestration, many tools |
+
+### Runtime Agnostic
+
+Code Mode is a **protocol feature**, not a platform feature. Each runtime
+implements it with its own sandbox:
+
+| Runtime | Sandbox | SDK Transport |
+|---------|---------|---------------|
+| Python (standalone) | `subprocess` | In-process calls |
+| Cloudflare Workers | `isolate` (V8) | RPC stubs |
+| Docker | `docker` | HTTP on localhost |
+
+The output contract is identical regardless of mode — Code Mode agents and
+classic agents are fully interchangeable in the DAG.
+
+For the full specification, see [spec/versions/1.0/layers/02-capabilities.md](spec/versions/1.0/layers/02-capabilities.md).
+
 ## Three Ways to Build Workflows
 
 ### 1. AI-Generated (Skill)
@@ -609,7 +686,7 @@ agent-workflow-protocol/
   schemas/                  JSON Schemas for validation
   examples/                 5 runnable example workflows (L0-L5)
   skill/                    Build skill for AI assistants
-    adapters/               Platform adapters (standalone, ClawHub)
+    adapters/               Platform adapters (standalone, Cloudflare, ClawHub)
     extensions/             Domain extensions (financial, devops)
     templates/              File templates for generation
     references/             Condensed docs for AI context
@@ -628,13 +705,101 @@ agent-workflow-protocol/
 | [Specification](spec/versions/1.0/spec.md) | Need the normative technical specification |
 | [Examples](examples/) | Want to see complete, runnable workflows |
 | [Skill](skill/SKILL.md) | Want AI to generate workflows for you |
+| [Cloudflare Adapter](skill/adapters/cloudflare-dynamic-workers.md) | Want to deploy on Cloudflare Workers |
 | [ClawHub Adapter](skill/adapters/clawhub.md) | Want to publish workflows to ClawHub |
 | [FAQ](primer/faq.md) | Have questions |
 
-## Install
+## Install & Run
+
+### Option 1: Python Standalone
 
 ```bash
+# Install
 pip install awp-protocol
+
+# Set LLM credentials
+export LLM_API_KEY=sk-...
+export LLM_MODEL=anthropic/claude-sonnet-4-20250514
+export LLM_BASE_URL=https://openrouter.ai/api/v1    # optional, default
+
+# Validate a workflow
+awp validate my-workflow/
+
+# Run a workflow
+awp run my-workflow/ --task "Research quantum computing trends"
+
+# Run via Python API
+python -c "
+from awp.runtime import WorkflowRunner
+runner = WorkflowRunner('my-workflow')
+result = runner.run('Research quantum computing trends')
+print(result)
+"
+
+# Pack for sharing
+awp pack my-workflow/
+# → Creates my-workflow.awp.zip
+```
+
+### Option 2: Cloudflare Workers
+
+```bash
+# Install Wrangler CLI
+npm install -g wrangler
+wrangler login
+
+# Generate a workflow (tell the AWP skill: "use the Cloudflare adapter")
+# The skill generates a TypeScript project with wrangler.toml
+
+# Setup Cloudflare resources
+cd my-workflow/
+npm install
+wrangler kv namespace create STATE
+# → Copy the id into wrangler.toml
+
+# Set secrets
+wrangler secret put LLM_API_KEY
+
+# Deploy
+wrangler deploy
+
+# Run
+curl -X POST https://my-workflow.your-account.workers.dev \
+  -H "Content-Type: application/json" \
+  -d '{"task": "Research quantum computing trends"}'
+
+# Local development
+wrangler dev
+curl http://localhost:8787 -d '{"task": "Research quantum computing trends"}'
+```
+
+### Option 3: ClawHub (Community)
+
+```bash
+# Install a pre-built workflow
+clawhub install research-pipeline
+
+# Run it
+awp run research-pipeline/ --task "Research AI safety"
+
+# Publish your own
+clawhub publish my-workflow/
+```
+
+### Validation & Tooling
+
+```bash
+# Validate workflow structure and rules (R1-R24)
+awp validate my-workflow/
+
+# Check compliance level
+awp compliance my-workflow/ --level L3
+
+# Visualize the agent DAG
+awp visualize my-workflow/ --format mermaid
+
+# Show agent capabilities
+awp identity-card my-workflow/agents/researcher/agent.awp.yaml
 ```
 
 ## License

@@ -103,6 +103,7 @@ Adapters define how `agent.py` is generated for a specific platform.
 | Adapter | Purpose |
 |---------|---------|
 | `adapters/standalone.md` | Generate `agent.py` for the AWP standalone runtime (`awp-protocol` package). |
+| `adapters/cloudflare-dynamic-workers.md` | Generate TypeScript project for Cloudflare Workers deployment. |
 | `adapters/clawhub.md` | Publish AWP skills and workflows to the ClawHub registry. |
 
 ### How Adapters Work
@@ -281,6 +282,22 @@ clawhub search awp-extension              # Just extensions
 clawhub search awp-workflow               # Just workflows
 ```
 
+### Code Mode Skill Auto-Generation
+
+When an agent has `capabilities.codemode.enabled: true`, the skill system
+automatically generates a **Code Mode Skill** — a Markdown file injected into
+the agent's system prompt that documents the typed SDK API.
+
+This skill is generated from `capabilities.tools.allowed` and replaces the
+individual tool definitions in the system prompt. It includes:
+
+- SDK type definitions (TypeScript interface or Python class)
+- Method signatures for each allowed tool
+- Usage examples
+- Rules for writing valid Code Mode functions
+
+Template: `skill/templates/codemode-skill.md`
+
 ## Templates
 
 The `skill/templates/` directory contains starter files:
@@ -297,6 +314,10 @@ The `skill/templates/` directory contains starter files:
 | `output_schema_desc.json` | Field description template. |
 | `mcp-tool.py` | Custom MCP tool template. |
 | `project-skill.md` | Project-level skill template. |
+| `codemode-skill.md` | Code Mode execution skill (auto-generated). |
+| `codemode-sdk.ts.tmpl` | TypeScript SDK interface template. |
+| `codemode-sdk.py.tmpl` | Python SDK class template. |
+| `adapters/cloudflare/` | Cloudflare Workers project templates. |
 
 ## References
 

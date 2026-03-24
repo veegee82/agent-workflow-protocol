@@ -1,0 +1,45 @@
+// AWP Code Mode SDK — TypeScript Interface
+// Auto-generated from capabilities.tools.allowed
+//
+// This interface is injected into the agent's system prompt so the LLM
+// knows which methods are available when writing code.
+
+/**
+ * AWP Tool SDK for Code Mode execution.
+ * All methods return a standard AWP ToolResult.
+ */
+export interface AWPToolSDK {
+{{SDK_METHODS}}
+}
+
+/** Standard AWP tool result. */
+export interface ToolResult {
+  ok: boolean;
+  status: number;
+  data: Record<string, unknown>;
+  error: string | null;
+}
+
+/**
+ * Execute function signature.
+ * The agent writes a function matching this signature.
+ */
+export type AgentExecuteFn = (sdk: AWPToolSDK) => Promise<Record<string, unknown>>;
+
+// ── Example SDK shape (when tools include web.*, file.*, memory.*) ──
+//
+// interface AWPToolSDK {
+//   web: {
+//     search(query: string, maxResults?: number): Promise<ToolResult>;
+//   };
+//   file: {
+//     read(path: string): Promise<ToolResult>;
+//     write(path: string, content: string): Promise<ToolResult>;
+//     list(directory: string): Promise<ToolResult>;
+//   };
+//   memory: {
+//     read(key: string): Promise<ToolResult>;
+//     write(key: string, value: string): Promise<ToolResult>;
+//     search(query: string): Promise<ToolResult>;
+//   };
+// }

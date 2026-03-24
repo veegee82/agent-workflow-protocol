@@ -187,7 +187,7 @@ can correct it.
 
 ---
 
-#### 4. Tools & Fähigkeiten
+#### 4. Tools, Code Mode & Fähigkeiten
 
 **4.1 Welche Tools brauchen die Agents?**
 > Vorschläge pro Agent:
@@ -203,6 +203,14 @@ Dateispeicher)? Ohne dies sind Tools nur Platzhalter, die eine AWP-Runtime berei
 > a) Ja — alle verwendeten Tools als MCP-Implementierungen generieren ← empfohlen für Standalone
 > b) Nein — nur Tool-Deklarationen, Runtime stellt sie bereit ← empfohlen für AWP-Runtime
 > c) Nur bestimmte Tools implementieren (bitte angeben)
+> d) Sonstiges: ___
+
+**4.3 Code Mode (Alternative Tool-Ausführung)?** Statt Tools einzeln aufzurufen,
+schreibt der Agent Code gegen ein typed SDK. Reduziert Token-Verbrauch und
+LLM-Roundtrips bei vielen Tools.
+> a) Nein — klassische Tool-Aufrufe ← empfohlen für einfache Workflows
+> b) Ja — Agent schreibt TypeScript gegen SDK ← empfohlen bei >5 Tools
+> c) Ja — Agent schreibt Python gegen SDK
 > d) Sonstiges: ___
 
 ---
@@ -270,7 +278,16 @@ sieht sie nie.
 
 ---
 
-#### 9. Compliance Level
+#### 9. Ziel-Plattform
+
+**9.1 Wo soll der Workflow laufen?**
+> a) **Standalone (Python)** — lokale Ausführung mit `awp-protocol` ← empfohlen für Einstieg
+> b) **Cloudflare Workers** — serverless Edge-Deployment (TypeScript)
+> c) Sonstiges: ___
+
+---
+
+#### 10. Compliance Level
 
 **9.1 Welches AWP-Compliance-Level?**
 > a) **L0 Core** — einfacher Workflow, nur Orchestrierung ← empfohlen für Einstieg
@@ -283,7 +300,7 @@ sieht sie nie.
 
 ---
 
-#### 10. Sonstiges
+#### 11. Sonstiges
 
 **10.1 Gibt es weitere Anforderungen, Einschränkungen oder Wünsche?**
 > z.B. Timeouts, Fehlerbehandlung, Sicherheitsanforderungen, spezielle Datenquellen,
@@ -454,13 +471,24 @@ is a focused checklist, not a second questionnaire.
 > c) {alternative, z.B. "Nur tägliche Logs, kein Langzeitgedächtnis"}
 > d) Sonstiges: ___
 
-**V8. Tool-Implementierungen**
+**V8. Code Mode**
+> → a) {geplanter Code Mode, z.B. "Nein — klassische Tool-Aufrufe"} ← aus dem Plan
+> b) {alternative, z.B. "Ja — TypeScript Code Mode mit SDK"}
+> c) {alternative, z.B. "Ja — Python Code Mode mit SDK"}
+> d) Sonstiges: ___
+
+**V9. Ziel-Plattform**
+> → a) {geplante Plattform, z.B. "Standalone (Python)"} ← aus dem Plan
+> b) {alternative, z.B. "Cloudflare Workers (TypeScript)"}
+> c) Sonstiges: ___
+
+**V10. Tool-Implementierungen**
 > → a) {geplanter Modus, z.B. "Ja -- alle Tools als MCP-Implementierungen"} ← aus dem Plan
 > b) {alternative, z.B. "Nein -- nur Deklarationen, Runtime stellt sie bereit"}
 > c) Nur bestimmte implementieren: welche? ___
 > d) Sonstiges: ___
 
-**V9. Gesamtbewertung**
+**V11. Gesamtbewertung**
 > → a) Plan ist korrekt -- bitte generieren
 > b) Plan anpassen (bitte oben die betroffenen Punkte korrigieren)
 > c) Plan verwerfen und neu planen
@@ -469,14 +497,14 @@ is a focused checklist, not a second questionnaire.
 ---
 
 **After receiving validation answers:**
-- If V9 = a) (approved): proceed directly to Phase 3 (file generation).
-- If V9 = b) (adjustments): apply the corrections from V1-V8, re-present
+- If V11 = a) (approved): proceed directly to Phase 3 (file generation).
+- If V11 = b) (adjustments): apply the corrections from V1-V10, re-present
   **only the changed sections** of the plan (not the full plan), and show
   an updated validation menu with only the changed questions.
-- If V9 = c) (discard): return to Phase 1 or Phase 2 Step 1.
-- If V9 = d) (questions): answer the questions, then re-present V9.
+- If V11 = c) (discard): return to Phase 1 or Phase 2 Step 1.
+- If V11 = d) (questions): answer the questions, then re-present V11.
 
-Iterate until the user selects V9 = a). Do NOT generate any files until
+Iterate until the user selects V11 = a). Do NOT generate any files until
 the plan is explicitly approved. The plan is the contract between AI and user.
 
 ### Phase 3: Generate the Project
@@ -513,9 +541,10 @@ For each agent, create `{workflow_dir}/agents/{agent_id}/agent.py`.
 AWP is platform-agnostic. The `agent.py` file varies by target runtime.
 Choose the appropriate **adapter** based on the target platform:
 
-| Platform | Adapter | Import |
-|----------|---------|--------|
-| **Standalone (awp-protocol)** | `adapters/standalone.md` | `from awp.agent import AWPAgent` |
+| Platform | Adapter | Generated Files |
+|----------|---------|----------------|
+| **Standalone (awp-protocol)** | `adapters/standalone.md` | `agent.py` (Python) |
+| **Cloudflare Workers** | `adapters/cloudflare-dynamic-workers.md` | `src/index.ts`, `wrangler.toml` (TypeScript) |
 
 **Default:** Use `templates/agent.py` which imports from `awp.agent`.
 
@@ -592,6 +621,28 @@ by the target runtime, per the AWP specification ("runtimes SHOULD provide").
 reference registered MCP tools") is satisfied by the generated implementations. When
 disabled, R14 compliance depends on the target runtime registering these tools.
 
+#### Step 7c: Code Mode SDK & Skill (if Code Mode is enabled)
+
+When an agent has `capabilities.codemode.enabled: true`:
+
+1. Generate a **typed SDK interface** from the agent's `tools.allowed`:
+   - For TypeScript: use `templates/codemode-sdk.ts.tmpl`
+   - For Python: use `templates/codemode-sdk.py.tmpl`
+   - Group methods by namespace (e.g., `sdk.web.search()`, `sdk.file.read()`)
+
+2. Generate a **Code Mode skill** using `templates/codemode-skill.md`:
+   - Replace `{{SDK_TYPE_DEFINITIONS}}` with the generated SDK interface
+   - Replace `{{SDK_METHOD_LIST}}` with a list of available methods
+   - Replace `{{OUTPUT_SCHEMA_FIELDS}}` with the agent's output contract
+   - Replace `{{LANGUAGE}}` and `{{CODE_EXAMPLE}}` with appropriate examples
+
+3. Place the skill at `{agent}/workflow/skills/codemode.md` (agent-level skill).
+
+4. Ensure the agent's `agent.awp.yaml` has:
+   - `capabilities.codemode.enabled: true`
+   - `capabilities.codemode.language: {typescript|python}`
+   - `capabilities.sandbox.type` set (not `none`)
+
 #### Step 8: Project Skills (if needed)
 
 If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`. See `templates/project-skill.md`.
@@ -618,6 +669,12 @@ After generating all files, verify:
 - [ ] R16: execution.mode is sequential, parallel, or conditional.
 - [ ] R17: All output schemas include confidence field.
 - [ ] R18: All output_schema.json are valid JSON Schema draft-07 with type: object.
+- [ ] R19: If codemode.enabled, then tools.enabled must be true.
+- [ ] R20: If codemode.enabled, sandbox.type must be set (not "none").
+- [ ] R21: codemode.language is typescript, python, or javascript.
+- [ ] R22: If sdk_surface.mode is "explicit", include list is non-empty.
+- [ ] R23: sdk_surface.exclude entries match tools in tools.allowed.
+- [ ] R24: If sandbox.type is "isolate", sandbox.network is defined.
 
 ### Phase 5: Summary & Workflow Overview
 
@@ -711,6 +768,24 @@ result = runner.run("{example_task_description}")
 print(result["{final_agent_id}"])
 ```
 
+**Run on Cloudflare Workers** (if Cloudflare adapter was used):
+
+```bash
+cd {workflow_name}/
+npm install
+wrangler kv namespace create STATE
+# → copy id into wrangler.toml
+wrangler secret put LLM_API_KEY
+wrangler deploy
+```
+
+```bash
+# Invoke the deployed workflow
+curl -X POST https://{workflow_name}.{account}.workers.dev \
+  -H "Content-Type: application/json" \
+  -d '{"task": "{example_task_description}"}'
+```
+
 **Customize:**
 
 - Edit agent prompts in `agents/{agent_id}/workflow/instructions/SYSTEM_PROMPT.md`
@@ -748,6 +823,10 @@ The `templates/` directory contains starter files for all workflow components:
 | `output_schema_desc.json` | Field description template. |
 | `mcp-tool.py` | Custom MCP tool template. |
 | `project-skill.md` | Project-level skill template. |
+| `codemode-skill.md` | Code Mode execution skill (auto-generated from tools). |
+| `codemode-sdk.ts.tmpl` | TypeScript SDK interface for Code Mode. |
+| `codemode-sdk.py.tmpl` | Python SDK class for Code Mode. |
+| `adapters/cloudflare/` | Cloudflare Workers project templates (wrangler.toml, src/). |
 
 ## Extensions (Skill Inheritance)
 
@@ -813,8 +892,13 @@ packaging workflows, publishing extensions, and discovery tag conventions.
 
 | Adapter | Purpose |
 |---------|---------|
-| `adapters/standalone.md` | Generate agent.py for the AWP standalone runtime |
+| `adapters/standalone.md` | Generate `agent.py` for the AWP standalone runtime (Python) |
+| `adapters/cloudflare-dynamic-workers.md` | Generate TypeScript project for Cloudflare Workers deployment |
 | `adapters/clawhub.md` | Publish AWP skills and workflows to ClawHub registry |
+
+**Adapter selection:** Choose based on the user's answer to question 9.1 (target platform).
+If Cloudflare is selected, read `adapters/cloudflare-dynamic-workers.md` for the full
+generation instructions and use the templates in `templates/adapters/cloudflare/`.
 
 Third-party platforms can add their own adapters following the same pattern.
 

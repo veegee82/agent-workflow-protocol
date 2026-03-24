@@ -259,6 +259,86 @@ def fetch_data(url: str, timeout: int = 30) -> dict:
         return {"ok": False, "status": 500, "data": {}, "error": str(e), "log": ""}
 ```
 
+## Code Mode — Alternative Tool Execution
+
+Code Mode is an alternative to classic tool-by-tool execution. Instead of the
+LLM calling individual tools, it writes code against a **typed SDK** that wraps
+all allowed tools as methods. The code runs in a sandbox and returns the result.
+
+### Why Code Mode?
+
+| Aspect | Classic Mode | Code Mode |
+|--------|-------------|-----------|
+| **Token usage** | High (tool defs × calls) | Low (SDK types once, one code block) |
+| **LLM roundtrips** | One per tool call | One total |
+| **Debugging** | Step-by-step | Full code trace |
+| **Best for** | Few tools, simple flows | Many tools, complex orchestration |
+
+### Configuration
+
+Add `capabilities.codemode` to `agent.awp.yaml`:
+
+```yaml
+capabilities:
+  tools:
+    enabled: true
+    allowed: ["web.*", "file.*", "memory.*"]
+
+  sandbox:
+    type: isolate                        # or subprocess, docker
+    constraints:
+      max_memory_mb: 128
+      max_cpu_seconds: 30
+    network:
+      enabled: false
+
+  codemode:
+    enabled: true
+    language: typescript                 # typescript | python | javascript
+    sdk_surface:
+      mode: auto                         # all allowed tools → SDK methods
+    execution:
+      timeout: 30
+      max_retries: 1
+      capture_console: true
+```
+
+### How It Works
+
+1. Runtime generates a typed SDK from `tools.allowed` (e.g., `sdk.web.search()`, `sdk.file.read()`).
+2. SDK type definitions replace tool definitions in the system prompt.
+3. LLM writes a code block using the SDK.
+4. Runtime executes the code in the configured sandbox.
+5. SDK method calls are routed to the MCP tool registry internally.
+6. The return value is validated against `output_schema.json`.
+
+### SDK Surface Modes
+
+- **`auto`** (default): All tools in `capabilities.tools.allowed` become SDK methods.
+- **`explicit`**: Only tools listed in `sdk_surface.include` are available.
+
+Use `sdk_surface.exclude` to remove specific tools from the SDK while keeping them available for classic calls.
+
+### Output Contract
+
+Code Mode does **not** change the output contract. The generated code must
+return a JSON object matching `output_schema.json`, including `confidence`.
+This means Code Mode agents are fully interchangeable with classic agents in
+the DAG.
+
+### Validation Rules
+
+- **R19:** `codemode.enabled: true` requires `tools.enabled: true`
+- **R20:** `codemode.enabled: true` requires `sandbox.type` to be set (not `none`)
+- **R21:** `codemode.language` must be `typescript`, `python`, or `javascript`
+- **R22:** `sdk_surface.mode: explicit` must have at least one tool in `include`
+- **R23:** Tools in `sdk_surface.exclude` must exist in `tools.allowed`
+- **R24:** `sandbox.type: isolate` requires `sandbox.network` to be defined
+
+For the full specification, see [spec/versions/1.0/layers/02-capabilities.md](../spec/versions/1.0/layers/02-capabilities.md).
+
+---
+
 ## Skills
 
 Skills are knowledge files (Markdown or `.skill` format) injected into an agent's system prompt to provide domain expertise, constraints, or instructions.
