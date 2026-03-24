@@ -625,10 +625,86 @@ disabled, R14 compliance depends on the target runtime registering these tools.
 
 When an agent has `capabilities.codemode.enabled: true`:
 
-1. Generate a **typed SDK interface** from the agent's `tools.allowed`:
-   - For TypeScript: use `templates/codemode-sdk.ts.tmpl`
-   - For Python: use `templates/codemode-sdk.py.tmpl`
-   - Group methods by namespace (e.g., `sdk.web.search()`, `sdk.file.read()`)
+1. Generate a **typed SDK interface** from the agent's `tools.allowed`.
+   Group methods by namespace (e.g., `sdk.web.search()`, `sdk.file.read()`).
+
+   **TypeScript SDK template:**
+
+   ```typescript
+   // AWP Code Mode SDK — TypeScript Interface
+   // Auto-generated from capabilities.tools.allowed
+
+   /** AWP Tool SDK for Code Mode execution. All methods return a standard AWP ToolResult. */
+   export interface AWPToolSDK {
+     {{SDK_METHODS}}
+   }
+
+   /** Standard AWP tool result. */
+   export interface ToolResult {
+     ok: boolean;
+     status: number;
+     data: Record<string, unknown>;
+     error: string | null;
+   }
+
+   /** Execute function signature. The agent writes a function matching this signature. */
+   export type AgentExecuteFn = (sdk: AWPToolSDK) => Promise<Record<string, unknown>>;
+
+   // ── Example SDK shape (when tools include web.*, file.*, memory.*) ──
+   //
+   // interface AWPToolSDK {
+   //   web: {
+   //     search(query: string, maxResults?: number): Promise<ToolResult>;
+   //   };
+   //   file: {
+   //     read(path: string): Promise<ToolResult>;
+   //     write(path: string, content: string): Promise<ToolResult>;
+   //     list(directory: string): Promise<ToolResult>;
+   //   };
+   //   memory: {
+   //     read(key: string): Promise<ToolResult>;
+   //     write(key: string, value: string): Promise<ToolResult>;
+   //     search(query: string): Promise<ToolResult>;
+   //   };
+   // }
+   ```
+
+   **Python SDK template:**
+
+   ```python
+   # AWP Code Mode SDK — Python Class
+   # Auto-generated from capabilities.tools.allowed
+
+   from typing import Any
+
+   class ToolResult:
+       """Standard AWP tool result."""
+       ok: bool
+       status: int
+       data: dict[str, Any]
+       error: str | None
+
+   class AWPToolSDK:
+       """AWP Tool SDK for Code Mode execution. All methods return a standard AWP ToolResult."""
+
+       {{SDK_METHODS}}
+
+   # ── Example SDK shape (when tools include web.*, file.*, memory.*) ──
+   #
+   # class AWPToolSDK:
+   #     class web:
+   #         async def search(query: str, max_results: int = 5) -> ToolResult: ...
+   #
+   #     class file:
+   #         async def read(path: str) -> ToolResult: ...
+   #         async def write(path: str, content: str) -> ToolResult: ...
+   #         async def list(directory: str) -> ToolResult: ...
+   #
+   #     class memory:
+   #         async def read(key: str) -> ToolResult: ...
+   #         async def write(key: str, value: str) -> ToolResult: ...
+   #         async def search(query: str) -> ToolResult: ...
+   ```
 
 2. Generate a **Code Mode skill** using `templates/codemode-skill.md`:
    - Replace `{{SDK_TYPE_DEFINITIONS}}` with the generated SDK interface
@@ -1105,8 +1181,6 @@ The `templates/` directory contains starter files for all workflow components:
 | `mcp-tool.py` | Custom MCP tool template. |
 | `project-skill.md` | Project-level skill template. |
 | `codemode-skill.md` | Code Mode execution skill (auto-generated from tools). |
-| `codemode-sdk.ts.tmpl` | TypeScript SDK interface for Code Mode. |
-| `codemode-sdk.py.tmpl` | Python SDK class for Code Mode. |
 | `adapters/cloudflare/` | Cloudflare Workers project templates (wrangler.toml, src/). |
 
 **Auto-generated files (not templates, always created):**

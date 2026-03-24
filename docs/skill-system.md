@@ -315,8 +315,6 @@ The `skill/templates/` directory contains starter files:
 | `mcp-tool.py` | Custom MCP tool template. |
 | `project-skill.md` | Project-level skill template. |
 | `codemode-skill.md` | Code Mode execution skill (auto-generated). |
-| `codemode-sdk.ts.tmpl` | TypeScript SDK interface template. |
-| `codemode-sdk.py.tmpl` | Python SDK class template. |
 | `adapters/cloudflare/` | Cloudflare Workers project templates. |
 
 ## References
