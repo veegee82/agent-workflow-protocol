@@ -368,12 +368,13 @@ def query(*, q: str, _secrets: dict = {}) -> dict:
             reg = ToolRegistry(Path(tmp), secrets={"SEARCH_API_KEY": "sk-ok"})
             reg.validate_secrets()  # should not raise
 
-    def test_validate_secrets_fails_missing(self):
+    def test_validate_secrets_warns_missing(self):
+        """Missing secrets produce warnings but do not raise."""
         with tempfile.TemporaryDirectory() as tmp:
             self._make_tool_file(Path(tmp) / "mcp")
             reg = ToolRegistry(Path(tmp), secrets={})
-            with pytest.raises(RuntimeError, match="SEARCH_API_KEY"):
-                reg.validate_secrets()
+            # Should NOT raise -- just warn
+            reg.validate_secrets()
 
     def test_ast_extraction_of_secrets(self):
         """AST parser extracts secrets=["K1", "K2"] from decorator."""

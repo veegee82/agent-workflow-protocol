@@ -16,8 +16,8 @@ runtime:
   strategy_folder: workflow
 
 model:
-  name: "provider/model-name"
-  fallback: "provider/fallback-model"
+  name: "openrouter/anthropic/claude-sonnet-4"
+  fallback: "openrouter/anthropic/claude-sonnet-4"
   parameters:
     temperature: 0.2
     max_tokens: 4096

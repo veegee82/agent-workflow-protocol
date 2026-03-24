@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,21 +60,59 @@ class WorkflowRunner:
         llm: Optional[LLMClient] = None,
     ) -> None:
         self._dir = Path(workflow_dir)
+        self._install_requirements()
         self._manifest = parse_manifest(self._dir / "workflow.awp.yaml")
         self._llm = llm
         secrets = load_secrets(self._dir)
         self._tools = ToolRegistry(self._dir, secrets=secrets)
 
+    def _install_requirements(self) -> None:
+        """Auto-install workflow dependencies from requirements.txt if present."""
+        req_file = self._dir / "requirements.txt"
+        if not req_file.exists():
+            return
+
+        logger.info("Installing workflow dependencies from %s", req_file)
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "-q", "-r", str(req_file)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            logger.info("Workflow dependencies installed successfully")
+        except subprocess.CalledProcessError as exc:
+            logger.warning(
+                "Failed to install workflow dependencies: %s", exc.stderr.decode() if exc.stderr else str(exc)
+            )
+
     @property
     def name(self) -> str:
         return self._manifest.workflow.name
+
+    def get_missing_secrets(self) -> dict[str, list[str]]:
+        """Check which tool secrets are missing without logging warnings.
+
+        Returns:
+            Dict of tool_name → list of missing keys. Empty if all OK.
+        """
+        missing: dict[str, list[str]] = {}
+        for tool_name in self._tools.tool_names:
+            declared = self._tools._tool_secrets.get(tool_name, [])
+            for key in declared:
+                if key not in self._tools._secrets:
+                    missing.setdefault(tool_name, []).append(key)
+        return missing
+
+    def inject_secrets(self, new_secrets: dict[str, str]) -> None:
+        """Inject additional secrets into the tool registry at runtime."""
+        self._tools.inject_secrets(new_secrets)
 
     def run(self, task: str, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute the workflow."""
         state = dict(state or {})
         state["task"] = task
 
-        # Fail-fast: validate all tool secrets before running any agents
+        # Validate tool secrets (warns but does not block)
         self._tools.validate_secrets()
 
         # Auto-inject fields

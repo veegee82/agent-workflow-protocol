@@ -170,10 +170,11 @@ can correct it.
 #### 3. LLM-Konfiguration
 
 **3.1 Modell:** Welches LLM soll verwendet werden?
-> a) `openrouter/anthropic/claude-sonnet-4-20250514` ← empfohlen
-> b) `openrouter/anthropic/claude-opus-4-20250514`
+> a) `openrouter/anthropic/claude-sonnet-4` ← empfohlen
+> b) `openrouter/anthropic/claude-opus-4`
 > c) `openrouter/google/gemini-2.5-pro`
-> d) `ollama/llama3` (lokal)
+> d) `ollama/nemotron-3-super:cloud` (cloud, kostenlos)
+> d2) `ollama/llama3` (lokal)
 > e) Unterschiedliche Modelle pro Agent (bitte angeben)
 > f) Sonstiges: ___
 

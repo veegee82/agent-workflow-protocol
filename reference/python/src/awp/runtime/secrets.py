@@ -25,13 +25,19 @@ logger = logging.getLogger(__name__)
 _TEMPLATE_RE = re.compile(r"\{\{\s*env\.(\w+)\s*\}\}")
 
 
+def _get_global_env_path() -> Path:
+    """Return the path to the global AWP .env file (~/.awp/.env)."""
+    return Path.home() / ".awp" / ".env"
+
+
 def load_secrets(workflow_dir: Path) -> dict[str, str]:
-    """Load secrets with priority: secrets.yaml > .env > os.environ.
+    """Load secrets with priority: secrets.yaml > .env > global .env > os.environ.
 
     Resolution order (later wins):
     1. ``os.environ`` -- system / CI environment
-    2. ``.env`` file in workflow root -- common local development pattern
-    3. ``secrets.yaml`` in workflow root -- explicit project secrets
+    2. ``~/.awp/.env`` -- global AWP configuration (fallback)
+    3. ``.env`` file in workflow root -- common local development pattern
+    4. ``secrets.yaml`` in workflow root -- explicit project secrets
 
     Returns:
         Flat dict of secret name → value.
@@ -41,13 +47,21 @@ def load_secrets(workflow_dir: Path) -> dict[str, str]:
     # Layer 1: os.environ (base)
     merged.update(os.environ)
 
-    # Layer 2: .env file
+    # Layer 2: global ~/.awp/.env (fallback defaults)
+    global_env_path = _get_global_env_path()
+    if global_env_path.exists():
+        global_dotenv = _load_dotenv_file(global_env_path)
+        if global_dotenv:
+            merged.update(global_dotenv)
+            logger.debug("Loaded %d entries from global %s", len(global_dotenv), global_env_path)
+
+    # Layer 3: .env file in workflow dir
     dotenv = _load_dotenv(workflow_dir)
     if dotenv:
         merged.update(dotenv)
         logger.debug("Loaded %d entries from .env", len(dotenv))
 
-    # Layer 3: secrets.yaml (highest priority)
+    # Layer 4: secrets.yaml (highest priority)
     yaml_secrets = _load_secrets_yaml(workflow_dir, merged)
     if yaml_secrets:
         merged.update(yaml_secrets)
@@ -139,8 +153,8 @@ def _parse_simple_yaml(
     return result
 
 
-def _load_dotenv(workflow_dir: Path) -> dict[str, str]:
-    """Parse .env file into dict (KEY=VALUE per line).
+def _load_dotenv_file(env_file: Path) -> dict[str, str]:
+    """Parse a .env file into dict (KEY=VALUE per line).
 
     Supports:
     - Comments (lines starting with #)
@@ -148,7 +162,6 @@ def _load_dotenv(workflow_dir: Path) -> dict[str, str]:
     - Quoted values (single or double quotes stripped)
     - No shell expansion or interpolation
     """
-    env_file = workflow_dir / ".env"
     if not env_file.exists():
         return {}
 
@@ -166,6 +179,11 @@ def _load_dotenv(workflow_dir: Path) -> dict[str, str]:
             result[key] = value
 
     return result
+
+
+def _load_dotenv(workflow_dir: Path) -> dict[str, str]:
+    """Parse .env file from workflow directory."""
+    return _load_dotenv_file(workflow_dir / ".env")
 
 
 def _resolve_template(value: str, env: dict[str, str]) -> str:

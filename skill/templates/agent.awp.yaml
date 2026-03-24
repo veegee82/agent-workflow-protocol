@@ -13,7 +13,7 @@ runtime:
   strategy_folder: workflow
 
 model:
-  name: "provider/model-name"
+  name: "openrouter/anthropic/claude-sonnet-4"
   parameters:
     temperature: 0.2
 

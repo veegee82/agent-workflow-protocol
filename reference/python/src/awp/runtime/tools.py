@@ -124,20 +124,17 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return sorted(self._tools.keys())
 
-    def validate_secrets(self, allowed_tools: Optional[list[str]] = None) -> None:
+    def validate_secrets(self, allowed_tools: Optional[list[str]] = None) -> dict[str, list[str]]:
         """Validate that all declared secrets are present.
 
-        Checks every registered tool (or only those matching *allowed_tools*)
-        and verifies that all keys listed in its ``secrets=[...]`` declaration
-        exist in the loaded secrets dict.
+        Missing secrets are logged as warnings but do not block execution.
+        Tools are expected to handle missing secrets gracefully.
 
         Args:
             allowed_tools: Optional list of tool FQNs or patterns to check.
-                           If ``None``, all registered tools are checked.
 
-        Raises:
-            RuntimeError: If any declared secrets are missing, with a message
-                          listing each tool and its missing keys.
+        Returns:
+            Dict of tool_name → list of missing secret keys. Empty if all OK.
         """
         tools_to_check: list[str]
         if allowed_tools:
@@ -163,12 +160,18 @@ class ToolRegistry:
                     missing.setdefault(tool_name, []).append(key)
 
         if missing:
-            lines = [f"  - {tool}: {', '.join(keys)}" for tool, keys in missing.items()]
-            raise RuntimeError(
-                f"Missing secrets for {len(missing)} tool(s):\n"
-                + "\n".join(lines)
-                + "\n\nProvide them in secrets.yaml, .env, or as environment variables."
-            )
+            for tool, keys in missing.items():
+                logger.warning(
+                    "Tool '%s' has missing secrets: %s -- "
+                    "tool may run with reduced functionality",
+                    tool, ", ".join(keys),
+                )
+
+        return missing
+
+    def inject_secrets(self, new_secrets: dict[str, str]) -> None:
+        """Inject additional secrets at runtime (e.g., from interactive prompt)."""
+        self._secrets.update(new_secrets)
 
     # -- Built-in tools -----------------------------------------------
 
@@ -581,9 +584,25 @@ class ToolRegistry:
         try:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-        except Exception as exc:
-            logger.warning("Failed to load custom tool module %s: %s", py_file.name, exc)
-            return
+        except Exception:
+            # FastMCP may reject _secrets parameter in validation.
+            # Retry with mcp blocked so the stub fallback is used.
+            try:
+                module = importlib.util.module_from_spec(spec)
+                module.__dict__["__builtins__"] = module.__dict__.get("__builtins__", {})
+                # Temporarily hide the real mcp package so the stub is used
+                saved = sys.modules.get("mcp.server.fastmcp")
+                sys.modules["mcp.server.fastmcp"] = None  # type: ignore[assignment]
+                try:
+                    spec.loader.exec_module(module)
+                finally:
+                    if saved is not None:
+                        sys.modules["mcp.server.fastmcp"] = saved
+                    else:
+                        sys.modules.pop("mcp.server.fastmcp", None)
+            except Exception as exc2:
+                logger.warning("Failed to load custom tool module %s: %s", py_file.name, exc2)
+                return
 
         # Find the function in the module
         fn = getattr(module, func_node.name, None)

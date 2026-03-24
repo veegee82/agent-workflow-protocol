@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 PROVIDER_URLS: dict[str, str] = {
     "openai": "https://api.openai.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
-    "ollama": "http://localhost:11434/v1",
+    "ollama": "https://ollama.com/v1",
     "groq": "https://api.groq.com/openai/v1",
     "together": "https://api.together.xyz/v1",
     "fireworks": "https://api.fireworks.ai/inference/v1",
@@ -41,6 +41,7 @@ PROVIDER_URLS: dict[str, str] = {
 PROVIDER_KEY_VARS: dict[str, list[str]] = {
     "openai": ["OPENAI_API_KEY"],
     "openrouter": ["OPENROUTER_API_KEY"],
+    "ollama": ["OLLAMA_API_KEY"],
     "groq": ["GROQ_API_KEY"],
     "together": ["TOGETHER_API_KEY"],
     "fireworks": ["FIREWORKS_API_KEY"],
@@ -111,6 +112,64 @@ def _find_base_url(provider: Optional[str]) -> str:
     return PROVIDER_URLS["openrouter"]  # safe default
 
 
+def _strip_provider_prefix(model: str) -> str:
+    """Strip provider prefix from model name if present.
+
+    E.g. ``openrouter/anthropic/claude-sonnet-4`` → ``anthropic/claude-sonnet-4``
+    """
+    if not model:
+        return model
+    detected = _detect_provider(model)
+    if detected and model.startswith(f"{detected}/"):
+        return model[len(detected) + 1:]
+    return model
+
+
+def _get_fallback_model(failed_model: str) -> Optional[str]:
+    """Get fallback model from global config.
+
+    Checks ``LLM_MODEL`` env var. If it resolves to the same model that
+    failed, also tries ``OPENROUTER_MODEL`` and ``OLLAMA_MODEL``.
+    """
+    candidates = [
+        os.getenv("LLM_MODEL", ""),
+        os.getenv("OPENROUTER_MODEL", ""),
+        os.getenv("OLLAMA_MODEL", ""),
+    ]
+    for raw in candidates:
+        candidate = _strip_provider_prefix(raw)
+        if candidate and candidate != failed_model:
+            return candidate
+    return None
+
+
+def _sanitize_tool_names(
+    tools: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Sanitize tool names for LLM API compatibility.
+
+    Some providers (Anthropic) require tool names to match
+    ``^[a-zA-Z0-9_-]{1,128}$``. AWP uses dotted names like ``web.search``.
+
+    Returns:
+        Tuple of (sanitized tools list, mapping of sanitized→original names).
+    """
+    sanitized: list[dict[str, Any]] = []
+    name_map: dict[str, str] = {}  # sanitized → original
+    for tool in tools:
+        t = dict(tool)
+        if "function" in t:
+            fn = dict(t["function"])
+            original = fn["name"]
+            safe = original.replace(".", "_")
+            if safe != original:
+                name_map[safe] = original
+            fn["name"] = safe
+            t["function"] = fn
+        sanitized.append(t)
+    return sanitized, name_map
+
+
 class LLMClient:
     """Provider-agnostic OpenAI-compatible chat completion client.
 
@@ -145,10 +204,13 @@ class LLMClient:
         model: Optional[str] = None,
         timeout: int = 120,
     ) -> None:
-        self.model = model or os.getenv("LLM_MODEL", "")
+        raw_model = model or os.getenv("LLM_MODEL", "")
 
         # Detect provider from model name
-        detected = _detect_provider(self.model) if self.model else None
+        detected = _detect_provider(raw_model) if raw_model else None
+
+        # Strip provider prefix
+        self.model = _strip_provider_prefix(raw_model)
 
         # Resolve API key
         if api_key:
@@ -179,7 +241,10 @@ class LLMClient:
         tools: Optional[list[dict[str, Any]]] = None,
         response_format: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Send a chat completion request.
+        """Send a chat completion request with automatic fallback.
+
+        If the primary model fails with a client error (400-499), retries
+        once with the global fallback model from ``LLM_MODEL`` env var.
 
         Args:
             messages: Chat messages.
@@ -192,12 +257,38 @@ class LLMClient:
         Returns:
             Raw API response dict.
         """
-        use_model = model or self.model
+        use_model = _strip_provider_prefix(model or self.model)
         if not use_model:
             raise RuntimeError(
                 "No model configured. Set LLM_MODEL env var or pass model=."
             )
 
+        try:
+            return self._do_chat(use_model, messages, temperature,
+                                 max_tokens, tools, response_format)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if 400 <= status < 500:
+                fallback = _get_fallback_model(use_model)
+                if fallback and fallback != use_model:
+                    logger.warning(
+                        "Model '%s' failed (%d), falling back to '%s'",
+                        use_model, status, fallback,
+                    )
+                    return self._do_chat(fallback, messages, temperature,
+                                         max_tokens, tools, response_format)
+            raise
+
+    def _do_chat(
+        self,
+        use_model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: Optional[int],
+        tools: Optional[list[dict[str, Any]]],
+        response_format: Optional[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Execute a single chat completion request."""
         payload: dict[str, Any] = {
             "model": use_model,
             "messages": messages,
@@ -206,7 +297,8 @@ class LLMClient:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if tools:
-            payload["tools"] = tools
+            sanitized_tools, _ = _sanitize_tool_names(tools)
+            payload["tools"] = sanitized_tools
         if response_format is not None:
             payload["response_format"] = response_format
 
@@ -278,6 +370,9 @@ class LLMClient:
         """
         current_messages = list(messages)
 
+        # Build sanitized→original name mapping for tool executor
+        _, name_map = _sanitize_tool_names(tools)
+
         for round_num in range(max_rounds):
             data = self.chat(current_messages, tools=tools, **kwargs)
             choice = data.get("choices", [{}])[0]
@@ -293,7 +388,9 @@ class LLMClient:
             # Execute each tool call
             for tc in tool_calls:
                 fn = tc.get("function", {})
-                tool_name = fn.get("name", "")
+                sanitized_name = fn.get("name", "")
+                # Map back to original dotted name for the tool registry
+                tool_name = name_map.get(sanitized_name, sanitized_name)
                 try:
                     args = json.loads(fn.get("arguments", "{}"))
                 except json.JSONDecodeError:

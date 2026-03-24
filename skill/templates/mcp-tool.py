@@ -26,35 +26,24 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-try:
-    from mcp.server.fastmcp import FastMCP as _BaseFastMCP
+class FastMCP:
+    """AWP-compatible tool registry stub.
 
-    class FastMCP(_BaseFastMCP):  # type: ignore[no-redef]
-        """Wrapper that adds AWP secrets support to the real FastMCP."""
+    This stub is used by the AWP runtime to discover and load tools.
+    It does NOT require the mcp package. The AWP runtime loads tools
+    via AST parsing and importlib — the stub just needs to preserve
+    the function and attach secrets metadata.
+    """
 
-        def tool(self, _name: str, *, secrets: list[str] | None = None, **kwargs):  # type: ignore[override]
-            base_decorator = super().tool(_name, **kwargs)
+    def __init__(self, name: str) -> None:
+        self.name = name
 
-            def _decorator(fn):
-                fn._awp_secrets = secrets or []
-                return base_decorator(fn)
+    def tool(self, _name: str, *, secrets: list[str] | None = None):
+        def _decorator(fn):
+            fn._awp_secrets = secrets or []
+            return fn
 
-            return _decorator
-
-except Exception:
-
-    class FastMCP:  # type: ignore[no-redef]
-        """Minimal stub so the file can be parsed without the MCP package."""
-
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def tool(self, _name: str, *, secrets: list[str] | None = None):  # type: ignore[override]
-            def _decorator(fn):  # type: ignore[override]
-                fn._awp_secrets = secrets or []
-                return fn
-
-            return _decorator
+        return _decorator
 
 
 app = FastMCP("{{TOOL_NAMESPACE}}")
