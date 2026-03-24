@@ -14,7 +14,8 @@
   <a href="primer/quickstart.md">Quickstart</a> &middot;
   <a href="examples/">Examples</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
-  <a href="skill/SKILL.md">AWP Skill</a>
+  <a href="skill/SKILL.md">AWP Skill</a> &middot;
+  <a href="https://clawhub.ai/veegee82/awp-workflow-builder">ClawHub</a>
 </p>
 
 ---
