@@ -465,6 +465,12 @@ class DelegationLoopRunner:
             # 2. Handle decision
             if decision_type == "complete":
                 result = manager_decision.get("final_result", {})
+                # Support flat complete format (report_md, chart_paths, json_data at top level)
+                if not result:
+                    result = {}
+                    for key in ("report_md", "chart_paths", "json_data", "plan", "reasoning"):
+                        if key in manager_decision:
+                            result[key] = manager_decision[key]
                 if "confidence" not in result:
                     result["confidence"] = manager_decision.get("confidence", 0.8)
                 self._logger.log_iteration(
@@ -724,11 +730,21 @@ You MUST respond with a JSON object containing ONE of these decisions:
         if not isinstance(output, dict):
             return {"decision": "fail", "reason": f"Invalid manager output type: {type(output)}"}
 
+        # Normalize "workers" key to "delegations" (both formats accepted)
+        if "workers" in output and "delegations" not in output:
+            workers = output.pop("workers")
+            # Normalize worker_id: accept "id" or "worker_id"
+            if isinstance(workers, list):
+                for w in workers:
+                    if isinstance(w, dict) and "id" in w and "worker_id" not in w:
+                        w["worker_id"] = w.pop("id")
+            output["delegations"] = workers
+
         # Normalize decision field
         if "decision" not in output:
             if "delegations" in output:
                 output["decision"] = "delegate"
-            elif "final_result" in output:
+            elif "final_result" in output or "report_md" in output:
                 output["decision"] = "complete"
             else:
                 output["decision"] = "fail"
