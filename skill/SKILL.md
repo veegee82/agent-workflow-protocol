@@ -207,19 +207,62 @@ These rules define validation requirements for AWP workflows. Rules marked **(re
 
 ## Workflow Generation Phases
 
-### Phase 0: Planning
+### Phase 0: Intelligent Task Analysis
 
-Before generating any files, analyze the user's requirements:
+**CRITICAL:** Before asking any questions, analyze the user's task description and silently
+determine the optimal architecture. This analysis drives which questions you ask and which
+defaults you recommend. Do NOT present this analysis to the user — use it to make smart
+recommendations in Phase 1.
 
-1. **Analyze the requirement.** What is the workflow supposed to do? What data flows between agents?
-2. **Design the agent graph.** Identify distinct roles, dependencies, and data flow.
-3. **Plan state sharing.** Which fields does each agent produce? Which does each consumer need?
-4. **Determine autonomy level.** How autonomous is the workflow? Start at A0 and increase only as required.
-5. **Identify tools.** Which MCP tools does each agent need? (web.search, file.read, etc.)
-6. **Plan memory.** Does the workflow benefit from cross-session persistence?
-7. **Plan communication.** Do agents need to message each other outside the DAG?
-8. **Tool implementation mode.** Does the user want tool implementations generated? (See "Tool Implementation Generation" below.)
-9. **Choose orchestration engine.** DAG for known steps (A0-A1). Delegation loop for open-ended tasks where the number of steps depends on the content (A2-A4).
+#### Step 0a: Pattern Detection
+
+Read the task description and classify it into the best-fit design pattern:
+
+| Signal in task description | Recommended Pattern | Autonomy |
+|---------------------------|-------------------|----------|
+| "pipeline", "step by step", "then", sequential process | Pipeline | A0-A1 |
+| "analyze multiple", "compare", "parallel", batch items | Fan-Out / Fan-In | A1 |
+| "if ... then", "depending on", "triage", "route" | Conditional Branching | A1 |
+| "research", "investigate", "deep dive", open-ended | Manager-Worker | A2 |
+| "score", "evaluate", "rate", configurable criteria | Tool Builder | A3 |
+| "complex", "multi-faceted", "comprehensive", many dimensions | Self-Organizing Team | A4 |
+
+#### Step 0b: Autonomy Level Detection
+
+Apply the **minimum autonomy principle** — start at A0 and only increase if the task demands it:
+
+```
+Is the number of steps known upfront?
+  YES → Are there conditional branches or parallel paths?
+    NO  → A0 Prescribed (simple pipeline)
+    YES → A1 Adaptive (DAG with conditions)
+  NO  → Does the task need runtime tool/skill creation?
+    NO  → A2 Delegating (delegation loop)
+    YES → Is the task multi-dimensional with sub-teams?
+      NO  → A3 Self-Tooling (tool creation)
+      YES → A4 Self-Organizing (recursive delegation)
+```
+
+#### Step 0c: Engine Selection
+
+| Autonomy | Engine | Rationale |
+|----------|--------|-----------|
+| A0-A1 | `dag` | Known steps, predictable flow |
+| A2-A4 | `delegation_loop` | Steps emerge at runtime |
+| Mixed | DAG with embedded delegation_loop node | Predictable outer, adaptive inner |
+
+#### Step 0d: Capability Planning
+
+Based on the task, pre-plan:
+
+1. **Agents** — How many? What roles? (Fewer is better — merge roles that don't justify separation)
+2. **Tools** — Which MCP tools? (Only what's needed — don't add tools "just in case")
+3. **Skills** — Does the task need domain knowledge? (Generate skills only for specialized domains)
+4. **Memory** — Is cross-session persistence needed? (Most tasks don't need it)
+5. **Code Mode** — Does any agent need >5 tool calls? (If yes, Code Mode saves tokens)
+6. **Budget** — For A2+: estimate loops, workers, wall time from task complexity
+
+Carry this analysis into Phase 1 — it determines your recommendations.
 
 ### Phase 1: Requirements Gathering (Interactive Questionnaire)
 
@@ -1072,6 +1115,44 @@ For conditional execution, annotate arrows with the condition in `[brackets]`.
 Adapt the layout to the actual complexity — a 2-agent workflow gets a simple
 diagram, a 6-agent DAG with branches gets a more detailed one.
 
+**For Delegation Loop workflows (A2-A4),** use this format:
+
+```
+                        ┌─────────────────────┐
+                        │     User Input       │
+                        └──────────┬──────────┘
+                                   │
+                  ┌────────────────▼────────────────┐
+                  │         MANAGER AGENT            │
+                  │  Role: {manager_role}            │
+                  │  Model: {manager_model}          │
+                  │  Decision: DELEGATE/COMPLETE/FAIL│
+                  └──────┬──────────────────┬───────┘
+                         │ Iteration 1      │ Iteration 2
+                   ┌─────┴─────┐      ┌─────┴─────┐
+                   ▼           ▼      ▼           ▼
+              ┌─────────┐ ┌─────────┐ ┌─────────┐
+              │Worker A │ │Worker B │ │Worker C │
+              │{role_a} │ │{role_b} │ │{role_c} │
+              │Skills: ✓│ │Skills: ✓│ │Tools: ✓ │
+              └────┬────┘ └────┬────┘ └────┬────┘
+                   └──────┬────┘           │
+                          ▼                ▼
+                  ┌───────────────┐ ┌───────────┐
+                  │  Validation   │ │  Stall    │
+                  │  (2-tier)     │ │  Check    │
+                  └───────┬───────┘ └─────┬─────┘
+                          └───────┬───────┘
+                                  ▼
+                        ┌─────────────────────┐
+                        │    Final Output      │
+                        │  Budget: {used}/{max}│
+                        └─────────────────────┘
+```
+
+Show the iteration flow, fan-out workers, validation, and budget status.
+For recursive delegation (A4), show the sub-manager hierarchy.
+
 #### 5c. Workflow Description (Narrative Walkthrough)
 
 Directly below the diagram, provide a **narrative walkthrough** of the workflow
@@ -1160,21 +1241,46 @@ List all generated files with count:
 - Reference to `WORKFLOW.md` for the full project documentation.
 - Any assumptions made or recommendations for improvement.
 
-#### 5g. Transition to Zip / Pack
+#### 5g. Quick Start Commands
 
-**Only after the complete Phase 5 presentation above has been displayed**, offer
-the packaged workflow:
+**CRITICAL:** Always end with ready-to-run commands. The user should be able to
+copy-paste and immediately test the workflow.
 
 ```
+  ══════════════════════════════════════════════════════════
+  ▶ Quick Start
   ──────────────────────────────────────────────────────────
-  📦 Ready to pack: awp pack {workflow_name}/
-     → {workflow_name}.awp.zip
-  ──────────────────────────────────────────────────────────
+
+  # Validate the workflow
+  awp validate {workflow_name}/
+
+  # Run it (DAG engine)
+  awp run {workflow_name}/ --task "{example_task}" --debug
+
+  # Run it (Delegation Loop — if A2+)
+  awp run {workflow_name}/ --task "{example_task}" \
+    --manager-model openrouter/anthropic/claude-sonnet-4 \
+    --worker-model openrouter/anthropic/claude-sonnet-4
+
+  # Check autonomy level
+  awp compliance {workflow_name}/ --level A{N}
+
+  # Pack for sharing
+  awp pack {workflow_name}/
+  ══════════════════════════════════════════════════════════
 ```
 
-If the user requested a zip output, generate it now. If not, remind them that
-`awp pack` is available. The Phase 5 terminal output is the **review step** —
-the user validates the architecture visually before accepting the deliverable.
+Show only the commands relevant to the generated workflow's engine type.
+For delegation loop workflows, always show the `--manager-model` / `--worker-model` variant.
+For DAG workflows, show the simple `awp run` command.
+
+#### 5h. Transition to Zip / Pack
+
+After the Quick Start commands, offer the packaged workflow:
+
+```
+  📦 Ready to pack: awp pack {workflow_name}/ → {workflow_name}.awp.zip
+```
 
 #### How to Use
 
