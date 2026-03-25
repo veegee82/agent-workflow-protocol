@@ -426,6 +426,11 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             state.setdefault(key, value)
 
     orch = runner._manifest.orchestration
+
+    # Delegation loop engine: delegate to runner.run() which handles it
+    if orch and getattr(orch, "engine", "dag") == "delegation_loop":
+        return _run_delegation_loop_debug(runner, task, wf_dir, state)
+
     if not orch or not hasattr(orch, "graph") or not orch.graph:
         print("  [WARN] No orchestration graph — nothing to run.")
         return state
@@ -622,6 +627,89 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             print()
 
     return state
+
+
+def _run_delegation_loop_debug(
+    runner: "WorkflowRunner", task: str, wf_dir: Path, state: dict
+) -> dict:
+    """Execute delegation loop workflow with debug output."""
+    import time as _time
+
+    orch = runner._manifest.orchestration
+    dl = getattr(orch, "delegation_loop", None)
+
+    print(f"  Engine:        delegation_loop")
+    if dl:
+        b = getattr(dl, "budget", None)
+        if b:
+            print(f"  Budget:        loops={b.max_loops}, workers={b.max_total_workers}, "
+                  f"wall_time={b.max_wall_time}s")
+        print(f"  Manager:       {dl.manager}")
+    print()
+
+    workflow_start = _time.time()
+
+    # Use runner.run() which dispatches to DelegationLoopRunner
+    result = runner.run(task, state)
+
+    total_time = _time.time() - workflow_start
+
+    # -- Summary -------------------------------------------------------
+    print("=" * 60)
+    print("  DELEGATION LOOP SUMMARY")
+    print("=" * 60)
+    print(f"  Duration:  {total_time:.1f}s")
+
+    dl_result = result.get("delegation_loop", {})
+    if dl_result:
+        status = dl_result.get("termination_reason", "complete")
+        conf = dl_result.get("confidence", "?")
+        iters = dl_result.get("iterations_completed", "?")
+        print(f"  Status:    {status}")
+        print(f"  Iterations: {iters}")
+        print(f"  Confidence: {conf}")
+
+    # Show generated files
+    generated_files = []
+    workspace = wf_dir / "workspace"
+    if workspace.exists():
+        for f in sorted(workspace.rglob("*")):
+            if f.is_file():
+                generated_files.append(f)
+
+    if generated_files:
+        print(f"  Files:     {len(generated_files)} generated")
+        skills = [f for f in generated_files if "artifacts/skills" in str(f)]
+        tools = [f for f in generated_files if "artifacts/tools" in str(f)]
+        if skills:
+            print(f"  Skills:    {len(skills)} generated")
+            for s in skills:
+                print(f"    {s.name} ({s.stat().st_size}B)")
+        if tools:
+            print(f"  Tools:     {len(tools)} generated")
+            for t in tools:
+                print(f"    {t.name} ({t.stat().st_size}B)")
+
+    print("=" * 60)
+    print()
+
+    # Full JSON output
+    print("  Full output (JSON):")
+    print()
+    for key, value in result.items():
+        if key.startswith("_") or key == "task":
+            continue
+        if isinstance(value, dict):
+            print(f"--- {key} ---")
+            out = json.dumps(value, indent=2, default=str, ensure_ascii=False)
+            if len(out) > 3000:
+                print(out[:3000])
+                print("...(truncated)")
+            else:
+                print(out)
+            print()
+
+    return result
 
 
 _MODEL_CHOICES: list[tuple[str, str]] = [
