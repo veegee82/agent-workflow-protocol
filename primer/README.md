@@ -10,7 +10,7 @@ Start here. This document explains the fragmentation problem in multi-agent work
 
 ### 2. [concepts.md](concepts.md) -- Core Concepts
 
-The conceptual foundation. Introduces the 7-layer model, explains what each layer does, shows the layer dependency graph, and presents the compliance levels (L0-L5). Includes a minimal YAML example to ground the abstraction. Read this to understand the *protocol structure*.
+The conceptual foundation. Introduces the 7-layer model, explains what each layer does, shows the layer dependency graph, and presents the autonomy levels (A0-A4). Includes a minimal YAML example to ground the abstraction. Read this to understand the *protocol structure*.
 
 ### 3. [quickstart.md](quickstart.md) -- Build Your First Workflow
 
@@ -29,6 +29,6 @@ Answers to common questions about compatibility, minimum requirements, memory, p
 Once you have read the primer, continue with:
 
 - **`spec/`** -- The normative specification. Uses RFC 2119 language (MUST, SHOULD, MAY). This is the authoritative reference for implementors.
-- **`examples/`** -- Complete, runnable example workflows at various compliance levels.
+- **`examples/`** -- Complete, runnable example workflows at various autonomy levels.
 - **`skill/`** -- The AWP build skill for AI assistants, enabling them to create new AWP workflows.
 - **`reference/`** -- Reference implementation details and API documentation.

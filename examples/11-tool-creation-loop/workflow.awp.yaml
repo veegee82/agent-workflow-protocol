@@ -1,0 +1,80 @@
+awp: "1.0.0"
+
+workflow:
+  name: tool-creation-loop
+  version: "1.0.0"
+  description: "A3 Self-Tooling: Tests dynamic tool creation within a delegation loop. A manager delegates to a tool-builder worker that generates Python scoring tools, then delegates to an analyst worker that uses those tools."
+  author: "AWP Examples"
+  tags: ["a3", "self-tooling", "tool-creation", "delegation-loop"]
+
+dynamic_tools:
+  enabled: true
+  persist: true
+  max_total: 20
+  allowed_namespaces: ["scoring", "analysis"]
+
+orchestration:
+  engine: delegation_loop
+
+  delegation_loop:
+    manager: agents/manager
+
+    models:
+      manager: null
+      worker: null
+
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+          network: false
+        codemode:
+          max_tools_per_worker: 10
+        rate_limiting:
+          max_llm_calls_per_minute: 30
+        forbidden_tools:
+          - "shell.execute"
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - output_contract
+        - codemode.enabled
+        - codemode.tool_creation
+
+    budget:
+      max_loops: 3
+      max_total_workers: 6
+      max_total_tokens: 400000
+      max_wall_time: 600
+      max_tool_calls: 50
+      max_depth: 1
+
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.03
+      action: warn_then_stop
+
+    validation:
+      deterministic:
+        always: true
+        checks: [schema, required_fields, confidence]
+      llm:
+        enabled: false
+
+    history:
+      rolling_summary: true
+      full_results_window: 3
+      persist_to_disk: true
+
+    logging:
+      format: dual
+      persist_artifacts: true
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: full

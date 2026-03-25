@@ -53,22 +53,23 @@ Key observations:
 - **Layer 5** ties agents and state together into an executable graph.
 - **Layer 6** is purely additive. Removing it changes nothing about execution semantics.
 
-## You Always Need L0 + L1
+## You Always Need Layer 0 + Layer 1
 
 The minimum viable AWP workflow requires Layer 0 (manifest) and Layer 1 (agent identity). Everything above is opt-in. A simple single-agent workflow uses only these two layers. A production enterprise system uses all seven plus the cross-cutting security layer.
 
-## Compliance Level to Layer Mapping
+## Autonomy Level to Layer Mapping
 
-Each [compliance level](compliance.md) requires specific layers:
+Each [autonomy level](compliance.md) uses specific layers:
 
 | Level | Name | Required Layers | Description |
 |-------|------|----------------|-------------|
-| L0 | Core | 0, 1, 5 (minimal) | Manifest + 1 agent + output contract + basic orchestration |
-| L1 | Composable | 0, 1, 4, 5 | Multi-agent DAG + state sharing |
-| L2 | Communicative | 0, 1, 3, 4, 5 | Message bus + channels |
-| L3 | Memorable | 0, 1, 4, 5 | Memory tiers (2+) |
-| L4 | Observable | 0, 1, 4, 5, 6 | Tracing + metrics + audit |
-| L5 | Enterprise | All (0-6 + Security) | Full protocol with security controls |
+| A0 | Prescribed | 0, 1, 5 (minimal) | Static DAG, predefined agents, fixed tools |
+| A1 | Adaptive | 0, 1, 4, 5 | Conditional execution, loops, fan-out, multi-agent DAG |
+| A2 | Delegating | 0, 1, 4, 5 | Manager spawns workers dynamically (delegation loop) |
+| A3 | Self-Tooling | 0, 1, 2, 4, 5 | Agents create tools and skills at runtime |
+| A4 | Self-Organizing | All (0-6 + Security) | Recursive delegation, budget distribution |
+
+Communication (Layer 3), Memory (Layer 4), Observability (Layer 6), and Security are cross-cutting features available at any autonomy level.
 
 ## How Layers Map to YAML Sections
 

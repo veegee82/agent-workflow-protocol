@@ -1,0 +1,7 @@
+{
+  "decision": "The analyzer's decision: delegate, complete, or fail",
+  "reasoning": "Explanation of the decision",
+  "delegations": "Array of worker assignments for sub-analysis tasks",
+  "final_result": "The final analysis result when decision is complete",
+  "confidence": "Float 0.0-1.0 indicating confidence in the analysis"
+}

@@ -15,12 +15,12 @@ AWP-compliant parser and validator must handle correctly.
 An AWP implementation should:
 
 1. Parse each fixture in `fixtures/valid/` and confirm it passes validation at the
-   expected compliance level.
+   expected autonomy level.
 2. Parse each fixture in `fixtures/invalid/` and confirm it produces the expected
    error (or fails to parse).
 
 ## Adding Fixtures
 
 Each fixture is a standalone `workflow.awp.yaml` (or fragment) that exercises a
-specific rule or compliance level. Reference it in `suite.json` with the expected
+specific rule or autonomy level. Reference it in `suite.json` with the expected
 outcome.

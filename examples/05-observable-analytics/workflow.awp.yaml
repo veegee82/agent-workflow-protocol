@@ -3,9 +3,9 @@ awp: "1.0.0"
 workflow:
   name: observable-analytics
   version: "1.0.0"
-  description: "Analytics pipeline with full observability demonstrating L4 Observable compliance"
+  description: "Analytics pipeline with full observability demonstrating A1 Adaptive autonomy level with observability feature"
   author: "AWP Examples"
-  tags: ["example", "l4", "observable", "analytics"]
+  tags: ["example", "a1", "adaptive", "observability", "analytics"]
 
 orchestration:
   execution:

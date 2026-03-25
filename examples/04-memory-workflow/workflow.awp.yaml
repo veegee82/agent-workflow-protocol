@@ -3,9 +3,9 @@ awp: "1.0.0"
 workflow:
   name: memory-workflow
   version: "1.0.0"
-  description: "Memory-enabled research workflow demonstrating L3 Memorable compliance"
+  description: "Memory-enabled research workflow demonstrating A1 Adaptive autonomy level with memory feature"
   author: "AWP Examples"
-  tags: ["example", "l3", "memorable", "memory"]
+  tags: ["example", "a1", "adaptive", "memory"]
 
 orchestration:
   execution:

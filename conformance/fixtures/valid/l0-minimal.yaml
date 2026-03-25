@@ -1,7 +1,7 @@
-# L0 Minimal -- Core manifest with one agent reference
+# A0 Prescribed -- Minimal manifest with one agent reference (static DAG, predefined agents)
 awp: "1.0.0"
 
 workflow:
   name: l0-minimal
   version: "1.0.0"
-  description: "Minimal L0 workflow with a single agent."
+  description: "Minimal A0 Prescribed workflow with a single agent and fixed tools."

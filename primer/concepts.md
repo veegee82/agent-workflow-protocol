@@ -1,6 +1,6 @@
 # Core Concepts
 
-AWP organizes the concerns of a multi-agent workflow into seven layers. Each layer answers a specific question, builds on the layers below it, and can be adopted independently through compliance levels.
+AWP organizes the concerns of a multi-agent workflow into seven layers. Each layer answers a specific question, builds on the layers below it, and can be adopted independently. Autonomy levels (A0-A4) measure how autonomous the workflow is, while features like communication, memory, and observability are cross-cutting concerns available at any level.
 
 ## The 7-Layer Model
 
@@ -104,22 +104,21 @@ agents:
       model: openai/gpt-4o-mini
 ```
 
-This 10-line file is a valid L0 AWP workflow. It declares the protocol version, workflow metadata, and one agent with a name, role, and model. A conforming runtime can execute this by sending the role as a system prompt and returning the agent's response.
+This 10-line file is a valid A0 AWP workflow. It declares the protocol version, workflow metadata, and one agent with a name, role, and model. A conforming runtime can execute this by sending the role as a system prompt and returning the agent's response.
 
-## Compliance Levels
+## Autonomy Levels
 
-AWP defines six compliance levels. Each level adds protocol layers and capabilities:
+AWP defines five autonomy levels. Each level measures how autonomous the workflow is -- not what features it has. Communication, memory, observability, and security are cross-cutting features available at any level.
 
-| Level | Name | Layers Required | What It Adds |
-|-------|------|-----------------|--------------|
-| **L0** | Core | 0 + 1 | Manifest + 1 agent + output contract. Enough to describe a single-agent workflow. |
-| **L1** | Composable | 0 + 1 + 2 | Multi-agent DAG + state sharing. Agents can act on the world. |
-| **L2** | Communicative | 0 + 1 + 2 + 3 | Message bus, channels, inter-agent communication outside the DAG. |
-| **L3** | Memorable | 0 + 1 + 2 + 3 + 4 | Multi-tier memory (long-term + daily logs). Agents remember and share. |
-| **L4** | Observable | 0 + 1 + 2 + 3 + 4 + 5 | Tracing + metrics + audit trail. Full DAG orchestration with monitoring. |
-| **L5** | Enterprise | All (0-6) | All above + security (circuit breaker, ACL, rate limiting). |
+| Level | Name | What It Measures |
+|-------|------|-----------------|
+| **A0** | Prescribed | Static DAG, predefined agents, fixed tools. The simplest workflow. |
+| **A1** | Adaptive | Conditional execution, loops, fan-out. The workflow can adapt its execution path. |
+| **A2** | Delegating | Manager spawns workers dynamically. Budget controls required. |
+| **A3** | Self-Tooling | Agents create tools and skills at runtime. Safety envelope required. |
+| **A4** | Self-Organizing | Recursive delegation with budget distribution. Observability required. |
 
-A runtime advertises the highest compliance level it supports. A workflow declares the minimum level it requires. If the runtime's level meets or exceeds the workflow's requirement, execution can proceed.
+A runtime advertises the highest autonomy level it supports. A workflow declares the minimum level it requires. If the runtime's level meets or exceeds the workflow's requirement, execution can proceed.
 
 ## What Comes Next
 

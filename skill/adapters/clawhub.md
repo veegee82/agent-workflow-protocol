@@ -58,7 +58,7 @@ and wraps the AWP configuration:
 name: my-research-pipeline
 description: >
   Three-agent research pipeline that plans, researches, and writes
-  articles on any topic. AWP L1 Composable compliant.
+  articles on any topic. AWP A1 Adaptive.
 version: 1.0.0
 metadata:
   openclaw:
@@ -109,7 +109,7 @@ awp run . --task "Research quantum computing trends in 2026"
 
 ## Compliance
 
-AWP L1 Composable -- DAG orchestration with state sharing.
+AWP A1 Adaptive -- DAG orchestration with conditional execution and state sharing.
 
 ## Files
 
@@ -194,7 +194,7 @@ Example `SKILL.md` for an extension:
 name: awp-ext-financial
 description: >
   AWP extension for financial workflows. Adds risk assessment agents,
-  audit trail requirements, and compliance controls.
+  audit trail requirements, and regulatory compliance controls.
 version: 1.0.0
 metadata:
   openclaw:
@@ -224,8 +224,8 @@ Tell your AI assistant:
 > "Build a portfolio analysis workflow using the AWP financial extension."
 
 The AI loads both the base AWP skill and this extension, then generates
-a workflow with built-in risk assessment, audit logging, and compliance
-controls.
+a workflow with built-in risk assessment, audit logging, and regulatory
+compliance controls.
 
 See `financial.md` for the complete extension specification.
 ```
@@ -294,7 +294,7 @@ AWP skills on ClawHub use these tag conventions for discoverability:
 | `awp-workflow` | A complete AWP workflow |
 | `awp-extension` | An AWP domain extension |
 | `awp-builder` | The AWP build skill itself |
-| `awp-l0` through `awp-l5` | Compliance level |
+| `awp-a0` through `awp-a4` | Autonomy level |
 | `multi-agent` | Multi-agent workflow |
 
 ### Searching for AWP skills on ClawHub

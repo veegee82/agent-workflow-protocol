@@ -16,7 +16,7 @@ Complete documentation for the Agent Workflow Protocol (AWP) v1.0.0.
 | 8 | [memory.md](memory.md) | 4-tier memory system and state sharing |
 | 9 | [observability.md](observability.md) | Metrics, tracing, audit trails, health checks |
 | 10 | [security.md](security.md) | Circuit breaker, rate limiting, access control |
-| 11 | [compliance.md](compliance.md) | Conformance levels L0 through L5 |
+| 11 | [compliance.md](compliance.md) | Autonomy levels A0 through A4 |
 | 12 | [validation.md](validation.md) | Validation rules R1 through R18 |
 | 13 | [file-structure.md](file-structure.md) | Required directory layout |
 | 14 | [packaging.md](packaging.md) | `.awp.zip` format and ClawHub publishing |

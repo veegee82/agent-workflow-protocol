@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["delegate", "complete", "fail"],
+      "description": "The manager's decision"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Why this decision was made"
+    },
+    "delegations": {
+      "type": "array",
+      "description": "Worker assignments (when decision=delegate)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "worker_id": {"type": "string"},
+          "instructions": {"type": "string"},
+          "skills": {"type": "array", "items": {"type": "string"}},
+          "tools_allowed": {"type": "array", "items": {"type": "string"}},
+          "output_contract": {"type": "object"}
+        }
+      }
+    },
+    "final_result": {
+      "type": "object",
+      "description": "The final research result (when decision=complete)"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in the current state"
+    }
+  },
+  "required": ["decision", "confidence"]
+}

@@ -1,0 +1,37 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: analyzer
+  role: analysis_manager
+  description: "Manages a multi-faceted analysis by delegating to specialist workers. Workers may sub-delegate for deeper investigation within their budget allocation."
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.2
+    max_tokens: 4096
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  contract:
+    decision:
+      type: string
+      description: "delegate, complete, or fail"
+      required: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      required: true
+  validation:
+    mode: lenient
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: false

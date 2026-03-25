@@ -1,10 +1,10 @@
-# L1 Composable -- DAG with two agents and state sharing
+# A1 Adaptive -- DAG with two agents, state sharing, conditional execution
 awp: "1.0.0"
 
 workflow:
   name: l1-dag
   version: "1.0.0"
-  description: "L1 workflow with a two-agent DAG."
+  description: "A1 Adaptive workflow with a two-agent DAG and state sharing."
 
 orchestration:
   engine: dag

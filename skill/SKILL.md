@@ -28,31 +28,20 @@ AWP organizes a workflow into seven protocol layers. Each layer answers one ques
 You start at the bottom. Layer 0 (manifest) and Layer 1 (agent identity)
 are always required. Everything above is opt-in.
 
-## Compliance Feature Layers
+## Autonomy Levels
 
-Each compliance level adds a set of features. These feature layers map to the
-protocol layers above:
+Autonomy levels measure HOW AUTONOMOUS the workflow is, not WHAT FEATURES it has.
+Communication, memory, and observability are cross-cutting features available at any level.
 
-| Feature Layer | Name | Purpose |
-|---------------|------|---------|
-| F0 | Orchestration | DAG-based agent graph, execution modes, timeouts, error handling. |
-| F1 | State | Persistent state, sharing strategies, required fields, auto-inject. |
-| F2 | Communication | Message bus for inter-agent messaging, channels, direct/broadcast. |
-| F3 | Memory | Long-term memory (MEMORY.md), daily logs, search, curation. |
-| F4 | Observability | Structured logging, distributed tracing, metrics collection. |
-| F5 | Governance | Security audit, rate limiting, circuit breakers, access control. |
-| F6 | Extension | Custom MCP tools, project-level skills, hooks, preprocessors. |
+| Level | Name | Description |
+|-------|------|-------------|
+| A0 | Prescribed | Static DAG, predefined agents, fixed tools. Minimum viable workflow. |
+| A1 | Adaptive | Conditional execution, loops, fan-out, multi-agent DAG. |
+| A2 | Delegating | Manager spawns workers dynamically (delegation loop). Budget required. |
+| A3 | Self-Tooling | Agents create tools and skills at runtime. Safety envelope required. |
+| A4 | Self-Organizing | Recursive delegation, budget distribution. Observability required. |
 
-## Compliance Levels
-
-| Level | Name | Required Features | Description |
-|-------|------|-------------------|-------------|
-| L0 Core | Core | F0 | Single agent, basic orchestration. Minimum viable workflow. |
-| L1 Composable | Composable | F0 + F1 | Multi-agent DAG with state sharing. |
-| L2 Communicative | Communicative | F0-F2 | Inter-agent messaging via message bus. |
-| L3 Memorable | Memorable | F0-F3 | Memory tiers for cross-session persistence. |
-| L4 Observable | Observable | F0-F4 | Full observability: tracing, metrics, structured logs. |
-| L5 Enterprise | Enterprise | F0-F6 | All features, production-grade governance and extensibility. |
+**Cross-cutting features (any level):** Communication, Memory, Observability, Security.
 
 ## Platform Features
 
@@ -68,10 +57,133 @@ protocol layers above:
 | Preprocessor | agent workflow/preprocessor/ | Data extraction and feature engineering before LLM call. |
 | Vision | agent.awp.yaml vision | Image processing via base64-encoded data URLs. |
 
+### Orchestration Engines
+
+AWP provides two orchestration engines. The choice determines how agents coordinate:
+
+**DAG Engine** (default, A0-A1):
+Static graph of agents. Dependencies defined in YAML. Topological execution.
+```yaml
+orchestration:
+  engine: dag
+  graph:
+    - id: planner
+      agent: planner
+    - id: researcher
+      agent: researcher
+      depends_on: [planner]
+```
+
+**Delegation Loop Engine** (A2-A4):
+A manager agent dynamically spawns ephemeral workers. Workers receive generated instructions, skills, and tool configurations. The loop iterates until the manager declares completion or budget is exhausted.
+
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+    models:
+      manager: null    # --manager-model CLI flag
+      worker: null     # --worker-model CLI flag
+    budget:
+      max_loops: 10
+      max_total_workers: 20
+      max_wall_time: 300
+      max_depth: 3
+    worker_policy:
+      enforced:
+        sandbox: {type: subprocess, max_memory_mb: 512}
+        forbidden_tools: [shell.execute]
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - output_contract
+        - codemode.enabled
+        - codemode.tool_creation
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.05
+    validation:
+      deterministic: {always: true}
+      llm: {enabled: true, skip_when_confidence_above: 0.95}
+    history:
+      rolling_summary: true
+      full_results_window: 3
+    logging:
+      format: dual
+      persist_artifacts: true
+```
+
+Key concepts:
+- **Delegation Envelope**: Manager generates instructions + skills + tools config for each worker
+- **Budget System**: Hard limits on loops, workers, tokens, wall time. Required at A2+.
+- **Safety Envelope**: Immutable security constraints the manager cannot override. Required at A3+.
+- **Two-Tier Validation**: Deterministic (schema, confidence) + LLM semantic (does result address task?)
+- **Stall Detection**: Auto-stop when confidence stops improving
+- **Dual Logging**: JSON (machines) + Markdown (humans) in workspace/runs/
+- **Fan-Out**: Multiple workers per iteration, executed in parallel
+- **Recursive Delegation**: Workers can sub-delegate within their budget allocation (A4)
+
+When generating a delegation loop workflow:
+- The manager agent gets a full agent.awp.yaml with SYSTEM_PROMPT.md
+- Workers are ephemeral — no YAML files, configured by the manager at runtime
+- The manager's system prompt must instruct it to use the DELEGATE/COMPLETE/FAIL decision format
+
+### Dynamic Tool Creation
+
+Agents with Code Mode can create new MCP tools at runtime via `sdk.tools.create()`.
+
+Configuration in workflow.awp.yaml:
+```yaml
+dynamic_tools:
+  enabled: true
+  persist: true
+  max_total: 20
+  allowed_namespaces: [scoring, analysis]
+```
+
+In agent.awp.yaml:
+```yaml
+capabilities:
+  codemode:
+    enabled: true
+    tool_creation: true
+    tool_creation_namespace: scoring
+    max_tools: 10
+```
+
+In the delegation loop, the manager can enable tool creation for workers:
+```json
+{
+  "codemode": {
+    "enabled": true,
+    "tool_creation": true,
+    "tool_creation_namespace": "scoring"
+  }
+}
+```
+
+Tools are persisted in workspace/runs/{run_id}/artifacts/tools/ and workspace/dynamic_tools/.
+
+### Dynamic Skill Generation
+
+In the delegation loop, the manager generates domain-specific skills (Markdown) for each worker:
+```json
+{
+  "skills": [
+    "## Market Analysis Framework\n\n### TAM/SAM/SOM\n- TAM: Total addressable market...\n- SAM: Serviceable...\n### Porter's Five Forces\n..."
+  ]
+}
+```
+
+Skills are persisted in workspace/runs/{run_id}/artifacts/skills/.
+
 
 ## STRICT RULES
 
-These rules define compliance requirements for AWP workflows. Rules marked **(recommended for Python)** apply to the Python reference implementation but may be adapted for other platforms.
+These rules define validation requirements for AWP workflows. Rules marked **(recommended for Python)** apply to the Python reference implementation but may be adapted for other platforms.
 
 - **R1:** `workflow.name` MUST match the workflow directory name.
 - **R2:** All agent IDs MUST be `snake_case` (lowercase letters, digits, underscores).
@@ -102,11 +214,12 @@ Before generating any files, analyze the user's requirements:
 1. **Analyze the requirement.** What is the workflow supposed to do? What data flows between agents?
 2. **Design the agent graph.** Identify distinct roles, dependencies, and data flow.
 3. **Plan state sharing.** Which fields does each agent produce? Which does each consumer need?
-4. **Determine compliance level.** What features are needed? Start at L0 and add layers only as required.
+4. **Determine autonomy level.** How autonomous is the workflow? Start at A0 and increase only as required.
 5. **Identify tools.** Which MCP tools does each agent need? (web.search, file.read, etc.)
 6. **Plan memory.** Does the workflow benefit from cross-session persistence?
 7. **Plan communication.** Do agents need to message each other outside the DAG?
 8. **Tool implementation mode.** Does the user want tool implementations generated? (See "Tool Implementation Generation" below.)
+9. **Choose orchestration engine.** DAG for known steps (A0-A1). Delegation loop for open-ended tasks where the number of steps depends on the content (A2-A4).
 
 ### Phase 1: Requirements Gathering (Interactive Questionnaire)
 
@@ -287,16 +400,17 @@ sieht sie nie.
 
 ---
 
-#### 10. Compliance Level
+#### 10. Autonomy Level
 
-**9.1 Welches AWP-Compliance-Level?**
-> a) **L0 Core** — einfacher Workflow, nur Orchestrierung ← empfohlen für Einstieg
-> b) **L1 Composable** — Multi-Agent mit State Sharing ← empfohlen für die meisten Workflows
-> c) **L2 Communicative** — mit Inter-Agent-Messaging
-> d) **L3 Memorable** — mit Langzeitgedächtnis
-> e) **L4 Observable** — mit Tracing, Metriken, Logging
-> f) **L5 Enterprise** — alle Features, produktionsreif
-> g) Sonstiges: ___
+**9.1 Welches AWP-Autonomy-Level?**
+> a) **A0 Prescribed** — statischer DAG, feste Agents und Tools ← empfohlen für Einstieg
+> b) **A1 Adaptive** — Bedingungen, Schleifen, Fan-out ← empfohlen für die meisten Workflows
+> c) **A2 Delegating** — Manager spawnt Worker dynamisch (Budget nötig)
+> d) **A3 Self-Tooling** — Agents erstellen Tools zur Laufzeit (Safety Envelope nötig)
+> e) **A4 Self-Organizing** — Rekursive Delegation, Budget-Verteilung
+> f) Sonstiges: ___
+>
+> **Hinweis:** Communication, Memory, Observability und Security sind Features die auf jedem Level genutzt werden können.
 
 ---
 
@@ -306,6 +420,24 @@ sieht sie nie.
 > z.B. Timeouts, Fehlerbehandlung, Sicherheitsanforderungen, spezielle Datenquellen,
 > Zielgruppe der Ausgabe, …
 > ___
+
+---
+
+#### 11b. Orchestration Engine (if A2+ selected)
+
+```
+Welche Orchestration Engine?
+
+a) DAG — Statischer Graph, feste Agenten                    ← für A0-A1
+b) Delegation Loop — Manager spawnt Worker dynamisch         ← für A2+ empfohlen
+c) Hybrid — DAG mit eingebettetem Delegation Loop
+
+Falls Delegation Loop:
+- Budget: Max Loops? [10]  Max Workers? [20]  Max Wall Time? [300s]
+- Safety Envelope aktiv? [Ja, ab A3 Pflicht]
+- LLM Validation? [Ja / Nein]
+- Stall Detection? [Ja, empfohlen]
+```
 
 ---
 
@@ -399,15 +531,24 @@ List every file that will be generated, grouped by agent:
     ...
 ```
 
-State the total file count and the target compliance level.
+State the total file count and the target autonomy level.
 
 #### Step 6: Validation Preview
 
 List which of the 24 rules (R1-R24) apply and confirm they will be satisfied:
 
-> **Compliance Target:** L{N} {Level Name}
+> **Autonomy Target:** A{N} {Level Name}
 > **Applicable Rules:** R1-R{max} (all satisfied by this plan)
 > **Special Considerations:** {any edge cases, e.g., conditional execution, cyclic risk}
+
+#### Step 6b: Delegation Loop Plan (if engine is delegation_loop)
+
+If the orchestration engine is delegation_loop, the plan must include:
+- Manager agent role and system prompt strategy
+- Expected iteration flow (Phase 1: tool creation, Phase 2: analysis, Phase 3: synthesis)
+- Budget allocation
+- Worker types the manager will spawn (with example skills)
+- Termination strategy
 
 ---
 
@@ -459,10 +600,10 @@ is a focused checklist, not a second questionnaire.
 > → b) `{agent_2}`: `{field_3}` (object), `confidence` (number) ← aus dem Plan
 > Felder ändern/hinzufügen/entfernen? ___
 
-**V6. Compliance Level**
-> → a) L{N} {Level Name} ← aus dem Plan
-> b) Niedriger: L{N-1} {Name} (entfernt: {was wegfällt})
-> c) Höher: L{N+1} {Name} (fügt hinzu: {was dazukommt})
+**V6. Autonomy Level**
+> → a) A{N} {Level Name} ← aus dem Plan
+> b) Niedriger: A{N-1} {Name} (entfernt: {was wegfällt})
+> c) Höher: A{N+1} {Name} (fügt hinzu: {was dazukommt})
 > d) Sonstiges: ___
 
 **V7. Memory & Persistenz**
@@ -518,7 +659,7 @@ Create `{workflow_dir}/workflow.awp.yaml` with:
 - `graph` section (all agents with depends_on and share_output).
 - `execution` section (mode, timeouts, error handling).
 - `state` section (persistence, sharing strategy).
-- Additional sections as needed by compliance level: `memory`, `communication`, `observability`, `security`.
+- Additional sections as needed: `memory`, `communication`, `observability`, `security` (cross-cutting features, available at any autonomy level).
 - `logging` section.
 - `settings` section (LLM models, runtime config).
 
@@ -719,6 +860,17 @@ When an agent has `capabilities.codemode.enabled: true`:
    - `capabilities.codemode.language: {typescript|python}`
    - `capabilities.sandbox.type` set (not `none`)
 
+#### Step 7d: Delegation Loop Generation (if engine is delegation_loop)
+
+When generating a delegation_loop workflow:
+1. Generate workflow.awp.yaml with `engine: delegation_loop` and full delegation_loop config
+2. Generate ONE manager agent directory (agents/manager/) with:
+   - agent.awp.yaml (tools disabled, JSON output)
+   - SYSTEM_PROMPT.md with DELEGATE/COMPLETE/FAIL instructions
+   - Output schema for delegation decisions
+3. Workers are NOT generated as files — they are ephemeral
+4. If dynamic_tools enabled, add the dynamic_tools section to workflow.awp.yaml
+
 #### Step 8: Project Skills (if needed)
 
 If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`. See `templates/project-skill.md`.
@@ -775,7 +927,7 @@ The file follows a **top-down structure** from abstract to concrete:
 
 > {One-sentence elevator pitch: what this workflow does and why.}
 
-**AWP Compliance:** L{N} {Level Name} | **Agents:** {count} | **Execution:** {mode}
+**AWP Autonomy:** A{N} {Level Name} | **Agents:** {count} | **Execution:** {mode}
 
 ---
 
@@ -843,7 +995,7 @@ rendering. Follow these rules:
 **CRITICAL — This is the final presentation to the user.** Phase 5 MUST always
 be displayed **in Claude's terminal output** before any zip/pack file is offered.
 The user should see the complete workflow at a glance — diagram, description,
-files, and compliance — directly in the conversation. This is NOT optional.
+files, and autonomy level — directly in the conversation. This is NOT optional.
 Do not skip to the zip output. Do not abbreviate. The terminal presentation
 IS the deliverable that the user reviews before accepting the workflow.
 
@@ -856,7 +1008,7 @@ Present the following sections **in this exact order**:
 ```
 ═══════════════════════════════════════════════════════════════
   AWP Workflow: {workflow_name}
-  Compliance: L{N} {Level Name} │ Agents: {count} │ Mode: {execution_mode}
+  Autonomy: A{N} {Level Name} │ Agents: {count} │ Mode: {execution_mode}
 ═══════════════════════════════════════════════════════════════
 ```
 
@@ -933,7 +1085,7 @@ in 4-8 sentences. This description must:
    Which custom MCP tools were created? Which agents use Code Mode and what
    advantage does it give them?
 4. **Explain key design decisions** — Why this agent order? Why these tools?
-   Why this data flow? Why this compliance level?
+   Why this data flow? Why this autonomy level?
 
 Example:
 
@@ -946,8 +1098,8 @@ Example:
 > controls and NIST 800-53 mappings) to classify each finding by severity and
 > recommend remediations. Finally, the **reporter** agent produces an executive
 > summary with risk scores, using the `skills/report-writing/SKILL.md` for
-> formatting standards. The workflow is L1 compliant (multi-agent DAG with state
-> sharing) and requires only an OpenRouter API key to run.
+> formatting standards. The workflow is A1 Adaptive (multi-agent DAG with state
+> sharing and conditional execution) and requires only an OpenRouter API key to run.
 
 #### 5d. Generated Capabilities Summary
 
@@ -998,11 +1150,11 @@ List all generated files with count:
   ──────────────────────────────────────────────────────────
 ```
 
-#### 5f. Compliance Badge & Validation
+#### 5f. Autonomy Badge & Validation
 
 ```
   ✅ Validation: All {count}/24 applicable rules passed
-  🏷️  AWP L{N} {Level Name} Compliant
+  🏷️  AWP A{N} {Level Name}
 ```
 
 - Reference to `WORKFLOW.md` for the full project documentation.
@@ -1164,6 +1316,134 @@ the free DuckDuckGo fallback, state that no tool secrets are required. Always
 highlight which keys are **required** vs. **optional**.
 
 
+### Design Patterns
+
+AWP workflows follow common patterns. Use the right pattern for the task:
+
+**Pipeline Pattern** (A0-A1)
+Linear chain: each agent feeds the next.
+```
+planner → researcher → writer
+```
+Best for: sequential processing, ETL, document generation.
+
+**Fan-Out / Fan-In Pattern** (A1)
+One agent produces items, multiple agents process in parallel, one aggregates.
+```
+splitter → [worker_1, worker_2, worker_3] → aggregator
+```
+Best for: parallel analysis, batch processing.
+
+**Conditional Branching Pattern** (A1)
+Agents execute based on conditions from previous results.
+```
+analyzer → (if risk > 0.7) → deep_analysis
+         → (if risk <= 0.7) → summary
+```
+Best for: triage, routing, adaptive workflows.
+
+**Manager-Worker Pattern** (A2)
+A manager delegates to dynamic workers, evaluates results, iterates.
+```
+manager → [worker_a, worker_b] → validate → manager → [worker_c] → complete
+```
+Best for: research, analysis, open-ended investigation.
+
+**Tool Builder Pattern** (A3)
+Phase 1: builder creates tools. Phase 2: analyst uses tools.
+```
+Iteration 1: manager → tool_builder (creates scoring.*)
+Iteration 2: manager → [analyst_1, analyst_2] (uses scoring.*)
+Iteration 3: manager → complete
+```
+Best for: configurable scoring, dynamic evaluation criteria.
+
+**Self-Organizing Team Pattern** (A4)
+Manager delegates to sub-managers who further delegate within their budget.
+```
+manager (budget: 20 workers)
+├── sub_manager_a (budget: 8) → [worker_a1, worker_a2]
+├── worker_b
+└── sub_manager_c (budget: 6) → [worker_c1]
+```
+Best for: complex multi-faceted analysis, deep research.
+
+### Example Workflows by Autonomy Level
+
+**A0 Prescribed — Hello World**
+```yaml
+orchestration:
+  engine: dag
+  graph:
+    - id: greeter
+      agent: greeter
+```
+Single agent, fixed output. The simplest valid AWP workflow.
+
+**A1 Adaptive — Research Pipeline**
+```yaml
+orchestration:
+  engine: dag
+  graph:
+    - id: planner
+      agent: planner
+    - id: researcher
+      agent: researcher
+      depends_on: [planner]
+    - id: writer
+      agent: writer
+      depends_on: [researcher]
+```
+Three agents in sequence, state shared between them.
+
+**A2 Delegating — Dynamic Research**
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+    budget: {max_loops: 5, max_total_workers: 10, max_wall_time: 300}
+    validation: {deterministic: {always: true}, llm: {enabled: false}}
+```
+Manager analyzes task, spawns specialist workers with generated skills, iterates until confident.
+
+**A3 Self-Tooling — Configurable Scoring**
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+    budget: {max_loops: 3, max_total_workers: 6, max_wall_time: 600}
+    worker_policy:
+      enforced: {sandbox: {type: subprocess}}
+      manager_controlled: [instructions, skills, tools_allowed, codemode.enabled, codemode.tool_creation]
+
+dynamic_tools:
+  enabled: true
+  allowed_namespaces: [scoring]
+```
+Manager spawns a tool-builder that creates scoring tools, then spawns analysts that use those tools.
+
+**A4 Self-Organizing — Startup Evaluation**
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+    budget: {max_loops: 5, max_total_workers: 12, max_wall_time: 900, max_depth: 2}
+    worker_policy:
+      enforced: {sandbox: {type: subprocess}}
+    termination: {enabled: true, window: 3, min_confidence_delta: 0.02}
+    validation: {deterministic: {always: true}, llm: {enabled: true}}
+    logging: {format: dual, persist_artifacts: true}
+
+dynamic_tools:
+  enabled: true
+  allowed_namespaces: [scoring, analysis]
+```
+Multi-phase: creates tools → evaluates items in parallel → synthesizes ranking. Workers can sub-delegate.
+
+
 ## Templates
 
 The `templates/` directory contains starter files for all workflow components:
@@ -1194,14 +1474,14 @@ The `templates/` directory contains starter files for all workflow components:
 The `extensions/` directory contains domain-specific customizations that
 **extend** this base skill -- like subclass inheritance.  An extension can:
 
-- Override defaults (model, compliance level, temperature)
+- Override defaults (model, autonomy level, temperature)
 - Add required agents (e.g., `risk_assessor` for financial workflows)
 - Add required output fields (e.g., `data_sources` for every agent)
 - Add domain-specific rules (F1, F2, ... or D1, D2, ...)
 - Inject content into system prompts (prepend/append/replace)
 - Include additional project-level skills
 - Include additional custom MCP tools
-- Set constraints (deny tools, require memory tiers, min compliance)
+- Set constraints (deny tools, require memory tiers, min autonomy level)
 
 ### How to Use an Extension
 
@@ -1217,7 +1497,7 @@ analysis workflow"), load the appropriate extension alongside this base skill:
 
 | Extension | Domain | Key Features |
 |-----------|--------|-------------|
-| `extensions/examples/financial.md` | Finance | Risk assessor agent, audit trail, compliance controls |
+| `extensions/examples/financial.md` | Finance | Risk assessor agent, audit trail, regulatory compliance controls |
 | `extensions/examples/devops.md` | DevOps | Safety checker agent, rollback plans, shell constraints |
 
 See `extensions/README.md` for the full extension format and how to create
@@ -1271,7 +1551,7 @@ The `references/` directory contains condensed documentation for AI context:
 | Reference | Purpose |
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification (~2000 words). |
-| `compliance-levels.md` | Quick reference for L0-L5 compliance. |
+| `compliance-levels.md` | Quick reference for A0-A4 autonomy levels. |
 | `validation-rules.md` | R1-R24 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |

@@ -3,9 +3,9 @@ awp: "1.0.0"
 workflow:
   name: research-pipeline
   version: "1.0.0"
-  description: "Multi-agent research pipeline demonstrating L1 Composable compliance with state sharing"
+  description: "Multi-agent research pipeline demonstrating A1 Adaptive autonomy level with state sharing"
   author: "AWP Examples"
-  tags: ["example", "l1", "composable", "research"]
+  tags: ["example", "a1", "adaptive", "research"]
 
 orchestration:
   execution:

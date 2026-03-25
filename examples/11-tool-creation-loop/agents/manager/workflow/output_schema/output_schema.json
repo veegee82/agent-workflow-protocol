@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {"type": "string"},
+    "reasoning": {"type": "string"},
+    "delegations": {"type": "array"},
+    "final_result": {"type": "object"},
+    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+  },
+  "required": ["decision", "confidence"]
+}

@@ -4,7 +4,7 @@ This document provides a condensed overview of the Agent Workflow Protocol (AWP)
 
 ## What is AWP?
 
-AWP is a specification for building multi-agent AI workflows. It defines how agents are organized into directed acyclic graphs (DAGs), how they share state, communicate, remember information across sessions, and operate under governance controls. AWP is platform-agnostic in its design, with a Python reference implementation built on FastAPI.
+AWP is a specification for building multi-agent AI workflows. It defines how agents are orchestrated -- either as directed acyclic graphs (DAGs) or via a delegation loop where a manager agent dynamically spawns workers at runtime. AWP covers how agents share state, communicate, remember information across sessions, and operate under governance controls. AWP is platform-agnostic in its design, with a Python reference implementation built on FastAPI.
 
 ## Core Concepts
 
@@ -12,7 +12,9 @@ AWP is a specification for building multi-agent AI workflows. It defines how age
 
 **Agent:** An autonomous unit that receives a task and state, calls an LLM with tools and context, and produces structured JSON output. Each agent has its own configuration, system prompt, output schema, and optional tools.
 
-**Graph:** Agents are organized in a DAG via `depends_on` edges. The orchestrator executes them in topological order. An agent can only run after all its dependencies have completed. Shared output fields flow downstream through the state dictionary.
+**Graph (DAG engine):** Agents are organized in a DAG via `depends_on` edges. The orchestrator executes them in topological order. An agent can only run after all its dependencies have completed. Shared output fields flow downstream through the state dictionary.
+
+**Delegation Loop (delegation_loop engine):** A manager agent receives the task and dynamically decides to DELEGATE (spawn ephemeral workers), COMPLETE (return result), or FAIL. Workers are created at runtime via delegation envelopes containing instructions, skills, tools, and output contracts. A budget system bounds resource consumption. The two engines can be composed: a DAG node can contain a delegation loop.
 
 **State:** A Python dictionary (`Dict[str, Any]`) that accumulates agent outputs. Each agent writes to `state[agent_name]`. Downstream agents read from their dependencies' state entries. State can be persisted to disk between runs.
 
@@ -20,14 +22,24 @@ AWP is a specification for building multi-agent AI workflows. It defines how age
 
 ### Layer 0: Orchestration
 
-The foundation. Defines the agent graph, execution mode (sequential, parallel, conditional), timeouts, and error handling. Every AWP workflow must implement this layer.
+The foundation. Defines how agents are orchestrated. Every AWP workflow must implement this layer.
 
-Key manifest sections: `project`, `graph`, `execution`.
+AWP supports two orchestration engines:
 
-Execution modes:
+- **DAG engine** (`engine: dag`) -- Static graph of agents with `depends_on` edges. Agents run in topological order. Best for predictable pipelines with known steps.
+- **Delegation Loop engine** (`engine: delegation_loop`) -- A manager agent dynamically spawns ephemeral workers at runtime. Workers are defined by delegation envelopes, not static config files. Best for open-ended tasks where steps emerge during execution. Requires a budget system (A2+).
+
+Key manifest sections: `project`, `graph` (DAG) or `delegation_loop` (loop), `execution`.
+
+DAG execution modes:
 - **sequential** -- agents run one at a time in topological order.
 - **parallel** -- independent agents (no mutual dependencies) run concurrently.
 - **conditional** -- agents run based on runtime conditions evaluated from state.
+
+Delegation loop decisions:
+- **DELEGATE** -- Manager generates delegation envelopes for ephemeral workers.
+- **COMPLETE** -- Task is done; return the final result.
+- **FAIL** -- Task cannot be completed; return error with partial results.
 
 Error handling options: `stop` (halt on first error), `continue` (skip failed agent), `retry` (retry with backoff).
 
@@ -125,15 +137,16 @@ Every agent must produce JSON output conforming to its `output_schema.json`. Key
 - Fields listed in `share_output` must be present as properties in the schema.
 - A companion `output_schema_desc.json` provides human-readable descriptions for each field.
 
-## Compliance Levels
+## Autonomy Levels
 
-| Level | Layers Required | Key Features |
-|-------|----------------|--------------|
-| L0 Core | L0 | Single or multi-agent DAG, basic execution. |
-| L1 Composable | L0-L1 | State sharing, persistence, selective sharing. |
-| L2 Communicative | L0-L2 | Message bus, channels, agent-to-agent messaging. |
-| L3 Memorable | L0-L3 | Long-term memory, daily logs, search, curation. |
-| L4 Observable | L0-L4 | Tracing, metrics, structured logging. |
-| L5 Enterprise | L0-L6 | Full governance, custom tools, skills, hooks. |
+Autonomy levels measure HOW AUTONOMOUS the workflow is. Communication, memory, and observability are cross-cutting features available at any level.
 
-A workflow's compliance level is determined by the highest layer it fully implements.
+| Level | Name | Key Features |
+|-------|------|--------------|
+| A0 | Prescribed | Static DAG, predefined agents, fixed tools. |
+| A1 | Adaptive | Conditional execution, loops, fan-out, multi-agent DAG. |
+| A2 | Delegating | Manager spawns workers dynamically. Budget required. |
+| A3 | Self-Tooling | Agents create tools and skills at runtime. Safety envelope required. |
+| A4 | Self-Organizing | Recursive delegation, budget distribution. Observability required. |
+
+Cross-cutting (all levels): Communication, Memory, Observability, Security.

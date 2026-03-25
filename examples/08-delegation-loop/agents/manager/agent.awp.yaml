@@ -1,0 +1,38 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: manager
+  role: research_manager
+  description: "Manages a research task by breaking it into subtasks and delegating to worker agents. Evaluates results and iterates until the research is complete."
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.2
+    max_tokens: 4096
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  contract:
+    decision:
+      type: string
+      description: "One of: delegate, complete, fail"
+      required: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Current confidence in task completion"
+      required: true
+  validation:
+    mode: lenient
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: false

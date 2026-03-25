@@ -12,7 +12,7 @@ AWP is a **specification**. It defines the format and semantics of workflow mani
 
 ### Is AWP production-ready?
 
-AWP 1.0.0 is a stable specification suitable for production use. The protocol model, compliance levels, and validation rules are fully defined. The reference implementation is functional and tested. That said, as with any 1.0 release, expect the ecosystem of runtimes and tooling to mature over time. The specification itself follows SemVer, so any breaking changes would require a 2.0 version.
+AWP 1.0.0 is a stable specification suitable for production use. The protocol model, autonomy levels, and validation rules are fully defined. The reference implementation is functional and tested. That said, as with any 1.0 release, expect the ecosystem of runtimes and tooling to mature over time. The specification itself follows SemVer, so any breaking changes would require a 2.0 version.
 
 ### Who maintains AWP?
 
@@ -52,7 +52,7 @@ agents:
       model: openai/gpt-4o-mini
 ```
 
-This is an L0 (Core) compliance workflow. It has no tools, no memory, no orchestration beyond a single agent. It is enough to validate the format and test a runtime.
+This is an A0 (Prescribed) workflow. It has no tools, no memory, no orchestration beyond a single agent. It is enough to validate the format and test a runtime.
 
 ### Can agents communicate outside the DAG?
 
@@ -94,20 +94,19 @@ workflow.awp.zip
 
 Share the ZIP file directly, publish it to a registry, or store it in version control. Any AWP-compatible runtime can extract and execute it.
 
-### What are compliance levels?
+### What are autonomy levels?
 
-Compliance levels (L0 through L5) define progressive tiers of AWP support. They allow runtimes to advertise their capabilities and workflows to declare their requirements:
+Autonomy levels (A0 through A4) measure how autonomous a workflow is. They allow runtimes to advertise their capabilities and workflows to declare their requirements:
 
-| Level | Name | What It Requires |
+| Level | Name | What It Measures |
 |-------|------|-----------------|
-| L0 | Core | Manifest + 1 agent + output contract |
-| L1 | Composable | Multi-agent DAG + state sharing |
-| L2 | Communicative | Message bus + agent-to-agent messaging |
-| L3 | Memorable | Multi-tier memory (long-term + daily logs) |
-| L4 | Observable | Tracing + metrics + audit trail |
-| L5 | Enterprise | All above + security + circuit breaker |
+| A0 | Prescribed | Static DAG, predefined agents, fixed tools |
+| A1 | Adaptive | Conditional execution, loops, fan-out |
+| A2 | Delegating | Manager spawns workers dynamically (budget required) |
+| A3 | Self-Tooling | Agents create tools at runtime (safety envelope required) |
+| A4 | Self-Organizing | Recursive delegation, budget distribution (observability required) |
 
-A workflow that uses tools but not memory requires at least an L1 runtime. A workflow with full orchestration and observability requires L5. This prevents the "all or nothing" problem where a simple workflow is forced to deal with enterprise features it does not need.
+Communication, memory, observability, and security are cross-cutting features available at any autonomy level. A simple A0 workflow can have full observability; an A4 workflow must have it. This prevents the "all or nothing" problem where a simple workflow is forced to deal with enterprise features it does not need.
 
 ## Validation and Debugging
 

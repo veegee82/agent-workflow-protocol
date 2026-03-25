@@ -193,8 +193,8 @@ Each workflow deploys as a single Dispatch Worker that orchestrates the agent DA
 
 - **Dispatch Worker** — Central orchestrator that reads the DAG, calls LLMs, validates outputs
 - **KV Namespace** — Workflow state between agents
-- **D1 (SQLite)** — Short-term memory and daily logs (L3+)
-- **R2 Bucket** — Long-term memory / MEMORY.md (L3+)
+- **D1 (SQLite)** — Short-term memory and daily logs (when memory feature is enabled)
+- **R2 Bucket** — Long-term memory / MEMORY.md (when memory feature is enabled)
 - **Workers AI** — Optional LLM backend (alternative to external APIs)
 
 ### Installation & Deployment

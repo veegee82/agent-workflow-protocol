@@ -2,7 +2,7 @@
 
 {{WORKFLOW_DESCRIPTION}}
 
-**AWP Compliance Level:** L{{COMPLIANCE_LEVEL}}
+**AWP Autonomy Level:** A{{AUTONOMY_LEVEL}}
 **Runtime:** Cloudflare Dynamic Workers
 
 ## Prerequisites
@@ -26,7 +26,7 @@ npm install
 wrangler kv namespace create STATE
 # → Copy the id into wrangler.toml under [[kv_namespaces]]
 
-# If using memory (L3+):
+# If using memory feature:
 wrangler d1 create {{WORKFLOW_NAME}}-db
 wrangler r2 bucket create {{WORKFLOW_NAME}}-memory
 # → Copy IDs into wrangler.toml

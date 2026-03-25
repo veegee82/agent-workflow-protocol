@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial AWP 1.0.0 specification
 - 7-layer protocol model (Manifest, Agent Identity, Capabilities, Communication, Memory & State, Orchestration, Observability)
-- Compliance levels L0-L5 (Core, Composable, Communicative, Memorable, Observable, Enterprise)
+- Autonomy levels A0-A4 (Prescribed, Adaptive, Delegating, Self-Tooling, Self-Organizing)
 - 24 validation rules (R1-R24) for pre-execution checking
 - Python reference implementation
 - Build skill for AI assistants

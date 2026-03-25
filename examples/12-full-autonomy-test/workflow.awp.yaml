@@ -1,0 +1,82 @@
+awp: "1.0.0"
+
+workflow:
+  name: full-autonomy-test
+  version: "1.0.0"
+  description: "Complete A3/A4 autonomy test: multi-iteration delegation loop with dynamic skill generation, tool creation, parallel fan-out, budget tracking, validation, and full dual logging."
+  author: "AWP Examples"
+  tags: ["a3", "a4", "full-test", "skills", "tools", "delegation-loop"]
+
+dynamic_tools:
+  enabled: true
+  persist: true
+  max_total: 20
+  allowed_namespaces: ["scoring", "analysis"]
+
+orchestration:
+  engine: delegation_loop
+
+  delegation_loop:
+    manager: agents/manager
+
+    models:
+      manager: null
+      worker: null
+
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+          network: false
+        codemode:
+          max_tools_per_worker: 10
+        rate_limiting:
+          max_llm_calls_per_minute: 30
+        forbidden_tools:
+          - "shell.execute"
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - output_contract
+        - codemode.enabled
+        - codemode.tool_creation
+
+    budget:
+      max_loops: 5
+      max_total_workers: 12
+      max_total_tokens: 500000
+      max_wall_time: 900
+      max_tool_calls: 50
+      max_depth: 2
+
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.02
+      action: warn_then_stop
+
+    validation:
+      deterministic:
+        always: true
+        checks: [schema, required_fields, confidence, budget]
+      llm:
+        enabled: true
+        skip_when_confidence_above: 0.95
+        skip_when_budget_remaining_below: 0.15
+
+    history:
+      rolling_summary: true
+      full_results_window: 3
+      persist_to_disk: true
+
+    logging:
+      format: dual
+      persist_artifacts: true
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: full

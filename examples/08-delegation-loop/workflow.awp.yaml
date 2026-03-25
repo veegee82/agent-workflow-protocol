@@ -1,0 +1,81 @@
+awp: "1.0.0"
+
+workflow:
+  name: delegation-loop-research
+  version: "1.0.0"
+  description: "Dynamic research workflow using the delegation_loop engine. A manager agent breaks down a research task, delegates to ephemeral worker agents, validates results, and iterates until complete."
+  author: "AWP Examples"
+  tags: ["example", "delegation-loop", "dynamic-orchestration", "research"]
+
+orchestration:
+  engine: delegation_loop
+
+  delegation_loop:
+    manager: agents/manager
+
+    models:
+      manager: null    # Set via --manager-model or LLM_MODEL
+      worker: null     # Set via --worker-model or inherits from manager
+
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+          network: false
+        codemode:
+          max_tools_per_worker: 10
+        rate_limiting:
+          max_llm_calls_per_minute: 30
+        forbidden_tools:
+          - "file.write_outside_workspace"
+          - "shell.execute"
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - output_contract
+        - codemode.enabled
+        - codemode.tool_creation
+
+    budget:
+      max_loops: 5
+      max_total_workers: 10
+      max_total_tokens: 500000
+      max_wall_time: 300
+      max_tool_calls: 50
+      max_depth: 3
+
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.05
+      action: warn_then_stop
+
+    validation:
+      deterministic:
+        always: true
+        checks:
+          - schema
+          - required_fields
+          - confidence
+          - budget
+      llm:
+        enabled: true
+        skip_when_confidence_above: 0.95
+        skip_when_budget_remaining_below: 0.1
+
+    history:
+      rolling_summary: true
+      full_results_window: 3
+      persist_to_disk: true
+
+    logging:
+      format: dual
+      persist_artifacts: true
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: full

@@ -195,7 +195,7 @@ Add a `SKILL.md` at the workflow root with ClawHub-compatible YAML frontmatter:
 ---
 name: my-research-pipeline
 description: >
-  Three-agent research pipeline. AWP L1 Composable compliant.
+  Three-agent research pipeline. AWP A1 Adaptive.
 version: 1.0.0
 metadata:
   openclaw:
@@ -275,7 +275,7 @@ AWP skills on ClawHub use these tag conventions:
 | `awp-workflow` | A complete AWP workflow |
 | `awp-extension` | A domain extension |
 | `awp-builder` | The AWP build skill itself |
-| `awp-l0` through `awp-l5` | Compliance level |
+| `awp-a0` through `awp-a4` | Autonomy level |
 | `multi-agent` | Multi-agent workflow |
 
 ```bash
@@ -297,4 +297,4 @@ Registries and package managers may derive these fields from the manifest:
 | `license` | `workflow.awp.yaml` | SPDX license identifier. |
 | `tags` | `workflow.awp.yaml` | Categorization tags. |
 | `agent_count` | Derived | Number of agents. |
-| `conformance` | `workflow.awp.yaml` or derived | Compliance level (L0-L5). |
+| `autonomy` | `workflow.awp.yaml` or derived | Autonomy level (A0-A4). |

@@ -1,146 +1,186 @@
-# Compliance Levels
+# Autonomy Levels
 
-**AWP Specification v1.0.0 — Compliance**
+**AWP Specification v1.0.0 — Autonomy Levels**
 **Status:** Draft Standard
 
 ---
 
 ## 1. Overview
 
-AWP defines six conformance levels (L0–L5) that indicate the breadth of protocol features a workflow implements. Each level builds on the previous, adding requirements for additional capabilities. A workflow MUST declare its target conformance level and MUST satisfy all requirements for that level and all levels below it.
+AWP defines five autonomy levels (A0–A4) that indicate the degree of autonomous behavior a workflow exhibits. Each level builds on the previous, adding requirements for additional capabilities. A workflow MUST declare its target autonomy level and MUST satisfy all requirements for that level and all levels below it.
 
-A conformant runtime MUST be able to validate a workflow's conformance level by checking the requirements listed below.
+Communication (message bus) and Memory are cross-cutting **features** available at any autonomy level; they are not level requirements.
+
+Security and Observability are **recommended for all workflows** as cross-cutting concerns. Safety requirements scale with autonomy: A2+ requires budget controls, A3+ requires a safety envelope, and A4+ requires observability.
+
+A conformant runtime MUST be able to validate a workflow's autonomy level by checking the requirements listed below.
+
+> **Backward compatibility note:** The previous L0–L5 compliance level system has been replaced by A0–A4 autonomy levels. L0 Core maps to A0 Prescribed, L1 Composable maps to A1 Adaptive, and L5 Enterprise maps to A4 Self-Organizing. L2 Communicative, L3 Memorable, and L4 Observable are now cross-cutting features and concerns rather than distinct levels.
 
 ---
 
 ## 2. Level Definitions
 
-### 2.1 L0 AWP/Core
+### 2.1 A0 AWP/Prescribed
 
-**Description:** The minimum viable AWP workflow. A single agent with a valid manifest and output contract.
+**Description:** Static DAG with predefined agents and fixed tools. The minimum viable AWP workflow.
 
 **Requirements:**
 
 | ID | Requirement |
 |----|-------------|
-| L0-1 | The workflow MUST contain a valid `workflow.awp.yaml` with a valid `awp` field (SemVer). |
-| L0-2 | The `workflow` section MUST be present with `name`, `version`, and `description` fields. |
-| L0-3 | The `orchestration` section MUST be present with `engine` and `graph` containing at least 1 agent node. |
-| L0-4 | Every agent referenced in the graph MUST have a valid `agent.awp.yaml` with `awp_agent`, `identity`, `model.name`, `prompt.system`, and `output.format` fields. |
-| L0-5 | Every agent MUST have an `output.contract` defined (either inline or as a file reference). |
+| A0-1 | The workflow MUST contain a valid `workflow.awp.yaml` with a valid `awp` field (SemVer). |
+| A0-2 | The `workflow` section MUST be present with `name`, `version`, and `description` fields. |
+| A0-3 | The `orchestration` section MUST be present with `engine` and `graph` containing at least 1 agent node. |
+| A0-4 | Every agent referenced in the graph MUST have a valid `agent.awp.yaml` with `awp_agent`, `identity`, `model.name`, `prompt.system`, and `output.format` fields. |
+| A0-5 | Every agent MUST have an `output.contract` defined (either inline or as a file reference). |
+| A0-6 | The graph MUST be a static DAG — all nodes and edges are predefined at design time. |
 
 **Example use case:** A single-agent workflow that summarizes text input and produces a JSON output.
 
 ---
 
-### 2.2 L1 AWP/Composable
+### 2.2 A1 AWP/Adaptive
 
-**Description:** A multi-agent workflow with data sharing between agents.
+**Description:** Conditional execution, loops, fan-out, and multi-agent DAG with state sharing. The workflow can adapt its execution path based on runtime conditions but cannot create new agents or tools.
 
-**Requirements:** All L0 requirements, plus:
-
-| ID | Requirement |
-|----|-------------|
-| L1-1 | The graph MUST contain 2 or more agent nodes. |
-| L1-2 | At least one agent MUST have a non-empty `depends_on` field, establishing a DAG relationship. |
-| L1-3 | The `state` section MUST be present in `workflow.awp.yaml`. |
-| L1-4 | The `state.sharing` section MUST be present with a valid `strategy` field. |
-| L1-5 | At least one agent SHOULD have a non-empty `share_output` field. |
-
-**Example use case:** A research-and-write workflow where a researcher agent feeds findings to a writer agent.
-
----
-
-### 2.3 L2 AWP/Communicative
-
-**Description:** Agents communicate through the message bus beyond DAG data flow.
-
-**Requirements:** All L1 requirements, plus:
+**Requirements:** All A0 requirements, plus:
 
 | ID | Requirement |
 |----|-------------|
-| L2-1 | The `communication` section MUST be present in `workflow.awp.yaml`. |
-| L2-2 | The `communication.bus` section MUST be present with a valid `type` field. |
-| L2-3 | The `communication.channels` section MUST contain at least 1 channel definition. |
-| L2-4 | Each channel MUST have a valid `name` and `type` field. |
-| L2-5 | At least one agent SHOULD have `agent.send_message` or `agent.list_messages` in its allowed tools. |
+| A1-1 | The graph MUST contain 2 or more agent nodes. |
+| A1-2 | At least one agent MUST have a non-empty `depends_on` field, establishing a DAG relationship. |
+| A1-3 | The `state` section MUST be present in `workflow.awp.yaml`. |
+| A1-4 | The `state.sharing` section MUST be present with a valid `strategy` field. |
+| A1-5 | At least one agent SHOULD have a non-empty `share_output` field. |
+| A1-6 | The workflow MAY include conditional execution, loops, or fan-out in the orchestration graph. |
 
-**Example use case:** A workflow where a research agent broadcasts interim findings to multiple downstream agents via a topic channel, enabling dynamic collaboration.
+**Example use case:** A research-and-write workflow where a researcher agent feeds findings to a writer agent, with conditional paths based on research quality.
 
 ---
 
-### 2.4 L3 AWP/Memorable
+### 2.3 A2 AWP/Delegating
 
-**Description:** Agents maintain persistent memory across executions.
+**Description:** A manager agent can spawn worker agents dynamically at runtime (delegation loop). Workers are drawn from a predefined pool but instantiated on demand.
 
-**Requirements:** All L1 requirements, plus:
+**Requirements:** All A1 requirements, plus:
 
 | ID | Requirement |
 |----|-------------|
-| L3-1 | The `memory` section MUST be present in `workflow.awp.yaml`. |
-| L3-2 | At least 2 memory tiers MUST be enabled (e.g., `long_term` and `working`). |
-| L3-3 | At least one agent MUST have `memory.enabled: true` in its `agent.awp.yaml`. |
-| L3-4 | The workflow SHOULD configure a `workspace_dir` for memory storage. |
-| L3-5 | At least one agent SHOULD have memory-related tools (`memory.read`, `memory.write`, `memory.search`) in its allowed tools. |
+| A2-1 | The workflow MUST define a `delegation` section or equivalent mechanism for dynamic agent spawning. |
+| A2-2 | At least one agent MUST be designated as a manager capable of delegating tasks to workers. |
+| A2-3 | The workflow MUST define a `budget` section with resource limits (e.g., max tokens, max time, max cost). |
+| A2-4 | Delegated tasks MUST inherit or subset the manager's budget constraints. |
+| A2-5 | The workflow SHOULD define a worker pool or agent template for dynamically spawned agents. |
 
-**Example use case:** A personal assistant workflow that remembers user preferences and past interactions across sessions.
+**Example use case:** A project manager agent that breaks down a complex task and spawns specialized worker agents to handle each subtask, with budget controls.
 
 ---
 
-### 2.5 L4 AWP/Observable
+### 2.4 A3 AWP/Self-Tooling
 
-**Description:** Full observability with metrics, tracing, and audit.
+**Description:** Agents can create new tools and skills at runtime. The workflow can extend its own capabilities dynamically.
 
-**Requirements:** All L1 requirements, plus:
+**Requirements:** All A2 requirements, plus:
 
 | ID | Requirement |
 |----|-------------|
-| L4-1 | The `observability` section MUST be present in `workflow.awp.yaml`. |
-| L4-2 | `observability.tracing` MUST be present with `enabled: true`. |
-| L4-3 | `observability.metrics` MUST be present with `enabled: true`. |
-| L4-4 | `observability.audit` MUST be present with `enabled: true`. |
-| L4-5 | The audit trail SHOULD use `integrity: hash_chain` or `integrity: merkle_tree`. |
-| L4-6 | Logging SHOULD include `redaction` configuration for sensitive data. |
+| A3-1 | At least one agent MUST be capable of defining new tools or skills at runtime. |
+| A3-2 | The workflow MUST define a `safety_envelope` section constraining what tools can be created. |
+| A3-3 | Dynamically created tools MUST be validated against the safety envelope before use. |
+| A3-4 | The workflow MUST log all dynamically created tools in the audit trail. |
+| A3-5 | The safety envelope MUST define allowed namespaces, resource limits, and sandboxing requirements for generated tools. |
 
-**Example use case:** A production workflow in a regulated environment requiring full traceability of all agent decisions and tool calls.
+**Example use case:** A data analysis workflow where an agent discovers it needs a custom data transformation and generates a sandboxed tool to perform it.
 
 ---
 
-### 2.6 L5 AWP/Enterprise
+### 2.5 A4 AWP/Self-Organizing
 
-**Description:** Full-featured enterprise deployment with all protocol capabilities.
+**Description:** Recursive delegation with budget distribution. Agents can spawn sub-workflows, delegate recursively, and organize themselves to accomplish goals.
 
-**Requirements:** All L0 through L4 requirements, plus:
+**Requirements:** All A3 requirements, plus:
 
 | ID | Requirement |
 |----|-------------|
-| L5-1 | The `security` section MUST be present in `workflow.awp.yaml`. |
-| L5-2 | `security.circuit_breaker` MUST be present with `enabled: true`. |
-| L5-3 | `security.rate_limiting` SHOULD be configured. |
-| L5-4 | `security.secrets` SHOULD specify a `backend`. |
-| L5-5 | The workflow SHOULD define `observability.health.readiness` checks. |
-| L5-6 | The workflow SHOULD define `observability.health.liveness` checks. |
+| A4-1 | The workflow MUST support recursive delegation — delegated agents MAY themselves delegate further. |
+| A4-2 | Budget distribution MUST be hierarchical: each level MUST receive a subset of its parent's budget. |
+| A4-3 | The workflow MUST define a maximum delegation depth. |
+| A4-4 | `observability` MUST be enabled with tracing, metrics, and audit at all delegation levels. |
+| A4-5 | The workflow MUST implement convergence criteria — conditions under which recursive delegation terminates. |
+| A4-6 | The workflow SHOULD define `observability.health.readiness` and `observability.health.liveness` checks. |
 
-**Example use case:** A mission-critical enterprise workflow with circuit breakers, rate limiting, secrets management, full observability, and multi-agent communication.
-
----
-
-## 3. Conformance Level Summary
-
-| Level | Name | Key Addition | Min Agents | Requires |
-|-------|------|-------------|-----------|----------|
-| L0 | AWP/Core | Valid manifest + output contracts | 1 | — |
-| L1 | AWP/Composable | Multi-agent DAG + state sharing | 2 | L0 |
-| L2 | AWP/Communicative | Message bus + channels | 2 | L1 |
-| L3 | AWP/Memorable | Memory tiers (2+) | 2 | L1 |
-| L4 | AWP/Observable | Tracing + metrics + audit | 2 | L1 |
-| L5 | AWP/Enterprise | Security (circuit breaker + all below) | 2 | L0–L4 |
+**Example use case:** A mission-critical enterprise workflow where a top-level planner recursively delegates to specialized teams, each with their own budget, tools, and observability, terminating when quality thresholds are met.
 
 ---
 
-## 4. Declaring Conformance
+## 3. Cross-Cutting Features
 
-A workflow SHOULD declare its target conformance level in the manifest:
+The following are **features** that may be used at any autonomy level. They are not requirements for any specific level but are recommended best practices.
+
+### 3.1 Communication (Message Bus)
+
+Available at any level. Enables agents to communicate through a message bus beyond DAG data flow.
+
+| ID | Recommendation |
+|----|----------------|
+| CC-1 | The `communication` section MAY be present in `workflow.awp.yaml`. |
+| CC-2 | If present, the `communication.bus` section MUST have a valid `type` field. |
+| CC-3 | If present, `communication.channels` MUST contain at least 1 channel definition. |
+| CC-4 | Each channel MUST have a valid `name` and `type` field. |
+
+### 3.2 Memory
+
+Available at any level. Enables agents to maintain persistent memory across executions.
+
+| ID | Recommendation |
+|----|----------------|
+| CC-5 | The `memory` section MAY be present in `workflow.awp.yaml`. |
+| CC-6 | If present, at least 1 memory tier MUST be enabled. |
+| CC-7 | Agents using memory MUST have `memory.enabled: true` in their `agent.awp.yaml`. |
+
+### 3.3 Observability
+
+Recommended for all levels; **required** for A4.
+
+| ID | Recommendation |
+|----|----------------|
+| CC-8 | The `observability` section SHOULD be present for all production workflows. |
+| CC-9 | `observability.tracing` SHOULD be enabled with `enabled: true`. |
+| CC-10 | `observability.metrics` SHOULD be enabled with `enabled: true`. |
+| CC-11 | `observability.audit` SHOULD be enabled with `enabled: true`. |
+| CC-12 | The audit trail SHOULD use `integrity: hash_chain` or `integrity: merkle_tree`. |
+
+### 3.4 Security
+
+Recommended for all levels; safety requirements **scale with autonomy**.
+
+| ID | Recommendation |
+|----|----------------|
+| CC-13 | The `security` section SHOULD be present for all production workflows. |
+| CC-14 | `security.circuit_breaker` SHOULD be configured for resilient workflows. |
+| CC-15 | `security.rate_limiting` SHOULD be configured for external-facing workflows. |
+| CC-16 | `security.secrets` SHOULD specify a `backend` for credential management. |
+
+---
+
+## 4. Autonomy Level Summary
+
+| Level | Name | Key Capability | Min Agents | Requires | Safety |
+|-------|------|---------------|-----------|----------|--------|
+| A0 | AWP/Prescribed | Static DAG, fixed tools | 1 | — | — |
+| A1 | AWP/Adaptive | Conditional execution, loops, fan-out, state sharing | 2 | A0 | — |
+| A2 | AWP/Delegating | Manager spawns workers dynamically | 2 | A1 | Budget |
+| A3 | AWP/Self-Tooling | Agents create tools/skills at runtime | 2 | A2 | Safety envelope |
+| A4 | AWP/Self-Organizing | Recursive delegation, budget distribution | 2 | A3 | Observability required |
+
+Cross-cutting features (available at all levels): Communication, Memory, Observability, Security.
+
+---
+
+## 5. Declaring Autonomy Level
+
+A workflow SHOULD declare its target autonomy level in the manifest:
 
 ```yaml
 awp: "1.0.0"
@@ -148,48 +188,56 @@ awp: "1.0.0"
 workflow:
   name: enterprise-research
   version: "1.0.0"
-  description: "Enterprise research workflow with full AWP compliance."
-  conformance: L5
+  description: "Enterprise research workflow with full AWP capabilities."
+  autonomy: A4
 ```
 
-The `workflow.conformance` field is OPTIONAL. If omitted, the runtime SHOULD infer the conformance level from the workflow's configuration.
+The `workflow.autonomy` field is OPTIONAL. If omitted, the runtime SHOULD infer the autonomy level from the workflow's configuration.
+
+> **Backward compatibility note:** The `workflow.conformance` field (e.g., `conformance: L5`) is deprecated but MAY be accepted by runtimes for backward compatibility. Runtimes SHOULD map legacy values as follows: L0 to A0, L1 to A1, L5 to A4.
 
 ---
 
-## 5. Validation
+## 6. Validation
 
 A conformant runtime MUST provide a validation mechanism that:
 
 1. Parses the workflow manifest and all agent configurations.
-2. Checks all MUST-level requirements for the declared (or inferred) conformance level.
+2. Checks all MUST-level requirements for the declared (or inferred) autonomy level.
 3. Reports SHOULD-level requirements as warnings.
 4. Returns a clear pass/fail result with details of any violations.
 
 Example validation output:
 
 ```
-AWP Conformance Validation: enterprise-research v1.0.0
-Target Level: L5 AWP/Enterprise
+AWP Autonomy Level Validation: enterprise-research v1.0.0
+Target Level: A4 AWP/Self-Organizing
 
-L0 AWP/Core .............. PASS
-  [PASS] L0-1: Valid awp field
-  [PASS] L0-2: Workflow section complete
-  [PASS] L0-3: Orchestration with graph
-  [PASS] L0-4: All agents have valid configs
-  [PASS] L0-5: All agents have output contracts
+A0 AWP/Prescribed ......... PASS
+  [PASS] A0-1: Valid awp field
+  [PASS] A0-2: Workflow section complete
+  [PASS] A0-3: Orchestration with graph
+  [PASS] A0-4: All agents have valid configs
+  [PASS] A0-5: All agents have output contracts
+  [PASS] A0-6: Static DAG defined
 
-L1 AWP/Composable ........ PASS
-  [PASS] L1-1: 2+ agents in graph
-  [PASS] L1-2: DAG with depends_on
-  [PASS] L1-3: State section present
-  [PASS] L1-4: Sharing strategy defined
-  [WARN] L1-5: No share_output defined (SHOULD)
+A1 AWP/Adaptive ........... PASS
+  [PASS] A1-1: 2+ agents in graph
+  [PASS] A1-2: DAG with depends_on
+  [PASS] A1-3: State section present
+  [PASS] A1-4: Sharing strategy defined
+  [WARN] A1-5: No share_output defined (SHOULD)
 
-L2 AWP/Communicative ..... PASS
-L3 AWP/Memorable ......... PASS
-L4 AWP/Observable ........ PASS
-L5 AWP/Enterprise ........ PASS
+A2 AWP/Delegating ......... PASS
+A3 AWP/Self-Tooling ....... PASS
+A4 AWP/Self-Organizing .... PASS
 
-Result: PASS (L5 AWP/Enterprise)
+Cross-cutting:
+  [PASS] Communication: Message bus configured
+  [PASS] Memory: 2 tiers enabled
+  [PASS] Observability: Tracing + metrics + audit
+  [PASS] Security: Circuit breaker + rate limiting
+
+Result: PASS (A4 AWP/Self-Organizing)
 Warnings: 1
 ```

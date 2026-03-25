@@ -51,7 +51,7 @@ Zwei Dinge nativ in AWP integrieren:
 │    MEMORY  → R2 Bucket (Long-term Memory)           │
 │    DB      → D1 Database (Short-term/Daily Log)     │
 │    AI      → Workers AI (optional LLM Backend)      │
-│    BUS     → Durable Object (Message Bus, L2+)      │
+│    BUS     → Durable Object (Message Bus)            │
 ├──────────┬──────────┬──────────┬────────────────────┤
 │ Agent A  │ Agent B  │ Agent C  │  ... Agent N       │
 │ (Isolate)│ (Isolate)│ (Isolate)│  (Isolate)         │
@@ -71,7 +71,7 @@ Zwei Dinge nativ in AWP integrieren:
 │  KV Namespace     → Agent Configs (agent.awp.yaml)  │
 │  D1 (SQLite)      → Short-term Memory, Daily Logs   │
 │  R2 Bucket        → Long-term Memory (MEMORY.md)    │
-│  Durable Objects  → Message Bus (L2+), Locks        │
+│  Durable Objects  → Message Bus, Locks               │
 │  Workers AI       → LLM Inference (optional)        │
 │  External API     → OpenAI/Anthropic/OpenRouter     │
 └─────────────────────────────────────────────────────┘
@@ -226,7 +226,7 @@ capabilities:
       backend: memory                       # memory | filesystem | workspace
       # memory: In-Memory, stirbt nach Execution
       # filesystem: Persistiert in sandbox.filesystem.write Pfaden
-      # workspace: Nutzt Memory-Layer (L4) — SQLite + Object Storage
+      # workspace: Nutzt Memory-Layer — SQLite + Object Storage
 ```
 
 ### 4.5 Wie Runtimes Code Mode implementieren
@@ -421,18 +421,19 @@ Tool-Definitionen im System Prompt.
 | **R24** | Wenn `sandbox.type: isolate`, MUSS `sandbox.network` definiert sein |
 | **CT10** | Custom Tools die `codemode`-kompatibel sind, MÜSSEN async/Promise-basiert sein |
 
-### 4.10 Compliance-Level Zuordnung
+### 4.10 Autonomy-Level Zuordnung
 
-Code Mode ist **optional ab L0** — es hat kein eigenes Compliance-Level,
+Code Mode ist **optional ab A0** — es hat kein eigenes Autonomy-Level,
 sondern ist ein Capability-Feature das jeder Agent nutzen kann:
 
 | Level | Code Mode Verhalten |
 |-------|-------------------|
-| **L0-L1** | `codemode` optional, `sandbox.type: subprocess` oder `isolate` |
-| **L2+** | `codemode` kann `agent.send_message` über SDK aufrufen |
-| **L3+** | `codemode.state.backend: workspace` nutzt Memory-Layer |
-| **L4+** | Code-Execution wird getraced (Observability) |
-| **L5** | Rate-Limits und Circuit-Breaker gelten auch für SDK-Calls |
+| **A0-A1** | `codemode` optional, `sandbox.type: subprocess` oder `isolate` |
+| **A2+** | `codemode` kann im Delegation-Loop genutzt werden |
+| **A3+** | `codemode` kann selbst-erstellte Tools im SDK nutzen |
+| **A4** | Code-Execution wird getraced (Observability Pflicht) |
+
+Communication, Memory, Observability und Security sind Cross-Cutting Features auf jedem Level.
 
 ---
 
@@ -780,4 +781,4 @@ reference/cloudflare/
 16. CF-native `CodeModeExecutor` nutzt Dynamic Worker Isolates
 17. `@cloudflare/shell` Integration für Workspace-State
 18. Alle 5+ Beispiel-Workflows laufen auf Cloudflare
-19. Conformance Tests L0-L3 bestehen auf CF-Runtime
+19. Conformance Tests A0-A1 bestehen auf CF-Runtime

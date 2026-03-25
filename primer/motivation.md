@@ -60,7 +60,7 @@ A packaged AWP workflow (`.awp.zip`) contains everything needed to run: manifest
 
 ### 6. Progressive
 
-AWP follows a "start simple, add complexity" model. The minimal valid workflow is under 10 lines of YAML. Advanced features -- memory, communication, observability -- are optional extensions activated through compliance levels (L0 through L5). You adopt only what you need.
+AWP follows a "start simple, add complexity" model. The minimal valid workflow is under 10 lines of YAML. Advanced features -- memory, communication, observability -- are optional cross-cutting capabilities available at any autonomy level (A0 through A4). The levels measure how autonomous the workflow is, not what features it has. You adopt only what you need.
 
 ### 7. Explicit Over Implicit
 

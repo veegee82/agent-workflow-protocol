@@ -138,11 +138,11 @@ cd {{WORKFLOW_NAME}}/
 wrangler kv namespace create STATE
 # Copy the id into wrangler.toml
 
-# Create D1 database for short-term memory (if L3+)
+# Create D1 database for short-term memory (if memory feature is enabled)
 wrangler d1 create {{WORKFLOW_NAME}}-db
 # Copy the database_id into wrangler.toml
 
-# Create R2 bucket for long-term memory (if L3+)
+# Create R2 bucket for long-term memory (if memory feature is enabled)
 wrangler r2 bucket create {{WORKFLOW_NAME}}-memory
 ```
 

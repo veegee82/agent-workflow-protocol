@@ -17,13 +17,13 @@ Issue types:
 
 ### 2. Write an RFC (for significant changes)
 
-For changes that affect the protocol semantics, layer model, compliance levels, or validation rules, write a short RFC in the issue body:
+For changes that affect the protocol semantics, layer model, autonomy levels, or validation rules, write a short RFC in the issue body:
 
 - **Problem** -- What is the current limitation or gap?
 - **Proposal** -- What change do you propose?
 - **Rationale** -- Why is this the right approach?
 - **Alternatives** -- What other approaches were considered?
-- **Impact** -- Which layers, compliance levels, or validation rules are affected?
+- **Impact** -- Which layers, autonomy levels, or validation rules are affected?
 
 ### 3. Submit a Pull Request
 
@@ -82,8 +82,28 @@ Every example must:
 
 - Be a valid AWP workflow that passes `awp validate`
 - Include a README explaining what the example demonstrates
-- Specify the minimum compliance level required
+- Specify the minimum autonomy level required
 - Be self-contained (no external dependencies beyond an LLM API key)
+
+#### Delegation Loop Examples (A2-A4)
+
+Examples that use the delegation loop engine (`engine: delegation_loop`) should additionally:
+
+- Include a `budget` section with realistic resource limits
+- Demonstrate at least one full manager iteration (DELEGATE -> worker execution -> validation)
+- Include a `worker_policy` section showing enforced vs. manager-controlled parameters
+- For A3 examples: demonstrate `codemode.tool_creation` with appropriate safety limits
+- For A4 examples: demonstrate recursive sub-delegation with budget distribution, observability tracing, and circuit breaker configuration
+
+#### Testing A2-A4 Workflows
+
+When submitting examples or changes that affect autonomy levels A2-A4:
+
+- Verify the workflow passes validation at the declared autonomy level (`awp validate --level A2`)
+- Test budget exhaustion: ensure the workflow terminates cleanly when budget limits are hit
+- Test stall detection: verify the termination window and confidence delta work correctly
+- For A3+: verify that runtime-created tools are logged in the audit trail
+- For A4: verify that recursive delegation respects `max_depth` and budget distribution invariants
 
 ## Review Process
 

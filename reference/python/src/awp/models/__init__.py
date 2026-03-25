@@ -6,7 +6,11 @@ from .capabilities import ToolsCapability, SkillsCapability, DataSourceConfig
 from .communication import CommunicationConfig, BusConfig, Channel, MessageEnvelope
 from .state import StateModel, SharingConfig, PersistenceConfig
 from .memory import MemoryConfig
-from .orchestration import AWPOrchestrationConfig, GraphNode, AWPExecutionConfig
+from .orchestration import (
+    AWPOrchestrationConfig, GraphNode, AWPExecutionConfig,
+    DelegationLoopConfig, DelegationBudget, WorkerPolicy, ValidationConfig,
+    StallDetectionConfig, HistoryConfig, DelegationLoopModels,
+)
 from .observability import ObservabilityConfig
 from .custom_tools import CustomToolsConfig, CustomToolDeclaration
 from .security import SecurityConfig, CircuitBreakerConfig
@@ -29,6 +33,13 @@ __all__ = [
     "AWPOrchestrationConfig",
     "GraphNode",
     "AWPExecutionConfig",
+    "DelegationLoopConfig",
+    "DelegationBudget",
+    "WorkerPolicy",
+    "ValidationConfig",
+    "StallDetectionConfig",
+    "HistoryConfig",
+    "DelegationLoopModels",
     "ObservabilityConfig",
     "CustomToolsConfig",
     "CustomToolDeclaration",

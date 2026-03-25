@@ -14,13 +14,13 @@ enabled = true
 binding = "STATE"
 id = "{{KV_NAMESPACE_ID}}"
 
-# --- Long-term Memory (L3+) ---
+# --- Long-term Memory (when memory feature is enabled) ---
 # Uncomment if workflow uses long-term memory (MEMORY.md)
 # [[r2_buckets]]
 # binding = "MEMORY"
 # bucket_name = "{{WORKFLOW_NAME}}-memory"
 
-# --- Short-term Memory / Daily Logs (L3+) ---
+# --- Short-term Memory / Daily Logs (when memory feature is enabled) ---
 # Uncomment if workflow uses daily logs or short-term memory
 # [[d1_databases]]
 # binding = "DB"

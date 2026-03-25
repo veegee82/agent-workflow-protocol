@@ -1,0 +1,77 @@
+awp: "1.0.0"
+
+workflow:
+  name: recursive-delegation-analysis
+  version: "1.0.0"
+  description: "Demonstrates DAG + delegation_loop composition. A planner agent runs first (DAG), then a delegation_loop node dynamically orchestrates analysis workers that can sub-delegate. Finally a reporter summarizes."
+  author: "AWP Examples"
+  tags: ["example", "delegation-loop", "recursive", "dag-composition"]
+
+orchestration:
+  engine: delegation_loop
+
+  delegation_loop:
+    manager: agents/analyzer
+
+    models:
+      manager: null
+      worker: null
+
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+          network: false
+        codemode:
+          max_tools_per_worker: 5
+        rate_limiting:
+          max_llm_calls_per_minute: 30
+        forbidden_tools:
+          - "shell.execute"
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - output_contract
+        - codemode.enabled
+        - codemode.tool_creation
+
+    budget:
+      max_loops: 4
+      max_total_workers: 8
+      max_total_tokens: 300000
+      max_wall_time: 600
+      max_tool_calls: 30
+      max_depth: 2
+
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.03
+      action: warn_then_stop
+
+    validation:
+      deterministic:
+        always: true
+        checks:
+          - schema
+          - required_fields
+          - confidence
+      llm:
+        enabled: false
+
+    history:
+      rolling_summary: true
+      full_results_window: 3
+      persist_to_disk: true
+
+    logging:
+      format: dual
+      persist_artifacts: true
+
+state:
+  model: shared_dict
+  sharing:
+    strategy: full

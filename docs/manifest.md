@@ -75,10 +75,10 @@ workflow:
 - **Type:** string (URL)
 - **Description:** URL of the workflow's source code repository.
 
-### `workflow.conformance`
+### `workflow.autonomy`
 
 - **Type:** string
-- **Description:** Target [compliance level](compliance.md) (e.g., `L0`, `L1`, `L2`, `L3`, `L4`, `L5`). If omitted, the runtime should infer the level from the configuration.
+- **Description:** Target [autonomy level](compliance.md) (e.g., `A0`, `A1`, `A2`, `A3`, `A4`). If omitted, the runtime should infer the level from the configuration.
 
 ### `workflow.runtime`
 
@@ -150,7 +150,7 @@ The manifest is the anchor document. It contains or references the following top
 | `workflow.tags` | list | No | -- |
 | `workflow.homepage` | string | No | Valid URL |
 | `workflow.repository` | string | No | Valid URL |
-| `workflow.conformance` | string | No | L0-L5 |
+| `workflow.autonomy` | string | No | A0-A4 |
 | `workflow.runtime` | object | No | See above |
 | `workflow.runtime.min_awp_version` | string | No | Valid SemVer |
 | `workflow.runtime.python` | string | No | Version constraint |
@@ -185,7 +185,7 @@ workflow:
     - web-search
   homepage: "https://example.com/research-and-write"
   repository: "https://github.com/example/research-and-write"
-  conformance: L1
+  autonomy: A1
 
   runtime:
     min_awp_version: "1.0.0"

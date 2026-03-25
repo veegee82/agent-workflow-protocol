@@ -21,7 +21,18 @@ Layer 1: AGENT IDENTITY    -- Name, role, LLM config, prompt, output schema
 Layer 0: MANIFEST          -- Workflow metadata, version, dependencies, runtime
 ```
 
-## Data Flow
+## Orchestration Engines
+
+AWP supports two orchestration engines at Layer 5:
+
+| Engine | Philosophy | Agent Definition | Best For |
+|--------|-----------|-----------------|----------|
+| **DAG** | Static graph, defined before run | All agents defined in `agent.awp.yaml` | Predictable pipelines with known steps |
+| **Delegation Loop** | Dynamic, decided at runtime by LLM | Manager: static, Workers: ephemeral | Open-ended tasks where steps emerge during execution |
+
+The two engines can be composed: a DAG node can contain a delegation loop as an inner step.
+
+## Data Flow: DAG Engine
 
 ```
 User Task
@@ -52,6 +63,78 @@ Next batch (agents whose dependencies are satisfied)
     v
 Final state contains all agent outputs
 ```
+
+## Data Flow: Delegation Loop Engine
+
+```
+User Task
+    |
+    v
+Orchestrator reads workflow.awp.yaml (engine: delegation_loop)
+    |
+    v
+Manager agent receives task + rolling summary
+    |
+    v
+Manager decides: DELEGATE | COMPLETE | FAIL
+    |
+    +---> DELEGATE: Manager generates delegation envelopes
+    |       1. Create ephemeral workers with instructions, skills, tools
+    |       2. Workers execute in parallel (fan-out)
+    |       3. Two-tier validation (deterministic + LLM semantic)
+    |       4. Stall detection (confidence delta over window)
+    |       5. Update rolling summary
+    |       6. Check budget limits
+    |       7. Next iteration -> back to Manager
+    |
+    +---> COMPLETE: Return final aggregated result
+    |
+    +---> FAIL: Return error with partial results
+```
+
+## Budget System (A2+)
+
+The delegation loop uses a budget system to bound resource consumption:
+
+```yaml
+budget:
+  max_loops: 20              # Maximum manager iterations
+  max_total_workers: 30      # Total workers across all iterations
+  max_total_tokens: 1000000  # LLM token limit
+  max_wall_time: 600         # Wall clock seconds
+  max_tool_calls: 200        # Total tool invocations
+  max_depth: 5               # Recursive sub-delegation depth limit
+```
+
+For recursive delegation (A4), the invariant `sum(children) + self <= allocation` is enforced deterministically by the runtime, not by the LLM.
+
+## Dual Logging Structure
+
+The delegation loop produces both JSON (machine-readable) and Markdown (human-readable) artifacts:
+
+```
+workspace/runs/{run_id}/
+├── RUN_SUMMARY.md                 # Human-readable overview
+├── run_manifest.json              # Machine-readable config
+├── iterations/
+│   └── 001/
+│       ├── ITERATION_SUMMARY.md   # What happened (Markdown)
+│       ├── manager_decision.json  # Manager output (JSON)
+│       ├── budget_snapshot.json   # Budget state (JSON)
+│       └── delegations/
+│           └── worker_a/
+│               ├── envelope.json  # Worker input
+│               ├── result.json    # Worker output
+│               └── RESULT.md      # Human-readable result
+├── history/
+│   ├── ROLLING_SUMMARY.md         # Rolling summary (Markdown)
+│   └── rolling_summary.json       # Rolling summary (JSON)
+└── artifacts/
+    ├── skills/                    # Generated skills
+    └── tools/                     # Generated tools (A3+)
+```
+
+Configure via `logging.format: dual | json | md`.
 
 ## File Structure
 
@@ -119,13 +202,14 @@ AWP uses MCP-compatible tool calling:
 | Episodic | agent_outputs/*.json | Agent output history | 30 days |
 | Semantic | Vector DB | Embedding-based search | Configurable |
 
-### Compliance Levels
+### Autonomy Levels
 
 | Level | Name | Core Requirement |
 |-------|------|-----------------|
-| L0 | AWP/Core | Manifest + 1 Agent + Output Contract |
-| L1 | AWP/Composable | L0 + DAG + State Sharing |
-| L2 | AWP/Communicative | L1 + Message Bus |
-| L3 | AWP/Memorable | L1 + Memory (2+ tiers) |
-| L4 | AWP/Observable | L1 + Tracing + Metrics + Audit |
-| L5 | AWP/Enterprise | L0-L4 + Security + Circuit Breaker |
+| A0 | AWP/Prescribed | Static DAG + Predefined Agents + Fixed Tools |
+| A1 | AWP/Adaptive | A0 + Conditional Execution + Loops + Fan-out |
+| A2 | AWP/Delegating | A1 + Dynamic Worker Spawning + Budget |
+| A3 | AWP/Self-Tooling | A2 + Runtime Tool Creation + Safety Envelope |
+| A4 | AWP/Self-Organizing | A3 + Recursive Delegation + Budget Distribution + Observability |
+
+Cross-cutting (all levels): Communication, Memory, Observability, Security

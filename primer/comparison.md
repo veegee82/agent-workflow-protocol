@@ -15,7 +15,7 @@ AWP does not exist in a vacuum. It builds on lessons from existing protocols and
 | State Sharing | Yes (contracts) | No | No | No | Yes | No |
 | Output Contract | Yes (JSON Schema) | No | Yes (artifacts) | Yes (schemas) | No | No |
 | Packaging | .awp.zip | No | No | No | No | No |
-| Compliance Levels | L0-L5 | No | No | No | No | No |
+| Autonomy Levels | A0-A4 | No | No | No | No | No |
 | Runtime-Agnostic | Yes | Yes | Yes | Yes | No | No |
 | Declarative Config | Yes (YAML) | Yes (JSON) | Yes (JSON) | Yes (YAML/JSON) | Partial | Yes (YAML) |
 | Versioning | SemVer | No | No | Yes | No | No |
@@ -70,7 +70,7 @@ AWP does not exist in a vacuum. It builds on lessons from existing protocols and
 - A portable, runtime-agnostic specification format
 - Standardized tool definitions (uses LangChain tool wrappers)
 - A packaging and distribution format
-- Compliance levels for progressive adoption
+- Autonomy levels for progressive adoption
 - Formal validation before execution
 
 **AWP's relationship to LangGraph:** LangGraph is a runtime; AWP is a specification. An AWP-compatible LangGraph adapter could execute AWP manifests using LangGraph's state machine engine. The workflow definition would live in AWP YAML; the execution would happen in LangGraph.
@@ -119,4 +119,4 @@ They work together. AWP brings them under one roof.
 | Describing an API for external consumers | OpenAPI |
 | Building a Python-only prototype | LangGraph or CrewAI may be faster |
 | Portable, shareable, validated workflows | AWP |
-| Production deployment with observability | AWP at L5 compliance |
+| Production deployment with observability | AWP at A4 autonomy |

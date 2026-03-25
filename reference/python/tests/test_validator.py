@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 
 from awp.parser import parse_manifest, parse_agent
-from awp.validator import validate_graph, validate_contracts, check_compliance, ComplianceLevel
+from awp.validator import validate_graph, validate_contracts, check_compliance, AutonomyLevel, ComplianceLevel
 from awp.validator.rules import validate_rules
 from awp.validator.schema_validator import validate_schema, validate_schema_desc
 from awp.models.orchestration import AWPOrchestrationConfig, GraphNode, ConditionalDependency
@@ -119,25 +119,42 @@ class TestSchemaValidator:
 # -- Compliance checker ----------------------------------------------
 
 class TestCompliance:
-    def test_l0_hello_world(self):
+    def test_a0_hello_world(self):
+        """Hello world should achieve A0 Prescribed."""
         m = parse_manifest(EXAMPLES / "01-hello-world" / "workflow.awp.yaml")
         agents = {}
         for ad in (EXAMPLES / "01-hello-world" / "agents").iterdir():
             a = ad / "agent.awp.yaml"
             if a.exists():
                 agents[ad.name] = parse_agent(a)
-        result = check_compliance(m, agents, target_level=ComplianceLevel.L0_CORE)
-        assert result.level >= ComplianceLevel.L0_CORE
+        result = check_compliance(m, agents, target_level=AutonomyLevel.A0_PRESCRIBED)
+        assert result.level >= AutonomyLevel.A0_PRESCRIBED
 
-    def test_l1_research_pipeline(self):
+    def test_a1_research_pipeline(self):
+        """Research pipeline (multi-agent DAG) should achieve A1 Adaptive."""
         m = parse_manifest(EXAMPLES / "02-research-pipeline" / "workflow.awp.yaml")
         agents = {}
         for ad in (EXAMPLES / "02-research-pipeline" / "agents").iterdir():
             a = ad / "agent.awp.yaml"
             if a.exists():
                 agents[ad.name] = parse_agent(a)
-        result = check_compliance(m, agents, target_level=ComplianceLevel.L1_COMPOSABLE)
-        assert result.level >= ComplianceLevel.L1_COMPOSABLE
+        result = check_compliance(m, agents, target_level=AutonomyLevel.A1_ADAPTIVE)
+        assert result.level >= AutonomyLevel.A1_ADAPTIVE
+
+    def test_a2_delegation_loop(self):
+        """Delegation loop example should achieve A2 Delegating."""
+        m = parse_manifest(EXAMPLES / "08-delegation-loop" / "workflow.awp.yaml")
+        agents = {}
+        for ad in (EXAMPLES / "08-delegation-loop" / "agents").iterdir():
+            a = ad / "agent.awp.yaml"
+            if a.exists():
+                agents[ad.name] = parse_agent(a)
+        result = check_compliance(m, agents, target_level=AutonomyLevel.A2_DELEGATING)
+        assert result.level >= AutonomyLevel.A2_DELEGATING
+
+    def test_backward_compat_alias(self):
+        """ComplianceLevel alias should work."""
+        assert ComplianceLevel.A0_PRESCRIBED == AutonomyLevel.A0_PRESCRIBED
 
 
 # -- Rules validator -------------------------------------------------

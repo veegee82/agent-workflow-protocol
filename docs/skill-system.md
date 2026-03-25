@@ -25,7 +25,7 @@ An AI assistant loads these files and uses them to generate a complete AWP workf
 The base skill defines:
 
 - The AWP 7-layer model overview
-- [Compliance levels](compliance.md) and when to use each
+- [Autonomy levels](compliance.md) and when to use each
 - [Validation rules](validation.md) R1-R24 (the strict rules)
 - The generation process (5 phases)
 - References to templates for every file type
@@ -39,7 +39,7 @@ Before generating files, the AI analyzes requirements:
 1. What the workflow does and how data flows between agents.
 2. The agent graph: distinct roles, dependencies, data flow.
 3. State sharing: which fields each agent produces and consumes.
-4. Compliance level: which AWP features are needed.
+4. Autonomy level: how autonomous is the workflow.
 5. Tools: which MCP tools each agent needs.
 6. Memory: whether cross-session persistence is beneficial.
 7. Communication: whether agents need messaging outside the DAG.
@@ -52,7 +52,7 @@ Confirm with the user:
 - Data flow between agents.
 - Required tools per agent.
 - Memory and communication needs.
-- Target compliance level.
+- Target autonomy level.
 
 If the user provides a brief description, the AI infers reasonable defaults.
 
@@ -60,7 +60,7 @@ If the user provides a brief description, the AI infers reasonable defaults.
 
 Files are generated in this order:
 
-1. **Workflow manifest** (`workflow.awp.yaml`) -- All sections needed by the compliance level.
+1. **Workflow manifest** (`workflow.awp.yaml`) -- All sections needed by the autonomy level.
 2. **Agent configurations** (`agent.awp.yaml` per agent) -- Model, tools, prompt, output.
 3. **Agent implementations** (`agent.py` per agent) -- Platform-specific, using the adapter.
 4. **System prompts** (`SYSTEM_PROMPT.md` per agent) -- Role, responsibilities, tool instructions.
@@ -88,10 +88,10 @@ After generating all files, the AI verifies compliance with rules R1-R24:
 #### Phase 4: Summary
 
 The AI presents:
-- Workflow name and compliance level.
+- Workflow name and autonomy level.
 - Agent graph visualization (text-based DAG).
 - Files generated (count and list).
-- Compliance badge: `AWP L{N} {Level Name} Compliant`.
+- Autonomy badge: `AWP A{N} {Level Name}`.
 - Assumptions and recommendations.
 
 ## Adapters
@@ -146,7 +146,7 @@ adapter: skill/adapters/{platform}.md    # optional
 
 ## Defaults
 defaults:
-  compliance_level: L3
+  autonomy_level: A1
   model: anthropic/claude-sonnet-4
 
 ## Required Agents
@@ -167,7 +167,7 @@ fields:
 ## Constraints
 - denied_tools: [shell.execute]
 - required_memory_tiers: [long_term, daily_log]
-- min_compliance: L3
+- min_autonomy: A1
 
 ## Additional Templates
 templates:
@@ -324,7 +324,7 @@ The `skill/references/` directory contains condensed documentation for AI contex
 | Reference | Purpose |
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification. |
-| `compliance-levels.md` | Quick reference for L0-L5. |
+| `compliance-levels.md` | Quick reference for A0-A4 autonomy levels. |
 | `validation-rules.md` | R1-R24 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |

@@ -38,7 +38,7 @@ deploy code, manage incidents, or automate operational tasks.
 
 ```yaml
 defaults:
-  compliance_level: L3             # Memory for incident history
+  autonomy_level: A1               # Adaptive (conditional gates)
   model: anthropic/claude-sonnet-4
   execution_mode: conditional      # Gates and approvals
   temperature: 0.0                 # Deterministic for infra operations
@@ -128,7 +128,7 @@ constraints:
   required_memory_tiers:
     - long_term                    # Incident knowledge base
     - daily_log                    # Operational audit trail
-  min_compliance: L3
+  min_autonomy: A1
   max_shell_timeout: 60            # Seconds
   required_sections:
     - memory
@@ -367,7 +367,7 @@ The AI will:
 4. Wire conditional dependency: `deployer` depends on `safety_checker.approved == true`
 5. Add `changes_made` and `rollback_possible` to every output contract
 6. Prepend safety guidelines to every system prompt
-7. Enable memory (L3) for incident knowledge
+7. Enable memory for incident knowledge (cross-cutting feature)
 8. Place `infra.health_check` and `infra.run_command` tools in `mcp/`
 9. Place `incident_response` and `infrastructure_patterns` skills in `skills/`
 10. Validate against R1-R24 + D1-D7

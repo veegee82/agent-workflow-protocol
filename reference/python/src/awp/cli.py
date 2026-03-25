@@ -47,10 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     p_vis.add_argument("path", help="Path to workflow directory")
     p_vis.add_argument("--format", default="ascii", choices=["ascii", "mermaid"])
 
-    # compliance
-    p_comp = subparsers.add_parser("compliance", help="Check compliance level")
+    # compliance (autonomy level)
+    p_comp = subparsers.add_parser("compliance", help="Check autonomy level (A0-A4)")
     p_comp.add_argument("path", help="Path to workflow directory")
-    p_comp.add_argument("--level", default="L5", help="Target level (L0-L5)")
+    p_comp.add_argument("--level", default="A4", help="Target autonomy level (A0-A4, legacy L0-L5 also accepted)")
 
     # identity-card
     p_ic = subparsers.add_parser("identity-card", help="Generate Agent Identity Card")
@@ -61,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("path", help="Path to workflow directory")
     p_run.add_argument("--task", "-t", required=True, help="Task description")
     p_run.add_argument("--model", "-m", help="LLM model to use (skips model wizard, sets LLM_MODEL)")
+    p_run.add_argument("--manager-model", help="LLM model for the manager agent (delegation_loop engine)")
+    p_run.add_argument("--worker-model", help="LLM model for worker agents (delegation_loop engine)")
     p_run.add_argument("--debug", "-d", action="store_true", help="Enable debug mode (verbose output)")
 
     args = parser.parse_args(argv)
@@ -185,9 +187,9 @@ def cmd_visualize(args: argparse.Namespace) -> int:
 
 
 def cmd_compliance(args: argparse.Namespace) -> int:
-    """Check compliance level."""
+    """Check autonomy level."""
     from .parser import parse_manifest, parse_agent
-    from .validator.compliance import check_compliance, ComplianceLevel
+    from .validator.compliance import check_compliance, AutonomyLevel, LEVEL_ALIASES, LEVEL_NAMES
 
     wf_dir = Path(args.path)
     manifest = parse_manifest(wf_dir / "workflow.awp.yaml")
@@ -200,26 +202,33 @@ def cmd_compliance(args: argparse.Namespace) -> int:
             if awp_yaml.exists():
                 agents[agent_dir.name] = parse_agent(awp_yaml)
 
-    level_map = {
-        "L0": ComplianceLevel.L0_CORE,
-        "L1": ComplianceLevel.L1_COMPOSABLE,
-        "L2": ComplianceLevel.L2_COMMUNICATIVE,
-        "L3": ComplianceLevel.L3_MEMORABLE,
-        "L4": ComplianceLevel.L4_OBSERVABLE,
-        "L5": ComplianceLevel.L5_ENTERPRISE,
-    }
-    target = level_map.get(args.level.upper(), ComplianceLevel.L5_ENTERPRISE)
+    target = LEVEL_ALIASES.get(args.level.upper(), AutonomyLevel.A4_SELF_ORGANIZING)
 
     result = check_compliance(manifest, agents, wf_dir, target)
 
+    level_name = LEVEL_NAMES.get(result.level, "Unknown")
+    target_name = LEVEL_NAMES.get(target, "Unknown")
     print(f"Workflow: {manifest.workflow.name}")
-    print(f"Target Level: {args.level}")
-    print(f"Achieved Level: L{result.level}")
+    print(f"Target:   A{int(target)} {target_name}")
+    print(f"Achieved: A{int(result.level)} {level_name}")
     print()
+
+    # Cross-cutting concerns
+    if result.cross_cutting:
+        print("  Cross-Cutting (all levels):")
+        for check, passed in result.cross_cutting.items():
+            symbol = "[ok]" if passed else "[WARN]"
+            print(f"    {symbol} {check}")
+        print()
 
     for check, passed in result.checks.items():
         symbol = "[ok]" if passed else "[FAIL]"
         print(f"  {symbol} {check}")
+
+    if result.warnings:
+        print()
+        for warn in result.warnings:
+            print(f"  [WARN] {warn}")
 
     if result.errors:
         print()
@@ -295,7 +304,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     if getattr(args, "model", None):
         _os.environ["LLM_MODEL"] = args.model
 
-    runner = WorkflowRunner(wf_dir)
+    # Resolve manager/worker models
+    manager_model = getattr(args, "manager_model", None)
+    worker_model = getattr(args, "worker_model", None)
+
+    runner = WorkflowRunner(wf_dir, manager_model=manager_model, worker_model=worker_model)
 
     # -- Pre-run wizard ------------------------------------------------
     if sys.stdin.isatty():

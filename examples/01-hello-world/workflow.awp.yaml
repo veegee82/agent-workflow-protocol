@@ -3,9 +3,9 @@ awp: "1.0.0"
 workflow:
   name: hello-world
   version: "1.0.0"
-  description: "Simple greeting workflow demonstrating L0 Core compliance"
+  description: "Simple greeting workflow demonstrating A0 Prescribed autonomy level"
   author: "AWP Examples"
-  tags: ["example", "l0", "core"]
+  tags: ["example", "a0", "prescribed"]
 
 orchestration:
   execution:

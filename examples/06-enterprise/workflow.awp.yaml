@@ -3,9 +3,9 @@ awp: "1.0.0"
 workflow:
   name: enterprise
   version: "1.0.0"
-  description: "Full enterprise workflow demonstrating L5 compliance with all AWP features"
+  description: "Full enterprise workflow demonstrating A1 Adaptive autonomy level with all cross-cutting features"
   author: "AWP Examples"
-  tags: ["example", "l5", "enterprise", "full-featured"]
+  tags: ["example", "a1", "adaptive", "enterprise", "full-featured"]
   runtime:
     min_awp_version: "1.0.0"
     python: ">=3.10"

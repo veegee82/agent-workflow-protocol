@@ -1,5 +1,5 @@
 # AWP Workflow Manifest Template
-# Compliance Level: L0+ (add sections for higher levels)
+# Autonomy Level: A0+ (add sections for higher levels)
 #
 # Replace all "{{PLACEHOLDER}}" values with your workflow-specific configuration.
 
@@ -39,6 +39,73 @@ orchestration:
     error_handling:
       default: continue                             # continue | stop | retry
 
+# --- Delegation Loop (alternative to DAG, use for A2+ open-ended tasks) ---
+# To use the delegation loop engine instead of the DAG engine above,
+# replace the orchestration section with the following:
+#
+# orchestration:
+#   engine: delegation_loop
+#
+#   delegation_loop:
+#     manager: agents/{{MANAGER_AGENT_ID}}     # Agent directory for the manager
+#
+#     models:
+#       manager: null                          # CLI --manager-model → YAML → LLM_MODEL env
+#       worker: null                           # CLI --worker-model → YAML → manager model
+#
+#     budget:
+#       max_loops: 20                          # Maximum manager iterations
+#       max_total_workers: 30                  # Total workers across all iterations
+#       max_total_tokens: 1000000              # LLM token limit
+#       max_wall_time: 600                     # Wall clock seconds
+#       max_tool_calls: 200                    # Total tool invocations
+#       max_depth: 5                           # Recursive sub-delegation depth (A4)
+#
+#     worker_policy:
+#       enforced:                              # Manager CANNOT change these
+#         sandbox:
+#           type: subprocess
+#           max_memory_mb: 512
+#           max_cpu_seconds: 30
+#           network: false
+#         codemode:
+#           max_tools_per_worker: 10           # A3 tool creation limit
+#         rate_limiting:
+#           max_llm_calls_per_minute: 30
+#         forbidden_tools:
+#           - "shell.execute"
+#       manager_controlled:                    # Manager CAN set these per worker
+#         - instructions
+#         - skills
+#         - tools_allowed
+#         - output_contract
+#         - codemode.enabled
+#         - codemode.tool_creation
+#
+#     termination:
+#       enabled: true
+#       window: 3                              # Compare last N iterations
+#       min_confidence_delta: 0.05             # Must improve by at least this
+#       action: warn_then_stop                 # warn once, stop on second stall
+#
+#     validation:
+#       deterministic:
+#         always: true
+#         checks: [schema, required_fields, confidence, budget]
+#       llm:
+#         enabled: true
+#         skip_when_confidence_above: 0.95
+#         skip_when_budget_remaining_below: 0.1
+#
+#     history:
+#       rolling_summary: true
+#       full_results_window: 3                 # Keep full results for last N iterations
+#       persist_to_disk: true
+#
+#     logging:
+#       format: dual                           # dual | json | md
+#       persist_artifacts: true
+
 # --- State ---
 state:
   persistence:
@@ -50,7 +117,7 @@ state:
   required_fields: []
   auto_inject: {}
 
-# --- Environment & Secrets (L0+) ---
+# --- Environment & Secrets (any level) ---
 # Declare required environment variables. Variables with sensitive: true
 # are loaded from secrets.yaml > .env > os.environ and never logged.
 # env:
@@ -64,8 +131,8 @@ state:
 #   defaults:
 #     SEARCH_PROVIDER: "duckduckgo"
 
-# --- Memory (L3+) ---
-# Uncomment for L3 Memorable compliance.
+# --- Memory (cross-cutting, any level) ---
+# Uncomment to enable memory features.
 # memory:
 #   enabled: true
 #   workspace_dir: workspace
@@ -77,8 +144,8 @@ state:
 #     enabled: true
 #     auto_write: true
 
-# --- Communication (L2+) ---
-# Uncomment for L2 Communicative compliance.
+# --- Communication (cross-cutting, any level) ---
+# Uncomment to enable agent-to-agent messaging.
 # communication:
 #   bus:
 #     type: internal
@@ -88,8 +155,8 @@ state:
 #     - name: default
 #       type: direct
 
-# --- Observability (L4+) ---
-# Uncomment for L4 Observable compliance.
+# --- Observability (cross-cutting, any level; required at A4) ---
+# Uncomment to enable observability features.
 # observability:
 #   tracing:
 #     enabled: true
@@ -101,8 +168,8 @@ state:
 #     enabled: true
 #     hash_chain: true
 
-# --- Security (L5) ---
-# Uncomment for L5 Enterprise compliance.
+# --- Security (cross-cutting, any level; budget required at A2+) ---
+# Uncomment to enable security features.
 # security:
 #   circuit_breaker:
 #     enabled: true

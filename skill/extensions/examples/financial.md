@@ -39,7 +39,7 @@ domain where auditability and risk scoring are required.
 
 ```yaml
 defaults:
-  compliance_level: L4             # Observable minimum (audit trail required)
+  autonomy_level: A1               # Adaptive (multi-agent DAG with conditions)
   model: anthropic/claude-sonnet-4
   execution_mode: parallel
   temperature: 0.1                 # Low temperature for financial precision
@@ -121,7 +121,7 @@ These rules apply on top of the base R1-R24:
 - **F2:** No agent MAY use `shell.execute` (code execution is a compliance risk).
 - **F3:** All agents MUST set `output.validation.mode: "strict"` -- no lenient parsing for financial data.
 - **F4:** The `risk_assessor` agent MUST be the last agent in the DAG (depends on all leaf nodes).
-- **F5:** Memory MUST be enabled with at least `long_term` and `daily_log` tiers (L3+ for audit trail).
+- **F5:** Memory MUST be enabled with at least `long_term` and `daily_log` tiers (cross-cutting feature for audit trail).
 - **F6:** All output fields containing monetary values MUST have `type: "number"` (not string).
 - **F7:** Every agent's system prompt MUST include the disclaimer: "This is not financial advice."
 
@@ -135,7 +135,7 @@ constraints:
   required_memory_tiers:
     - long_term
     - daily_log
-  min_compliance: L4           # Must have full observability
+  min_autonomy: A1             # Adaptive minimum; observability is cross-cutting
   max_temperature: 0.3         # Financial outputs need determinism
   required_sections:
     - observability
@@ -338,7 +338,7 @@ The AI will:
 3. Automatically add `risk_assessor` as the final agent
 4. Add `data_sources` and `assumptions` fields to every output contract
 5. Prepend the compliance notice to every system prompt
-6. Set observability to L4 with hash-chain audit
+6. Enable observability with hash-chain audit (cross-cutting feature)
 7. Place `finance.market_data` and `finance.risk_calc` tools in `mcp/`
 8. Place `financial_regulations` and `disclaimer` skills in `skills/`
 9. Deny `shell.execute` and `file.write` tools

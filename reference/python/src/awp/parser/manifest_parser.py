@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 
 from ..models.manifest import AWPManifest
-from ..models.orchestration import AWPOrchestrationConfig
+from ..models.orchestration import AWPOrchestrationConfig, DelegationLoopConfig
 from ..models.state import StateModel
 from ..models.memory import MemoryConfig
 from ..models.communication import CommunicationConfig
@@ -70,7 +70,11 @@ def _extract_manifest_data(resolved: dict[str, Any]) -> dict[str, Any]:
 
     # Parse optional typed sections
     if "orchestration" in resolved:
-        data["orchestration"] = AWPOrchestrationConfig(**resolved["orchestration"])
+        orch_data = dict(resolved["orchestration"])
+        # Parse delegation_loop sub-config if present
+        if "delegation_loop" in orch_data and isinstance(orch_data["delegation_loop"], dict):
+            orch_data["delegation_loop"] = DelegationLoopConfig(**orch_data["delegation_loop"])
+        data["orchestration"] = AWPOrchestrationConfig(**orch_data)
     if "state" in resolved:
         data["state"] = StateModel(**resolved["state"])
     if "memory" in resolved:

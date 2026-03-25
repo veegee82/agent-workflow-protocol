@@ -1,6 +1,6 @@
 """End-to-end tests for AWP example workflows with real LLM calls.
 
-Tests all 6 example workflows (L0-L5) against OpenRouter or any
+Tests all example workflows (A0-A4) against OpenRouter or any
 OpenAI-compatible API. Validates:
 - Workflow parsing and validation
 - Agent execution with real LLM calls
@@ -121,15 +121,15 @@ class TestValidateExamples:
     """Validate all example workflows without LLM calls."""
 
     @pytest.mark.parametrize("example,expected_agents,min_level", [
-        ("01-hello-world", 1, ComplianceLevel.L0_CORE),
-        ("02-research-pipeline", 3, ComplianceLevel.L1_COMPOSABLE),
-        ("03-chat-team", 2, ComplianceLevel.L2_COMMUNICATIVE),
-        ("04-memory-workflow", 2, ComplianceLevel.L3_MEMORABLE),
-        ("05-observable-analytics", 3, ComplianceLevel.L4_OBSERVABLE),
-        ("06-enterprise", 5, ComplianceLevel.L5_ENTERPRISE),
+        ("01-hello-world", 1, ComplianceLevel.A0_PRESCRIBED),
+        ("02-research-pipeline", 3, ComplianceLevel.A1_ADAPTIVE),
+        ("03-chat-team", 2, ComplianceLevel.A1_ADAPTIVE),
+        ("04-memory-workflow", 2, ComplianceLevel.A1_ADAPTIVE),
+        ("05-observable-analytics", 3, ComplianceLevel.A1_ADAPTIVE),
+        ("06-enterprise", 5, ComplianceLevel.A1_ADAPTIVE),
     ])
     def test_validate_example(self, example: str, expected_agents: int, min_level: ComplianceLevel):
-        """Parse, validate, and check compliance for each example."""
+        """Parse, validate, and check autonomy level for each example."""
         wf_dir = EXAMPLES / example
         if not wf_dir.exists():
             pytest.skip(f"Example {example} not found")
@@ -313,7 +313,7 @@ class TestE2EWithLLM:
     """End-to-end tests with real LLM calls via OpenRouter."""
 
     def test_01_hello_world(self):
-        """L0 Core: Single agent greeting."""
+        """A0 Prescribed: Single agent greeting."""
         wf_dir = EXAMPLES / "01-hello-world"
         if not wf_dir.exists():
             pytest.skip("Example not found")
@@ -325,7 +325,7 @@ class TestE2EWithLLM:
         assert result["confidence"] > 0.0, "Confidence should be > 0"
 
     def test_02_research_pipeline(self):
-        """L1 Composable: Multi-agent research with state sharing and tools."""
+        """A1 Adaptive: Multi-agent research with state sharing and tools."""
         wf_dir = EXAMPLES / "02-research-pipeline"
         if not wf_dir.exists():
             pytest.skip("Example not found")
@@ -348,7 +348,7 @@ class TestE2EWithLLM:
         assert len(writer["report"]) > 50, "Report should be substantive"
 
     def test_03_chat_team(self):
-        """L2 Communicative: Message bus communication between agents."""
+        """A1 Adaptive: Message bus communication between agents."""
         wf_dir = EXAMPLES / "03-chat-team"
         if not wf_dir.exists():
             pytest.skip("Example not found")
@@ -364,7 +364,7 @@ class TestE2EWithLLM:
         assert len(specialist["analysis"]) > 0, "Analysis should not be empty"
 
     def test_04_memory_workflow(self):
-        """L3 Memorable: Memory persistence across agent execution."""
+        """A1 Adaptive: Memory persistence across agent execution."""
         wf_dir = EXAMPLES / "04-memory-workflow"
         if not wf_dir.exists():
             pytest.skip("Example not found")
@@ -383,7 +383,7 @@ class TestE2EWithLLM:
         assert memory_file.exists(), "MEMORY.md should exist"
 
     def test_05_observable_analytics(self):
-        """L4 Observable: Full observability with tracing, metrics, audit."""
+        """A1 Adaptive: Full observability with tracing, metrics, audit."""
         wf_dir = EXAMPLES / "05-observable-analytics"
         if not wf_dir.exists():
             pytest.skip("Example not found")
@@ -414,7 +414,7 @@ class TestE2EWithLLM:
         # This is a soft check - the important thing is the workflow completed
 
     def test_06_enterprise(self):
-        """L5 Enterprise: All features - security, skills, MCPs, code mode, conditional."""
+        """A1 Adaptive: All features - security, skills, MCPs, code mode, conditional."""
         wf_dir = EXAMPLES / "06-enterprise"
         if not wf_dir.exists():
             pytest.skip("Example not found")

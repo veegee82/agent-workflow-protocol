@@ -1,10 +1,10 @@
-# L3 Memorable -- Workflow with memory (2+ tiers), communication, and DAG
+# A1 Adaptive with Memory feature -- Workflow with memory (2+ tiers), communication, and DAG
 awp: "1.0.0"
 
 workflow:
   name: l3-memory
   version: "1.0.0"
-  description: "L3 workflow with multi-tier memory."
+  description: "A1 Adaptive workflow with cross-cutting memory and communication features."
 
 orchestration:
   engine: dag

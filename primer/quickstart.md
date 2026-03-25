@@ -55,7 +55,7 @@ execution:
   mode: sequential
 ```
 
-This is a valid L0 workflow. It declares one agent with an explicit model and a sequential execution mode.
+This is a valid A0 workflow. It declares one agent with an explicit model and a sequential execution mode.
 
 ## Step 3: Create the Agent Configuration
 

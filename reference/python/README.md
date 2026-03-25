@@ -15,8 +15,8 @@ pip install -e .
 # Validate a workflow
 awp validate path/to/workflow/
 
-# Check compliance level
-awp compliance path/to/workflow/ --level L3
+# Check autonomy level (A0-A4)
+awp compliance path/to/workflow/ --level A2
 
 # Pack a workflow into a .awp.zip archive
 awp pack path/to/workflow/ -o my-workflow.awp.zip

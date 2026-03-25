@@ -1,10 +1,10 @@
-# L5 Enterprise -- Full workflow with all layers
+# A1 Adaptive with all cross-cutting features -- Full workflow with communication, memory, observability, and security
 awp: "1.0.0"
 
 workflow:
   name: l5-enterprise
   version: "1.0.0"
-  description: "L5 enterprise workflow with all features."
+  description: "A1 Adaptive workflow with all cross-cutting features (communication, memory, observability, security)."
 
 orchestration:
   engine: dag

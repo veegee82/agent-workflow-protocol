@@ -81,11 +81,15 @@ class WorkflowRunner:
         self,
         workflow_dir: str | Path,
         llm: Optional[LLMClient] = None,
+        manager_model: Optional[str] = None,
+        worker_model: Optional[str] = None,
     ) -> None:
         self._dir = Path(workflow_dir)
         self._install_requirements()
         self._manifest = parse_manifest(self._dir / "workflow.awp.yaml")
         self._llm = llm
+        self._manager_model = manager_model
+        self._worker_model = worker_model
         secrets = load_secrets(self._dir)
         self._tools = ToolRegistry(self._dir, secrets=secrets)
 
@@ -182,6 +186,11 @@ class WorkflowRunner:
                 state.setdefault(key, value)
 
         orch = self._manifest.orchestration
+
+        # Dispatch to delegation loop engine if configured
+        if orch and getattr(orch, "engine", "dag") == "delegation_loop":
+            return self._run_delegation_loop(task, state)
+
         if not orch or not hasattr(orch, "graph") or not orch.graph:
             logger.warning("No orchestration graph -- nothing to run")
             return state
@@ -294,6 +303,42 @@ class WorkflowRunner:
         except Exception as exc:
             logger.warning("Failed to save final state: %s", exc)
 
+        return state
+
+    # -- Delegation loop dispatch ------------------------------------------
+
+    def _run_delegation_loop(self, task: str, state: dict[str, Any]) -> dict[str, Any]:
+        """Dispatch to the DelegationLoopRunner when engine=delegation_loop."""
+        from .delegation_loop_runner import DelegationLoopRunner
+
+        orch = self._manifest.orchestration
+        dl_config = getattr(orch, "delegation_loop", None)
+        if not dl_config:
+            raise RuntimeError(
+                "engine=delegation_loop but no delegation_loop config found"
+            )
+
+        import os
+        manager_model = (
+            self._manager_model
+            or (dl_config.models.manager if dl_config.models else None)
+            or os.getenv("LLM_MODEL", "")
+        )
+        worker_model = (
+            self._worker_model
+            or (dl_config.models.worker if dl_config.models else None)
+            or manager_model
+        )
+
+        runner = DelegationLoopRunner(
+            workflow_dir=self._dir,
+            config=dl_config,
+            tool_registry=self._tools,
+            manager_model=manager_model,
+            worker_model=worker_model,
+        )
+        result = runner.run(task, state)
+        state.update(result)
         return state
 
     # -- Agent execution with retry ----------------------------------------

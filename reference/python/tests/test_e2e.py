@@ -47,9 +47,9 @@ class TestEndToEnd:
         contract_result = validate_contracts(agents, manifest.orchestration)
         assert contract_result.valid
 
-        # 5. Check compliance
-        compliance = check_compliance(manifest, agents, wf_dir, ComplianceLevel.L0_CORE)
-        assert compliance.level >= ComplianceLevel.L0_CORE
+        # 5. Check autonomy level
+        compliance = check_compliance(manifest, agents, wf_dir, ComplianceLevel.A0_PRESCRIBED)
+        assert compliance.level >= ComplianceLevel.A0_PRESCRIBED
 
         # 6. Validate rules
         rules = validate_rules(manifest, agents, wf_dir)
@@ -84,9 +84,9 @@ class TestEndToEnd:
         assert validate_graph(manifest.orchestration).valid
         assert validate_contracts(agents, manifest.orchestration).valid
 
-        # Compliance L1
-        c = check_compliance(manifest, agents, wf_dir, ComplianceLevel.L1_COMPOSABLE)
-        assert c.level >= ComplianceLevel.L1_COMPOSABLE
+        # Autonomy A1 (multi-agent adaptive DAG)
+        c = check_compliance(manifest, agents, wf_dir, ComplianceLevel.A1_ADAPTIVE)
+        assert c.level >= ComplianceLevel.A1_ADAPTIVE
 
         # Visualize shows 3 agents
         ascii_viz = to_ascii(manifest.orchestration)

@@ -21,6 +21,7 @@ Usage::
 
 from .runner import WorkflowRunner
 from .agent import StandaloneAgent
+from .delegation_loop_runner import DelegationLoopRunner
 from .tools import ToolRegistry
 from .observability import ObservabilityContext, Tracer, MetricsCollector, AuditTrail
 from .security import SecurityContext, CircuitBreaker, RateLimiter, AccessController
@@ -32,6 +33,7 @@ from .expressions import safe_eval
 __all__ = [
     "WorkflowRunner",
     "StandaloneAgent",
+    "DelegationLoopRunner",
     "ToolRegistry",
     "ObservabilityContext",
     "Tracer",

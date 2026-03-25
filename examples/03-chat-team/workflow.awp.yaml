@@ -3,9 +3,9 @@ awp: "1.0.0"
 workflow:
   name: chat-team
   version: "1.0.0"
-  description: "Agent team with message bus communication demonstrating L2 Communicative compliance"
+  description: "Agent team with message bus communication demonstrating A1 Adaptive autonomy level with communication feature"
   author: "AWP Examples"
-  tags: ["example", "l2", "communicative", "messaging"]
+  tags: ["example", "a1", "adaptive", "communication", "messaging"]
 
 orchestration:
   execution:

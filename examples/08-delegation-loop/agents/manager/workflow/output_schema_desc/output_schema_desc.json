@@ -1,0 +1,7 @@
+{
+  "decision": "The manager's decision: delegate (assign work to workers), complete (task is done), or fail (cannot complete)",
+  "reasoning": "Explanation of why this decision was made",
+  "delegations": "Array of worker assignments, each with worker_id, instructions, skills, tools_allowed, and output_contract",
+  "final_result": "The final research result when decision is complete",
+  "confidence": "Float 0.0-1.0 indicating confidence in the current state of the research"
+}

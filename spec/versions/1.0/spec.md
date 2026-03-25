@@ -26,7 +26,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | **MCP Tool** | A callable function exposed via the Model Context Protocol tool interface. |
 | **DAG** | Directed Acyclic Graph defining execution order and data flow between agents. |
 | **Layer** | A logical grouping of related protocol concerns (e.g., identity, capabilities, orchestration). |
-| **Conformance Level** | A tiered compliance designation (L0–L5) indicating which protocol features a workflow implements. |
+| **Autonomy Level** | A tiered autonomy designation (A0–A4) indicating the degree of autonomous behavior a workflow exhibits. |
 
 ---
 
@@ -101,7 +101,7 @@ Security ──cross-cuts──▶ All Layers
 
 | Document | Description |
 |----------|-------------|
-| [compliance.md](compliance.md) | Conformance levels L0–L5 |
+| [compliance.md](compliance.md) | Autonomy levels A0–A4 |
 | [validation-rules.md](validation-rules.md) | Validation rules R1–R24 |
 | [file-structure.md](file-structure.md) | Required directory layout |
 | [packaging.md](packaging.md) | `.awp.zip` exchange format |
@@ -114,12 +114,12 @@ A workflow is **AWP-conformant** if and only if:
 
 1. It includes a valid `workflow.awp.yaml` manifest with a supported `awp` version string.
 2. It satisfies all MUST-level requirements defined in [validation-rules.md](validation-rules.md).
-3. It declares a conformance level (L0–L5) and satisfies all requirements for that level as defined in [compliance.md](compliance.md).
+3. It declares an autonomy level (A0–A4) and satisfies all requirements for that level as defined in [compliance.md](compliance.md).
 
 A runtime is **AWP-conformant** if and only if:
 
 1. It can parse and validate a `workflow.awp.yaml` manifest.
-2. It enforces all MUST-level validation rules for the declared conformance level.
+2. It enforces all MUST-level validation rules for the declared autonomy level.
 3. It executes agents according to the orchestration graph semantics defined in Layer 5.
 4. It implements the state sharing semantics defined in Layer 4.
 

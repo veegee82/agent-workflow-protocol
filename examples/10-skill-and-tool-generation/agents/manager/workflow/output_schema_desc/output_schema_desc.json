@@ -1,0 +1,7 @@
+{
+  "decision": "delegate, complete, or fail",
+  "reasoning": "Why this decision was made",
+  "delegations": "Worker assignments with skills and instructions",
+  "final_result": "Final synthesized result when complete",
+  "confidence": "0.0-1.0 confidence score"
+}

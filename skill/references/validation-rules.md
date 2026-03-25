@@ -1,6 +1,6 @@
 # AWP Validation Rules -- R1 through R24
 
-Use this checklist to validate AWP workflow compliance. All rules are mandatory unless noted.
+Use this checklist to validate AWP workflow correctness. All rules are mandatory unless noted.
 
 ## Naming and Identity
 

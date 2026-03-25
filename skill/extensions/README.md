@@ -50,7 +50,7 @@ adapter: skill/adapters/{platform}.md    # optional, default: standalone
 {Override default values from the base skill.}
 
 defaults:
-  compliance_level: L3
+  autonomy_level: A1
   model: anthropic/claude-sonnet-4
   execution_mode: parallel
 
@@ -87,7 +87,7 @@ fields:
 
 - denied_tools: [shell.execute, file.write]
 - required_memory_tiers: [long_term, daily_log]
-- min_compliance: L3
+- min_autonomy: A1
 
 ## Additional Templates
 
