@@ -1,0 +1,59 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: tool_builder
+  role: tool_creator
+  description: "Reads scoring configuration and creates specialized scoring tools at runtime via Code Mode"
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.0
+    max_tokens: 2048
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
+  contract:
+    tools_created:
+      type: integer
+      description: "Number of tools created"
+      required: true
+    tool_names:
+      type: array
+      description: "FQNs of created tools"
+      required: true
+      shareable: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Confidence in tool creation success"
+      required: true
+  validation:
+    mode: strict
+    on_invalid: retry
+    max_retries: 1
+
+capabilities:
+  tools:
+    enabled: true
+    max_calls: 20
+    allowed:
+      - "file.read"
+      - "tools.*"
+  codemode:
+    enabled: true
+    language: python
+    tool_creation: true
+    tool_creation_namespace: "scoring"
+    max_tools: 10
+  sandbox:
+    type: subprocess
+    constraints:
+      max_memory_mb: 128
+      max_cpu_seconds: 30

@@ -1,0 +1,8 @@
+{
+  "items": [
+    {"name": "Alpha Framework", "quality": 85, "relevance": 92, "novelty": 70},
+    {"name": "Beta Library", "quality": 72, "relevance": 65, "novelty": 88},
+    {"name": "Gamma Engine", "quality": 95, "relevance": 78, "novelty": 60},
+    {"name": "Delta Toolkit", "quality": 60, "relevance": 88, "novelty": 95}
+  ]
+}

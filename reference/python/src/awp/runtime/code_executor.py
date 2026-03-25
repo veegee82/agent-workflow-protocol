@@ -7,6 +7,7 @@ Docker, WASM, or V8 Isolate sandboxes.
 
 from __future__ import annotations
 
+import ast
 import logging
 import subprocess
 import sys
@@ -112,3 +113,28 @@ class CodeExecutor:
                 Path(tmp_path).unlink(missing_ok=True)
             except Exception:
                 pass
+
+    def validate_code(self, code: str) -> dict[str, Any]:
+        """Validate Python code via AST parsing without execution.
+
+        Args:
+            code: Python source code to validate.
+
+        Returns:
+            Standard AWP result format with validation status.
+        """
+        try:
+            ast.parse(code)
+            return {
+                "ok": True,
+                "status": 200,
+                "data": {"valid": True},
+                "error": None,
+            }
+        except SyntaxError as e:
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {"valid": False},
+                "error": f"Syntax error: {e}",
+            }

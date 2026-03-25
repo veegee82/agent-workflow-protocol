@@ -1,0 +1,5 @@
+{
+  "rankings": "List of items sorted by their total weighted score, with individual criterion scores",
+  "summary": "A brief summary describing the ranking results and key observations",
+  "confidence": "How confident the agent is in the analysis quality"
+}

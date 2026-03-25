@@ -136,6 +136,39 @@
     "communication": { "type": "object" },
     "observability": { "type": "object" },
     "custom_tools": { "type": "object" },
+    "dynamic_tools": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether any agent MAY create tools at runtime."
+        },
+        "persist": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, tool definitions are written to workspace/dynamic_tools/ as JSON manifests."
+        },
+        "max_total": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum dynamic tools across all agents."
+        },
+        "allowed_namespaces": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,30}$" },
+          "default": ["dynamic"],
+          "description": "Namespace prefixes agents MAY use for dynamic tools."
+        },
+        "code_review": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, tool code is logged to the audit trail before registration."
+        }
+      },
+      "required": ["enabled"]
+    },
     "security": { "type": "object" }
   },
   "additionalProperties": false

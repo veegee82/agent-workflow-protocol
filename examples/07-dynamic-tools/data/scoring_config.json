@@ -1,0 +1,19 @@
+{
+  "criteria": [
+    {
+      "name": "quality",
+      "weight": 0.4,
+      "description": "Overall quality score"
+    },
+    {
+      "name": "relevance",
+      "weight": 0.35,
+      "description": "Relevance to the task"
+    },
+    {
+      "name": "novelty",
+      "weight": 0.25,
+      "description": "Novelty and originality"
+    }
+  ]
+}

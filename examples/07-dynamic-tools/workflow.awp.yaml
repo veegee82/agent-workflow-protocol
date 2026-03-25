@@ -1,0 +1,33 @@
+awp: "1.0.0"
+
+workflow:
+  name: dynamic-tools-demo
+  version: "1.0.0"
+  description: "Demonstrates dynamic MCP tool creation via Code Mode. Agent A creates scoring tools at runtime, Agent B uses them to analyze items."
+
+dynamic_tools:
+  enabled: true
+  persist: false
+  max_total: 20
+  allowed_namespaces: ["scoring"]
+
+orchestration:
+  engine: dag
+  graph:
+    - id: tool_builder
+      agent: tool_builder
+      depends_on: []
+      share_output: [tools_created, tool_names]
+      description: "Creates scoring tools from configuration"
+
+    - id: analyst
+      agent: analyst
+      depends_on: [tool_builder]
+      share_output: [rankings, summary]
+      description: "Uses dynamically created tools to score and rank items"
+
+  execution:
+    mode: sequential
+    timeout:
+      per_agent: 60
+      total: 180

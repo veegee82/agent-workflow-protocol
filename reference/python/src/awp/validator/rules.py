@@ -1,4 +1,4 @@
-"""Rule validation (R1-R24) for AWP workflows."""
+"""Rule validation (R1-R26) for AWP workflows."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def validate_rules(
     agents: dict[str, AWPAgent],
     workflow_path: Path,
 ) -> ValidationResult:
-    """Validate all 24 rules (R1-R24) against AWP structures.
+    """Validate all rules (R1-R26) against AWP structures.
 
     Args:
         manifest: Parsed AWPManifest.
@@ -171,5 +171,59 @@ def validate_rules(
                     f"R17: Agent '{agent_id}' must have 'confidence' "
                     f"in output.contract"
                 )
+
+    # R25: Dynamic tool namespace compliance
+    # R26: Dynamic tool creation requires Code Mode and workflow-level flag
+    dynamic_tools_cfg = getattr(manifest, "dynamic_tools", None)
+    dynamic_tools_enabled = (
+        dynamic_tools_cfg is not None
+        and getattr(dynamic_tools_cfg, "enabled", False)
+    )
+    allowed_namespaces = (
+        getattr(dynamic_tools_cfg, "allowed_namespaces", ["dynamic"])
+        if dynamic_tools_cfg
+        else ["dynamic"]
+    )
+
+    for agent_id, agent in agents.items():
+        caps = agent.capabilities
+        if not caps or not hasattr(caps, "codemode"):
+            continue
+        codemode = caps.codemode
+        if codemode is None:
+            continue
+
+        tool_creation = getattr(codemode, "tool_creation", False)
+        if not tool_creation:
+            continue
+
+        # R26: tool_creation requires codemode.enabled
+        if not codemode.enabled:
+            errors.append(
+                f"R26: Agent '{agent_id}' has tool_creation=true but "
+                f"codemode.enabled=false"
+            )
+
+        # R26: tool_creation requires workflow-level dynamic_tools.enabled
+        if not dynamic_tools_enabled:
+            errors.append(
+                f"R26: Agent '{agent_id}' has tool_creation=true but "
+                f"dynamic_tools.enabled is false or not set in workflow.awp.yaml"
+            )
+
+        # R25: namespace must not be reserved
+        ns = getattr(codemode, "tool_creation_namespace", "dynamic")
+        if ns in RESERVED_TOOL_NAMESPACES:
+            errors.append(
+                f"R25: Agent '{agent_id}' tool_creation_namespace '{ns}' "
+                f"is a reserved namespace"
+            )
+
+        # R25: namespace must be in workflow-level allowed_namespaces
+        if dynamic_tools_enabled and ns not in allowed_namespaces:
+            errors.append(
+                f"R25: Agent '{agent_id}' tool_creation_namespace '{ns}' "
+                f"is not in dynamic_tools.allowed_namespaces: {allowed_namespaces}"
+            )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)

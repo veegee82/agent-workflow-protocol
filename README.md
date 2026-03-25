@@ -56,33 +56,33 @@ complete **capability stack** that turns any LLM agent into a powerful,
 autonomous system:
 
 ```
-  ┌──────────────────────────────────────────────────────────────┐
-  │                    AWP Capability Stack                       │
-  │                                                              │
-  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────────┐ │
-  │  │  Generated   │  │    MCP      │  │     Code Mode        │ │
-  │  │   Skills     │  │   Tools     │  │  (SDK + Sandbox)     │ │
-  │  │             │  │             │  │                      │ │
-  │  │ Domain know- │  │ Dynamic     │  │ Write code against   │ │
-  │  │ ledge as     │  │ actions:    │  │ a typed SDK instead  │ │
-  │  │ Markdown,    │  │ web.search  │  │ of calling tools     │ │
-  │  │ injected     │  │ file.write  │  │ one by one.          │ │
-  │  │ into the     │  │ memory.*    │  │                      │ │
-  │  │ agent's      │  │ shell.exec  │  │ 10 tool calls in     │ │
-  │  │ system       │  │ custom.*    │  │ one LLM roundtrip.   │ │
-  │  │ prompt.      │  │             │  │                      │ │
-  │  └─────────────┘  └─────────────┘  └──────────────────────┘ │
-  │                                                              │
-  │  ┌─────────────────────────────────────────────────────────┐ │
-  │  │                    CLI Runtime                           │ │
-  │  │  awp run / awp validate / awp pack / awp visualize      │ │
-  │  └─────────────────────────────────────────────────────────┘ │
-  └──────────────────────────────────────────────────────────────┘
+  ┌───────────────────────────────────────────────────────────────────────────────┐
+  │                          AWP Capability Stack                                 │
+  │                                                                               │
+  │  ┌────────────┐  ┌────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+  │  │  Generated  │  │   MCP      │  │  Code Mode   │  │  Dynamic Tool        │  │
+  │  │   Skills    │  │   Tools    │  │ (SDK+Sandbox) │  │  Creation            │  │
+  │  │             │  │            │  │              │  │                      │  │
+  │  │ Domain      │  │ Actions:   │  │ Write code   │  │ Agents CREATE tools  │  │
+  │  │ knowledge   │  │ web.search │  │ against a    │  │ at runtime via       │  │
+  │  │ as Markdown │  │ file.write │  │ typed SDK    │  │ sdk.tools.create().  │  │
+  │  │ injected    │  │ memory.*   │  │ instead of   │  │                      │  │
+  │  │ into the    │  │ shell.exec │  │ calling      │  │ No static tool       │  │
+  │  │ agent's     │  │ custom.*   │  │ tools one    │  │ files needed.        │  │
+  │  │ system      │  │            │  │ by one.      │  │ Downstream agents    │  │
+  │  │ prompt.     │  │            │  │              │  │ use them instantly.  │  │
+  │  └────────────┘  └────────────┘  └──────────────┘  └──────────────────────┘  │
+  │                                                                               │
+  │  ┌─────────────────────────────────────────────────────────────────────────┐  │
+  │  │                           CLI Runtime                                   │  │
+  │  │    awp run / awp validate / awp pack / awp visualize                    │  │
+  │  └─────────────────────────────────────────────────────────────────────────┘  │
+  └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### What This Combination Makes Possible
 
-The real power of AWP lies in the synergy of its four pillars:
+The real power of AWP lies in the synergy of its five pillars:
 
 **1. Generated Skills** -- Domain expertise on demand.
 Tell the AI *"build a compliance workflow for cloud security"* and it generates
@@ -102,21 +102,34 @@ lets the agent write a complete program against a typed SDK. One roundtrip,
 ten tool calls. The code runs in a sandboxed environment (subprocess, Docker,
 or V8 isolate). Same output contract, dramatically fewer tokens.
 
-**4. CLI Runtime** -- From YAML to results in one command.
+**4. Dynamic Tool Creation** -- Agents that build their own tools.
+The most powerful capability in AWP: agents can **create new MCP tools at
+runtime** through Code Mode's `sdk.tools.create()`. A "tool builder" agent
+reads a configuration, API spec, or data schema and generates specialized
+tools on the fly. Downstream agents in the DAG immediately see and use these
+tools -- no static `mcp/` files needed. This closes the loop between Skills
+(what the agent knows), Tools (what the agent can do), and Code Mode (how it
+does it): an agent can now *know* a domain, *generate the tools* for that
+domain, and *use those tools* -- all within a single workflow execution.
+
+**5. CLI Runtime** -- From YAML to results in one command.
 `awp run my-workflow/ --task "..."` validates the workflow, resolves tools,
 builds prompts with skills, orchestrates the agent DAG, and collects results.
 No framework lock-in. No boilerplate. Just run it.
 
-**Together, these four pillars let you build workflows that:**
+**Together, these five pillars let you build workflows that:**
 - Understand their domain deeply (Skills)
 - Act on that understanding (MCP Tools)
 - Do it efficiently (Code Mode)
+- Evolve their own capabilities at runtime (Dynamic Tool Creation)
 - Run anywhere (CLI + portable YAML)
 
-Example: A security audit workflow where the analyst agent *knows* CIS benchmarks
-(Skill), *queries* cloud resources for violations (MCP Tool), and *generates*
-a complete remediation script in one shot (Code Mode) -- all described in
-declarative YAML that runs on any AWP-compatible runtime.
+Example: A security audit workflow where a setup agent *reads* the cloud
+environment's API schema (Skill), *generates* specialized scanning tools
+(Dynamic Tool Creation), a scanner agent *uses* those tools to check every
+resource in one shot (Code Mode), and a reporter agent *produces* the
+compliance report -- all described in declarative YAML that runs on any
+AWP-compatible runtime.
 
 ### LLM-Planned Workflows: Everything is Generated
 
@@ -152,12 +165,14 @@ It generates the **complete operational infrastructure**:
   │  ├── mcp/compliance_db.py                                        │
   │  │   └── compliance.lookup_control, compliance.score_finding      │
   │  │                                                               │
-  │  Agent Code (Code Mode)                                          │
+  │  Agent Code (Code Mode + Dynamic Tool Creation)                   │
+  │  ├── agents/setup/agent.py                                       │
+  │  │   └── Code Mode + tool_creation: true -- reads the AWS        │
+  │  │       environment config and CREATES specialized scanning     │
+  │  │       tools at runtime via sdk.tools.create()                 │
   │  ├── agents/scanner/agent.py                                     │
-  │  │   └── Code Mode enabled -- writes scanning logic against      │
-  │  │       typed SDK: sdk.aws.scan_security_groups(),               │
-  │  │       sdk.aws.check_iam_policies() -- 12 tool calls           │
-  │  │       in one LLM roundtrip                                    │
+  │  │   └── Code Mode enabled -- uses dynamically created tools     │
+  │  │       + static tools: 12 tool calls in one LLM roundtrip     │
   │  ├── agents/analyzer/agent.py                                    │
   │  │   └── Code Mode enabled -- correlates findings, computes      │
   │  │       risk scores, generates remediation plan                 │
@@ -206,7 +221,15 @@ calls, the agent writes one code block against the typed SDK. The LLM generates
 this code at runtime, using the skills it wrote for domain knowledge and the
 MCP tools it created for capability. Everything is self-consistent.
 
-**4. The workflow graph emerges from the task, not from templates.**
+**4. Dynamic Tool Creation eliminates the static tool boundary.**
+With `tool_creation: true`, an agent in Code Mode can generate new tools at
+runtime -- reading a config, API spec, or data schema and producing specialized
+tools that downstream agents use instantly. The LLM plans *which* agent should
+build tools, *what namespace* to use, and *which downstream agents* consume
+them. No static `mcp/` files needed for capabilities that depend on runtime data.
+The toolchain itself becomes part of the workflow's generated output.
+
+**5. The workflow graph emerges from the task, not from templates.**
 The LLM determines how many agents are needed, what each one does, how data
 flows between them, and what compliance level is required. A simple task gets
 a single agent (L0). A complex enterprise task gets a multi-agent DAG with
@@ -222,6 +245,8 @@ The generated components form a coherent system because they're planned together
        ↓
   MCP Tools give the agent capabilities that match its knowledge
        ↓
+  Dynamic Tool Creation lets agents generate new tools at runtime
+       ↓
   Code Mode lets the agent combine knowledge + tools efficiently
        ↓
   Output contracts ensure each agent's results feed the next
@@ -234,6 +259,11 @@ align. In an LLM-planned workflow, alignment is inherent -- the same model that
 wrote the compliance skill also wrote the scanning tool and the code that uses
 both. There is no integration gap.
 
+With Dynamic Tool Creation, this feedback loop becomes even more powerful:
+an agent that *knows* a domain (via Skills) can *generate the tools* for that
+domain at runtime, and downstream agents *use* those tools immediately. The
+tooling layer is no longer static -- it evolves with the workflow's needs.
+
 #### What This Enables in Practice
 
 | Scenario | What the LLM Plans |
@@ -241,6 +271,7 @@ both. There is no integration gap.
 | *"Build a deep-research pipeline for market analysis"* | Generates skills for financial analysis and source evaluation. Creates custom MCP tools for SEC EDGAR queries and earnings data. Enables Code Mode on the researcher agent to parallelize 15 data source queries in one roundtrip. |
 | *"Build a code review workflow for our Python monorepo"* | Generates skills with the team's coding standards and architecture patterns. Creates MCP tools for static analysis and test coverage. Uses Code Mode to run linters, parse ASTs, and correlate findings across files. |
 | *"Build a customer support triage system with memory"* | Generates skills for product knowledge and escalation rules. Creates MCP tools for ticketing system integration. Configures L3 memory so agents recall past interactions. Classic mode for the response agent (few tools, high quality). |
+| *"Build an adaptive scoring workflow that reads criteria from config"* | A tool_builder agent reads scoring criteria from a JSON config and **creates specialized scoring tools at runtime** via `sdk.tools.create()`. A downstream analyst agent uses these dynamic tools to evaluate and rank items. No static `mcp/` files needed -- the tools are generated from data. |
 
 In each case, the human describes the **goal**. The LLM determines the
 **architecture**, generates the **capabilities** (skills, tools, code), and
@@ -349,7 +380,7 @@ knowledge that tells it how to plan and generate complete AWP workflows.
 **Option A: Add the skill file directly (Claude Code / Claude Desktop)**
 
 The AWP skill is a single Markdown file (`skill/SKILL.md`) that contains the
-complete AWP specification, all 24 validation rules, the 5-phase generation
+complete AWP specification, all 26 validation rules, the 5-phase generation
 process, and the file templates. You add it to Claude's context so it becomes
 part of the conversation:
 
@@ -390,7 +421,7 @@ with all adapters (Standalone, Cloudflare Workers, ClawHub) and extensions
 Once loaded, Claude gains:
 - The complete AWP 7-layer model and compliance levels (L0-L5)
 - The 5-phase generation process (Requirements → Plan → Generate → Validate → Summary)
-- All 24 validation rules (R1-R24) for structural correctness
+- All 26 validation rules (R1-R26) for structural correctness
 - File templates for every artifact (YAML configs, schemas, prompts, agent code)
 - Platform adapters for choosing the right deployment target
 - The interactive questionnaire and validation menu
@@ -727,6 +758,11 @@ def search_cases(*, query: str, court: str = "BGH", max_results: int = 10) -> di
 Custom tools are auto-discovered from `mcp/` at runtime. They can override
 built-in tools by using the same FQN.
 
+**Alternative: Dynamic Tool Creation.** Instead of defining tools in static
+files, agents with Code Mode can create tools at runtime via
+`sdk.tools.create()`. See the [Dynamic Tool Creation](#dynamic-tool-creation----agents-that-build-their-own-tools)
+section below.
+
 ### Tool Secrets -- API Keys Without Exposing Them to the LLM
 
 Tools that need API keys declare them in the decorator. The runtime injects them
@@ -832,6 +868,11 @@ capabilities:
 | **LLM roundtrips** | 1 per tool call | 1 total |
 | **Best for** | Simple flows, few tools | Complex orchestration, many tools |
 
+Code Mode also enables **Dynamic Tool Creation**: agents with `tool_creation: true`
+can call `sdk.tools.create()` to generate new MCP tools at runtime. These tools
+become available to all downstream agents in the DAG. See the dedicated section
+below for details.
+
 Code Mode is a **protocol feature**. Each runtime implements it with its own sandbox:
 
 | Runtime | Sandbox | SDK Transport |
@@ -839,6 +880,140 @@ Code Mode is a **protocol feature**. Each runtime implements it with its own san
 | Python (standalone) | `subprocess` | In-process calls |
 | Cloudflare Workers | `isolate` (V8) | RPC stubs |
 | Docker | `docker` | HTTP on localhost |
+
+## Dynamic Tool Creation -- Agents That Build Their Own Tools
+
+The most powerful evolution in AWP: agents can **create new MCP tools at
+runtime** through Code Mode. Instead of defining all tools statically in `mcp/`
+before the workflow starts, a "tool builder" agent generates specialized tools
+on the fly -- and downstream agents use them immediately.
+
+### The Idea
+
+Static tools work well when you know upfront what capabilities your workflow
+needs. But what if the tools depend on:
+
+- A **configuration file** that defines scoring criteria, validation rules,
+  or processing steps?
+- An **external API schema** discovered at runtime?
+- A **data model** that varies per customer or deployment?
+- **Domain knowledge** from a Skill that determines what operations are needed?
+
+Dynamic Tool Creation solves this by letting agents generate tools from data:
+
+```
+  ┌──────────────┐     sdk.tools.create()     ┌──────────────┐
+  │ Tool Builder  │ ────────────────────────→  │ ToolRegistry  │
+  │ (Code Mode)   │    validates + registers   │  (shared)     │
+  │               │                            │               │
+  │ Reads config, │                            │ scoring.*     │
+  │ generates     │                            │ transform.*   │
+  │ tools         │                            │ + built-ins   │
+  └──────────────┘                             └──────┬───────┘
+                                                      │
+                                          ┌───────────▼───────────┐
+                                          │  Downstream Agents     │
+                                          │  (use dynamic tools    │
+                                          │   via classic calls    │
+                                          │   or Code Mode SDK)    │
+                                          └───────────────────────┘
+```
+
+### How It Works
+
+**1. Enable in workflow.awp.yaml:**
+
+```yaml
+dynamic_tools:
+  enabled: true
+  persist: false
+  max_total: 20
+  allowed_namespaces: ["scoring", "transform"]
+```
+
+**2. Configure the tool builder agent:**
+
+```yaml
+# agents/tool_builder/agent.awp.yaml
+capabilities:
+  codemode:
+    enabled: true
+    language: python
+    tool_creation: true
+    tool_creation_namespace: "scoring"
+    max_tools: 10
+```
+
+**3. The agent creates tools via the SDK:**
+
+```python
+async def solve(sdk):
+    config = await sdk.file.read(path="data/scoring_config.json")
+    criteria = json.loads(config["data"]["content"])["criteria"]
+
+    for c in criteria:
+        await sdk.tools.create(
+            name=f"scoring.{c['name']}",
+            description=f"Score: {c['name']} (weight: {c['weight']})",
+            parameters={
+                "type": "object",
+                "properties": {"value": {"type": "number"}},
+                "required": ["value"]
+            },
+            code=f"""
+def handler(*, value):
+    normalized = min(value / 100.0, 1.0)
+    return {{"ok": True, "status": 200,
+             "data": {{"score": round(normalized * {c['weight']}, 4)}},
+             "error": None}}
+""",
+        )
+    return {"tools_created": len(criteria), "confidence": 0.95}
+```
+
+**4. Downstream agents use the tools immediately:**
+
+```python
+# Agent B sees scoring.quality, scoring.relevance, etc.
+async def solve(sdk):
+    q = await sdk.scoring.quality(value=85)
+    r = await sdk.scoring.relevance(value=92)
+    return {"total": q["data"]["score"] + r["data"]["score"], "confidence": 0.9}
+```
+
+### How It Connects to Skills and MCP
+
+Dynamic Tool Creation is the bridge between **what an agent knows** (Skills)
+and **what it can do** (MCP Tools):
+
+| Layer | Static Approach | With Dynamic Tool Creation |
+|-------|----------------|---------------------------|
+| **Skills** | Hand-written domain knowledge | Same -- Skills provide the context for *what tools to generate* |
+| **MCP Tools** | Pre-defined in `mcp/` | Generated at runtime from data, configs, or API specs |
+| **Code Mode** | Agent uses existing tools | Agent **creates** tools, then uses them (or delegates to others) |
+| **Secrets** | Injected into static tools | Proxy Pattern: dynamic tools call static tools that have secrets |
+
+A Skill tells the agent *"these are the compliance controls you need to check"*.
+The agent reads that knowledge and generates a specialized tool for each control.
+Downstream agents use those tools to run the actual checks. The entire toolchain
+emerges from the workflow's context -- nothing is hardcoded.
+
+### Security Model
+
+Dynamic tools are sandboxed at every level:
+
+- **AST validation** before registration (deny-listed imports: `os`, `subprocess`, `sys`, ...)
+- **Subprocess isolation** -- each tool invocation runs in a fresh process
+- **Namespace confinement** -- agents can only create tools in their declared namespace
+- **No direct secrets** -- dynamic tools use the Proxy Pattern (call static tools that have secrets)
+- **Provenance tracking** -- every tool records which agent created it and when
+
+### Persistence
+
+By default, dynamic tools are workflow-scoped: they exist during execution and
+are cleaned up when the workflow completes. Set `persist: true` to save tool
+definitions as JSON manifests in `workspace/dynamic_tools/`, so they survive
+across workflow runs.
 
 ## Three Ways to Build Workflows
 
@@ -850,7 +1025,7 @@ Tell any AI assistant with the AWP skill installed:
 >  Use memory for case history. Compliance level L3."
 
 The AI gathers requirements, builds a plan, waits for your approval, generates
-all files, validates against 24 rules (R1-R24), and reports the compliance level.
+all files, validates against 26 rules (R1-R26), and reports the compliance level.
 
 ### 2. Manual (YAML)
 
@@ -913,12 +1088,12 @@ Start at L0. Add layers as your workflow grows.
 |---------|------------|----------|
 | Agent definition | Framework-specific classes | `agent.awp.yaml` -- portable YAML |
 | Orchestration | Hardcoded in Python | `orchestration.graph` -- declarative DAG |
-| Tool access | Framework-specific wrappers | MCP-compatible tool protocol |
+| Tool access | Framework-specific wrappers | MCP-compatible tool protocol + runtime creation |
 | State sharing | Ad-hoc dict passing | Output contracts with `shareable` fields |
 | Memory | Custom per-project | 4-tier standard (long-term, daily, episodic, semantic) |
 | Communication | Not standardized | Message bus with typed channels |
 | Observability | Manual logging | OpenTelemetry-compatible tracing + metrics |
-| Validation | None (runtime errors) | 24 rules checked before execution (R1-R24) |
+| Validation | None (runtime errors) | 26 rules checked before execution (R1-R26) |
 | Portability | Zero | `.awp.zip` + ClawHub registry |
 
 ## Repository Structure
@@ -933,7 +1108,7 @@ agent-workflow-protocol/
   primer/                     Introduction and tutorials
   spec/                       Normative specification (RFC 2119)
   schemas/                    JSON Schemas for validation
-  examples/                   Runnable example workflows (L0-L5)
+  examples/                   Runnable example workflows (L0-L5 + dynamic tools)
   skill/                      Build skill for AI assistants
     adapters/                 Platform adapters (standalone, Cloudflare, ClawHub)
     extensions/               Domain extensions (financial, devops)
@@ -949,7 +1124,7 @@ agent-workflow-protocol/
 
 ```bash
 awp run <workflow-dir> --task "..."      # Run a workflow
-awp validate <workflow-dir>              # Validate structure and rules (R1-R24)
+awp validate <workflow-dir>              # Validate structure and rules (R1-R26)
 awp compliance <workflow-dir> --level L3 # Check compliance level
 awp visualize <workflow-dir> --format mermaid  # Visualize the agent DAG
 awp pack <workflow-dir>                  # Pack as .awp.zip for sharing

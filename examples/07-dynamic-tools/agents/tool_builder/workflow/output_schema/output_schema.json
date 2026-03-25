@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": ["tools_created", "tool_names", "confidence"],
+  "properties": {
+    "tools_created": {
+      "type": "integer",
+      "description": "Number of tools successfully created"
+    },
+    "tool_names": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "FQNs of the created tools"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in tool creation success"
+    }
+  }
+}

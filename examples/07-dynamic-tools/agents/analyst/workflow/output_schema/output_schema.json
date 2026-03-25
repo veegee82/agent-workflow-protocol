@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "required": ["rankings", "summary", "confidence"],
+  "properties": {
+    "rankings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "total_score": {"type": "number"},
+          "scores": {"type": "object"}
+        }
+      },
+      "description": "Items ranked by total weighted score"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Summary of the analysis results"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in the analysis"
+    }
+  }
+}

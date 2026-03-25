@@ -53,11 +53,13 @@ class ToolRegistry:
         self._tools: dict[str, ToolFunc] = {}
         self._definitions: dict[str, dict[str, Any]] = {}
         self._tool_secrets: dict[str, list[str]] = {}  # tool FQN → declared secret keys
+        self._dynamic_tools: dict[str, dict[str, Any]] = {}  # FQN → provenance metadata
         self._secrets: dict[str, str] = secrets or {}
         self._workflow_dir = workflow_dir
         self._memory_dir: Optional[Path] = None
         self._message_bus: Any = None
         self._code_executor: Any = None
+        self._dynamic_tool_factory: Any = None
         self._security_context: Any = None
         self._current_agent_id: str = ""
 
@@ -701,6 +703,57 @@ class ToolRegistry:
     def set_security_context(self, security_ctx: Any) -> None:
         """Set security context for access control enforcement."""
         self._security_context = security_ctx
+
+    def set_dynamic_tool_factory(self, factory: Any) -> None:
+        """Set the DynamicToolFactory for runtime tool creation."""
+        self._dynamic_tool_factory = factory
+
+    def register_dynamic(
+        self, name: str, fn: ToolFunc, params: dict, desc: str,
+        creator_agent: str, secrets_keys: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Register a dynamically created tool with provenance tracking.
+
+        Args:
+            name: Tool FQN.
+            fn: Tool callable.
+            params: JSON Schema for parameters.
+            desc: Tool description.
+            creator_agent: ID of the agent that created this tool.
+            secrets_keys: Optional secret keys (usually empty for dynamic tools).
+
+        Returns:
+            Standard AWP result format.
+        """
+        if name in self._tools:
+            return _err(f"Tool already exists: {name}", 409)
+        self._register(name, fn, params, desc, secrets_keys=secrets_keys)
+        self._dynamic_tools[name] = {
+            "creator": creator_agent,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return _ok({"name": name, "registered": True})
+
+    def unregister(self, name: str) -> dict[str, Any]:
+        """Remove a tool from the registry. Only dynamic tools can be removed.
+
+        Args:
+            name: Tool FQN to remove.
+
+        Returns:
+            Standard AWP result format.
+        """
+        if name not in self._dynamic_tools:
+            return _err(f"Cannot unregister non-dynamic tool: {name}", 403)
+        self._tools.pop(name, None)
+        self._definitions.pop(name, None)
+        self._tool_secrets.pop(name, None)
+        self._dynamic_tools.pop(name, None)
+        return _ok({"name": name, "unregistered": True})
+
+    def get_dynamic_tools(self) -> list[str]:
+        """Return FQNs of all dynamically registered tools."""
+        return list(self._dynamic_tools.keys())
 
     # -- Message bus tools ------------------------------------------------
 

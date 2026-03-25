@@ -54,6 +54,9 @@ class CodeModeConfig(BaseModel):
     enabled: bool = False
     language: str = "python"  # python | typescript | javascript
     sdk_surface: dict = Field(default_factory=dict)
+    tool_creation: bool = False
+    tool_creation_namespace: str = "dynamic"
+    max_tools: int = 10
 
     model_config = {"extra": "allow"}
 

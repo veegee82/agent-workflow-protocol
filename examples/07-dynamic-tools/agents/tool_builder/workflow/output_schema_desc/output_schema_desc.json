@@ -1,0 +1,5 @@
+{
+  "tools_created": "Number of scoring tools that were successfully created and registered",
+  "tool_names": "List of fully qualified names (FQNs) of the created scoring tools",
+  "confidence": "How confident the agent is that all tools were created correctly"
+}

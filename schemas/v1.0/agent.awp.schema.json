@@ -138,7 +138,42 @@
         "pipeline": { "type": "string", "default": "default" }
       }
     },
-    "capabilities": { "type": "object" },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "tools": { "type": "object" },
+        "skills": { "type": "object" },
+        "data_sources": { "type": "array" },
+        "sandbox": { "type": "object" },
+        "codemode": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "language": { "type": "string", "enum": ["python", "typescript", "javascript"] },
+            "sdk_surface": { "type": "object" },
+            "execution": { "type": "object" },
+            "state": { "type": "object" },
+            "tool_creation": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether this agent MAY create tools at runtime via sdk.tools.create()."
+            },
+            "tool_creation_namespace": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,30}$",
+              "default": "dynamic",
+              "description": "Namespace prefix for tools created by this agent."
+            },
+            "max_tools": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "description": "Maximum tools this agent MAY create."
+            }
+          }
+        }
+      }
+    },
     "memory": { "type": "object" }
   },
   "additionalProperties": false

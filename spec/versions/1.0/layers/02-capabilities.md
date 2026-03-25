@@ -357,7 +357,224 @@ capabilities:
 
 ---
 
-## 9. Complete Example
+## 9. Dynamic Tool Creation
+
+Dynamic Tool Creation enables Code Mode agents to create, register, and manage
+MCP tools at runtime. This eliminates the need for static tool files in the
+`mcp/` directory — agents can generate specialized tools on-the-fly based on
+workflow requirements, data schemas, or external specifications.
+
+Dynamic Tool Creation is OPTIONAL. It requires Code Mode to be enabled.
+
+### 9.1 Overview
+
+In **static tool mode**, tools are defined as Python files in `mcp/` and
+discovered at startup:
+
+```
+mcp/analyze_risk.py → AST parse → ToolRegistry → available to all agents
+```
+
+In **Dynamic Tool Creation**, an agent creates tools during execution via the SDK:
+
+```
+Agent A (CodeMode) → sdk.tools.create(...) → DynamicToolFactory → validates →
+  ToolRegistry → available to downstream agents (B, C, ...)
+```
+
+Dynamic tools follow the same rules as custom tools (CT1–CT9) plus additional
+constraints (DT1–DT8).
+
+### 9.2 Workflow Configuration
+
+The `dynamic_tools` section in `workflow.awp.yaml` controls global settings:
+
+| Field | Type | Status | Default | Description |
+|-------|------|--------|---------|-------------|
+| `enabled` | boolean | REQUIRED | `false` | Whether any agent MAY create tools at runtime. |
+| `persist` | boolean | OPTIONAL | `false` | If `true`, tool definitions are written to `workspace/dynamic_tools/` as JSON manifests. |
+| `max_total` | integer | OPTIONAL | `50` | Maximum dynamic tools across all agents in the workflow. |
+| `allowed_namespaces` | list of strings | OPTIONAL | `["dynamic"]` | Namespace prefixes agents MAY use for dynamic tools. |
+| `code_review` | boolean | OPTIONAL | `false` | If `true`, tool code is logged to the audit trail before registration. |
+
+### 9.3 Agent Configuration
+
+Per-agent settings in `agent.awp.yaml`:
+
+| Field | Type | Status | Default | Description |
+|-------|------|--------|---------|-------------|
+| `capabilities.codemode.tool_creation` | boolean | OPTIONAL | `false` | Whether this agent MAY create tools at runtime. |
+| `capabilities.codemode.tool_creation_namespace` | string | OPTIONAL | `"dynamic"` | Namespace prefix for tools created by this agent. |
+| `capabilities.codemode.max_tools` | integer | OPTIONAL | `10` | Maximum tools this agent MAY create. |
+
+### 9.4 SDK Surface
+
+When `tool_creation` is enabled, the Code Mode SDK includes a `tools` namespace:
+
+```python
+async def solve(sdk):
+    # Create and register a new tool
+    result = await sdk.tools.create(
+        name="scoring.quality",
+        description="Score item quality on a 0-1 scale",
+        parameters={
+            "type": "object",
+            "properties": {
+                "value": {"type": "number", "description": "Raw quality value"}
+            },
+            "required": ["value"]
+        },
+        code="""
+def handler(*, value):
+    score = min(value / 100.0, 1.0)
+    return {"ok": True, "status": 200, "data": {"score": score}, "error": None}
+""",
+        meta={"side_effects": False, "deterministic": True}
+    )
+
+    # List registered dynamic tools
+    tools = await sdk.tools.list(namespace="scoring")
+
+    # Remove a tool (only tools created by this agent)
+    await sdk.tools.remove("scoring.quality")
+```
+
+#### 9.4.1 `sdk.tools.create(name, description, parameters, code, meta?)`
+
+Creates and registers a new tool. The `code` parameter MUST be a string
+containing a `def handler(*, ...)` function. The handler MUST return the
+standard AWP tool response format (Section 3.2).
+
+Returns: `{"ok": true, "status": 200, "data": {"name": "...", "registered": true}}` on success.
+
+#### 9.4.2 `sdk.tools.list(namespace?)`
+
+Lists all dynamic tools, optionally filtered by namespace.
+
+Returns: `{"ok": true, "data": {"tools": [{"name": "...", "description": "..."}]}}`.
+
+#### 9.4.3 `sdk.tools.remove(name)`
+
+Removes a dynamic tool. An agent MAY only remove tools it created.
+
+Returns: `{"ok": true, "data": {"name": "...", "unregistered": true}}`.
+
+### 9.5 Secrets Access: Proxy Pattern
+
+Dynamic tools MUST NOT have direct access to secrets. Instead, dynamic tools
+that need external access SHOULD be composed with static tools that have
+secrets injected. For example, a dynamic `scoring.api_score` tool should
+delegate HTTP calls to `sdk.http.request()`, which has API keys injected
+by the runtime.
+
+### 9.6 Execution Model
+
+Dynamic tool code is executed in the same sandbox as the creating agent's
+Code Mode. Each invocation of a dynamic tool spawns a new subprocess (or
+sandbox instance), ensuring isolation between invocations.
+
+The `DynamicToolFactory` validates tool code before registration:
+
+1. **AST parsing** — Checks syntax validity without execution.
+2. **Import deny-list** — Rejects code that imports `os`, `subprocess`, `sys`, `shutil`, `socket`, or other dangerous modules.
+3. **Handler validation** — Verifies the code contains exactly one `def handler(*, ...)` function.
+4. **Parameter matching** — Checks handler parameters match the declared JSON Schema.
+
+### 9.7 Persistence Format
+
+When `dynamic_tools.persist` is `true`, each tool is saved as a JSON manifest
+in `workspace/dynamic_tools/{fqn}.json`:
+
+```json
+{
+  "fqn": "scoring.quality",
+  "description": "Score item quality on a 0-1 scale",
+  "parameters": {
+    "type": "object",
+    "properties": {"value": {"type": "number"}},
+    "required": ["value"]
+  },
+  "code": "def handler(*, value):\n    score = min(value / 100.0, 1.0)\n    return {\"ok\": True, \"status\": 200, \"data\": {\"score\": score}, \"error\": None}",
+  "meta": {"side_effects": false, "deterministic": true},
+  "provenance": {
+    "creator_agent": "tool_builder",
+    "created_at": "2026-03-25T10:00:00Z"
+  }
+}
+```
+
+Persisted tools are re-discovered and re-registered on subsequent workflow runs.
+
+### 9.8 Scope and Lifecycle
+
+Dynamic tools are **workflow-scoped** by default:
+
+- Tools are created during agent execution and registered in the shared `ToolRegistry`.
+- Downstream agents in the DAG automatically see dynamic tools via `get_definitions()`.
+- When the workflow completes, the `DynamicToolFactory` calls `cleanup()` to remove all dynamic tools.
+- If `persist: true`, tools survive workflow completion and are re-loaded on next run.
+
+### 9.9 Rules (DT1–DT8)
+
+- **DT1:** Dynamic tools MUST use the namespace declared in the agent's `tool_creation_namespace`.
+- **DT2:** Dynamic tool namespaces MUST NOT collide with reserved namespaces (Section 4.2).
+- **DT3:** Dynamic tools MUST return the standard AWP tool response format (Section 3.2).
+- **DT4:** Dynamic tool code MUST be syntactically valid in the configured language.
+- **DT5:** Dynamic tool code is executed in the same sandbox configuration as the creating agent's Code Mode.
+- **DT6:** Dynamic tools are workflow-scoped by default. They are unregistered when the workflow completes unless `persist: true`.
+- **DT7:** An agent MUST have `capabilities.codemode.tool_creation: true` to create tools. Attempts without this capability MUST return a 403 error.
+- **DT8:** Dynamic tool names MUST be unique within the workflow. Attempting to register a duplicate MUST return a 409 error.
+
+### 9.10 Example
+
+```yaml
+# workflow.awp.yaml
+dynamic_tools:
+  enabled: true
+  persist: false
+  max_total: 20
+  allowed_namespaces: ["scoring", "transform"]
+
+orchestration:
+  graph:
+    - id: tool_builder
+      agent: tool_builder
+      depends_on: []
+    - id: analyst
+      agent: analyst
+      depends_on: [tool_builder]
+```
+
+```yaml
+# agents/tool_builder/agent.awp.yaml
+capabilities:
+  tools:
+    enabled: true
+    allowed: ["file.*"]
+  codemode:
+    enabled: true
+    language: python
+    tool_creation: true
+    tool_creation_namespace: "scoring"
+    max_tools: 5
+  sandbox:
+    type: subprocess
+```
+
+```yaml
+# agents/analyst/agent.awp.yaml
+capabilities:
+  tools:
+    enabled: true
+    allowed: ["scoring.*", "file.*"]
+  codemode:
+    enabled: true
+    language: python
+```
+
+---
+
+## 10. Complete Example
 
 ```yaml
 awp_agent: "1.0.0"

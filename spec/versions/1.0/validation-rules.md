@@ -495,6 +495,8 @@ orchestration:
 | R23 | Capabilities | MUST | SDK excludes reference valid tools |
 | R24 | Capabilities | MUST | Isolate sandbox requires network config |
 | CT10 | Custom Tools | MUST | Code Mode tools must be async |
+| R25 | Capabilities | MUST | Dynamic tool namespace not reserved and in allowed list |
+| R26 | Capabilities | MUST | Dynamic tool creation requires Code Mode and workflow flag |
 
 ---
 
@@ -541,3 +543,70 @@ orchestration:
 - **Category:** Custom Tools
 - **Requirement:** Custom tools used with Code Mode (`codemode.enabled: true`) MUST be async/Promise-based (or use `async def` in Python).
 - **Rationale:** The Code Mode SDK exposes all tools as async methods. Synchronous tools would break the async execution model.
+
+---
+
+## 5. Dynamic Tool Creation Rules (R25–R26)
+
+### R25: Dynamic Tool Namespace Compliance
+
+- **Category:** Capabilities
+- **Requirement:** If `capabilities.codemode.tool_creation` is `true`, the `tool_creation_namespace` MUST NOT match any reserved namespace (web, http, file, shell, agent, memory, arithmetic, numpy, matplot, pandas, doc, sklearn). The `tool_creation_namespace` MUST also be listed in the workflow's `dynamic_tools.allowed_namespaces`. The runtime MUST validate this at configuration parse time.
+- **Rationale:** Dynamic tool namespaces must not collide with built-in tools and must be explicitly approved at the workflow level.
+
+**Valid:**
+```yaml
+# workflow.awp.yaml
+dynamic_tools:
+  enabled: true
+  allowed_namespaces: ["scoring", "transform"]
+
+# agent.awp.yaml
+capabilities:
+  codemode:
+    tool_creation: true
+    tool_creation_namespace: "scoring"  # In allowed_namespaces, not reserved
+```
+
+**Invalid:**
+```yaml
+# agent.awp.yaml
+capabilities:
+  codemode:
+    tool_creation: true
+    tool_creation_namespace: "web"  # Reserved namespace
+```
+```yaml
+# tool_creation_namespace: "custom" but workflow allows only ["scoring"]
+```
+
+### R26: Dynamic Tool Creation Requires Code Mode
+
+- **Category:** Capabilities
+- **Requirement:** If `capabilities.codemode.tool_creation` is `true`, then `capabilities.codemode.enabled` MUST also be `true`. Additionally, `dynamic_tools.enabled` MUST be `true` in `workflow.awp.yaml`.
+- **Rationale:** Dynamic tool creation operates through the Code Mode SDK. Without Code Mode enabled, the `sdk.tools.create()` method is unavailable. Without the workflow-level flag, the runtime has no `DynamicToolFactory` instance.
+
+**Valid:**
+```yaml
+# workflow.awp.yaml
+dynamic_tools:
+  enabled: true
+
+# agent.awp.yaml
+capabilities:
+  codemode:
+    enabled: true
+    tool_creation: true
+```
+
+**Invalid:**
+```yaml
+capabilities:
+  codemode:
+    enabled: false
+    tool_creation: true  # Code Mode is disabled
+```
+```yaml
+# workflow.awp.yaml has no dynamic_tools section or dynamic_tools.enabled: false
+# agent.awp.yaml has tool_creation: true
+```

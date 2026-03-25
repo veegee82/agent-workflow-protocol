@@ -20,6 +20,11 @@ Secrets:
   Tools can declare API keys they need via secrets=["KEY"] in the decorator.
   The AWP runtime injects them as a _secrets dict at call time — the LLM never
   sees these values. Declare keys in secrets.yaml at the workflow root.
+
+Alternative — Dynamic Tool Creation:
+  Instead of static tool files, agents with Code Mode can create tools at runtime
+  via sdk.tools.create(). See codemode-skill.md for details. Dynamic tools are
+  useful when tools depend on runtime data, external schemas, or workflow context.
 """
 
 from __future__ import annotations

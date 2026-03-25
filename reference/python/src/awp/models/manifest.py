@@ -87,6 +87,15 @@ class WorkflowMetadata(BaseModel):
     settings: WorkflowSettings = Field(default_factory=WorkflowSettings)
 
 
+class DynamicToolsConfig(BaseModel):
+    """Configuration for runtime dynamic tool creation."""
+    enabled: bool = False
+    persist: bool = False
+    max_total: int = 50
+    allowed_namespaces: list[str] = Field(default_factory=lambda: ["dynamic"])
+    code_review: bool = False
+
+
 class AWPManifest(BaseModel):
     """Root model for workflow.awp.yaml (Layer 0).
 
@@ -103,6 +112,7 @@ class AWPManifest(BaseModel):
     communication: Optional[Any] = None  # CommunicationConfig
     observability: Optional[Any] = None  # ObservabilityConfig
     custom_tools: Optional[Any] = None  # CustomToolsConfig
+    dynamic_tools: Optional[DynamicToolsConfig] = None
     security: Optional[Any] = None  # SecurityConfig
 
     # Top-level env and settings (alternative to inside workflow)

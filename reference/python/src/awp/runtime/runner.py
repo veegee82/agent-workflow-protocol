@@ -48,6 +48,7 @@ from .observability import ObservabilityContext
 from .secrets import load_secrets
 from .security import SecurityContext
 from .state_persistence import StatePersistence
+from .dynamic_tool_factory import DynamicToolFactory
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,16 @@ class WorkflowRunner:
             working_dir=self._dir,
         )
         self._tools.set_code_executor(self._code_executor)
+
+        # Dynamic tool factory
+        dynamic_tools_cfg = getattr(self._manifest, "dynamic_tools", None)
+        self._dynamic_tool_factory = DynamicToolFactory(
+            registry=self._tools,
+            code_executor=self._code_executor,
+            config=dynamic_tools_cfg,
+            workflow_dir=self._dir,
+        )
+        self._tools.set_dynamic_tool_factory(self._dynamic_tool_factory)
 
         # State persistence
         state_cfg = getattr(self._manifest, "state", None)
@@ -272,6 +283,10 @@ class WorkflowRunner:
 
         # Flush observability
         obs.flush_all()
+
+        # Clean up dynamic tools
+        if self._dynamic_tool_factory.enabled:
+            self._dynamic_tool_factory.cleanup()
 
         # Save final state
         try:
