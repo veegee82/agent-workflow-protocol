@@ -187,7 +187,7 @@ These rules define validation requirements for AWP workflows. Rules marked **(re
 
 - **R1:** `workflow.name` MUST match the workflow directory name.
 - **R2:** All agent IDs MUST be `snake_case` (lowercase letters, digits, underscores).
-- **R3 (recommended for Python):** Every `agent.py` SHOULD define a class named `Agent` that extends `AWPAgent` (or a platform-specific base class).
+- **R3 (recommended for Python):** Every `agent.py` SHOULD define a class named `Agent` that extends `StandaloneAgent` (for standalone runtime) or `AWPAgent` (for other platforms).
 - **R4 (recommended for Python):** The `Agent.name` property MUST return the same string as the agent ID in the graph.
 - **R5:** Every agent in the graph MUST have a corresponding directory under `agents/`.
 - **R6:** Every agent directory MUST contain `agent.awp.yaml` and `agent.py`.
@@ -730,7 +730,22 @@ Choose the appropriate **adapter** based on the target platform:
 | **Standalone (awp-protocol)** | `adapters/standalone.md` | `agent.py` (Python) |
 | **Cloudflare Workers** | `adapters/cloudflare-dynamic-workers.md` | `src/index.ts`, `wrangler.toml` (TypeScript) |
 
-**Default:** Use `templates/agent.py` which imports from `awp.agent`.
+**Default (Standalone):** Use `templates/agent.py` which inherits from
+`awp.runtime.agent.StandaloneAgent`. This makes every generated agent **fully
+functional out of the box** — it can load its own config, build prompts, call
+the LLM, handle tools, and enforce output contracts without any additional code.
+
+**Mandatory rules for generated `agent.py` (Standalone adapter):**
+
+1. The `Agent` class MUST inherit from `StandaloneAgent` (not `AWPAgent`).
+2. The `__init__` MUST accept optional `agent_dir`, `workflow_dir`, `llm`, and
+   `tool_registry` parameters with auto-detection defaults via `Path(__file__)`.
+3. The agent MUST be instantiable with no arguments: `Agent()` works standalone.
+4. Do NOT override `run()` with stub logic — the inherited `StandaloneAgent.run()`
+   provides the complete LLM pipeline. Only override when the agent needs
+   custom pre-/post-processing.
+5. Include commented-out override hooks (`run`, `_build_system_prompt`,
+   `_build_user_message`) so users know what they can customise.
 
 Read the adapter file in `skill/adapters/` for platform-specific instructions,
 then generate `agent.py` accordingly. Third-party platforms can provide their
@@ -931,7 +946,7 @@ After generating all files, verify:
 
 - [ ] R1: workflow.name matches directory name.
 - [ ] R2: All agent IDs are snake_case.
-- [ ] R3: All agent.py files define class Agent extending AWPAgent (or platform base).
+- [ ] R3: All agent.py files define class Agent extending StandaloneAgent (standalone) or AWPAgent (other platforms).
 - [ ] R4: Agent.name property returns the correct agent ID.
 - [ ] R5: Every graph agent has a directory under agents/.
 - [ ] R6: Every agent directory has agent.awp.yaml and agent.py.

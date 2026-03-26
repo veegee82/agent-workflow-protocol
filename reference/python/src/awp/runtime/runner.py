@@ -26,6 +26,7 @@ Usage::
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import subprocess
@@ -147,6 +148,43 @@ class WorkflowRunner:
             logger.warning(
                 "Failed to install workflow dependencies: %s", exc.stderr.decode() if exc.stderr else str(exc)
             )
+
+    def _load_agent(self, agent_dir: Path) -> StandaloneAgent:
+        """Load the Agent class from the agent's ``agent.py``, falling back to
+        :class:`StandaloneAgent` when the file is missing, does not define an
+        ``Agent`` class, or the import fails for any reason.
+
+        This allows generated ``agent.py`` files that inherit from
+        ``StandaloneAgent`` to be picked up automatically, including any
+        user-provided overrides of ``run()``, ``_build_system_prompt()``, etc.
+        """
+        agent_py = agent_dir / "agent.py"
+        if agent_py.exists():
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    f"awp_agent_{agent_dir.name}", str(agent_py),
+                )
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)  # type: ignore[union-attr]
+                agent_cls = getattr(module, "Agent", None)
+                if agent_cls is not None:
+                    agent = agent_cls(
+                        agent_dir=agent_dir,
+                        workflow_dir=self._dir,
+                        llm=self._llm,
+                        tool_registry=self._tools,
+                    )
+                    return agent
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Could not load Agent class from %s, using StandaloneAgent: %s",
+                    agent_py, exc,
+                )
+        return StandaloneAgent(
+            agent_dir, self._dir,
+            llm=self._llm,
+            tool_registry=self._tools,
+        )
 
     @property
     def name(self) -> str:
@@ -389,11 +427,7 @@ class WorkflowRunner:
                 return {agent_id: {"error": "Agent directory not found", "confidence": 0.0}}
 
             try:
-                agent = StandaloneAgent(
-                    agent_dir, self._dir,
-                    llm=self._llm,
-                    tool_registry=self._tools,
-                )
+                agent = self._load_agent(agent_dir)
                 result = agent.run(task, state)
                 agent_duration = time.monotonic() - agent_start
 

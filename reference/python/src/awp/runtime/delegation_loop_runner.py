@@ -32,6 +32,7 @@ Usage::
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import time
@@ -411,6 +412,36 @@ class DelegationLoopRunner:
         # History
         self._history: list[dict[str, Any]] = []
 
+    def _load_agent(self, agent_dir: Path, llm: Optional[LLMClient] = None) -> StandaloneAgent:
+        """Load the Agent class from ``agent.py``, falling back to
+        :class:`StandaloneAgent`.  See :meth:`WorkflowRunner._load_agent`."""
+        agent_py = agent_dir / "agent.py"
+        if agent_py.exists():
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    f"awp_agent_{agent_dir.name}", str(agent_py),
+                )
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)  # type: ignore[union-attr]
+                agent_cls = getattr(module, "Agent", None)
+                if agent_cls is not None:
+                    return agent_cls(
+                        agent_dir=agent_dir,
+                        workflow_dir=self._dir,
+                        llm=llm,
+                        tool_registry=self._tools,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Could not load Agent from %s, using StandaloneAgent: %s",
+                    agent_py, exc,
+                )
+        return StandaloneAgent(
+            agent_dir, self._dir,
+            llm=llm,
+            tool_registry=self._tools,
+        )
+
     def run(self, task: str, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute the delegation loop."""
         state = dict(state or {})
@@ -548,14 +579,10 @@ class DelegationLoopRunner:
             # Inline manager — create system prompt dynamically
             return self._run_inline_manager(task, state, iteration)
 
-        # Use StandaloneAgent for the manager
+        # Use agent.py (or StandaloneAgent fallback) for the manager
         try:
             llm = LLMClient(model=self._manager_model)
-            agent = StandaloneAgent(
-                manager_dir, self._dir,
-                llm=llm,
-                tool_registry=self._tools,
-            )
+            agent = self._load_agent(manager_dir, llm=llm)
 
             # Build enhanced task with context
             enhanced_task = self._build_manager_task(task, state, iteration)

@@ -1,10 +1,28 @@
 """Processor agent -- transforms and computes statistics."""
-from awp import AWPAgent
 
-class Agent(AWPAgent):
-    @property
-    def name(self) -> str:
-        return "processor"
+from __future__ import annotations
 
-    def run(self, task: str, state: dict) -> dict:
-        return {self.name: {"processed_data": {}, "statistics": {}, "confidence": 0.0}}
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from awp.runtime.agent import StandaloneAgent
+from awp.runtime.llm import LLMClient
+from awp.runtime.tools import ToolRegistry
+
+
+class Agent(StandaloneAgent):
+    """Processor agent -- transforms and computes statistics."""
+
+    def __init__(
+        self,
+        agent_dir: str | Path | None = None,
+        workflow_dir: str | Path | None = None,
+        llm: Optional[LLMClient] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+    ) -> None:
+        super().__init__(
+            agent_dir=agent_dir or Path(__file__).parent,
+            workflow_dir=workflow_dir or Path(__file__).parents[2],
+            llm=llm,
+            tool_registry=tool_registry,
+        )
