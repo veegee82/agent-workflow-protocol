@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..parser import parse_manifest
-from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency
+from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency, RunBudgetLimits
 from .agent import StandaloneAgent
 from .code_executor import CodeExecutor
 from .expressions import safe_eval
@@ -53,6 +53,67 @@ from .dynamic_tool_factory import DynamicToolFactory
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+class RunBudgetTracker:
+    """Tracks consumed resources against global run budget limits.
+
+    Only checks limits that are listed in ``enabled_limits``.
+    """
+
+    def __init__(self, budget: RunBudgetLimits) -> None:
+        self._budget = budget
+        self._enabled = set(budget.enabled_limits)
+        self.agent_runs = 0
+        self.tool_calls = 0
+        self.tokens_used = 0
+        self.cost_usd = 0.0
+        self._start = time.monotonic()
+
+    @property
+    def wall_time_elapsed(self) -> float:
+        return time.monotonic() - self._start
+
+    def record_agent_run(self) -> None:
+        self.agent_runs += 1
+
+    def record_tool_calls(self, count: int = 1) -> None:
+        self.tool_calls += count
+
+    def record_tokens(self, count: int) -> None:
+        self.tokens_used += count
+
+    def record_cost(self, usd: float) -> None:
+        self.cost_usd += usd
+
+    def check(self) -> tuple[bool, str]:
+        """Return (can_continue, reason).  Only checks enabled limits."""
+        if "max_wall_time" in self._enabled:
+            if self.wall_time_elapsed >= self._budget.max_wall_time:
+                return False, f"max_wall_time exceeded ({self._budget.max_wall_time}s)"
+        if "max_total_tokens" in self._enabled:
+            if self.tokens_used >= self._budget.max_total_tokens:
+                return False, f"max_total_tokens reached ({self._budget.max_total_tokens})"
+        if "max_tool_calls" in self._enabled:
+            if self.tool_calls >= self._budget.max_tool_calls:
+                return False, f"max_tool_calls reached ({self._budget.max_tool_calls})"
+        if "max_agent_runs" in self._enabled:
+            if self.agent_runs >= self._budget.max_agent_runs:
+                return False, f"max_agent_runs reached ({self._budget.max_agent_runs})"
+        if "max_cost_usd" in self._enabled:
+            if self.cost_usd >= self._budget.max_cost_usd:
+                return False, f"max_cost_usd reached (${self._budget.max_cost_usd:.2f})"
+        return True, "ok"
+
+    def summary(self) -> dict:
+        return {
+            "wall_time_s": round(self.wall_time_elapsed, 1),
+            "agent_runs": self.agent_runs,
+            "tool_calls": self.tool_calls,
+            "tokens_used": self.tokens_used,
+            "cost_usd": round(self.cost_usd, 4),
+            "enabled_limits": sorted(self._enabled),
+        }
 
 
 class WorkflowRunner:
@@ -225,6 +286,14 @@ class WorkflowRunner:
 
         orch = self._manifest.orchestration
 
+        # Initialize global run budget tracker
+        run_budget_cfg = getattr(orch, "run_budget", None) if orch else None
+        self._run_budget: Optional[RunBudgetTracker] = None
+        if run_budget_cfg:
+            self._run_budget = RunBudgetTracker(run_budget_cfg)
+            enabled = run_budget_cfg.enabled_limits
+            logger.info("Run budget active — enabled limits: %s", ", ".join(enabled))
+
         # Dispatch to delegation loop engine if configured
         if orch and getattr(orch, "engine", "dag") == "delegation_loop":
             return self._run_delegation_loop(task, state)
@@ -261,6 +330,21 @@ class WorkflowRunner:
             logger.info("Level %d: [%s]%s", level_idx, level_str, parallel)
 
             for agent_id in level:
+                # Run budget check — stop early if a limit is exceeded
+                if self._run_budget:
+                    can_go, reason = self._run_budget.check()
+                    if not can_go:
+                        logger.warning("  Run budget limit hit: %s — stopping workflow", reason)
+                        if obs.audit:
+                            obs.audit.record("workflow.budget_exceeded", details={
+                                "reason": reason,
+                                "budget_summary": self._run_budget.summary(),
+                            })
+                        state["_run_budget"] = self._run_budget.summary()
+                        state["_run_budget"]["exceeded"] = reason
+                        # Break out of both loops
+                        return self._finalize_run(state, obs, root_span, workflow_start, levels)
+
                 node = self._get_node(orch, agent_id)
                 if node and not node.enabled:
                     logger.info("  Skipping disabled agent: %s", agent_id)
@@ -302,6 +386,10 @@ class WorkflowRunner:
                 )
                 state.update(result)
 
+                # Track agent run in global budget
+                if self._run_budget:
+                    self._run_budget.record_agent_run()
+
                 # Record rate limit usage
                 if self._security.rate_limiter:
                     self._security.rate_limiter.record(agent_id)
@@ -312,8 +400,23 @@ class WorkflowRunner:
                 except Exception as exc:
                     logger.warning("Failed to save checkpoint for %s: %s", agent_id, exc)
 
-        # Finalize
+        return self._finalize_run(state, obs, root_span, workflow_start, levels)
+
+    def _finalize_run(
+        self,
+        state: Dict[str, Any],
+        obs: "ObservabilityContext",
+        root_span: Optional[str],
+        workflow_start: float,
+        levels: list,
+    ) -> Dict[str, Any]:
+        """Finalize a workflow run — observability, cleanup, persistence."""
         workflow_duration = time.monotonic() - workflow_start
+
+        # Attach budget summary to state
+        if self._run_budget:
+            state.setdefault("_run_budget", self._run_budget.summary())
+
         if obs.tracer and root_span:
             obs.tracer.end_span(root_span, status="ok", attributes={
                 "duration_s": round(workflow_duration, 2),
@@ -324,7 +427,6 @@ class WorkflowRunner:
                                   labels={"workflow": self.name})
         if obs.audit:
             obs.audit.record("workflow.complete", details={
-                "run_id": run_id,
                 "duration_s": round(workflow_duration, 2),
             })
 
