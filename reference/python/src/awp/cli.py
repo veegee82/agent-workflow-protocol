@@ -902,11 +902,14 @@ def _save_secrets_yaml(workflow_dir: Path, secrets: dict[str, str]) -> None:
 
 
 def _budget_wizard(runner: "WorkflowRunner") -> None:
-    """Interactive wizard to review and adjust delegation loop budget.
+    """Interactive wizard to review and adjust delegation loop settings.
 
     Only shown when the workflow uses engine=delegation_loop. Displays
-    current budget settings and lets the user adjust them.
+    current settings and lets the user adjust budget, validation,
+    stall detection, logging, and model configuration.
     """
+    import os as _os
+
     orch = getattr(runner._manifest, "orchestration", None)
     if not orch or getattr(orch, "engine", "dag") != "delegation_loop":
         return
@@ -919,71 +922,184 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
     if not budget:
         return
 
-    print("=" * 60)
-    print("  Delegation Loop Budget")
-    print("=" * 60)
-    print()
-    print("  Current budget settings:")
-    print(f"    Max Loops:       {budget.max_loops:>6}     (manager iterations)")
-    print(f"    Max Workers:     {budget.max_total_workers:>6}     (total workers spawned)")
-    print(f"    Max Wall Time:   {budget.max_wall_time:>5}s    (total execution time)")
-    print(f"    Max Depth:       {budget.max_depth:>6}     (recursive delegation depth)")
-    print()
-
-    # Estimate: free models are slow (~60-120s per LLM call)
-    # Each iteration = 1 manager call + N worker calls
-    # Rough estimate: iterations * (1 + avg_workers) * avg_call_time
-    import os
-    model = os.getenv("LLM_MODEL", "")
+    model = _os.getenv("LLM_MODEL", "")
     is_free = ":free" in model.lower()
+
+    # -- Display current settings ------------------------------------------
+
+    print("=" * 60)
+    print("  Delegation Loop Settings")
+    print("=" * 60)
+
+    # Budget
+    print()
+    print("  1) Budget")
+    print(f"     Max Loops:       {budget.max_loops:>6}     (manager iterations)")
+    print(f"     Max Workers:     {budget.max_total_workers:>6}     (total workers spawned)")
+    print(f"     Max Wall Time:   {budget.max_wall_time:>5}s    (total execution time)")
+    print(f"     Max Depth:       {budget.max_depth:>6}     (recursive delegation depth)")
+
     if is_free:
-        est_time = budget.max_loops * 2 * 90  # ~90s per call for free models
-        print(f"  ⚠ Free model detected: {model}")
-        print(f"    Estimated max time: ~{est_time // 60}min (free models are slower)")
-        if budget.max_wall_time < est_time:
-            suggested = min(est_time + 300, 3600)
-            print(f"    ⚡ Recommended wall time: {suggested}s ({suggested // 60}min)")
+        est_time = budget.max_loops * 2 * 90
         print()
+        print(f"     ⚠ Free model: ~{est_time // 60}min estimated")
+        if budget.max_wall_time < est_time:
+            print(f"     ⚡ Recommended wall time: {min(est_time + 300, 3600)}s")
+
+    # Validation
+    val_cfg = getattr(dl, "validation", None)
+    if val_cfg:
+        det = getattr(val_cfg, "deterministic", None)
+        llm_val = getattr(val_cfg, "llm", None)
+        print()
+        print("  2) Validation")
+        print(f"     Deterministic:   {'on' if (det and det.always) else 'off':>6}     (schema, confidence, budget checks)")
+        if llm_val:
+            print(f"     LLM Validation:  {'on' if llm_val.enabled else 'off':>6}     (semantic check — costs extra tokens)")
+            if llm_val.enabled:
+                print(f"     Skip above:      {llm_val.skip_when_confidence_above:>6}     (skip LLM validation when confident)")
+
+    # Stall Detection
+    stall_cfg = getattr(dl, "termination", None)
+    if stall_cfg:
+        print()
+        print("  3) Stall Detection")
+        print(f"     Enabled:         {'on' if stall_cfg.enabled else 'off':>6}     (auto-stop when no progress)")
+        if stall_cfg.enabled:
+            print(f"     Window:          {stall_cfg.window:>6}     (iterations to compare)")
+            print(f"     Min Delta:       {stall_cfg.min_confidence_delta:>6}     (minimum confidence improvement)")
+
+    # Logging
+    log_cfg = getattr(dl, "logging", None)
+    if log_cfg:
+        print()
+        print("  4) Logging")
+        print(f"     Format:          {log_cfg.format:>6}     (dual=JSON+MD, json, md)")
+        print(f"     Artifacts:       {'on' if log_cfg.persist_artifacts else 'off':>6}     (save generated skills & tools)")
+
+    # Models
+    mgr_model = runner._manager_model or _os.getenv("LLM_MODEL", "(not set)")
+    wkr_model = runner._worker_model or mgr_model
+    print()
+    print("  5) Models")
+    print(f"     Manager:         {mgr_model}")
+    print(f"     Worker:          {wkr_model}")
+
+    print()
+    print("=" * 60)
+
+    # -- Ask what to adjust ------------------------------------------------
 
     try:
-        ans = input("  Adjust budget? [y/N]: ").strip()
+        ans = input("\n  Adjust settings? Enter numbers (e.g. 1,5) or [N]: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return
 
-    if ans.lower() not in ("y", "yes"):
+    if not ans or ans.lower() == "n":
         print()
         return
 
-    # Interactive adjustment
+    sections = {c.strip() for c in ans.replace(" ", ",").split(",") if c.strip()}
+
     def _ask_int(prompt: str, current: int, recommended: int = 0) -> int:
         rec = f" (empfohlen: {recommended})" if recommended else ""
         try:
-            val = input(f"    {prompt} [{current}]{rec}: ").strip()
+            val = input(f"     {prompt} [{current}]{rec}: ").strip()
             if val:
                 return int(val)
         except (EOFError, KeyboardInterrupt, ValueError):
             pass
         return current
 
-    rec_wall = 0
-    if is_free:
-        rec_wall = min(budget.max_loops * 2 * 90 + 300, 3600)
+    def _ask_float(prompt: str, current: float) -> float:
+        try:
+            val = input(f"     {prompt} [{current}]: ").strip()
+            if val:
+                return float(val)
+        except (EOFError, KeyboardInterrupt, ValueError):
+            pass
+        return current
 
-    new_loops = _ask_int("Max Loops", budget.max_loops)
-    new_workers = _ask_int("Max Workers", budget.max_total_workers)
-    new_wall = _ask_int("Max Wall Time (seconds)", budget.max_wall_time, rec_wall)
-    new_depth = _ask_int("Max Depth", budget.max_depth)
+    def _ask_bool(prompt: str, current: bool) -> bool:
+        cur = "y" if current else "n"
+        try:
+            val = input(f"     {prompt} [{'Y/n' if current else 'y/N'}]: ").strip()
+            if val:
+                return val.lower() in ("y", "yes", "on", "true", "1")
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return current
 
-    # Apply changes
-    budget.max_loops = new_loops
-    budget.max_total_workers = new_workers
-    budget.max_wall_time = new_wall
-    budget.max_depth = new_depth
+    def _ask_str(prompt: str, current: str, options: list[str] | None = None) -> str:
+        hint = f" ({'/'.join(options)})" if options else ""
+        try:
+            val = input(f"     {prompt}{hint} [{current}]: ").strip()
+            if val:
+                return val
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return current
 
-    print()
-    print(f"  ✓ Budget updated: loops={new_loops}, workers={new_workers}, "
-          f"wall_time={new_wall}s, depth={new_depth}")
+    changes: list[str] = []
+
+    # 1) Budget
+    if "1" in sections:
+        print("\n  -- Budget --")
+        rec_wall = min(budget.max_loops * 2 * 90 + 300, 3600) if is_free else 0
+        budget.max_loops = _ask_int("Max Loops", budget.max_loops)
+        budget.max_total_workers = _ask_int("Max Workers", budget.max_total_workers)
+        budget.max_wall_time = _ask_int("Max Wall Time (seconds)", budget.max_wall_time, rec_wall)
+        budget.max_depth = _ask_int("Max Depth", budget.max_depth)
+        changes.append(f"budget: loops={budget.max_loops}, workers={budget.max_total_workers}, "
+                       f"wall_time={budget.max_wall_time}s")
+
+    # 2) Validation
+    if "2" in sections and val_cfg:
+        print("\n  -- Validation --")
+        llm_val = getattr(val_cfg, "llm", None)
+        if llm_val:
+            llm_val.enabled = _ask_bool("LLM Validation", llm_val.enabled)
+            if llm_val.enabled:
+                llm_val.skip_when_confidence_above = _ask_float(
+                    "Skip LLM when confidence above", llm_val.skip_when_confidence_above
+                )
+            changes.append(f"validation: llm={'on' if llm_val.enabled else 'off'}")
+
+    # 3) Stall Detection
+    if "3" in sections and stall_cfg:
+        print("\n  -- Stall Detection --")
+        stall_cfg.enabled = _ask_bool("Enabled", stall_cfg.enabled)
+        if stall_cfg.enabled:
+            stall_cfg.window = _ask_int("Window (iterations)", stall_cfg.window)
+            stall_cfg.min_confidence_delta = _ask_float("Min Delta", stall_cfg.min_confidence_delta)
+        changes.append(f"stall: {'on' if stall_cfg.enabled else 'off'}")
+
+    # 4) Logging
+    if "4" in sections and log_cfg:
+        print("\n  -- Logging --")
+        log_cfg.format = _ask_str("Format", log_cfg.format, ["dual", "json", "md"])
+        log_cfg.persist_artifacts = _ask_bool("Save artifacts (skills & tools)", log_cfg.persist_artifacts)
+        changes.append(f"logging: {log_cfg.format}, artifacts={'on' if log_cfg.persist_artifacts else 'off'}")
+
+    # 5) Models
+    if "5" in sections:
+        print("\n  -- Models --")
+        print("     Available via --manager-model / --worker-model CLI flags.")
+        print("     Or set here for this run:")
+        new_mgr = _ask_str("Manager model", mgr_model)
+        new_wkr = _ask_str("Worker model", wkr_model)
+        if new_mgr != mgr_model:
+            runner._manager_model = new_mgr
+            changes.append(f"manager-model: {new_mgr}")
+        if new_wkr != wkr_model:
+            runner._worker_model = new_wkr
+            changes.append(f"worker-model: {new_wkr}")
+
+    # Summary
+    if changes:
+        print()
+        print(f"  ✓ Updated: {', '.join(changes)}")
     print()
 
 
