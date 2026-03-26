@@ -319,6 +319,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         if missing:
             _secrets_wizard(runner, missing, wf_dir)
 
+        # Budget wizard for delegation loop workflows
+        _budget_wizard(runner)
+
         # Ask about debug mode if not set via flag
         if not debug:
             try:
@@ -896,6 +899,92 @@ def _save_secrets_yaml(workflow_dir: Path, secrets: dict[str, str]) -> None:
                 f.write("\nsecrets.yaml\n")
     else:
         gitignore.write_text("secrets.yaml\n", encoding="utf-8")
+
+
+def _budget_wizard(runner: "WorkflowRunner") -> None:
+    """Interactive wizard to review and adjust delegation loop budget.
+
+    Only shown when the workflow uses engine=delegation_loop. Displays
+    current budget settings and lets the user adjust them.
+    """
+    orch = getattr(runner._manifest, "orchestration", None)
+    if not orch or getattr(orch, "engine", "dag") != "delegation_loop":
+        return
+
+    dl = getattr(orch, "delegation_loop", None)
+    if not dl:
+        return
+
+    budget = getattr(dl, "budget", None)
+    if not budget:
+        return
+
+    print("=" * 60)
+    print("  Delegation Loop Budget")
+    print("=" * 60)
+    print()
+    print("  Current budget settings:")
+    print(f"    Max Loops:       {budget.max_loops:>6}     (manager iterations)")
+    print(f"    Max Workers:     {budget.max_total_workers:>6}     (total workers spawned)")
+    print(f"    Max Wall Time:   {budget.max_wall_time:>5}s    (total execution time)")
+    print(f"    Max Depth:       {budget.max_depth:>6}     (recursive delegation depth)")
+    print()
+
+    # Estimate: free models are slow (~60-120s per LLM call)
+    # Each iteration = 1 manager call + N worker calls
+    # Rough estimate: iterations * (1 + avg_workers) * avg_call_time
+    import os
+    model = os.getenv("LLM_MODEL", "")
+    is_free = ":free" in model.lower()
+    if is_free:
+        est_time = budget.max_loops * 2 * 90  # ~90s per call for free models
+        print(f"  ⚠ Free model detected: {model}")
+        print(f"    Estimated max time: ~{est_time // 60}min (free models are slower)")
+        if budget.max_wall_time < est_time:
+            suggested = min(est_time + 300, 3600)
+            print(f"    ⚡ Recommended wall time: {suggested}s ({suggested // 60}min)")
+        print()
+
+    try:
+        ans = input("  Adjust budget? [y/N]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+
+    if ans.lower() not in ("y", "yes"):
+        print()
+        return
+
+    # Interactive adjustment
+    def _ask_int(prompt: str, current: int, recommended: int = 0) -> int:
+        rec = f" (empfohlen: {recommended})" if recommended else ""
+        try:
+            val = input(f"    {prompt} [{current}]{rec}: ").strip()
+            if val:
+                return int(val)
+        except (EOFError, KeyboardInterrupt, ValueError):
+            pass
+        return current
+
+    rec_wall = 0
+    if is_free:
+        rec_wall = min(budget.max_loops * 2 * 90 + 300, 3600)
+
+    new_loops = _ask_int("Max Loops", budget.max_loops)
+    new_workers = _ask_int("Max Workers", budget.max_total_workers)
+    new_wall = _ask_int("Max Wall Time (seconds)", budget.max_wall_time, rec_wall)
+    new_depth = _ask_int("Max Depth", budget.max_depth)
+
+    # Apply changes
+    budget.max_loops = new_loops
+    budget.max_total_workers = new_workers
+    budget.max_wall_time = new_wall
+    budget.max_depth = new_depth
+
+    print()
+    print(f"  ✓ Budget updated: loops={new_loops}, workers={new_workers}, "
+          f"wall_time={new_wall}s, depth={new_depth}")
+    print()
 
 
 def _main() -> None:
