@@ -582,6 +582,47 @@ Override any built-in tool by dropping a Python file into `mcp/`. Inject
 company knowledge via `skills/`. Route observability to your OTEL collector.
 Manage secrets via `secrets.yaml`. The YAML never changes -- only the backend.
 
+### Competitive Benchmarking: Same Workflow, Different Backends
+
+Because AWP separates the workflow definition from the infrastructure, companies
+can **benchmark their technologies against each other using identical agentic
+workflows**.
+
+A memory vendor builds a better vector search? Swap the `memory.search` MCP
+tool and run the same workflow. An observability platform claims lower overhead?
+Plug it in and compare. A new LLM provider is faster? Change the model and
+measure.
+
+```
+  Same workflow.awp.yaml                Different backends
+  ─────────────────────                 ──────────────────────
+                                        Run A: Pinecone + GPT-4o
+  research-pipeline/                →   Run B: Weaviate + Claude Sonnet
+    planner → researcher → writer       Run C: pgvector + Llama 3
+                                        Run D: Qdrant + Gemini Pro
+```
+
+This creates a **shared evaluation framework** for the entire AI infrastructure
+ecosystem:
+
+| What you're building | How AWP helps |
+|---------------------|---------------|
+| **Memory / RAG** | Benchmark your vector DB against competitors using real multi-agent workflows, not synthetic queries |
+| **LLM Providers** | Compare model quality, speed, and cost on identical agent tasks with identical prompts |
+| **Observability** | Prove your tracing adds less overhead by running the same workflow with different collectors |
+| **Orchestration** | Show your runtime is faster/cheaper by executing the same AWP workflow on your platform |
+| **Tool Platforms** | Demonstrate your MCP tool implementations outperform alternatives on the same agent graph |
+| **Security** | Validate your sandbox/rate-limiter catches more edge cases using standardized A3/A4 workflows |
+
+The key insight: **the workflow is the benchmark**. When everyone uses the same
+portable format, the competition shifts from "who has the best framework" to
+"who has the best infrastructure" -- which is where the real value lies.
+
+Companies can publish their AWP-compatible implementations, and the community
+can run standardized benchmark suites to compare them objectively. No vendor
+lock-in, no synthetic benchmarks, no framework-specific bias. Just the same
+agents, the same tasks, the same output contracts -- different backends.
+
 ---
 
 ## Repository Structure
