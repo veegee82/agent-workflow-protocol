@@ -370,6 +370,57 @@ budget:
 When workers sub-delegate (A4), they split their budget. The invariant
 `sum(children) + self <= allocation` is enforced deterministically.
 
+### Run Budget Limits -- Global Limits for Any Workflow
+
+Independent of the delegation loop budget, AWP supports **global run budget
+limits** that apply to **any workflow type** (DAG or delegation loop). These
+limits cap total resource consumption across the entire run.
+
+```yaml
+orchestration:
+  engine: dag                    # Works with both dag and delegation_loop
+  run_budget:
+    max_wall_time: 300           # 5 minutes total
+    max_total_tokens: 500000     # LLM token cap
+    max_tool_calls: 100          # Total tool invocations
+    max_agent_runs: 50           # Total agent executions
+    max_cost_usd: 5.0            # Estimated cost cap in USD
+    enabled_limits:              # Choose which limits are active
+      - max_wall_time
+      - max_total_tokens
+      - max_cost_usd
+```
+
+**Free models:** When using a free model (`:free` suffix), `max_cost_usd` is
+automatically disabled because there are no costs to cap. In that case
+`max_total_tokens` becomes the **primary resource limit** — tokens are the
+real constraint for free-tier models (rate limits, context windows).
+
+**Selectable limits:** The `enabled_limits` field lets you activate only the
+limits you care about. During `awp run`, the **Limits Wizard** lets you
+interactively toggle each limit on/off and adjust its value:
+
+```
+============================================================
+  Run Budget Limits
+============================================================
+
+  ⚠ Free model detected — cost limit disabled, token limit is primary.
+
+  1) [ON ] Max Wall Time          300 s    (total execution time)
+  2) [ON ] Max Tokens          500000      (LLM token cap)              ← primary limit
+  3) [OFF] Max Tool Calls         100      (total tool invocations)
+  4) [OFF] Max Agent Runs          50      (total agent executions)
+  5) [OFF] Max Cost              5.0 USD   (estimated cost cap)         ← disabled (free model)
+
+============================================================
+
+  Toggle or adjust limits? Enter numbers (e.g. 1,3) or [N]:
+```
+
+When a limit is hit, the workflow stops gracefully and reports which limit
+was exceeded in the final state under `_run_budget.exceeded`.
+
 ### Safety Envelope
 
 The manager controls what workers do -- but cannot override security:
