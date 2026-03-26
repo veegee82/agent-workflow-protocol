@@ -85,6 +85,37 @@ class SubworkflowRef(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Run Budget — Global limits for any workflow (DAG or delegation loop)
+# ---------------------------------------------------------------------------
+
+
+class RunBudgetLimits(BaseModel):
+    """Global run budget limits applicable to any workflow type.
+
+    Each limit can be individually enabled or disabled via ``enabled_limits``.
+    This allows the user to choose in the run wizard exactly which constraints
+    apply to a given run.
+    """
+    max_wall_time: int = 300          # seconds — total execution time
+    max_total_tokens: int = 500_000   # LLM token cap across all agents
+    max_tool_calls: int = 100         # total tool invocations
+    max_agent_runs: int = 50          # total agent executions (incl. retries)
+    max_cost_usd: float = 5.0        # monetary cost cap (estimated)
+
+    # Which limits are active — list of field names.
+    # Empty list = all limits active.  Use this to selectively disable limits.
+    enabled_limits: list[str] = Field(
+        default_factory=lambda: [
+            "max_wall_time",
+            "max_total_tokens",
+            "max_tool_calls",
+            "max_agent_runs",
+            "max_cost_usd",
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
 # Delegation Loop Models — Dynamic manager-worker orchestration
 # ---------------------------------------------------------------------------
 
@@ -221,6 +252,8 @@ class AWPOrchestrationConfig(BaseModel):
     subworkflows: list[SubworkflowRef] = Field(default_factory=list)
     # Delegation loop config (only used when engine=delegation_loop)
     delegation_loop: Optional[DelegationLoopConfig] = None
+    # Global run budget — applies to any engine (DAG or delegation loop)
+    run_budget: Optional[RunBudgetLimits] = None
 
     model_config = {"extra": "allow"}
 

@@ -319,6 +319,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         if missing:
             _secrets_wizard(runner, missing, wf_dir)
 
+        # Limits wizard: choose which global budget limits apply
+        _limits_wizard(runner)
+
         # Budget wizard for delegation loop workflows
         _budget_wizard(runner)
 
@@ -1095,6 +1098,106 @@ def _save_secrets_yaml(workflow_dir: Path, secrets: dict[str, str]) -> None:
                 f.write("\nsecrets.yaml\n")
     else:
         gitignore.write_text("secrets.yaml\n", encoding="utf-8")
+
+
+def _limits_wizard(runner: "WorkflowRunner") -> None:
+    """Interactive wizard to choose and configure global run budget limits.
+
+    Applies to **any** workflow (DAG or delegation loop).  The user can
+    toggle individual limits on/off and adjust their values.
+    """
+    from .models.orchestration import RunBudgetLimits
+
+    orch = getattr(runner._manifest, "orchestration", None)
+    if not orch:
+        return
+
+    # Create run_budget if it doesn't exist yet (user can still opt out)
+    budget: RunBudgetLimits = getattr(orch, "run_budget", None) or RunBudgetLimits()
+
+    # Limit metadata: (field, label, unit, description)
+    ALL_LIMITS = [
+        ("max_wall_time",    "Max Wall Time",   "s",   "total execution time"),
+        ("max_total_tokens", "Max Tokens",      "",    "LLM token cap"),
+        ("max_tool_calls",   "Max Tool Calls",  "",    "total tool invocations"),
+        ("max_agent_runs",   "Max Agent Runs",  "",    "total agent executions"),
+        ("max_cost_usd",     "Max Cost",        "USD", "estimated cost cap"),
+    ]
+
+    print()
+    print("=" * 60)
+    print("  Run Budget Limits")
+    print("=" * 60)
+    print()
+
+    enabled = set(budget.enabled_limits)
+
+    for idx, (field, label, unit, desc) in enumerate(ALL_LIMITS, 1):
+        val = getattr(budget, field)
+        active = field in enabled
+        marker = "ON " if active else "OFF"
+        unit_str = f" {unit}" if unit else ""
+        print(f"  {idx}) [{marker}] {label:<18} {val:>10}{unit_str}    ({desc})")
+
+    print()
+    print("=" * 60)
+
+    try:
+        ans = input("\n  Toggle or adjust limits? Enter numbers (e.g. 1,3) or [N]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+
+    if not ans or ans.lower() == "n":
+        # Keep defaults — attach budget to orchestration
+        orch.run_budget = budget
+        print()
+        return
+
+    sections = {c.strip() for c in ans.replace(" ", ",").split(",") if c.strip()}
+
+    changes: list[str] = []
+    for idx, (field, label, unit, _desc) in enumerate(ALL_LIMITS, 1):
+        if str(idx) not in sections:
+            continue
+
+        # Toggle on/off
+        currently_on = field in enabled
+        try:
+            toggle = input(f"     {label} is {'ON' if currently_on else 'OFF'}. Toggle? [y/N]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            toggle = ""
+
+        if toggle.lower() in ("y", "yes"):
+            if currently_on:
+                enabled.discard(field)
+                changes.append(f"{label}: OFF")
+                continue
+            else:
+                enabled.add(field)
+                changes.append(f"{label}: ON")
+
+        # If now enabled, let user adjust value
+        if field in enabled:
+            current = getattr(budget, field)
+            try:
+                new_val = input(f"     {label} [{current}]: ").strip()
+                if new_val:
+                    if isinstance(current, float):
+                        setattr(budget, field, float(new_val))
+                    else:
+                        setattr(budget, field, int(new_val))
+                    changes.append(f"{label}={new_val}")
+            except (EOFError, KeyboardInterrupt, ValueError):
+                pass
+
+    budget.enabled_limits = sorted(enabled)
+    orch.run_budget = budget
+
+    if changes:
+        print()
+        print(f"  ✓ Updated: {', '.join(changes)}")
+    print()
 
 
 def _budget_wizard(runner: "WorkflowRunner") -> None:
