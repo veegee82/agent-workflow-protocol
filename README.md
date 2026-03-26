@@ -391,6 +391,11 @@ orchestration:
       - max_cost_usd
 ```
 
+**Free models:** When using a free model (`:free` suffix), `max_cost_usd` is
+automatically disabled because there are no costs to cap. In that case
+`max_total_tokens` becomes the **primary resource limit** — tokens are the
+real constraint for free-tier models (rate limits, context windows).
+
 **Selectable limits:** The `enabled_limits` field lets you activate only the
 limits you care about. During `awp run`, the **Limits Wizard** lets you
 interactively toggle each limit on/off and adjust its value:
@@ -400,11 +405,13 @@ interactively toggle each limit on/off and adjust its value:
   Run Budget Limits
 ============================================================
 
+  ⚠ Free model detected — cost limit disabled, token limit is primary.
+
   1) [ON ] Max Wall Time          300 s    (total execution time)
-  2) [ON ] Max Tokens          500000      (LLM token cap)
+  2) [ON ] Max Tokens          500000      (LLM token cap)              ← primary limit
   3) [OFF] Max Tool Calls         100      (total tool invocations)
   4) [OFF] Max Agent Runs          50      (total agent executions)
-  5) [ON ] Max Cost              5.0 USD   (estimated cost cap)
+  5) [OFF] Max Cost              5.0 USD   (estimated cost cap)         ← disabled (free model)
 
 ============================================================
 

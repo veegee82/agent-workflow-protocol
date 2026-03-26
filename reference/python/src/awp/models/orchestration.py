@@ -95,12 +95,16 @@ class RunBudgetLimits(BaseModel):
     Each limit can be individually enabled or disabled via ``enabled_limits``.
     This allows the user to choose in the run wizard exactly which constraints
     apply to a given run.
+
+    Note: ``max_cost_usd`` is automatically disabled for free models
+    (``":free"`` suffix) because they incur no cost.  In that case
+    ``max_total_tokens`` serves as the primary resource limit.
     """
     max_wall_time: int = 300          # seconds — total execution time
     max_total_tokens: int = 500_000   # LLM token cap across all agents
     max_tool_calls: int = 100         # total tool invocations
     max_agent_runs: int = 50          # total agent executions (incl. retries)
-    max_cost_usd: float = 5.0        # monetary cost cap (estimated)
+    max_cost_usd: float = 5.0        # monetary cost cap (estimated, ignored for free models)
 
     # Which limits are active — list of field names.
     # Empty list = all limits active.  Use this to selectively disable limits.

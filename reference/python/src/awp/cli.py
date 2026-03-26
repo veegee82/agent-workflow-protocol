@@ -1106,6 +1106,8 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
     Applies to **any** workflow (DAG or delegation loop).  The user can
     toggle individual limits on/off and adjust their values.
     """
+    import os as _os
+
     from .models.orchestration import RunBudgetLimits
 
     orch = getattr(runner._manifest, "orchestration", None)
@@ -1114,6 +1116,19 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
 
     # Create run_budget if it doesn't exist yet (user can still opt out)
     budget: RunBudgetLimits = getattr(orch, "run_budget", None) or RunBudgetLimits()
+
+    # Detect free model — cost limits are meaningless for free models
+    model = _os.getenv("LLM_MODEL", "")
+    is_free = ":free" in model.lower()
+
+    # Auto-adjust defaults for free models: disable cost, ensure tokens ON
+    if is_free:
+        enabled_set = set(budget.enabled_limits)
+        if "max_cost_usd" in enabled_set:
+            enabled_set.discard("max_cost_usd")
+        if "max_total_tokens" not in enabled_set:
+            enabled_set.add("max_total_tokens")
+        budget.enabled_limits = sorted(enabled_set)
 
     # Limit metadata: (field, label, unit, description)
     ALL_LIMITS = [
@@ -1128,6 +1143,11 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
     print("=" * 60)
     print("  Run Budget Limits")
     print("=" * 60)
+
+    if is_free:
+        print()
+        print("  ⚠ Free model detected — cost limit disabled, token limit is primary.")
+
     print()
 
     enabled = set(budget.enabled_limits)
@@ -1137,7 +1157,12 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
         active = field in enabled
         marker = "ON " if active else "OFF"
         unit_str = f" {unit}" if unit else ""
-        print(f"  {idx}) [{marker}] {label:<18} {val:>10}{unit_str}    ({desc})")
+        note = ""
+        if is_free and field == "max_cost_usd" and not active:
+            note = "  ← disabled (free model)"
+        elif is_free and field == "max_total_tokens" and active:
+            note = "  ← primary limit"
+        print(f"  {idx}) [{marker}] {label:<18} {val:>10}{unit_str}    ({desc}){note}")
 
     print()
     print("=" * 60)
