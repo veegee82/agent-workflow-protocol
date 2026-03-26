@@ -635,7 +635,12 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
 def _run_delegation_loop_debug(
     runner: "WorkflowRunner", task: str, wf_dir: Path, state: dict
 ) -> dict:
-    """Execute delegation loop workflow with debug output."""
+    """Execute delegation loop workflow with rich debug output.
+
+    After execution, reads the workspace logs and displays detailed
+    per-iteration, per-worker output including skills, tools, results,
+    and confidence trends.
+    """
     import time as _time
 
     orch = runner._manifest.orchestration
@@ -646,57 +651,29 @@ def _run_delegation_loop_debug(
         b = getattr(dl, "budget", None)
         if b:
             print(f"  Budget:        loops={b.max_loops}, workers={b.max_total_workers}, "
-                  f"wall_time={b.max_wall_time}s")
+                  f"wall_time={b.max_wall_time}s, depth={b.max_depth}")
         print(f"  Manager:       {dl.manager}")
+    print()
+    print("  Running... (this may take a while)")
     print()
 
     workflow_start = _time.time()
-
-    # Use runner.run() which dispatches to DelegationLoopRunner
     result = runner.run(task, state)
-
     total_time = _time.time() - workflow_start
 
-    # -- Summary -------------------------------------------------------
-    print("=" * 60)
-    print("  DELEGATION LOOP SUMMARY")
-    print("=" * 60)
-    print(f"  Duration:  {total_time:.1f}s")
-
-    dl_result = result.get("delegation_loop", {})
-    if dl_result:
-        status = dl_result.get("termination_reason", "complete")
-        conf = dl_result.get("confidence", "?")
-        iters = dl_result.get("iterations_completed", "?")
-        print(f"  Status:    {status}")
-        print(f"  Iterations: {iters}")
-        print(f"  Confidence: {conf}")
-
-    # Show generated files
-    generated_files = []
+    # -- Read workspace logs for detailed output ---------------------------
     workspace = wf_dir / "workspace"
-    if workspace.exists():
-        for f in sorted(workspace.rglob("*")):
-            if f.is_file():
-                generated_files.append(f)
+    run_dirs = sorted(workspace.glob("runs/*")) if workspace.exists() else []
+    latest_run = run_dirs[-1] if run_dirs else None
 
-    if generated_files:
-        print(f"  Files:     {len(generated_files)} generated")
-        skills = [f for f in generated_files if "artifacts/skills" in str(f)]
-        tools = [f for f in generated_files if "artifacts/tools" in str(f)]
-        if skills:
-            print(f"  Skills:    {len(skills)} generated")
-            for s in skills:
-                print(f"    {s.name} ({s.stat().st_size}B)")
-        if tools:
-            print(f"  Tools:     {len(tools)} generated")
-            for t in tools:
-                print(f"    {t.name} ({t.stat().st_size}B)")
+    if latest_run:
+        _print_delegation_loop_details(latest_run, total_time)
+    else:
+        print("  [WARN] No workspace logs found.")
 
-    print("=" * 60)
+    # -- Final result JSON -------------------------------------------------
+    dl_result = result.get("delegation_loop", {})
     print()
-
-    # Full JSON output
     print("  Full output (JSON):")
     print()
     for key, value in result.items():
@@ -705,14 +682,233 @@ def _run_delegation_loop_debug(
         if isinstance(value, dict):
             print(f"--- {key} ---")
             out = json.dumps(value, indent=2, default=str, ensure_ascii=False)
-            if len(out) > 3000:
-                print(out[:3000])
+            if len(out) > 5000:
+                print(out[:5000])
                 print("...(truncated)")
             else:
                 print(out)
             print()
 
     return result
+
+
+def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
+    """Print detailed per-iteration debug output from workspace logs."""
+
+    # -- Per-iteration details ---------------------------------------------
+    iters_dir = run_dir / "iterations"
+    if not iters_dir.exists():
+        return
+
+    iter_dirs = sorted(iters_dir.iterdir())
+    confidence_trend: list[str] = []
+
+    for iter_dir in iter_dirs:
+        iter_num = iter_dir.name
+        print(f"  {'─' * 56}")
+        print(f"  Iteration {iter_num}")
+        print(f"  {'─' * 56}")
+
+        # Manager decision
+        decision_file = iter_dir / "manager_decision.json"
+        if decision_file.exists():
+            try:
+                decision = json.loads(decision_file.read_text(encoding="utf-8"))
+                dec_type = decision.get("decision", "?")
+                reasoning = decision.get("reasoning", decision.get("plan", ""))
+                if isinstance(reasoning, str) and len(reasoning) > 200:
+                    reasoning = reasoning[:200] + "..."
+                print(f"    Decision:    {dec_type}")
+                if reasoning:
+                    print(f"    Reasoning:   {reasoning}")
+
+                # Show delegations overview
+                delegations = decision.get("delegations", decision.get("workers", []))
+                if delegations:
+                    print(f"    Workers:     {len(delegations)}")
+                    for w in delegations:
+                        wid = w.get("worker_id", w.get("id", "?"))
+                        instr = w.get("instructions", "")[:80]
+                        skills = w.get("skills", [])
+                        tools = w.get("tools_allowed", [])
+                        codemode = w.get("codemode", {})
+                        print(f"      ▶ {wid}")
+                        if instr:
+                            print(f"        Task:    {instr}...")
+                        if skills:
+                            total_chars = sum(len(s) for s in skills if isinstance(s, str))
+                            print(f"        Skills:  {len(skills)} injected ({total_chars} chars)")
+                        if tools:
+                            print(f"        Tools:   {', '.join(tools[:5])}")
+                        if codemode.get("tool_creation"):
+                            ns = codemode.get("tool_creation_namespace", "dynamic")
+                            print(f"        CodeMode: tool_creation ({ns}.*)")
+            except Exception:
+                pass
+
+        # Worker results
+        deleg_dir = iter_dir / "delegations"
+        if deleg_dir.exists():
+            print()
+            for worker_dir in sorted(deleg_dir.iterdir()):
+                if not worker_dir.is_dir():
+                    continue
+                wid = worker_dir.name
+
+                # Result
+                result_file = worker_dir / "result.json"
+                if result_file.exists():
+                    try:
+                        w_result = json.loads(result_file.read_text(encoding="utf-8"))
+                        conf = w_result.get("confidence", "?")
+                        has_error = "error" in w_result
+                        status = "ERROR" if has_error else "OK"
+
+                        result_keys = [k for k in w_result if k not in ("confidence", "error")]
+                        print(f"    ← {wid}: {status} (confidence: {conf})")
+
+                        if has_error:
+                            err = str(w_result["error"])[:150]
+                            print(f"        Error: {err}")
+                        else:
+                            # Show key output fields
+                            for rk in result_keys[:5]:
+                                val = w_result[rk]
+                                if isinstance(val, str):
+                                    display = val[:120] + "..." if len(val) > 120 else val
+                                    display = display.replace("\n", " ")
+                                    print(f"        {rk}: {display}")
+                                elif isinstance(val, list):
+                                    print(f"        {rk}: [{len(val)} items]")
+                                elif isinstance(val, dict):
+                                    print(f"        {rk}: {{{len(val)} fields}}")
+                                else:
+                                    print(f"        {rk}: {val}")
+                    except Exception:
+                        pass
+
+                # Generated skills
+                skills_dir = worker_dir / "generated_skills"
+                if skills_dir.exists():
+                    skill_files = list(skills_dir.glob("*.md"))
+                    if skill_files:
+                        for sf in skill_files:
+                            content = sf.read_text(encoding="utf-8")
+                            title = content.split("\n")[0].strip("# ").strip() if content else sf.name
+                            print(f"        📖 Skill: {title} ({sf.stat().st_size}B)")
+
+                # Generated tools
+                tools_dir = worker_dir / "generated_tools"
+                if tools_dir.exists():
+                    tool_files = list(tools_dir.glob("*.json"))
+                    if tool_files:
+                        for tf in tool_files:
+                            try:
+                                tdata = json.loads(tf.read_text(encoding="utf-8"))
+                                tname = tdata.get("name", tf.stem)
+                                tdesc = tdata.get("description", "")[:60]
+                                print(f"        🔧 Tool: {tname} — {tdesc}")
+                            except Exception:
+                                print(f"        🔧 Tool: {tf.name}")
+
+        # Budget snapshot
+        budget_file = iter_dir / "budget_snapshot.json"
+        if budget_file.exists():
+            try:
+                bsnap = json.loads(budget_file.read_text(encoding="utf-8"))
+                remaining = bsnap.get("budget_remaining_pct", "?")
+                loops_used = bsnap.get("loops", {}).get("used", "?")
+                workers_spawned = bsnap.get("workers", {}).get("spawned", "?")
+                wall = bsnap.get("wall_time", {}).get("elapsed_s", "?")
+                confidence_trend.append(f"Iter {iter_num}")
+                print()
+                print(f"    Budget:  {remaining}% remaining | "
+                      f"loops: {loops_used} | workers: {workers_spawned} | "
+                      f"wall: {wall}s")
+            except Exception:
+                pass
+
+        # Validation
+        val_file = iter_dir / "validation.json"
+        if val_file.exists():
+            try:
+                vdata = json.loads(val_file.read_text(encoding="utf-8"))
+                if isinstance(vdata, list) and vdata:
+                    val_summary = []
+                    for v in vdata:
+                        fb = v.get("feedback", "ok")
+                        if isinstance(fb, str) and len(fb) > 60:
+                            fb = fb[:60] + "..."
+                        val_summary.append(f"{v.get('worker_id', '?')}: {fb}")
+                    print(f"    Valid.:  {'; '.join(val_summary)}")
+            except Exception:
+                pass
+
+        print()
+
+    # -- Summary -----------------------------------------------------------
+    print("=" * 60)
+    print("  DELEGATION LOOP SUMMARY")
+    print("=" * 60)
+    print(f"  Duration:    {total_time:.1f}s")
+
+    # Read completion
+    comp_file = run_dir / "run_completion.json"
+    if comp_file.exists():
+        try:
+            comp = json.loads(comp_file.read_text(encoding="utf-8"))
+            print(f"  Status:      {comp.get('status', '?')}")
+            print(f"  Iterations:  {comp.get('total_iterations', '?')}")
+            fb = comp.get("final_budget", {})
+            print(f"  Workers:     {fb.get('workers', {}).get('spawned', '?')}"
+                  f"/{fb.get('workers', {}).get('max', '?')}")
+            print(f"  Budget:      {fb.get('budget_remaining_pct', '?')}% remaining")
+        except Exception:
+            pass
+
+    # Confidence trend
+    history_file = run_dir / "history" / "rolling_summary.json"
+    if history_file.exists():
+        try:
+            hist = json.loads(history_file.read_text(encoding="utf-8"))
+            entries = hist.get("history", [])
+            if entries:
+                trend = " → ".join(
+                    f"{h.get('confidence', '?')}" for h in entries
+                )
+                print(f"  Confidence:  {trend}")
+        except Exception:
+            pass
+
+    # Artifacts
+    artifacts_dir = run_dir / "artifacts"
+    if artifacts_dir.exists():
+        skills = list((artifacts_dir / "skills").glob("*.md")) if (artifacts_dir / "skills").exists() else []
+        tools = list((artifacts_dir / "tools").glob("*.json")) if (artifacts_dir / "tools").exists() else []
+        if skills:
+            print(f"  Skills:      {len(skills)} generated")
+            for s in skills:
+                content = s.read_text(encoding="utf-8")
+                title = content.split("\n")[0].strip("# ").strip() if content else s.name
+                print(f"    📖 {s.name}: {title}")
+        if tools:
+            print(f"  Tools:       {len(tools)} generated")
+            for t in tools:
+                try:
+                    tdata = json.loads(t.read_text(encoding="utf-8"))
+                    print(f"    🔧 {tdata.get('name', t.stem)}: {tdata.get('description', '')[:50]}")
+                except Exception:
+                    print(f"    🔧 {t.name}")
+
+    # All generated files
+    all_files = list(run_dir.rglob("*"))
+    file_count = sum(1 for f in all_files if f.is_file())
+    total_size = sum(f.stat().st_size for f in all_files if f.is_file())
+    size_str = f"{total_size / 1024:.1f}KB" if total_size > 1024 else f"{total_size}B"
+    print(f"  Files:       {file_count} ({size_str})")
+    print(f"  Run dir:     {run_dir}")
+
+    print("=" * 60)
 
 
 _MODEL_CHOICES: list[tuple[str, str]] = [
