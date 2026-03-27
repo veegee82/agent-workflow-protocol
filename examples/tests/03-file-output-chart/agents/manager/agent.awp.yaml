@@ -1,0 +1,33 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: manager
+  role: file_output_manager
+  description: "Delegates a worker to generate sine wave data and a chart"
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.2
+    max_tokens: 2048
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  contract:
+    decision:
+      type: string
+      description: "One of: delegate, complete, fail"
+      required: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      required: true
+
+capabilities:
+  tools:
+    enabled: false

@@ -173,6 +173,11 @@ class RunLogger:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
+    def _write_file(self, path: Path, content: str) -> None:
+        """Write any file (always, regardless of format setting)."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
     def log_run_start(self, task: str, run_id: str, config: DelegationLoopConfig,
                       manager_model: str, worker_model: str) -> None:
         manifest = {
@@ -216,10 +221,20 @@ class RunLogger:
             self.write_json(worker_dir / "envelope.json", deleg.get("envelope", {}))
             self.write_json(worker_dir / "result.json", deleg.get("result", {}))
 
-            # Save generated skills (per-worker and central artifacts)
-            for j, skill in enumerate(deleg.get("envelope", {}).get("skills", [])):
-                if isinstance(skill, str) and len(skill) > 50:
-                    wid = deleg.get("worker_id", f"worker_{i}")
+            wid = deleg.get("worker_id", f"worker_{i}")
+
+            # Save worker instructions as artifact
+            envelope = deleg.get("envelope", {})
+            instructions = envelope.get("instructions", "")
+            if isinstance(instructions, str) and instructions.strip():
+                instr_file = worker_dir / "instructions.md"
+                self.write_md(instr_file, f"# Worker: {wid}\n\n{instructions}")
+                artifact_instr = self.run_dir / "artifacts" / "skills" / f"{wid}_instructions.md"
+                self.write_md(artifact_instr, f"# Worker: {wid}\n\n{instructions}")
+
+            # Save envelope skills as artifacts (input skills from manager)
+            for j, skill in enumerate(envelope.get("skills", [])):
+                if isinstance(skill, str) and skill.strip():
                     # Per-worker copy
                     skill_file = worker_dir / "generated_skills" / f"skill_{j}.md"
                     self.write_md(skill_file, skill)
@@ -227,27 +242,141 @@ class RunLogger:
                     artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_skill_{j}.md"
                     self.write_md(artifact_file, skill)
 
-            # Save generated tools (if worker created any via codemode)
+            # Save worker-generated skills from result (output skills)
+            worker_result = deleg.get("result", {})
+            result_skills = worker_result.get("skills_created", worker_result.get("skills", []))
+            if isinstance(result_skills, list):
+                for j, skill in enumerate(result_skills):
+                    if isinstance(skill, str) and skill.strip():
+                        skill_file = worker_dir / "generated_skills" / f"result_skill_{j}.md"
+                        self.write_md(skill_file, skill)
+                        artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_result_skill_{j}.md"
+                        self.write_md(artifact_file, skill)
+                    elif isinstance(skill, dict):
+                        sname = skill.get("name", f"skill_{j}")
+                        scontent = skill.get("content", skill.get("text", json.dumps(skill, indent=2)))
+                        skill_file = worker_dir / "generated_skills" / f"{sname}.md"
+                        self.write_md(skill_file, scontent)
+                        artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_{sname}.md"
+                        self.write_md(artifact_file, scontent)
+
+            # Save generated tools — always store FULL specs (code, parameters,
+            # description, registration status) for code_mode debugging.
             worker_result = deleg.get("result", {})
             wid = deleg.get("worker_id", f"worker_{i}")
+
+            # Collect tools from all possible sources in the result
+            all_tool_specs: list[dict] = []
+
+            # 1. tools_created: raw LLM output (original tool specs with code)
             tools_created = worker_result.get("tools_created", [])
             if isinstance(tools_created, list):
-                for t, tool_info in enumerate(tools_created):
+                for tool_info in tools_created:
                     if isinstance(tool_info, dict):
-                        tool_name = tool_info.get("name", f"tool_{t}")
-                        safe_name = tool_name.replace(".", "_")
-                        # Per-worker copy
-                        tool_file = worker_dir / "generated_tools" / f"{safe_name}.json"
-                        self.write_json(tool_file, tool_info)
-                        # Central artifacts copy
-                        artifact_file = self.run_dir / "artifacts" / "tools" / f"{safe_name}.json"
-                        self.write_json(artifact_file, tool_info)
-            # Also check for tool_names (alternative format)
+                        all_tool_specs.append(tool_info)
+
+            # 2. tools_registered: enriched by _process_tool_creation (includes
+            #    code + registration status + validation results)
+            tools_registered = worker_result.get("tools_registered", [])
+            if isinstance(tools_registered, list):
+                for tool_info in tools_registered:
+                    if isinstance(tool_info, dict):
+                        # Only add if not already present (by name)
+                        existing_names = {t.get("name") for t in all_tool_specs}
+                        if tool_info.get("name") not in existing_names:
+                            all_tool_specs.append(tool_info)
+
+            # Save each tool fully (JSON + .py source)
+            if all_tool_specs:
+                for t, tool_info in enumerate(all_tool_specs):
+                    tool_name = tool_info.get("name", f"tool_{t}")
+                    safe_name = tool_name.replace(".", "_")
+
+                    # Per-worker copy (full spec with code)
+                    tool_file = worker_dir / "generated_tools" / f"{safe_name}.json"
+                    self.write_json(tool_file, tool_info)
+
+                    # Central artifacts copy (full spec with code)
+                    artifact_file = self.run_dir / "artifacts" / "tools" / f"{safe_name}.json"
+                    self.write_json(artifact_file, tool_info)
+
+                    # Save tool code as .py file for easy inspection
+                    tool_code = tool_info.get("code", "")
+                    if tool_code:
+                        header = (
+                            f"# Auto-generated tool: {tool_name}\n"
+                            f"# Created by worker: {tool_info.get('worker_id', wid)}\n"
+                            f"# Description: {tool_info.get('description', '')}\n"
+                            f"# Required secrets: {tool_info.get('required_secrets', [])}\n"
+                            f"# Parameters: {json.dumps(tool_info.get('parameters', {}), default=str)}\n"
+                            f"# Registered: {tool_info.get('registered', 'unknown')}\n\n"
+                        )
+                        py_file = worker_dir / "generated_tools" / f"{safe_name}.py"
+                        self._write_file(py_file, header + tool_code)
+                        artifact_py = self.run_dir / "artifacts" / "tools" / f"{safe_name}.py"
+                        self._write_file(artifact_py, header + tool_code)
+
+                # Save a combined manifest with all tools for this worker
+                tool_manifest = {
+                    "worker_id": wid,
+                    "iteration": iteration,
+                    "tool_count": len(all_tool_specs),
+                    "tools": all_tool_specs,
+                }
+                manifest_file = self.run_dir / "artifacts" / "tools" / f"{wid}_manifest.json"
+                self.write_json(manifest_file, tool_manifest)
+
+            # Also check for tool_names (alternative format — name-only list)
             tool_names = worker_result.get("tool_names", [])
             if isinstance(tool_names, list) and tool_names:
-                tool_manifest = {"worker_id": wid, "tools": tool_names}
+                tool_names_manifest = {"worker_id": wid, "tools": tool_names}
                 artifact_file = self.run_dir / "artifacts" / "tools" / f"{wid}_tools.json"
-                self.write_json(artifact_file, tool_manifest)
+                self.write_json(artifact_file, tool_names_manifest)
+
+            # Save tool call traces as artifacts (especially code.execute calls)
+            tool_calls = worker_result.get("_tool_calls", [])
+            if isinstance(tool_calls, list) and tool_calls:
+                # Save full tool call log as JSON
+                calls_file = worker_dir / "tool_calls.json"
+                self.write_json(calls_file, tool_calls)
+                artifact_calls = self.run_dir / "artifacts" / "tools" / f"{wid}_tool_calls.json"
+                self.write_json(artifact_calls, tool_calls)
+
+                # Extract and save code.execute calls as .py files
+                code_idx = 0
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    tool_name = tc.get("tool", "")
+                    if tool_name in ("code.execute", "code_execute"):
+                        args = tc.get("arguments", {})
+                        code_text = args.get("code", "")
+                        if code_text:
+                            result_data = tc.get("result", {})
+                            stdout = ""
+                            stderr = ""
+                            if isinstance(result_data, dict):
+                                data_inner = result_data.get("data", {})
+                                if isinstance(data_inner, dict):
+                                    stdout = data_inner.get("stdout", "")
+                                    stderr = data_inner.get("stderr", "")
+
+                            header = (
+                                f"# code.execute call #{code_idx} by worker: {wid}\n"
+                                f"# Tool: {tool_name}\n"
+                                f"# Status: {'OK' if result_data.get('ok') else 'ERROR'}\n"
+                            )
+                            footer = ""
+                            if stdout:
+                                footer += f"\n# --- STDOUT ---\n# {stdout[:2000]}\n"
+                            if stderr:
+                                footer += f"\n# --- STDERR ---\n# {stderr[:2000]}\n"
+
+                            py_file = worker_dir / "generated_tools" / f"code_execute_{code_idx}.py"
+                            self._write_file(py_file, header + code_text + footer)
+                            artifact_py = self.run_dir / "artifacts" / "tools" / f"{wid}_code_execute_{code_idx}.py"
+                            self._write_file(artifact_py, header + code_text + footer)
+                            code_idx += 1
 
             # Worker result as MD
             result = deleg.get("result", {})
@@ -841,6 +970,13 @@ You MUST respond with a JSON object containing ONE of these decisions:
         output_contract = envelope.get("output_contract", {})
         codemode = envelope.get("codemode", {})
 
+        # Debug: log full envelope
+        logger.debug(
+            "Worker %s envelope:\n%s",
+            worker_id,
+            json.dumps(envelope, indent=2, default=str, ensure_ascii=False),
+        )
+
         # Check if this worker should create tools
         tool_creation = (
             isinstance(codemode, dict)
@@ -859,6 +995,39 @@ You MUST respond with a JSON object containing ONE of these decisions:
             for i, skill in enumerate(skills):
                 if isinstance(skill, str):
                     system_parts.append(f"### Skill {i+1}\n{skill}\n")
+
+        # If codemode is enabled, tell the worker about file I/O capabilities
+        if isinstance(codemode, dict) and codemode.get("enabled", False):
+            workspace_path = str(self._dir / "workspace")
+            output_path = str(self._dir / "output")
+            system_parts.append(f"""
+## File Output
+
+When using `code.execute` or creating tools, you can save files to disk:
+- **Workspace directory** (intermediate files): `{workspace_path}`
+- **Output directory** (final deliverables — charts, reports, exports): `{output_path}`
+
+In `code.execute` calls, these paths are available as pre-defined variables:
+- `_workspace_dir` = `"{workspace_path}"`
+- `_output_dir` = `"{output_path}"`
+
+Use Python's built-in `open()` for file I/O. Do NOT import `os` or `pathlib`.
+Use string concatenation for paths: `_output_dir + "/chart.png"`
+
+Example (saving a matplotlib chart via code.execute):
+```python
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 6))
+plt.plot([1, 2, 3, 4], [10, 20, 25, 30])
+plt.title("My Chart")
+plt.savefig(_output_dir + "/chart.png", dpi=150, bbox_inches="tight")
+plt.close()
+print("Chart saved")
+```
+""")
 
         # If tool creation is requested, add instructions for generating tools
         if tool_creation:
@@ -940,9 +1109,22 @@ You MUST respond with a JSON object containing ONE of these decisions:
         if tools_allowed and self._tools:
             tool_defs = self._tools.get_definitions(tools_allowed if tools_allowed else None)
             if tool_defs:
+                # Wrap tool_executor to capture code.execute calls for artifacts
+                _tool_call_log: list[dict] = []
+                _original_call = self._tools.call
+
+                def _tracking_call(name: str, arguments: dict) -> dict:
+                    result = _original_call(name, arguments)
+                    _tool_call_log.append({
+                        "tool": name,
+                        "arguments": arguments,
+                        "result": result,
+                    })
+                    return result
+
                 final_msg = llm.chat_with_tools(
                     messages, tools=tool_defs,
-                    tool_executor=self._tools.call,
+                    tool_executor=_tracking_call,
                     max_rounds=5,
                     temperature=0.2, max_tokens=4096,
                 )
@@ -954,9 +1136,31 @@ You MUST respond with a JSON object containing ONE of these decisions:
                 result = self._parse_json_response(content)
                 if "confidence" not in result:
                     result["confidence"] = 0.5
+
+                # Attach tool call log to result for artifact persistence
+                if _tool_call_log:
+                    result["_tool_calls"] = _tool_call_log
+
+                logger.debug(
+                    "Worker %s raw result (with tools):\n%s",
+                    worker_id,
+                    json.dumps(result, indent=2, default=str, ensure_ascii=False),
+                )
+
                 # Process tool creation from result
                 if tool_creation:
+                    tools_in_result = result.get("tools_created", [])
+                    logger.info(
+                        "Worker %s returned %d tools_created entries",
+                        worker_id, len(tools_in_result) if isinstance(tools_in_result, list) else 0,
+                    )
                     self._process_tool_creation(result, worker_id, codemode)
+
+                    logger.info(
+                        "Worker %s after tool processing — tools_registered: %s",
+                        worker_id,
+                        json.dumps(result.get("tools_registered", []), indent=2, default=str),
+                    )
                 return result
 
         # Simple call (no tools)
@@ -971,14 +1175,68 @@ You MUST respond with a JSON object containing ONE of these decisions:
         if "confidence" not in result:
             result["confidence"] = 0.5
 
+        logger.debug(
+            "Worker %s raw result (simple call):\n%s",
+            worker_id,
+            json.dumps(result, indent=2, default=str, ensure_ascii=False),
+        )
+
         # Process tool creation from result
         if tool_creation:
+            tools_in_result = result.get("tools_created", [])
+            logger.info(
+                "Worker %s returned %d tools_created entries (simple call)",
+                worker_id, len(tools_in_result) if isinstance(tools_in_result, list) else 0,
+            )
             self._process_tool_creation(result, worker_id, codemode)
+
+            logger.info(
+                "Worker %s after tool processing — tools_registered: %s",
+                worker_id,
+                json.dumps(result.get("tools_registered", []), indent=2, default=str),
+            )
 
         return result
 
     def _build_tool_creation_prompt(self, namespace: str) -> str:
-        """Build the prompt section that instructs the worker to create tools."""
+        """Build the prompt section that instructs the worker to create tools.
+
+        Includes the list of available secret key names (not values!) so the
+        worker can declare ``required_secrets`` for tools that need API keys.
+        """
+        # Collect available secret key names (never expose values)
+        available_secret_keys: list[str] = []
+        if self._tools and hasattr(self._tools, '_secrets') and self._tools._secrets:
+            available_secret_keys = sorted(self._tools._secrets.keys())
+
+        secrets_section = ""
+        if available_secret_keys:
+            keys_list = "\n".join(f"  - `{k}`" for k in available_secret_keys)
+            secrets_section = f"""
+## Available Secrets
+
+The following API keys / secrets are available for your tools to use.
+To access them, add a `required_secrets` array to your tool spec listing
+the keys your tool needs. At runtime the matching values will be injected
+into a `_secrets` dict variable that your handler code can read.
+
+Available keys:
+{keys_list}
+
+**How to use secrets in your tool code:**
+```python
+def handler(*, query):
+    api_key = _secrets.get("OPENAI_API_KEY", "")
+    # Use api_key in your API call...
+    return {{"ok": True, "status": 200, "data": {{}}, "error": None}}
+```
+
+**Important:**
+- `_secrets` is a pre-defined dict variable — do NOT add it to your handler signature
+- Only request keys you actually need
+- Always provide a fallback with `.get("KEY", "")` in case the key is missing
+"""
+
         return f"""
 ## Tool Creation Mode
 
@@ -990,8 +1248,9 @@ Each tool object must have:
 - `description`: What the tool does
 - `parameters`: JSON Schema for the tool's input parameters
 - `code`: Python code containing a `def handler(*, ...)` function that returns a dict with `{{"ok": True, "status": 200, "data": {{}}, "error": None}}`
+- `required_secrets` (optional): Array of secret key names the tool needs at runtime (e.g., `["OPENAI_API_KEY"]`). The values are injected as a `_secrets` dict variable in the sandbox.
 
-Example tool:
+Example tool (without secrets):
 ```json
 {{
   "name": "{namespace}.weighted_score",
@@ -1008,16 +1267,82 @@ Example tool:
 }}
 ```
 
+Example tool (with secrets):
+```json
+{{
+  "name": "{namespace}.api_search",
+  "description": "Search via an external API using an API key",
+  "required_secrets": ["SEARCH_API_KEY"],
+  "parameters": {{
+    "type": "object",
+    "properties": {{
+      "query": {{"type": "string", "description": "Search query"}}
+    }},
+    "required": ["query"]
+  }},
+  "code": "import urllib.request, urllib.parse, json\\ndef handler(*, query):\\n    api_key = _secrets.get(\\"SEARCH_API_KEY\\", \\"\\")\\n    url = f\\"https://api.example.com/search?q={{urllib.parse.quote(query)}}&key={{api_key}}\\"\\n    resp = urllib.request.urlopen(url, timeout=10)\\n    data = json.loads(resp.read())\\n    return {{\\"ok\\": True, \\"status\\": 200, \\"data\\": data, \\"error\\": None}}"
+}}
+```
+
+## File Output
+
+Your tool code can save files (PNG charts, CSV exports, JSON data, etc.) to disk.
+Two pre-defined string variables are available in the sandbox:
+
+- `_workspace_dir` — path to the workspace directory (for intermediate files)
+- `_output_dir` — path to the output directory (for final deliverables like charts, reports)
+
+Use Python's built-in `open()` to write files. Do NOT import `os` or `pathlib` —
+use string concatenation for paths instead.
+
+**Example: saving a PNG chart:**
+```python
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend
+import matplotlib.pyplot as plt
+
+def handler(*, data, filename):
+    plt.figure()
+    plt.plot(data)
+    plt.title("Chart")
+    filepath = _output_dir + "/" + filename
+    plt.savefig(filepath, dpi=150, bbox_inches="tight")
+    plt.close()
+    return {{"ok": True, "status": 200, "data": {{"file": filepath}}, "error": None}}
+```
+
+**Example: saving a CSV:**
+```python
+import csv
+
+def handler(*, rows, filename):
+    filepath = _output_dir + "/" + filename
+    with open(filepath, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(rows)
+    return {{"ok": True, "status": 200, "data": {{"file": filepath, "rows": len(rows)}}, "error": None}}
+```
+
 Rules:
 - Tools MUST have a `def handler(*, ...)` function (keyword-only arguments)
 - Tools MUST return the standard AWP format: `{{"ok": bool, "status": int, "data": {{}}, "error": str|None}}`
 - No imports of os, subprocess, sys, socket, or network modules
+- Use `open()` (builtin) to write files — do NOT import `os` or `pathlib`
+- Use `_output_dir + "/" + filename` for file paths (string concatenation)
 - Keep tool code concise and focused
-"""
+- If your tool needs an API key, declare it in `required_secrets` and access it via `_secrets.get("KEY_NAME", "")`
+- The `_secrets`, `_workspace_dir`, `_output_dir` variables are pre-defined — do NOT add them as handler parameters
+{secrets_section}"""
 
     def _process_tool_creation(self, result: dict, worker_id: str,
                                codemode: dict) -> None:
-        """Extract tools from worker result and register them via DynamicToolFactory."""
+        """Extract tools from worker result and register them via DynamicToolFactory.
+
+        Preserves the full ``tools_created`` array (with code, parameters, etc.)
+        in the result so that downstream logging and debug output can inspect
+        the complete tool specifications.  Adds ``tools_registered`` with
+        per-tool registration status and the full spec for each tool.
+        """
         tools_created = result.get("tools_created", [])
         if not isinstance(tools_created, list) or not tools_created:
             return
@@ -1033,10 +1358,39 @@ Rules:
             code = tool_spec.get("code", "")
             description = tool_spec.get("description", "")
             parameters = tool_spec.get("parameters", {})
+            req_secrets = tool_spec.get("required_secrets", [])
+            if not isinstance(req_secrets, list):
+                req_secrets = []
+
+            # Build full record for logging (always keep full spec)
+            full_record = {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+                "code": code,
+                "worker_id": worker_id,
+                "namespace": namespace,
+                "required_secrets": req_secrets,
+            }
 
             if not name or not code:
                 logger.warning("Skipping tool with missing name or code: %s", tool_spec)
+                full_record["registered"] = False
+                full_record["error"] = "missing name or code"
+                registered.append(full_record)
                 continue
+
+            logger.info(
+                "  Worker %s tool creation attempt: %s\n"
+                "    Description: %s\n"
+                "    Parameters:  %s\n"
+                "    Required secrets: %s\n"
+                "    Code (%d chars):\n%s",
+                worker_id, name, description,
+                json.dumps(parameters, indent=2, default=str),
+                req_secrets,
+                len(code), code,
+            )
 
             # Try to register via DynamicToolFactory if available
             if self._tools and hasattr(self._tools, '_dynamic_tool_factory'):
@@ -1050,23 +1404,36 @@ Rules:
                         creator_agent=worker_id,
                         max_tools=codemode.get("max_tools", 10),
                         allowed_namespace=namespace,
+                        required_secrets=req_secrets if req_secrets else None,
                     )
                     if reg_result.get("ok"):
-                        logger.info("  Worker %s created tool: %s", worker_id, name)
-                        registered.append({"name": name, "registered": True})
+                        logger.info("  Worker %s created tool: %s — OK", worker_id, name)
+                        full_record["registered"] = True
                     else:
-                        logger.warning("  Tool creation failed for %s: %s",
-                                       name, reg_result.get("error"))
-                        registered.append({"name": name, "registered": False,
-                                           "error": reg_result.get("error")})
+                        error = reg_result.get("error", "unknown")
+                        logger.warning(
+                            "  Tool creation FAILED for %s: %s\n"
+                            "    Status: %s\n"
+                            "    Full result: %s",
+                            name, error,
+                            reg_result.get("status", "?"),
+                            json.dumps(reg_result, indent=2, default=str),
+                        )
+                        full_record["registered"] = False
+                        full_record["error"] = error
+                        full_record["validation_result"] = reg_result
+                    registered.append(full_record)
                     continue
 
             # Fallback: just log that we received the tool spec
             logger.info("  Worker %s defined tool: %s (not registered — no factory)",
                         worker_id, name)
-            registered.append({"name": name, "registered": False, "reason": "no_factory"})
+            full_record["registered"] = False
+            full_record["reason"] = "no_factory"
+            registered.append(full_record)
 
-        # Update result with registration status
+        # Keep original tools_created AND add enriched tools_registered
+        # (tools_created is preserved as-is for backward compatibility)
         result["tools_registered"] = registered
 
     # -- Validation -------------------------------------------------------

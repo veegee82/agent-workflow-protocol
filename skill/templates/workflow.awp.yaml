@@ -73,7 +73,8 @@ orchestration:
 #         rate_limiting:
 #           max_llm_calls_per_minute: 30
 #         forbidden_tools:
-#           - "shell.execute"
+#           - "shell.execute"                  # Workers use code.execute instead
+#           - "file.write_outside_workspace"
 #       manager_controlled:                    # Manager CAN set these per worker
 #         - instructions
 #         - skills
@@ -81,6 +82,8 @@ orchestration:
 #         - output_contract
 #         - codemode.enabled
 #         - codemode.tool_creation
+#   # NOTE: shell.execute is forbidden — manager must use code.execute in tools_allowed.
+#   # Workers with codemode need: tools_allowed: [code.execute, file.read, file.write]
 #
 #     termination:
 #       enabled: true
@@ -167,6 +170,16 @@ state:
 #   audit:
 #     enabled: true
 #     hash_chain: true
+
+# --- Dynamic Tools (A2+ Code Mode — runtime tool creation) ---
+# Required when workers should create reusable tools via Code Mode.
+# MUST be enabled for tool_creation to work in delegation loop workers.
+# dynamic_tools:
+#   enabled: true                              # MUST be true for tool creation
+#   persist: true                              # Save tools as JSON for debugging
+#   max_total: 50                              # Global limit on created tools
+#   allowed_namespaces: [dynamic]              # Namespaces workers can create tools in
+#   code_review: true                          # Log all generated code
 
 # --- Security (cross-cutting, any level; budget required at A2+) ---
 # Uncomment to enable security features.

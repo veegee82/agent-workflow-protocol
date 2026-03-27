@@ -101,7 +101,7 @@ class RunBudgetLimits(BaseModel):
     ``max_total_tokens`` serves as the primary resource limit.
     """
     max_wall_time: int = 300          # seconds — total execution time
-    max_total_tokens: int = 500_000   # LLM token cap across all agents
+    max_total_tokens: int = 1_000_000  # LLM token cap across all agents
     max_tool_calls: int = 100         # total tool invocations
     max_agent_runs: int = 50          # total agent executions (incl. retries)
     max_cost_usd: float = 5.0        # monetary cost cap (estimated, ignored for free models)

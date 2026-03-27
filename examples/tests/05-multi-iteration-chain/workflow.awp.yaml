@@ -1,0 +1,44 @@
+awp: "1.0.0"
+
+workflow:
+  name: "multi_iteration_chain"
+  version: "1.0.0"
+  description: "Test 5: Three-iteration chain with tool creation, data analysis, and chart generation"
+
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+    budget:
+      max_loops: 5
+      max_total_workers: 5
+      max_total_tokens: 1000000
+      max_wall_time: 600
+      max_tool_calls: 80
+      max_depth: 1
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+        forbidden_tools: ["shell.execute", "file.write_outside_workspace"]
+      manager_controlled: [instructions, skills, tools_allowed, output_contract, codemode.enabled, codemode.tool_creation]
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.05
+    logging:
+      format: dual
+      persist_artifacts: true
+
+dynamic_tools:
+  enabled: true
+  persist: true
+  max_total: 20
+  allowed_namespaces: [dynamic]
+  code_review: true
+
+state:
+  sharing:
+    strategy: full

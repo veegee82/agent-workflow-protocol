@@ -93,7 +93,7 @@ orchestration:
     worker_policy:
       enforced:
         sandbox: {type: subprocess, max_memory_mb: 512}
-        forbidden_tools: [shell.execute]
+        forbidden_tools: [shell.execute, file.write_outside_workspace]
       manager_controlled:
         - instructions
         - skills
@@ -101,6 +101,8 @@ orchestration:
         - output_contract
         - codemode.enabled
         - codemode.tool_creation
+  # NOTE: shell.execute is forbidden — workers MUST use code.execute instead.
+  # The manager should include code.execute in tools_allowed for codemode workers.
     termination:
       enabled: true
       window: 3
@@ -135,13 +137,20 @@ When generating a delegation loop workflow:
 
 Agents with Code Mode can create new MCP tools at runtime via `sdk.tools.create()`.
 
+**CRITICAL**: When generating a delegation loop workflow that uses Code Mode or dynamic tools, you MUST:
+1. Set `dynamic_tools.enabled: true` in workflow.awp.yaml (otherwise tool creation silently fails)
+2. Set `dynamic_tools.persist: true` to save generated tools as JSON files for debugging
+3. Include `code.execute` (NOT `shell.execute`) in the workers' `tools_allowed` — `shell.execute` is in `forbidden_tools` by default and will be silently removed
+4. Set `tool_creation: true` in the codemode envelope (not just `enabled: true`)
+
 Configuration in workflow.awp.yaml:
 ```yaml
 dynamic_tools:
-  enabled: true
-  persist: true
+  enabled: true           # MUST be true for tool creation to work
+  persist: true            # Save tools as JSON in workspace/dynamic_tools/
   max_total: 20
-  allowed_namespaces: [scoring, analysis]
+  allowed_namespaces: [scoring, analysis, dynamic]
+  code_review: true        # Log all generated code for debugging
 ```
 
 In agent.awp.yaml:
@@ -165,7 +174,60 @@ In the delegation loop, the manager can enable tool creation for workers:
 }
 ```
 
+**Tools with API Key Access (required_secrets):**
+
+Dynamic tools can declare `required_secrets` to access API keys from the workflow's secrets store.
+Available secret key names (not values) are shown to the worker automatically.
+The secrets are injected as a `_secrets` dict variable in the sandbox:
+
+```json
+{
+  "name": "dynamic.api_fetch",
+  "description": "Fetch data from external API",
+  "required_secrets": ["API_KEY"],
+  "parameters": {"type": "object", "properties": {"url": {"type": "string"}}},
+  "code": "import urllib.request, json\ndef handler(*, url):\n    api_key = _secrets.get('API_KEY', '')\n    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {api_key}'})\n    resp = urllib.request.urlopen(req, timeout=10)\n    return {'ok': True, 'status': 200, 'data': json.loads(resp.read()), 'error': None}"
+}
+```
+
+**File Output from Dynamic Tools and code.execute:**
+
+Generated tool code and `code.execute` calls have access to two pre-defined path variables:
+- `_workspace_dir` — path to workspace/ (intermediate files)
+- `_output_dir` — path to output/ (final deliverables: charts, CSVs, reports)
+
+Use `open()` (builtin) and string concatenation for paths. Do NOT import `os` or `pathlib`.
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+def handler(*, data, filename):
+    plt.figure()
+    plt.plot(data)
+    plt.savefig(_output_dir + "/" + filename, dpi=150)
+    plt.close()
+    return {"ok": True, "status": 200, "data": {"file": _output_dir + "/" + filename}, "error": None}
+```
+
 Tools are persisted in workspace/runs/{run_id}/artifacts/tools/ and workspace/dynamic_tools/.
+Each persisted tool JSON contains: name, description, parameters, code, required_secrets, provenance (creator, timestamp).
+
+### Code Execution in Workers
+
+Workers with `codemode.enabled: true` should use the `code.execute` tool for running Python code.
+**Do NOT use `shell.execute`** — it is in `forbidden_tools` by default.
+
+The manager should include `code.execute` in the delegation envelope `tools_allowed`:
+```json
+{
+  "tools_allowed": ["code.execute", "file.read", "file.write"],
+  "codemode": {"enabled": true}
+}
+```
+
+In `code.execute`, the variables `_workspace_dir` and `_output_dir` are automatically available.
 
 ### Dynamic Skill Generation
 
@@ -927,7 +989,21 @@ When generating a delegation_loop workflow:
    - SYSTEM_PROMPT.md with DELEGATE/COMPLETE/FAIL instructions
    - Output schema for delegation decisions
 3. Workers are NOT generated as files — they are ephemeral
-4. If dynamic_tools enabled, add the dynamic_tools section to workflow.awp.yaml
+4. **ALWAYS** add the `dynamic_tools` section to workflow.awp.yaml:
+   ```yaml
+   dynamic_tools:
+     enabled: true
+     persist: true
+     max_total: 50
+     allowed_namespaces: [dynamic]
+     code_review: true
+   ```
+5. **ALWAYS** include `code.execute` as a valid tool for workers. The manager's SYSTEM_PROMPT.md must instruct:
+   - Use `code.execute` for code execution (NOT `shell.execute` — it is forbidden)
+   - Include `code.execute`, `file.read`, `file.write` in `tools_allowed` for codemode workers
+   - Set `tool_creation: true` in `codemode` envelope when workers should create reusable tools
+   - Workers can save files via `_workspace_dir` and `_output_dir` path variables
+6. **NEVER** put `shell.execute` in `tools_allowed` — it is in `forbidden_tools` and will be silently removed, leaving the worker unable to execute code
 
 #### Step 8: Project Skills (if needed)
 

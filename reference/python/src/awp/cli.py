@@ -376,6 +376,7 @@ def _print_header(runner: "WorkflowRunner", wf_dir: Path, task: str, debug: bool
 def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
     """Print workflow configuration summary in debug mode."""
     import os
+    import yaml as _yaml
 
     print("=" * 60)
     print("  CONFIGURATION")
@@ -399,6 +400,78 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
     else:
         print(f"    All secrets OK")
 
+    # List all registered tool names
+    print(f"  Tool names:")
+    for tname in runner._tools.tool_names:
+        print(f"    - {tname}")
+
+    # Tool definitions (full schemas)
+    all_defs = runner._tools.get_definitions()
+    if all_defs:
+        print(f"  Tool definitions ({len(all_defs)}):")
+        for tdef in all_defs:
+            func = tdef.get("function", tdef)
+            fname = func.get("name", "?")
+            fdesc = func.get("description", "")
+            params = func.get("parameters", {})
+            param_names = list(params.get("properties", {}).keys())
+            required = params.get("required", [])
+            print(f"    {fname}: {fdesc}")
+            if param_names:
+                for pn in param_names:
+                    pdef = params["properties"][pn]
+                    ptype = pdef.get("type", "any")
+                    pdesc = pdef.get("description", "")
+                    req_mark = " (REQUIRED)" if pn in required else ""
+                    print(f"      - {pn} ({ptype}){req_mark}: {pdesc}")
+
+    # Run budget
+    orch = runner._manifest.orchestration
+    if orch and orch.run_budget:
+        rb = orch.run_budget
+        print(f"  Run Budget:")
+        print(f"    max_wall_time:    {rb.max_wall_time}s")
+        print(f"    max_total_tokens: {rb.max_total_tokens:,}")
+        print(f"    max_tool_calls:   {rb.max_tool_calls}")
+        print(f"    max_agent_runs:   {rb.max_agent_runs}")
+        print(f"    max_cost_usd:     ${rb.max_cost_usd}")
+        print(f"    enabled_limits:   {', '.join(rb.enabled_limits)}")
+
+    # Delegation loop config
+    if orch and getattr(orch, "engine", "dag") == "delegation_loop" and orch.delegation_loop:
+        dl = orch.delegation_loop
+        print(f"  Delegation Loop:")
+        print(f"    Manager:          {dl.manager}")
+        if dl.models.manager:
+            print(f"    Manager model:    {dl.models.manager}")
+        if dl.models.worker:
+            print(f"    Worker model:     {dl.models.worker}")
+        b = dl.budget
+        print(f"    Budget:")
+        print(f"      max_loops:         {b.max_loops}")
+        print(f"      max_total_workers: {b.max_total_workers}")
+        print(f"      max_total_tokens:  {b.max_total_tokens:,}")
+        print(f"      max_wall_time:     {b.max_wall_time}s")
+        print(f"      max_tool_calls:    {b.max_tool_calls}")
+        print(f"      max_depth:         {b.max_depth}")
+        if dl.termination:
+            print(f"    Stall detection:  window={dl.termination.window}, "
+                  f"min_delta={dl.termination.min_confidence_delta}, "
+                  f"action={dl.termination.action}")
+        print(f"    Validation:       deterministic={dl.validation.deterministic.always}, "
+              f"llm={dl.validation.llm.enabled}")
+        print(f"    Logging:          format={dl.logging.format}, "
+              f"artifacts={dl.logging.persist_artifacts}")
+        # Worker policy
+        wp = dl.worker_policy
+        print(f"    Worker policy:")
+        print(f"      Forbidden tools:   {', '.join(wp.enforced.forbidden_tools)}")
+        print(f"      Manager controls:  {', '.join(wp.manager_controlled)}")
+        print(f"      Sandbox:           type={wp.enforced.sandbox.type}, "
+              f"mem={wp.enforced.sandbox.max_memory_mb}MB, "
+              f"cpu={wp.enforced.sandbox.max_cpu_seconds}s, "
+              f"net={wp.enforced.sandbox.network}")
+
     # Files
     secrets_yaml = wf_dir / "secrets.yaml"
     env_file = wf_dir / ".env"
@@ -407,11 +480,82 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
     print(f"  .env:          {'exists' if env_file.exists() else 'not found'}")
     print(f"  MEMORY.md:     {'exists' if memory_file.exists() else 'not found'}")
 
-    # Agents
+    # Skills (project-level)
+    skills_dir = wf_dir / "skills"
+    if skills_dir.exists():
+        skill_names = []
+        for sd in sorted(skills_dir.iterdir()):
+            if sd.is_dir():
+                sf = sd / "SKILL.md"
+                if sf.exists():
+                    skill_names.append(sd.name)
+            elif sd.suffix in (".md", ".skill"):
+                skill_names.append(sd.stem)
+        if skill_names:
+            print(f"  Project skills: {len(skill_names)} ({', '.join(skill_names)})")
+
+    # Agents with full config
     agents_dir = wf_dir / "agents"
     if agents_dir.exists():
         agents = sorted(d.name for d in agents_dir.iterdir() if d.is_dir())
         print(f"  Agents:        {len(agents)} ({', '.join(agents)})")
+        for agent_name in agents:
+            agent_yaml = agents_dir / agent_name / "agent.awp.yaml"
+            if agent_yaml.exists():
+                try:
+                    cfg = _yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
+                    identity = cfg.get("identity", {})
+                    model = cfg.get("model", {})
+                    caps = cfg.get("capabilities", {})
+                    prompt_cfg = cfg.get("prompt", {})
+
+                    print(f"    [{agent_name}]")
+                    if identity.get("role"):
+                        print(f"      Role:         {identity['role']}")
+                    if identity.get("description"):
+                        desc = identity['description']
+                        print(f"      Description:  {desc}")
+                    model_name = model.get("name", os.getenv("LLM_MODEL", "(default)"))
+                    print(f"      Model:        {model_name}")
+                    params = model.get("parameters", {})
+                    if params:
+                        print(f"      Params:       temp={params.get('temperature', 'default')}, "
+                              f"max_tokens={params.get('max_tokens', 'default')}")
+                    tools_cfg = caps.get("tools", {})
+                    if tools_cfg.get("enabled"):
+                        allowed = tools_cfg.get("allowed", [])
+                        max_calls = tools_cfg.get("max_calls", 10)
+                        print(f"      Tools:        enabled (max_calls={max_calls})")
+                        if allowed:
+                            print(f"        Allowed:    {', '.join(allowed)}")
+                        else:
+                            print(f"        Allowed:    ALL")
+                    else:
+                        print(f"      Tools:        disabled")
+                    # Agent-level skills
+                    agent_skills_dir = agents_dir / agent_name / "workflow" / "skills"
+                    if agent_skills_dir.exists():
+                        ask = list(agent_skills_dir.rglob("*.md"))
+                        if ask:
+                            print(f"      Skills:       {len(ask)} agent-level")
+                            for sf in ask:
+                                print(f"        - {sf.name}")
+                    # System prompt file
+                    sys_prompt_file = agents_dir / agent_name / "workflow" / "instructions" / "SYSTEM_PROMPT.md"
+                    if sys_prompt_file.exists():
+                        sp_size = sys_prompt_file.stat().st_size
+                        print(f"      System prompt: {sys_prompt_file.name} ({sp_size}B)")
+                    # Output schema
+                    schema_file = agents_dir / agent_name / "workflow" / "output_schema" / "output_schema.json"
+                    if schema_file.exists():
+                        try:
+                            schema = json.loads(schema_file.read_text(encoding="utf-8"))
+                            fields = list(schema.get("properties", {}).keys())
+                            print(f"      Output schema: {', '.join(fields)}")
+                        except Exception:
+                            print(f"      Output schema: (present)")
+                except Exception:
+                    pass
 
     print("=" * 60)
     print()
@@ -491,6 +635,91 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                     llm=runner._llm,
                     tool_registry=runner._tools,
                 )
+
+                # ── DEBUG TRACE: INPUTS ─────────────────────────────
+                print(f"    {'─' * 52}")
+                print(f"    INPUT TRACE")
+                print(f"    {'─' * 52}")
+
+                # System prompt (instructions + skills + memory)
+                try:
+                    sys_prompt = agent._build_system_prompt()
+                    sys_lines = sys_prompt.count("\n") + 1
+                    print(f"    System Prompt ({len(sys_prompt)} chars, {sys_lines} lines):")
+                    for line in sys_prompt.splitlines():
+                        print(f"      | {line}")
+                except Exception as _sp_err:
+                    print(f"    System Prompt: (error: {_sp_err})")
+
+                # User message (template + context + schema + task)
+                try:
+                    user_msg = agent._build_user_message(task, state)
+                    um_lines = user_msg.count("\n") + 1
+                    print(f"    User Message ({len(user_msg)} chars, {um_lines} lines):")
+                    for line in user_msg.splitlines():
+                        print(f"      | {line}")
+                except Exception as _um_err:
+                    print(f"    User Message: (error: {_um_err})")
+
+                # Skills
+                try:
+                    skills_text = agent._load_skills()
+                    if skills_text:
+                        print(f"    Skills ({len(skills_text)} chars):")
+                        for line in skills_text.splitlines():
+                            print(f"      | {line}")
+                    else:
+                        print(f"    Skills: (none)")
+                except Exception:
+                    print(f"    Skills: (none)")
+
+                # Tool definitions
+                try:
+                    caps = agent._config.capabilities
+                    if caps and hasattr(caps, "tools") and caps.tools.enabled:
+                        allowed = caps.tools.allowed or None
+                        tool_defs = runner._tools.get_definitions(allowed)
+                        print(f"    Tools ({len(tool_defs)} definitions):")
+                        for td in tool_defs:
+                            func = td.get("function", td)
+                            print(f"      - {func.get('name', '?')}: {func.get('description', '')}")
+                            params = func.get("parameters", {})
+                            for pn, pdef in params.get("properties", {}).items():
+                                print(f"          {pn} ({pdef.get('type', '?')}): {pdef.get('description', '')}")
+                    else:
+                        print(f"    Tools: disabled")
+                except Exception:
+                    print(f"    Tools: (error reading)")
+
+                # Output schema
+                try:
+                    schema = agent._load_output_schema()
+                    if schema:
+                        print(f"    Output Schema:")
+                        print(f"      {json.dumps(schema, indent=2, default=str, ensure_ascii=False)}")
+                    else:
+                        print(f"    Output Schema: (none)")
+                except Exception:
+                    print(f"    Output Schema: (none)")
+
+                # State context passed to agent
+                state_keys = [k for k in state if not k.startswith("_") and k != "task"]
+                if state_keys:
+                    print(f"    State Context ({len(state_keys)} entries):")
+                    for sk in state_keys:
+                        sv = state[sk]
+                        if isinstance(sv, dict):
+                            print(f"      {sk}: {json.dumps(sv, indent=2, default=str, ensure_ascii=False)}")
+                        else:
+                            print(f"      {sk}: {sv}")
+                else:
+                    print(f"    State Context: (empty)")
+
+                print(f"    {'─' * 52}")
+                print(f"    EXECUTING...")
+                print(f"    {'─' * 52}")
+
+                # ── EXECUTE AGENT ───────────────────────────────────
                 result = agent.run(task, state)
                 elapsed = _time.time() - agent_start
                 state.update(result)
@@ -500,16 +729,19 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                 confidence = agent_result.get("confidence", "N/A")
                 has_error = "error" in agent_result
 
+                # ── DEBUG TRACE: OUTPUTS ────────────────────────────
+                print(f"    {'─' * 52}")
+                print(f"    OUTPUT TRACE")
+                print(f"    {'─' * 52}")
+
                 if has_error:
                     error_msg = agent_result["error"]
-                    if len(error_msg) > 120:
-                        error_msg = error_msg[:120] + "..."
                     print(f"    Status:  ERROR ({elapsed:.1f}s)")
                     print(f"    Error:   {error_msg}")
                 else:
                     print(f"    Status:  OK ({elapsed:.1f}s, confidence: {confidence})")
 
-                    # Show output keys and content (expanded in debug)
+                    # Show full output (no truncation in debug mode)
                     for k, v in agent_result.items():
                         if k in ("confidence", "error"):
                             continue
@@ -520,17 +752,10 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                                 if isinstance(item, dict):
                                     print(f"{prefix}{json.dumps(item, indent=2, default=str, ensure_ascii=False)}")
                                 else:
-                                    item_str = str(item)
-                                    if len(item_str) > 200:
-                                        item_str = item_str[:200] + "..."
-                                    print(f"{prefix}{item_str}")
+                                    print(f"{prefix}{item}")
                         elif isinstance(v, dict):
                             print(f"    Output:  {k} → {len(v)} fields")
-                            for fk, fv in v.items():
-                                fv_str = str(fv)
-                                if len(fv_str) > 200:
-                                    fv_str = fv_str[:200] + "..."
-                                print(f"      {fk}: {fv_str}")
+                            print(f"      {json.dumps(v, indent=2, default=str, ensure_ascii=False)}")
                         elif isinstance(v, str):
                             lines = v.count("\n") + 1
                             chars = len(v)
@@ -539,6 +764,11 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                                 print(f"      {line}")
                         else:
                             print(f"    Output:  {k} → {v}")
+
+                # Full JSON dump of agent result
+                print(f"    Full Result JSON:")
+                print(f"      {json.dumps(agent_result, indent=2, default=str, ensure_ascii=False)}")
+                print(f"    {'─' * 52}")
 
                 # Memory auto-write and show path
                 runner._auto_write_memory(agent_id, agent_result)
@@ -654,8 +884,76 @@ def _run_delegation_loop_debug(
         b = getattr(dl, "budget", None)
         if b:
             print(f"  Budget:        loops={b.max_loops}, workers={b.max_total_workers}, "
-                  f"wall_time={b.max_wall_time}s, depth={b.max_depth}")
+                  f"tokens={b.max_total_tokens:,}, "
+                  f"wall_time={b.max_wall_time}s, depth={b.max_depth}, "
+                  f"tool_calls={b.max_tool_calls}")
         print(f"  Manager:       {dl.manager}")
+        if dl.models.manager:
+            print(f"  Manager model: {dl.models.manager}")
+        if dl.models.worker:
+            print(f"  Worker model:  {dl.models.worker}")
+
+        # Manager agent config
+        manager_dir = wf_dir / dl.manager
+        if manager_dir.exists():
+            agent_yaml = manager_dir / "agent.awp.yaml"
+            if agent_yaml.exists():
+                try:
+                    import yaml as _yaml
+                    mgr_cfg = _yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
+                    identity = mgr_cfg.get("identity", {})
+                    print(f"  Manager role:  {identity.get('role', '?')}")
+                    print(f"  Manager desc:  {identity.get('description', '?')}")
+                except Exception:
+                    pass
+
+            # Manager system prompt
+            sys_prompt_file = manager_dir / "workflow" / "instructions" / "SYSTEM_PROMPT.md"
+            if sys_prompt_file.exists():
+                content = sys_prompt_file.read_text(encoding="utf-8")
+                print(f"  Manager System Prompt ({len(content)} chars):")
+                for line in content.splitlines():
+                    print(f"    | {line}")
+
+            # Manager skills
+            mgr_skills_dir = manager_dir / "workflow" / "skills"
+            if mgr_skills_dir.exists():
+                skill_files = list(mgr_skills_dir.rglob("*.md"))
+                if skill_files:
+                    print(f"  Manager Skills ({len(skill_files)}):")
+                    for sf in skill_files:
+                        sc = sf.read_text(encoding="utf-8")
+                        print(f"    [{sf.name}] ({len(sc)} chars):")
+                        for line in sc.splitlines():
+                            print(f"      | {line}")
+
+            # Manager output schema
+            schema_file = manager_dir / "workflow" / "output_schema" / "output_schema.json"
+            if schema_file.exists():
+                try:
+                    schema = json.loads(schema_file.read_text(encoding="utf-8"))
+                    print(f"  Manager Output Schema:")
+                    for line in json.dumps(schema, indent=2, default=str).splitlines():
+                        print(f"    {line}")
+                except Exception:
+                    pass
+
+        # Worker policy
+        wp = dl.worker_policy
+        print(f"  Worker policy:")
+        print(f"    Forbidden tools:  {', '.join(wp.enforced.forbidden_tools)}")
+        print(f"    Manager controls: {', '.join(wp.manager_controlled)}")
+        print(f"    Sandbox:          type={wp.enforced.sandbox.type}, "
+              f"mem={wp.enforced.sandbox.max_memory_mb}MB")
+
+        # Validation config
+        print(f"  Validation:    deterministic={dl.validation.deterministic.always}, "
+              f"llm={dl.validation.llm.enabled}")
+        if dl.termination:
+            print(f"  Stall detect:  window={dl.termination.window}, "
+                  f"delta={dl.termination.min_confidence_delta}, "
+                  f"action={dl.termination.action}")
+
     print()
     print("  Running... (this may take a while)")
     print()
@@ -719,33 +1017,87 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                 decision = json.loads(decision_file.read_text(encoding="utf-8"))
                 dec_type = decision.get("decision", "?")
                 reasoning = decision.get("reasoning", decision.get("plan", ""))
-                if isinstance(reasoning, str) and len(reasoning) > 200:
-                    reasoning = reasoning[:200] + "..."
+
+                print(f"    {'─' * 48}")
+                print(f"    MANAGER DECISION")
+                print(f"    {'─' * 48}")
                 print(f"    Decision:    {dec_type}")
                 if reasoning:
-                    print(f"    Reasoning:   {reasoning}")
+                    print(f"    Reasoning:")
+                    if isinstance(reasoning, str):
+                        for line in reasoning.splitlines():
+                            print(f"      | {line}")
+                    else:
+                        print(f"      {reasoning}")
 
-                # Show delegations overview
+                # Full manager decision JSON
+                print(f"    Full Manager Decision JSON:")
+                for line in json.dumps(decision, indent=2, default=str, ensure_ascii=False).splitlines():
+                    print(f"      {line}")
+
+                # Show delegations with FULL inputs
                 delegations = decision.get("delegations", decision.get("workers", []))
                 if delegations:
-                    print(f"    Workers:     {len(delegations)}")
+                    print(f"    {'─' * 48}")
+                    print(f"    WORKER INPUTS ({len(delegations)} workers)")
+                    print(f"    {'─' * 48}")
                     for w in delegations:
                         wid = w.get("worker_id", w.get("id", "?"))
-                        instr = w.get("instructions", "")[:80]
+                        instr = w.get("instructions", "")
                         skills = w.get("skills", [])
                         tools = w.get("tools_allowed", [])
                         codemode = w.get("codemode", {})
+                        output_contract = w.get("output_contract", {})
+                        budget = w.get("budget", {})
+
                         print(f"      ▶ {wid}")
+
+                        # Full instructions (no truncation)
                         if instr:
-                            print(f"        Task:    {instr}...")
+                            print(f"        Instructions ({len(instr)} chars):")
+                            for line in instr.splitlines():
+                                print(f"          | {line}")
+
+                        # Full skills content
                         if skills:
                             total_chars = sum(len(s) for s in skills if isinstance(s, str))
-                            print(f"        Skills:  {len(skills)} injected ({total_chars} chars)")
+                            print(f"        Skills ({len(skills)}, {total_chars} chars total):")
+                            for si, skill in enumerate(skills):
+                                if isinstance(skill, str):
+                                    print(f"          [Skill {si}] ({len(skill)} chars):")
+                                    for line in skill.splitlines():
+                                        print(f"            | {line}")
+                                else:
+                                    print(f"          [Skill {si}]: {skill}")
+
+                        # Full tools list
                         if tools:
-                            print(f"        Tools:   {', '.join(tools[:5])}")
-                        if codemode.get("tool_creation"):
-                            ns = codemode.get("tool_creation_namespace", "dynamic")
-                            print(f"        CodeMode: tool_creation ({ns}.*)")
+                            print(f"        Tools allowed ({len(tools)}):")
+                            for t in tools:
+                                print(f"          - {t}")
+                        else:
+                            print(f"        Tools allowed: ALL")
+
+                        # Output contract
+                        if output_contract:
+                            print(f"        Output contract:")
+                            for line in json.dumps(output_contract, indent=2, default=str).splitlines():
+                                print(f"          {line}")
+
+                        # Codemode
+                        if codemode:
+                            print(f"        CodeMode: enabled={codemode.get('enabled', False)}")
+                            if codemode.get("tool_creation"):
+                                ns = codemode.get("tool_creation_namespace", "dynamic")
+                                print(f"          tool_creation: {ns}.*")
+                                max_tools = codemode.get("max_tools", "?")
+                                print(f"          max_tools: {max_tools}")
+
+                        # Worker budget
+                        if budget:
+                            print(f"        Budget: {json.dumps(budget, default=str)}")
+
+                        print()
             except Exception:
                 pass
 
@@ -753,12 +1105,56 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
         deleg_dir = iter_dir / "delegations"
         if deleg_dir.exists():
             print()
+            print(f"    {'─' * 48}")
+            print(f"    WORKER OUTPUTS")
+            print(f"    {'─' * 48}")
             for worker_dir in sorted(deleg_dir.iterdir()):
                 if not worker_dir.is_dir():
                     continue
                 wid = worker_dir.name
 
-                # Result
+                # Envelope (worker input as stored on disk)
+                envelope_file = worker_dir / "envelope.json"
+                if envelope_file.exists():
+                    try:
+                        envelope = json.loads(envelope_file.read_text(encoding="utf-8"))
+                        if envelope:
+                            print(f"    ▶ {wid} — ENVELOPE (stored input):")
+                            # Show instructions
+                            env_instr = envelope.get("instructions", "")
+                            if env_instr:
+                                print(f"        Instructions ({len(env_instr)} chars):")
+                                for line in env_instr.splitlines():
+                                    print(f"          | {line}")
+                            # Show skills
+                            env_skills = envelope.get("skills", [])
+                            if env_skills:
+                                print(f"        Skills ({len(env_skills)}):")
+                                for si, sk in enumerate(env_skills):
+                                    if isinstance(sk, str):
+                                        print(f"          [Skill {si}] ({len(sk)} chars):")
+                                        for line in sk.splitlines():
+                                            print(f"            | {line}")
+                                    else:
+                                        print(f"          [Skill {si}]: {sk}")
+                            # Show tools
+                            env_tools = envelope.get("tools_allowed", [])
+                            if env_tools:
+                                print(f"        Tools: {', '.join(env_tools)}")
+                            # Show output contract
+                            env_oc = envelope.get("output_contract", {})
+                            if env_oc:
+                                print(f"        Output contract:")
+                                for line in json.dumps(env_oc, indent=2, default=str).splitlines():
+                                    print(f"          {line}")
+                            # Show codemode
+                            env_cm = envelope.get("codemode", {})
+                            if env_cm:
+                                print(f"        CodeMode: {json.dumps(env_cm, default=str)}")
+                    except Exception:
+                        pass
+
+                # Result (full output, no truncation)
                 result_file = worker_dir / "result.json"
                 if result_file.exists():
                     try:
@@ -767,52 +1163,146 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                         has_error = "error" in w_result
                         status = "ERROR" if has_error else "OK"
 
-                        result_keys = [k for k in w_result if k not in ("confidence", "error")]
                         print(f"    ← {wid}: {status} (confidence: {conf})")
 
                         if has_error:
-                            err = str(w_result["error"])[:150]
-                            print(f"        Error: {err}")
+                            print(f"        Error:")
+                            err = str(w_result["error"])
+                            for line in err.splitlines():
+                                print(f"          {line}")
                         else:
-                            # Show key output fields
-                            for rk in result_keys[:5]:
+                            # Show ALL output fields fully (no truncation)
+                            result_keys = [k for k in w_result if k not in ("confidence", "error")]
+                            for rk in result_keys:
                                 val = w_result[rk]
                                 if isinstance(val, str):
-                                    display = val[:120] + "..." if len(val) > 120 else val
-                                    display = display.replace("\n", " ")
-                                    print(f"        {rk}: {display}")
+                                    lines = val.count("\n") + 1
+                                    print(f"        {rk} ({len(val)} chars, {lines} lines):")
+                                    for line in val.splitlines():
+                                        print(f"          {line}")
                                 elif isinstance(val, list):
-                                    print(f"        {rk}: [{len(val)} items]")
+                                    print(f"        {rk} ({len(val)} items):")
+                                    for li, litem in enumerate(val):
+                                        if isinstance(litem, dict):
+                                            print(f"          [{li}] {json.dumps(litem, indent=2, default=str, ensure_ascii=False)}")
+                                        else:
+                                            print(f"          [{li}] {litem}")
                                 elif isinstance(val, dict):
-                                    print(f"        {rk}: {{{len(val)} fields}}")
+                                    print(f"        {rk} ({len(val)} fields):")
+                                    for line in json.dumps(val, indent=2, default=str, ensure_ascii=False).splitlines():
+                                        print(f"          {line}")
                                 else:
                                     print(f"        {rk}: {val}")
+
+                        # Full JSON dump
+                        print(f"        Full Result JSON:")
+                        for line in json.dumps(w_result, indent=2, default=str, ensure_ascii=False).splitlines():
+                            print(f"          {line}")
+
+                        # Tools created (raw LLM output)
+                        tc = w_result.get("tools_created", [])
+                        if isinstance(tc, list) and tc:
+                            print(f"        tools_created ({len(tc)} from LLM):")
+                            for ti, tspec in enumerate(tc):
+                                if isinstance(tspec, dict):
+                                    tname = tspec.get("name", f"tool_{ti}")
+                                    print(f"          [{ti}] {tname}")
+                                    tdesc = tspec.get("description", "")
+                                    if tdesc:
+                                        print(f"              Description: {tdesc}")
+                                    treqs = tspec.get("required_secrets", [])
+                                    if treqs:
+                                        print(f"              Required secrets: {', '.join(treqs)}")
+                                    tparams = tspec.get("parameters", {})
+                                    if tparams:
+                                        print(f"              Parameters:")
+                                        for line in json.dumps(tparams, indent=2, default=str).splitlines():
+                                            print(f"                {line}")
+                                    tcode = tspec.get("code", "")
+                                    if tcode:
+                                        print(f"              Code ({len(tcode)} chars):")
+                                        for line in tcode.splitlines():
+                                            print(f"                | {line}")
+
+                        # Tools registered (enriched with registration status)
+                        tr = w_result.get("tools_registered", [])
+                        if isinstance(tr, list) and tr:
+                            print(f"        tools_registered ({len(tr)}):")
+                            for ti, trec in enumerate(tr):
+                                if isinstance(trec, dict):
+                                    tname = trec.get("name", f"tool_{ti}")
+                                    registered = trec.get("registered", False)
+                                    status_str = "OK" if registered else "FAILED"
+                                    print(f"          [{ti}] {tname}: {status_str}")
+                                    if not registered:
+                                        terr = trec.get("error", trec.get("reason", "?"))
+                                        print(f"              Error: {terr}")
+                                        vr = trec.get("validation_result", {})
+                                        if vr:
+                                            print(f"              Validation:")
+                                            for line in json.dumps(vr, indent=2, default=str).splitlines():
+                                                print(f"                {line}")
+                                    treqs = trec.get("required_secrets", [])
+                                    if treqs:
+                                        print(f"              Required secrets: {', '.join(treqs)}")
+                                    # Show code from enriched record
+                                    tcode = trec.get("code", "")
+                                    if tcode:
+                                        print(f"              Code ({len(tcode)} chars):")
+                                        for line in tcode.splitlines():
+                                            print(f"                | {line}")
+                                    tparams = trec.get("parameters", {})
+                                    if tparams:
+                                        print(f"              Parameters:")
+                                        for line in json.dumps(tparams, indent=2, default=str).splitlines():
+                                            print(f"                {line}")
+
                     except Exception:
                         pass
 
-                # Generated skills
+                # Generated skills (full content)
                 skills_dir = worker_dir / "generated_skills"
                 if skills_dir.exists():
                     skill_files = list(skills_dir.glob("*.md"))
                     if skill_files:
+                        print(f"        Generated Skills ({len(skill_files)}):")
                         for sf in skill_files:
                             content = sf.read_text(encoding="utf-8")
                             title = content.split("\n")[0].strip("# ").strip() if content else sf.name
-                            print(f"        📖 Skill: {title} ({sf.stat().st_size}B)")
+                            print(f"          Skill: {title} ({sf.stat().st_size}B)")
+                            for line in content.splitlines():
+                                print(f"            | {line}")
 
-                # Generated tools
+                # Generated tools (full content)
                 tools_dir = worker_dir / "generated_tools"
                 if tools_dir.exists():
                     tool_files = list(tools_dir.glob("*.json"))
                     if tool_files:
+                        print(f"        Generated Tools ({len(tool_files)}):")
                         for tf in tool_files:
                             try:
                                 tdata = json.loads(tf.read_text(encoding="utf-8"))
                                 tname = tdata.get("name", tf.stem)
-                                tdesc = tdata.get("description", "")[:60]
-                                print(f"        🔧 Tool: {tname} — {tdesc}")
+                                tdesc = tdata.get("description", "")
+                                print(f"          Tool: {tname}")
+                                print(f"            Description: {tdesc}")
+                                treqs = tdata.get("required_secrets", [])
+                                if treqs:
+                                    print(f"            Required secrets: {', '.join(treqs)}")
+                                params = tdata.get("parameters", {})
+                                if params:
+                                    print(f"            Parameters:")
+                                    for line in json.dumps(params, indent=2, default=str).splitlines():
+                                        print(f"              {line}")
+                                code = tdata.get("code", tdata.get("source", ""))
+                                if code:
+                                    print(f"            Code ({len(code)} chars):")
+                                    for line in code.splitlines():
+                                        print(f"              | {line}")
                             except Exception:
-                                print(f"        🔧 Tool: {tf.name}")
+                                print(f"          Tool: {tf.name}")
+
+                print()
 
         # Budget snapshot
         budget_file = iter_dir / "budget_snapshot.json"
@@ -893,15 +1383,95 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
             for s in skills:
                 content = s.read_text(encoding="utf-8")
                 title = content.split("\n")[0].strip("# ").strip() if content else s.name
-                print(f"    📖 {s.name}: {title}")
+                print(f"    Skill: {s.name}: {title} ({s.stat().st_size}B)")
+                for line in content.splitlines():
+                    print(f"      | {line}")
         if tools:
             print(f"  Tools:       {len(tools)} generated")
             for t in tools:
                 try:
                     tdata = json.loads(t.read_text(encoding="utf-8"))
-                    print(f"    🔧 {tdata.get('name', t.stem)}: {tdata.get('description', '')[:50]}")
+                    tname = tdata.get("name", t.stem)
+                    tdesc = tdata.get("description", "")
+                    registered = tdata.get("registered", None)
+                    reg_str = ""
+                    if registered is True:
+                        reg_str = " [REGISTERED]"
+                    elif registered is False:
+                        reg_str = f" [FAILED: {tdata.get('error', '?')}]"
+
+                    print(f"    Tool: {tname}{reg_str}")
+                    if tdesc:
+                        print(f"      Description: {tdesc}")
+                    treqs = tdata.get("required_secrets", [])
+                    if treqs:
+                        print(f"      Required secrets: {', '.join(treqs)}")
+
+                    # Worker info
+                    worker_id = tdata.get("worker_id", "")
+                    if worker_id:
+                        print(f"      Worker: {worker_id}")
+                    prov = tdata.get("provenance", {})
+                    if prov:
+                        print(f"      Creator: {prov.get('creator_agent', '?')}, "
+                              f"Created: {prov.get('created_at', '?')}")
+
+                    # Parameters
+                    tparams = tdata.get("parameters", {})
+                    if tparams:
+                        print(f"      Parameters:")
+                        for line in json.dumps(tparams, indent=2, default=str).splitlines():
+                            print(f"        {line}")
+
+                    # Code (full)
+                    tcode = tdata.get("code", tdata.get("source", ""))
+                    if tcode:
+                        print(f"      Code ({len(tcode)} chars):")
+                        for line in tcode.splitlines():
+                            print(f"        | {line}")
+
+                    # Validation result (if failed)
+                    vr = tdata.get("validation_result", {})
+                    if vr:
+                        print(f"      Validation result:")
+                        for line in json.dumps(vr, indent=2, default=str).splitlines():
+                            print(f"        {line}")
+
+                    # If this is a manifest file, show all tools in it
+                    manifest_tools = tdata.get("tools", [])
+                    if isinstance(manifest_tools, list) and manifest_tools:
+                        print(f"      Manifest ({len(manifest_tools)} tools):")
+                        for mt in manifest_tools:
+                            if isinstance(mt, dict):
+                                print(f"        - {mt.get('name', '?')}: "
+                                      f"registered={mt.get('registered', '?')}")
+                            else:
+                                print(f"        - {mt}")
+
                 except Exception:
-                    print(f"    🔧 {t.name}")
+                    print(f"    Tool: {t.name}")
+
+    # Dynamic tools directory (workspace/dynamic_tools — persisted by factory)
+    dynamic_tools_dir = run_dir.parent.parent / "dynamic_tools"
+    if dynamic_tools_dir.exists():
+        dt_files = list(dynamic_tools_dir.glob("*.json"))
+        if dt_files:
+            print(f"  Persisted dynamic tools: {len(dt_files)}")
+            for dt in dt_files:
+                try:
+                    dtdata = json.loads(dt.read_text(encoding="utf-8"))
+                    print(f"    {dtdata.get('fqn', dt.stem)}: {dtdata.get('description', '')}")
+                    prov = dtdata.get("provenance", {})
+                    if prov:
+                        print(f"      Creator: {prov.get('creator_agent', '?')}, "
+                              f"Created: {prov.get('created_at', '?')}")
+                    dtcode = dtdata.get("code", "")
+                    if dtcode:
+                        print(f"      Code ({len(dtcode)} chars):")
+                        for line in dtcode.splitlines():
+                            print(f"        | {line}")
+                except Exception:
+                    print(f"    {dt.name}")
 
     # All generated files
     all_files = list(run_dir.rglob("*"))

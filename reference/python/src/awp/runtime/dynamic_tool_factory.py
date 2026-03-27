@@ -62,7 +62,7 @@ class DynamicToolRecord:
     """Metadata about a dynamically created tool."""
 
     __slots__ = ("fqn", "creator_agent", "created_at", "code", "parameters",
-                 "description", "meta")
+                 "description", "meta", "required_secrets")
 
     def __init__(
         self,
@@ -72,6 +72,7 @@ class DynamicToolRecord:
         parameters: dict[str, Any],
         description: str,
         meta: Optional[dict[str, Any]] = None,
+        required_secrets: Optional[list[str]] = None,
     ) -> None:
         self.fqn = fqn
         self.creator_agent = creator_agent
@@ -80,9 +81,10 @@ class DynamicToolRecord:
         self.parameters = parameters
         self.description = description
         self.meta = meta or {}
+        self.required_secrets = required_secrets or []
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "fqn": self.fqn,
             "description": self.description,
             "parameters": self.parameters,
@@ -93,6 +95,9 @@ class DynamicToolRecord:
                 "created_at": self.created_at,
             },
         }
+        if self.required_secrets:
+            d["required_secrets"] = self.required_secrets
+        return d
 
 
 class DynamicToolFactory:
@@ -154,6 +159,7 @@ class DynamicToolFactory:
         max_tools: int = 10,
         allowed_namespace: str = "dynamic",
         meta: Optional[dict[str, Any]] = None,
+        required_secrets: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Validate, wrap, and register a dynamic tool.
 
@@ -166,6 +172,10 @@ class DynamicToolFactory:
             max_tools: Per-agent tool creation limit.
             allowed_namespace: Namespace this agent is allowed to use.
             meta: Optional tool metadata.
+            required_secrets: List of secret key names the tool needs at
+                runtime (e.g. ``["OPENAI_API_KEY", "GITHUB_TOKEN"]``).
+                Values are injected into the sandbox as ``_secrets`` dict.
+                Only keys that actually exist in the registry are passed.
 
         Returns:
             Standard AWP result format.
@@ -229,12 +239,24 @@ class DynamicToolFactory:
                 name, creator_agent, code,
             )
 
-        # Create sandboxed wrapper function
-        tool_fn = self._make_sandboxed_tool(code, name)
+        secrets_list = required_secrets or []
 
-        # Register in ToolRegistry
+        # Log secret binding
+        if secrets_list:
+            available = [k for k in secrets_list if k in (self._registry._secrets or {})]
+            missing = [k for k in secrets_list if k not in (self._registry._secrets or {})]
+            logger.info(
+                "Dynamic tool %s requests secrets: %s (available: %s, missing: %s)",
+                name, secrets_list, available, missing,
+            )
+
+        # Create sandboxed wrapper function (with secret injection support)
+        tool_fn = self._make_sandboxed_tool(code, name, secrets_list)
+
+        # Register in ToolRegistry (with secret keys so call() injects _secrets)
         self._registry.register_dynamic(
             name, tool_fn, parameters, description, creator_agent,
+            secrets_keys=secrets_list if secrets_list else None,
         )
 
         # Track the record
@@ -245,6 +267,7 @@ class DynamicToolFactory:
             parameters=parameters,
             description=description,
             meta=meta,
+            required_secrets=secrets_list,
         )
         self._records[name] = record
         self._agent_counts[creator_agent] = count + 1
@@ -382,35 +405,71 @@ class DynamicToolFactory:
 
         return _ok({"valid": True})
 
-    def _make_sandboxed_tool(self, code: str, fqn: str) -> Any:
+    def _make_sandboxed_tool(self, code: str, fqn: str,
+                             required_secrets: Optional[list[str]] = None) -> Any:
         """Create a callable that executes tool code in a subprocess sandbox.
 
-        Each invocation spawns a fresh subprocess for isolation.
+        Each invocation spawns a fresh subprocess for isolation.  If the tool
+        declared ``required_secrets``, the matching values from the registry
+        are injected into the sandbox script as a ``_secrets`` dict so the
+        handler can access them via ``_secrets["KEY_NAME"]``.
 
         Args:
             code: Python code string with ``def handler(*, ...)``.
             fqn: Tool FQN (for error messages).
+            required_secrets: Secret key names the tool declared.
 
         Returns:
             A callable matching the ToolFunc signature.
         """
         executor = self._executor
+        _required = required_secrets or []
+        _workflow_dir = self._workflow_dir
 
         def tool_fn(**kwargs: Any) -> dict[str, Any]:
-            # Remove _secrets (dynamic tools don't get secrets - proxy pattern)
-            kwargs.pop("_secrets", None)
+            # Extract _secrets injected by ToolRegistry.call() and remove
+            # from kwargs (handler doesn't receive them as a kwarg —
+            # they are injected as a top-level variable in the script).
+            injected_secrets: dict[str, str] = kwargs.pop("_secrets", None) or {}
 
             # Build execution script
             args_json = json.dumps(kwargs)
+
+            # Inject secrets as a dedicated variable in the sandbox.
+            # Only the keys declared by the tool and actually present
+            # in the registry are passed — never the full secret store.
+            secrets_json = json.dumps(injected_secrets)
+
+            # Resolve workspace and output directories so tool code can
+            # write files (PNGs, CSVs, JSONs, …) to disk.
+            workspace_dir = ""
+            output_dir = ""
+            if _workflow_dir:
+                ws = _workflow_dir / "workspace"
+                ws.mkdir(parents=True, exist_ok=True)
+                workspace_dir = str(ws)
+                out = _workflow_dir / "output"
+                out.mkdir(parents=True, exist_ok=True)
+                output_dir = str(out)
+
             script = (
                 f"import json\n"
+                f"_secrets = json.loads({json.dumps(secrets_json)})\n"
+                f"_workspace_dir = {json.dumps(workspace_dir)}\n"
+                f"_output_dir = {json.dumps(output_dir)}\n"
                 f"{code}\n"
                 f"_args = json.loads({json.dumps(args_json)})\n"
                 f"_result = handler(**_args)\n"
                 f"print(json.dumps(_result))\n"
             )
 
-            exec_result = executor.execute(script, timeout=30)
+            if _required:
+                logger.debug(
+                    "Dynamic tool %s executing with secrets: %s",
+                    fqn, list(injected_secrets.keys()),
+                )
+
+            exec_result = executor.execute(script, timeout=10000)
 
             if exec_result["ok"]:
                 stdout = exec_result["data"]["stdout"].strip()
@@ -464,11 +523,13 @@ class DynamicToolFactory:
                     logger.warning("Skipping persisted tool %s: %s", fqn, validation["error"])
                     continue
 
-                # Register
-                tool_fn = self._make_sandboxed_tool(data["code"], fqn)
+                # Register (with secret keys if persisted)
+                persisted_secrets = data.get("required_secrets", [])
+                tool_fn = self._make_sandboxed_tool(data["code"], fqn, persisted_secrets)
                 creator = data.get("provenance", {}).get("creator_agent", "persisted")
                 self._registry.register_dynamic(
                     fqn, tool_fn, data["parameters"], data["description"], creator,
+                    secrets_keys=persisted_secrets if persisted_secrets else None,
                 )
                 self._records[fqn] = DynamicToolRecord(
                     fqn=fqn,
@@ -477,6 +538,7 @@ class DynamicToolFactory:
                     parameters=data["parameters"],
                     description=data["description"],
                     meta=data.get("meta"),
+                    required_secrets=persisted_secrets,
                 )
                 logger.info("Loaded persisted dynamic tool: %s", fqn)
 

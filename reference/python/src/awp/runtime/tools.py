@@ -783,7 +783,20 @@ class ToolRegistry:
     def _code_execute(self, *, code: str, timeout: int = 30) -> dict[str, Any]:
         if not self._code_executor:
             return _err("Code executor not configured", 503)
-        return self._code_executor.execute(code, timeout=timeout)
+
+        # Inject _workspace_dir and _output_dir so executed code can save files
+        preamble = ""
+        if self._workflow_dir:
+            ws = self._workflow_dir / "workspace"
+            ws.mkdir(parents=True, exist_ok=True)
+            out = self._workflow_dir / "output"
+            out.mkdir(parents=True, exist_ok=True)
+            preamble = (
+                f"_workspace_dir = {str(ws)!r}\n"
+                f"_output_dir = {str(out)!r}\n"
+            )
+
+        return self._code_executor.execute(preamble + code, timeout=timeout)
 
     # -- Memory curate tool -----------------------------------------------
 
