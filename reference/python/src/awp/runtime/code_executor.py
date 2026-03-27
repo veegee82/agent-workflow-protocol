@@ -15,10 +15,12 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
+from .base_executor import BaseExecutor
+
 logger = logging.getLogger(__name__)
 
 
-class CodeExecutor:
+class CodeExecutor(BaseExecutor):
     """Subprocess-based Python code sandbox.
 
     Args:

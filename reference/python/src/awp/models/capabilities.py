@@ -37,7 +37,7 @@ class DataSourceConfig(BaseModel):
 class SandboxConfig(BaseModel):
     """Sandbox configuration for code execution."""
     enabled: bool = False
-    type: str = "subprocess"  # subprocess | docker | wasm | isolate | none
+    type: str = "subprocess"  # subprocess | docker | venv | wasm | isolate | none
     runtime: str = "python"
     timeout: int = 30
     max_memory_mb: int = 256
@@ -45,6 +45,9 @@ class SandboxConfig(BaseModel):
     max_output_bytes: int = 1_048_576
     allowed_modules: list[str] = Field(default_factory=list)
     network_access: bool = False
+    packages: list[str] = Field(default_factory=list)  # pip packages to pre-install
+    image: str = "awp-sandbox-python"  # Docker image name (docker type only)
+    pip_install: bool = False  # Allow runtime pip install for missing packages
 
     model_config = {"extra": "allow"}
 

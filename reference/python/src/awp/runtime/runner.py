@@ -39,9 +39,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..parser import parse_manifest
+from ..models.capabilities import SandboxConfig
 from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency, RunBudgetLimits
 from .agent import StandaloneAgent
 from .code_executor import CodeExecutor
+from .executor_factory import create_executor
 from .expressions import safe_eval
 from .llm import LLMClient
 from .message_bus import MessageBus
@@ -165,20 +167,20 @@ class WorkflowRunner:
         self._bus = MessageBus(config=comm)
         self._tools.set_message_bus(self._bus)
 
-        # Code executor
-        self._code_executor = CodeExecutor(
-            max_timeout=60,
-            working_dir=self._dir,
-        )
+        # Code executor (sandbox-type-aware)
+        sandbox_cfg = self._resolve_sandbox_config()
+        self._sandbox_type = sandbox_cfg.type
+        self._code_executor = create_executor(sandbox_cfg, working_dir=self._dir)
         self._tools.set_code_executor(self._code_executor)
 
-        # Dynamic tool factory
+        # Dynamic tool factory (with sandbox-type-aware import policies)
         dynamic_tools_cfg = getattr(self._manifest, "dynamic_tools", None)
         self._dynamic_tool_factory = DynamicToolFactory(
             registry=self._tools,
             code_executor=self._code_executor,
             config=dynamic_tools_cfg,
             workflow_dir=self._dir,
+            sandbox_type=self._sandbox_type,
         )
         self._tools.set_dynamic_tool_factory(self._dynamic_tool_factory)
 
@@ -190,6 +192,39 @@ class WorkflowRunner:
         else:
             state_path = self._dir / "data" / "state"
         self._state_persistence = StatePersistence(state_path, config=persistence_cfg)
+
+    def _resolve_sandbox_config(self) -> SandboxConfig:
+        """Resolve sandbox configuration from the workflow manifest.
+
+        Checks for a workflow-level sandbox config first, then falls back
+        to scanning agent capabilities, and finally returns defaults.
+        """
+        # Check workflow-level sandbox config
+        sandbox = getattr(self._manifest, "sandbox", None)
+        if sandbox is not None:
+            if isinstance(sandbox, SandboxConfig):
+                return sandbox
+            if isinstance(sandbox, dict):
+                return SandboxConfig(**sandbox)
+
+        # Check first agent with sandbox config in capabilities
+        orch = getattr(self._manifest, "orchestration", None)
+        if orch and hasattr(orch, "graph") and orch.graph:
+            for node in orch.graph:
+                agent_dir = self._dir / "agents" / node.id
+                agent_yaml = agent_dir / "agent.awp.yaml"
+                if agent_yaml.exists():
+                    try:
+                        import yaml
+                        data = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
+                        caps = data.get("capabilities", {})
+                        sb = caps.get("sandbox")
+                        if sb and isinstance(sb, dict):
+                            return SandboxConfig(**sb)
+                    except Exception:
+                        pass
+
+        return SandboxConfig()
 
     def _install_requirements(self) -> None:
         """Auto-install workflow dependencies from requirements.txt if present."""
@@ -436,6 +471,10 @@ class WorkflowRunner:
         # Clean up dynamic tools
         if self._dynamic_tool_factory.enabled:
             self._dynamic_tool_factory.cleanup()
+
+        # Clean up executor resources (venv, containers, etc.)
+        if hasattr(self._code_executor, "cleanup"):
+            self._code_executor.cleanup()
 
         # Save final state
         try:

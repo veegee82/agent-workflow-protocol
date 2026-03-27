@@ -867,15 +867,34 @@ You MUST respond with a JSON object containing ONE of these decisions:
 
         # Output contract instructions
         if output_contract:
-            required = output_contract.get("required_fields", [])
-            desc = output_contract.get("description", "")
             system_parts.append("## Output Requirements\n")
-            if desc:
-                system_parts.append(f"{desc}\n")
             system_parts.append("Respond with a valid JSON object containing:\n")
-            for field in required:
-                system_parts.append(f"- `{field}`\n")
-            system_parts.append("- `confidence` (float 0.0-1.0): How confident you are\n")
+
+            # Support both formats:
+            #  1. Schema-style: {"field_name": {"type": "...", "description": "..."}, ...}
+            #  2. Legacy list-style: {"required_fields": [...], "description": "..."}
+            required_list = output_contract.get("required_fields", None)
+            if required_list is not None:
+                # Legacy format
+                desc = output_contract.get("description", "")
+                if desc:
+                    system_parts.append(f"{desc}\n")
+                for field in required_list:
+                    system_parts.append(f"- `{field}`\n")
+            else:
+                # Schema-style: keys are field names, values are type descriptors
+                for field_name, field_def in output_contract.items():
+                    if isinstance(field_def, dict):
+                        ftype = field_def.get("type", "any")
+                        fdesc = field_def.get("description", "")
+                        system_parts.append(f"- `{field_name}` ({ftype}): {fdesc}\n")
+                    else:
+                        # Bare field name or scalar
+                        system_parts.append(f"- `{field_name}`\n")
+
+            # Always ensure confidence is mentioned
+            if "confidence" not in output_contract:
+                system_parts.append("- `confidence` (float 0.0-1.0): How confident you are\n")
             if tool_creation:
                 system_parts.append('- `tools_created` (array): List of tool objects you created\n')
             system_parts.append("\nRespond ONLY with the JSON object.\n")
@@ -903,6 +922,19 @@ You MUST respond with a JSON object containing ONE of these decisions:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
+
+        # Enforce forbidden_tools from worker_policy
+        enforced = getattr(self._config.worker_policy, "enforced", None) if self._config.worker_policy else None
+        forbidden = set(getattr(enforced, "forbidden_tools", []) or []) if enforced else set()
+        if forbidden and tools_allowed:
+            original = list(tools_allowed)
+            tools_allowed = [t for t in tools_allowed if t not in forbidden]
+            removed = set(original) - set(tools_allowed)
+            if removed:
+                logger.warning(
+                    "  Worker %s: removed forbidden tools: %s",
+                    worker_id, ", ".join(sorted(removed)),
+                )
 
         # Determine if tools are needed
         if tools_allowed and self._tools:

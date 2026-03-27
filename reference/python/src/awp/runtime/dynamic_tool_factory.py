@@ -19,13 +19,29 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Modules that dynamic tool code MUST NOT import
-DENIED_IMPORTS = frozenset({
-    "os", "subprocess", "sys", "shutil", "socket", "signal",
-    "ctypes", "importlib", "pathlib", "glob", "tempfile",
-    "multiprocessing", "threading", "asyncio",
-    "http", "urllib", "requests", "httpx",
-})
+# Per-sandbox-type import policies.
+# Docker allows most imports since code runs in a disposable container.
+# Venv is intermediate -- allows filesystem but blocks system/network.
+# Subprocess is the most restrictive (original default).
+IMPORT_POLICIES: dict[str, frozenset[str]] = {
+    "subprocess": frozenset({
+        "os", "subprocess", "sys", "shutil", "socket", "signal",
+        "ctypes", "importlib", "pathlib", "glob", "tempfile",
+        "multiprocessing", "threading", "asyncio",
+        "http", "urllib", "requests", "httpx",
+    }),
+    "venv": frozenset({
+        "os", "subprocess", "sys", "shutil", "socket", "signal",
+        "ctypes", "importlib", "multiprocessing",
+    }),
+    "docker": frozenset({
+        "ctypes", "signal",
+    }),
+    "none": frozenset(),
+}
+
+# Backward-compatible alias
+DENIED_IMPORTS = IMPORT_POLICIES["subprocess"]
 
 # Reserved namespaces (from Layer 2, Section 4.2)
 RESERVED_NAMESPACES = frozenset({
@@ -92,15 +108,18 @@ class DynamicToolFactory:
     def __init__(
         self,
         registry: Any,  # ToolRegistry (avoid circular import)
-        code_executor: Any,  # CodeExecutor
+        code_executor: Any,  # CodeExecutor / BaseExecutor
         config: Optional[Any] = None,
         workflow_dir: Optional[Path] = None,
+        sandbox_type: str = "subprocess",
     ) -> None:
         self._registry = registry
         self._executor = code_executor
         self._workflow_dir = workflow_dir
         self._records: dict[str, DynamicToolRecord] = {}
         self._agent_counts: dict[str, int] = {}
+        self._sandbox_type = sandbox_type
+        self._denied_imports = IMPORT_POLICIES.get(sandbox_type, DENIED_IMPORTS)
 
         # Extract config values
         if config is None:
@@ -321,22 +340,25 @@ class DynamicToolFactory:
         except SyntaxError as e:
             return _err(f"Syntax error in tool code: {e}", 400)
 
-        # Check for denied imports
+        # Check for denied imports (policy depends on sandbox type)
+        denied = self._denied_imports
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root_module = alias.name.split(".")[0]
-                    if root_module in DENIED_IMPORTS:
+                    if root_module in denied:
                         return _err(
-                            f"Import of '{alias.name}' is not allowed in dynamic tool code",
+                            f"Import of '{alias.name}' is not allowed in dynamic tool code "
+                            f"(sandbox type: {self._sandbox_type})",
                             403,
                         )
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     root_module = node.module.split(".")[0]
-                    if root_module in DENIED_IMPORTS:
+                    if root_module in denied:
                         return _err(
-                            f"Import from '{node.module}' is not allowed in dynamic tool code",
+                            f"Import from '{node.module}' is not allowed in dynamic tool code "
+                            f"(sandbox type: {self._sandbox_type})",
                             403,
                         )
 

@@ -26,7 +26,11 @@ from .tools import ToolRegistry
 from .observability import ObservabilityContext, Tracer, MetricsCollector, AuditTrail
 from .security import SecurityContext, CircuitBreaker, RateLimiter, AccessController
 from .message_bus import MessageBus
+from .base_executor import BaseExecutor
 from .code_executor import CodeExecutor
+from .docker_executor import DockerExecutor
+from .venv_executor import VenvExecutor
+from .executor_factory import create_executor
 from .state_persistence import StatePersistence
 from .expressions import safe_eval
 
@@ -44,7 +48,11 @@ __all__ = [
     "RateLimiter",
     "AccessController",
     "MessageBus",
+    "BaseExecutor",
     "CodeExecutor",
+    "DockerExecutor",
+    "VenvExecutor",
+    "create_executor",
     "StatePersistence",
     "safe_eval",
 ]

@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+# Install common data-science and utility packages
+RUN pip install --no-cache-dir \
+    numpy \
+    pandas \
+    matplotlib \
+    scipy \
+    scikit-learn \
+    requests \
+    httpx \
+    Pillow \
+    seaborn
+
+# Use non-interactive matplotlib backend
+ENV MPLBACKEND=Agg
+
+# Create non-root user for sandbox execution
+RUN useradd -m -s /bin/bash sandbox
+USER sandbox
+WORKDIR /workspace
+
+# Create output directory for generated files (plots, CSVs, etc.)
+RUN mkdir -p /workspace/output
+
+ENTRYPOINT ["python"]
