@@ -97,6 +97,14 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 - Pydantic or dataclasses for structured data
 - Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
 
+## Security — API Keys
+
+- **NEVER commit real API keys, tokens, or secrets to the repository.**
+- Before every push, scan for leaked keys: `grep -rn 'sk-or-v1-[a-f0-9]\{20,\}' . --include='*.py' --include='*.ipynb' --include='*.md' --include='*.yaml'`
+- Use placeholder patterns in examples and notebooks: `"sk-or-v1-..."`, `"your-api-key-here"`, or `os.getenv("OPENROUTER_API_KEY", "")`
+- Notebooks must read keys from environment variables, never hardcode them in cells
+- If a key is accidentally committed, rotate it immediately and force-push a clean history
+
 ## Language Policy
 
 - **All documentation (.md files), code comments, docstrings, commit messages, and YAML descriptions MUST be in English.**
