@@ -157,13 +157,54 @@ class StandaloneAgent(AWPAgent):
         try:
             return self._llm.chat_json(messages, **kwargs)
         except json.JSONDecodeError:
-            # Retry with explicit JSON instruction
+            # Try to extract JSON from within the response text
             text = self._llm.chat_text(messages, **kwargs)
+            extracted = self._extract_json(text)
+            if extracted is not None:
+                return extracted
             logger.warning("Agent %s: non-JSON response, wrapping", self.name)
-            return {"result": text, "confidence": 0.3}
+            return {"result": text, "confidence": 0.5}
         except Exception as exc:
             logger.error("Agent %s LLM error: %s", self.name, exc)
             return {"error": str(exc), "confidence": 0.0}
+
+    @staticmethod
+    def _extract_json(text: str) -> dict[str, Any] | None:
+        """Try to extract a JSON object from text that may contain extra content."""
+        if not text:
+            return None
+        # Try the full text first
+        stripped = text.strip()
+        # Strip markdown fences
+        if stripped.startswith("```"):
+            lines = stripped.split("\n")
+            lines = [ln for ln in lines if not ln.strip().startswith("```")]
+            stripped = "\n".join(lines).strip()
+        try:
+            result = json.loads(stripped)
+            if isinstance(result, dict):
+                return result
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Find first { ... } block
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        result = json.loads(text[start : i + 1])
+                        if isinstance(result, dict):
+                            return result
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                    break
+        return None
 
     def _run_with_tools(
         self, messages: list[dict], tool_defs: list[dict], **kwargs: Any
@@ -193,17 +234,11 @@ class StandaloneAgent(AWPAgent):
             if not content:
                 return {"result": "No response", "confidence": 0.0}
 
-            # Parse as JSON
-            cleaned = content.strip()
-            if cleaned.startswith("```"):
-                lines = cleaned.split("\n")
-                lines = [line for line in lines if not line.strip().startswith("```")]
-                cleaned = "\n".join(lines).strip()
-
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError:
-                return {"result": content, "confidence": 0.3}
+            # Parse as JSON (try robust extraction)
+            extracted = self._extract_json(content)
+            if extracted is not None:
+                return extracted
+            return {"result": content, "confidence": 0.5}
 
         except Exception as exc:
             logger.error("Agent %s tool loop error: %s", self.name, exc)
@@ -215,8 +250,12 @@ class StandaloneAgent(AWPAgent):
         """Assemble system prompt: base + skills + memory."""
         parts: list[str] = []
 
-        # 1. Base system prompt
-        base = self._load_file("workflow/instructions/SYSTEM_PROMPT.md")
+        # 1. Base system prompt — try config path first, then convention path
+        base = ""
+        if self._config.prompt.system:
+            base = self._load_file(self._config.prompt.system)
+        if not base:
+            base = self._load_file("workflow/instructions/SYSTEM_PROMPT.md")
         if base:
             parts.append(base)
         else:

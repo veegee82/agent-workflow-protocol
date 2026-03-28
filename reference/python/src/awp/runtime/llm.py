@@ -381,12 +381,24 @@ class LLMClient:
         messages: list[dict[str, Any]],
         **kwargs: Any,
     ) -> str:
-        """Return just the assistant's text content."""
+        """Return just the assistant's text content.
+
+        Handles reasoning models that may put output in the ``reasoning``
+        field when ``content`` is null or empty.
+        """
         data = self.chat(messages, **kwargs)
         choices = data.get("choices", [])
         if not choices:
             return ""
-        return choices[0].get("message", {}).get("content", "") or ""
+        msg = choices[0].get("message", {})
+        content = msg.get("content", "") or ""
+        if not content:
+            # Reasoning models (e.g. Nemotron) may return content in
+            # the reasoning field when max_tokens is constrained
+            reasoning = msg.get("reasoning", "")
+            if reasoning:
+                content = reasoning
+        return content
 
     def chat_json(
         self,

@@ -96,6 +96,8 @@ class BudgetSnapshot:
             1 - (self.workers_spawned / max(self.max_total_workers, 1)),
             1 - (self.wall_time_elapsed / max(self.max_wall_time, 1)),
         ]
+        if self.max_tool_calls:
+            fractions.append(1 - (self.tool_calls_used / self.max_tool_calls))
         return max(0.0, min(fractions))
 
     def can_continue(self) -> tuple[bool, str]:
@@ -106,6 +108,8 @@ class BudgetSnapshot:
             return False, "max_total_workers reached"
         if self.wall_time_elapsed >= self.max_wall_time:
             return False, "max_wall_time exceeded"
+        if self.max_tool_calls and self.tool_calls_used >= self.max_tool_calls:
+            return False, "max_tool_calls reached"
         return True, "ok"
 
     def to_dict(self) -> dict[str, Any]:
@@ -1348,6 +1352,7 @@ print("Chart saved")
                             "result": result,
                         }
                     )
+                    self._budget.tool_calls_used += 1
                     return result
 
                 final_msg = llm.chat_with_tools(
