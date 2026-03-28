@@ -11,7 +11,7 @@
       <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:0.2"/>
       <stop offset="100%" style="stop-color:#f44336;stop-opacity:0.4"/>
     </linearGradient>
-    <filter id="glow">
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="2" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
