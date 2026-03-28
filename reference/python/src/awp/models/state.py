@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class PersistenceConfig(BaseModel):
     """State persistence configuration."""
+
     enabled: bool = True
     path: str = "data/state"
     format: str = "json"  # json | msgpack | pickle
@@ -17,6 +18,7 @@ class PersistenceConfig(BaseModel):
 
 class SharingRule(BaseModel):
     """Sharing rule for state fields between agents."""
+
     from_agent: str
     fields: list[str]
     to_agents: list[str] = Field(default_factory=list)  # Empty = all dependents
@@ -25,6 +27,7 @@ class SharingRule(BaseModel):
 
 class SharingConfig(BaseModel):
     """State sharing configuration."""
+
     strategy: str = "full"  # full | selective | isolated
     rules: list[SharingRule] = Field(default_factory=list)
     validation: str = "warn"  # strict | warn | none
@@ -32,6 +35,7 @@ class SharingConfig(BaseModel):
 
 class StateModel(BaseModel):
     """Complete state management configuration (Layer 4)."""
+
     model: str = "shared_dict"  # shared_dict | event_sourced | cqrs
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     sharing: SharingConfig = Field(default_factory=SharingConfig)

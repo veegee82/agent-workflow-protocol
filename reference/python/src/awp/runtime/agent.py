@@ -86,12 +86,15 @@ class StandaloneAgent(AWPAgent):
             self._tools = tool_registry
         else:
             from .secrets import load_secrets
+
             secrets = load_secrets(self._workflow_dir)
             self._tools = ToolRegistry(self._workflow_dir, secrets=secrets)
 
         # Load manifest for memory/skill config
         manifest_path = self._workflow_dir / "workflow.awp.yaml"
-        self._manifest = parse_manifest(manifest_path) if manifest_path.exists() else None
+        self._manifest = (
+            parse_manifest(manifest_path) if manifest_path.exists() else None
+        )
 
     @property
     def name(self) -> str:
@@ -162,7 +165,9 @@ class StandaloneAgent(AWPAgent):
             logger.error("Agent %s LLM error: %s", self.name, exc)
             return {"error": str(exc), "confidence": 0.0}
 
-    def _run_with_tools(self, messages: list[dict], tool_defs: list[dict], **kwargs: Any) -> dict[str, Any]:
+    def _run_with_tools(
+        self, messages: list[dict], tool_defs: list[dict], **kwargs: Any
+    ) -> dict[str, Any]:
         """LLM call with tool calling loop."""
         max_calls = 10
         tool_choice = None
@@ -192,7 +197,7 @@ class StandaloneAgent(AWPAgent):
             cleaned = content.strip()
             if cleaned.startswith("```"):
                 lines = cleaned.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [line for line in lines if not line.strip().startswith("```")]
                 cleaned = "\n".join(lines).strip()
 
             try:
@@ -341,10 +346,14 @@ class StandaloneAgent(AWPAgent):
             content = mem_file.read_text(encoding="utf-8")
             # Truncate if needed
             max_tokens = 2000
-            if mem_cfg and hasattr(mem_cfg, "long_term") and hasattr(mem_cfg.long_term, "max_tokens"):
+            if (
+                mem_cfg
+                and hasattr(mem_cfg, "long_term")
+                and hasattr(mem_cfg.long_term, "max_tokens")
+            ):
                 max_tokens = mem_cfg.long_term.max_tokens
             if len(content) > max_tokens * 4:  # rough char-to-token ratio
-                content = content[:max_tokens * 4] + "\n...(truncated)"
+                content = content[: max_tokens * 4] + "\n...(truncated)"
             return content
 
         return ""

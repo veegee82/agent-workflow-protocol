@@ -24,19 +24,47 @@ logger = logging.getLogger(__name__)
 # Venv is intermediate -- allows filesystem but blocks system/network.
 # Subprocess is the most restrictive (original default).
 IMPORT_POLICIES: dict[str, frozenset[str]] = {
-    "subprocess": frozenset({
-        "os", "subprocess", "sys", "shutil", "socket", "signal",
-        "ctypes", "importlib", "pathlib", "glob", "tempfile",
-        "multiprocessing", "threading", "asyncio",
-        "http", "urllib", "requests", "httpx",
-    }),
-    "venv": frozenset({
-        "os", "subprocess", "sys", "shutil", "socket", "signal",
-        "ctypes", "importlib", "multiprocessing",
-    }),
-    "docker": frozenset({
-        "ctypes", "signal",
-    }),
+    "subprocess": frozenset(
+        {
+            "os",
+            "subprocess",
+            "sys",
+            "shutil",
+            "socket",
+            "signal",
+            "ctypes",
+            "importlib",
+            "pathlib",
+            "glob",
+            "tempfile",
+            "multiprocessing",
+            "threading",
+            "asyncio",
+            "http",
+            "urllib",
+            "requests",
+            "httpx",
+        }
+    ),
+    "venv": frozenset(
+        {
+            "os",
+            "subprocess",
+            "sys",
+            "shutil",
+            "socket",
+            "signal",
+            "ctypes",
+            "importlib",
+            "multiprocessing",
+        }
+    ),
+    "docker": frozenset(
+        {
+            "ctypes",
+            "signal",
+        }
+    ),
     "none": frozenset(),
 }
 
@@ -44,10 +72,24 @@ IMPORT_POLICIES: dict[str, frozenset[str]] = {
 DENIED_IMPORTS = IMPORT_POLICIES["subprocess"]
 
 # Reserved namespaces (from Layer 2, Section 4.2)
-RESERVED_NAMESPACES = frozenset({
-    "web", "http", "file", "shell", "agent", "memory", "arithmetic",
-    "numpy", "matplot", "pandas", "doc", "sklearn", "code", "tools",
-})
+RESERVED_NAMESPACES = frozenset(
+    {
+        "web",
+        "http",
+        "file",
+        "shell",
+        "agent",
+        "memory",
+        "arithmetic",
+        "numpy",
+        "matplot",
+        "pandas",
+        "doc",
+        "sklearn",
+        "code",
+        "tools",
+    }
+)
 
 
 def _ok(data: Any, log: str = "") -> dict[str, Any]:
@@ -61,8 +103,16 @@ def _err(msg: str, status: int = 500) -> dict[str, Any]:
 class DynamicToolRecord:
     """Metadata about a dynamically created tool."""
 
-    __slots__ = ("fqn", "creator_agent", "created_at", "code", "parameters",
-                 "description", "meta", "required_secrets")
+    __slots__ = (
+        "fqn",
+        "creator_agent",
+        "created_at",
+        "code",
+        "parameters",
+        "description",
+        "meta",
+        "required_secrets",
+    )
 
     def __init__(
         self,
@@ -134,12 +184,32 @@ class DynamicToolFactory:
             self._allowed_namespaces = ["dynamic"]
             self._code_review = False
         else:
-            self._enabled = getattr(config, "enabled", False) if hasattr(config, "enabled") else config.get("enabled", False)
-            self._persist = getattr(config, "persist", False) if hasattr(config, "persist") else config.get("persist", False)
-            self._max_total = getattr(config, "max_total", 50) if hasattr(config, "max_total") else config.get("max_total", 50)
-            ns = getattr(config, "allowed_namespaces", None) if hasattr(config, "allowed_namespaces") else config.get("allowed_namespaces", None)
+            self._enabled = (
+                getattr(config, "enabled", False)
+                if hasattr(config, "enabled")
+                else config.get("enabled", False)
+            )
+            self._persist = (
+                getattr(config, "persist", False)
+                if hasattr(config, "persist")
+                else config.get("persist", False)
+            )
+            self._max_total = (
+                getattr(config, "max_total", 50)
+                if hasattr(config, "max_total")
+                else config.get("max_total", 50)
+            )
+            ns = (
+                getattr(config, "allowed_namespaces", None)
+                if hasattr(config, "allowed_namespaces")
+                else config.get("allowed_namespaces", None)
+            )
             self._allowed_namespaces = ns if ns else ["dynamic"]
-            self._code_review = getattr(config, "code_review", False) if hasattr(config, "code_review") else config.get("code_review", False)
+            self._code_review = (
+                getattr(config, "code_review", False)
+                if hasattr(config, "code_review")
+                else config.get("code_review", False)
+            )
 
         # Load persisted tools on init
         if self._persist and self._workflow_dir:
@@ -185,7 +255,9 @@ class DynamicToolFactory:
 
         # DT1: Validate FQN format
         if "." not in name:
-            return _err(f"Invalid tool name '{name}': must be namespace.action format", 400)
+            return _err(
+                f"Invalid tool name '{name}': must be namespace.action format", 400
+            )
 
         namespace = name.split(".")[0]
 
@@ -236,18 +308,27 @@ class DynamicToolFactory:
         if self._code_review:
             logger.info(
                 "Dynamic tool code review [%s by %s]:\n%s",
-                name, creator_agent, code,
+                name,
+                creator_agent,
+                code,
             )
 
         secrets_list = required_secrets or []
 
         # Log secret binding
         if secrets_list:
-            available = [k for k in secrets_list if k in (self._registry._secrets or {})]
-            missing = [k for k in secrets_list if k not in (self._registry._secrets or {})]
+            available = [
+                k for k in secrets_list if k in (self._registry._secrets or {})
+            ]
+            missing = [
+                k for k in secrets_list if k not in (self._registry._secrets or {})
+            ]
             logger.info(
                 "Dynamic tool %s requests secrets: %s (available: %s, missing: %s)",
-                name, secrets_list, available, missing,
+                name,
+                secrets_list,
+                available,
+                missing,
             )
 
         # Create sandboxed wrapper function (with secret injection support)
@@ -255,7 +336,11 @@ class DynamicToolFactory:
 
         # Register in ToolRegistry (with secret keys so call() injects _secrets)
         self._registry.register_dynamic(
-            name, tool_fn, parameters, description, creator_agent,
+            name,
+            tool_fn,
+            parameters,
+            description,
+            creator_agent,
             secrets_keys=secrets_list if secrets_list else None,
         )
 
@@ -303,12 +388,15 @@ class DynamicToolFactory:
         self._registry.unregister(name)
         del self._records[name]
         self._agent_counts[record.creator_agent] = max(
-            0, self._agent_counts.get(record.creator_agent, 1) - 1,
+            0,
+            self._agent_counts.get(record.creator_agent, 1) - 1,
         )
 
         # Remove persisted file
         if self._persist and self._workflow_dir:
-            persist_path = self._workflow_dir / "workspace" / "dynamic_tools" / f"{name}.json"
+            persist_path = (
+                self._workflow_dir / "workspace" / "dynamic_tools" / f"{name}.json"
+            )
             persist_path.unlink(missing_ok=True)
 
         logger.info("Dynamic tool removed: %s (by %s)", name, requester_agent)
@@ -327,12 +415,14 @@ class DynamicToolFactory:
         for fqn, record in self._records.items():
             if namespace and not fqn.startswith(f"{namespace}."):
                 continue
-            tools.append({
-                "name": record.fqn,
-                "description": record.description,
-                "creator": record.creator_agent,
-                "created_at": record.created_at,
-            })
+            tools.append(
+                {
+                    "name": record.fqn,
+                    "description": record.description,
+                    "creator": record.creator_agent,
+                    "created_at": record.created_at,
+                }
+            )
         return _ok({"tools": tools, "count": len(tools)})
 
     def cleanup(self) -> None:
@@ -405,8 +495,9 @@ class DynamicToolFactory:
 
         return _ok({"valid": True})
 
-    def _make_sandboxed_tool(self, code: str, fqn: str,
-                             required_secrets: Optional[list[str]] = None) -> Any:
+    def _make_sandboxed_tool(
+        self, code: str, fqn: str, required_secrets: Optional[list[str]] = None
+    ) -> Any:
         """Create a callable that executes tool code in a subprocess sandbox.
 
         Each invocation spawns a fresh subprocess for isolation.  If the tool
@@ -466,7 +557,8 @@ class DynamicToolFactory:
             if _required:
                 logger.debug(
                     "Dynamic tool %s executing with secrets: %s",
-                    fqn, list(injected_secrets.keys()),
+                    fqn,
+                    list(injected_secrets.keys()),
                 )
 
             exec_result = executor.execute(script, timeout=10000)
@@ -520,15 +612,23 @@ class DynamicToolFactory:
                 # Validate code
                 validation = self.validate_code(data["code"])
                 if not validation["ok"]:
-                    logger.warning("Skipping persisted tool %s: %s", fqn, validation["error"])
+                    logger.warning(
+                        "Skipping persisted tool %s: %s", fqn, validation["error"]
+                    )
                     continue
 
                 # Register (with secret keys if persisted)
                 persisted_secrets = data.get("required_secrets", [])
-                tool_fn = self._make_sandboxed_tool(data["code"], fqn, persisted_secrets)
+                tool_fn = self._make_sandboxed_tool(
+                    data["code"], fqn, persisted_secrets
+                )
                 creator = data.get("provenance", {}).get("creator_agent", "persisted")
                 self._registry.register_dynamic(
-                    fqn, tool_fn, data["parameters"], data["description"], creator,
+                    fqn,
+                    tool_fn,
+                    data["parameters"],
+                    data["description"],
+                    creator,
                     secrets_keys=persisted_secrets if persisted_secrets else None,
                 )
                 self._records[fqn] = DynamicToolRecord(
@@ -543,4 +643,6 @@ class DynamicToolFactory:
                 logger.info("Loaded persisted dynamic tool: %s", fqn)
 
             except Exception as exc:
-                logger.warning("Failed to load persisted tool %s: %s", json_file.name, exc)
+                logger.warning(
+                    "Failed to load persisted tool %s: %s", json_file.name, exc
+                )

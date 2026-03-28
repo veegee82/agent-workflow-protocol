@@ -15,9 +15,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import json
 import logging
-import os
 import re
 import subprocess
 import sys
@@ -30,9 +28,11 @@ logger = logging.getLogger(__name__)
 # Type for tool functions
 ToolFunc = Callable[..., dict[str, Any]]
 
+
 # Standard result helpers
 def _ok(data: Any, log: str = "") -> dict[str, Any]:
     return {"ok": True, "status": 200, "data": data, "error": None, "log": log}
+
 
 def _err(msg: str, status: int = 500) -> dict[str, Any]:
     return {"ok": False, "status": status, "data": {}, "error": msg, "log": ""}
@@ -112,7 +112,9 @@ class ToolRegistry:
             logger.error("Tool %s failed: %s", name, exc)
             return _err(str(exc), 500)
 
-    def get_definitions(self, allowed: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def get_definitions(
+        self, allowed: Optional[list[str]] = None
+    ) -> list[dict[str, Any]]:
         """Get tool definitions in OpenAI function calling format.
 
         Args:
@@ -139,7 +141,9 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return sorted(self._tools.keys())
 
-    def validate_secrets(self, allowed_tools: Optional[list[str]] = None) -> dict[str, list[str]]:
+    def validate_secrets(
+        self, allowed_tools: Optional[list[str]] = None
+    ) -> dict[str, list[str]]:
         """Validate that all declared secrets are present.
 
         Missing secrets are logged as warnings but do not block execution.
@@ -179,7 +183,8 @@ class ToolRegistry:
                 logger.warning(
                     "Tool '%s' has missing secrets: %s -- "
                     "tool may run with reduced functionality",
-                    tool, ", ".join(keys),
+                    tool,
+                    ", ".join(keys),
                 )
 
         return missing
@@ -191,107 +196,222 @@ class ToolRegistry:
     # -- Built-in tools -----------------------------------------------
 
     def _register_builtins(self) -> None:
-        self._register("file.read", self._file_read, {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path to read"},
-                "encoding": {"type": "string", "description": "File encoding", "default": "utf-8"},
-            },
-            "required": ["path"],
-        }, "Read file contents from disk")
-
-        self._register("file.write", self._file_write, {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path to write"},
-                "content": {"type": "string", "description": "Content to write"},
-                "mode": {"type": "string", "description": "overwrite or append", "default": "overwrite"},
-            },
-            "required": ["path", "content"],
-        }, "Write content to a file")
-
-        self._register("file.list", self._file_list, {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Directory path"},
-                "pattern": {"type": "string", "description": "Glob pattern", "default": "*"},
-                "recursive": {"type": "boolean", "description": "Include subdirectories", "default": False},
-            },
-            "required": ["path"],
-        }, "List files in a directory")
-
-        self._register("shell.execute", self._shell_execute, {
-            "type": "object",
-            "properties": {
-                "command": {"type": "string", "description": "Shell command to execute"},
-                "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
-                "cwd": {"type": "string", "description": "Working directory"},
-            },
-            "required": ["command"],
-        }, "Execute a shell command")
-
-        for op in ("add", "subtract", "multiply", "divide"):
-            self._register(f"arithmetic.{op}", getattr(self, f"_arith_{op}"), {
+        self._register(
+            "file.read",
+            self._file_read,
+            {
                 "type": "object",
                 "properties": {
-                    "a": {"type": "number", "description": "First operand"},
-                    "b": {"type": "number", "description": "Second operand"},
+                    "path": {"type": "string", "description": "File path to read"},
+                    "encoding": {
+                        "type": "string",
+                        "description": "File encoding",
+                        "default": "utf-8",
+                    },
                 },
-                "required": ["a", "b"],
-            }, f"{op.capitalize()} two numbers")
-
-        self._register("memory.read", self._memory_read, {
-            "type": "object",
-            "properties": {
-                "target": {"type": "string", "description": "long_term, daily, or dates", "default": "long_term"},
-                "date": {"type": "string", "description": "Date for daily log (YYYY-MM-DD)"},
+                "required": ["path"],
             },
-        }, "Read memory (MEMORY.md or daily log)")
+            "Read file contents from disk",
+        )
 
-        self._register("memory.write", self._memory_write, {
-            "type": "object",
-            "properties": {
-                "content": {"type": "string", "description": "Content to write"},
-                "target": {"type": "string", "description": "daily or long_term", "default": "daily"},
+        self._register(
+            "file.write",
+            self._file_write,
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path to write"},
+                    "content": {"type": "string", "description": "Content to write"},
+                    "mode": {
+                        "type": "string",
+                        "description": "overwrite or append",
+                        "default": "overwrite",
+                    },
+                },
+                "required": ["path", "content"],
             },
-            "required": ["content"],
-        }, "Write to memory (daily log or MEMORY.md)")
+            "Write content to a file",
+        )
 
-        self._register("memory.search", self._memory_search, {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query"},
-                "max_results": {"type": "integer", "description": "Max results", "default": 10},
+        self._register(
+            "file.list",
+            self._file_list,
+            {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path"},
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern",
+                        "default": "*",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Include subdirectories",
+                        "default": False,
+                    },
+                },
+                "required": ["path"],
             },
-            "required": ["query"],
-        }, "Search across memory files")
+            "List files in a directory",
+        )
+
+        self._register(
+            "shell.execute",
+            self._shell_execute,
+            {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "default": 30,
+                    },
+                    "cwd": {"type": "string", "description": "Working directory"},
+                },
+                "required": ["command"],
+            },
+            "Execute a shell command",
+        )
+
+        for op in ("add", "subtract", "multiply", "divide"):
+            self._register(
+                f"arithmetic.{op}",
+                getattr(self, f"_arith_{op}"),
+                {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First operand"},
+                        "b": {"type": "number", "description": "Second operand"},
+                    },
+                    "required": ["a", "b"],
+                },
+                f"{op.capitalize()} two numbers",
+            )
+
+        self._register(
+            "memory.read",
+            self._memory_read,
+            {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "long_term, daily, or dates",
+                        "default": "long_term",
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Date for daily log (YYYY-MM-DD)",
+                    },
+                },
+            },
+            "Read memory (MEMORY.md or daily log)",
+        )
+
+        self._register(
+            "memory.write",
+            self._memory_write,
+            {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Content to write"},
+                    "target": {
+                        "type": "string",
+                        "description": "daily or long_term",
+                        "default": "daily",
+                    },
+                },
+                "required": ["content"],
+            },
+            "Write to memory (daily log or MEMORY.md)",
+        )
+
+        self._register(
+            "memory.search",
+            self._memory_search,
+            {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max results",
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
+            },
+            "Search across memory files",
+        )
 
         self._register_memory_curate()
 
-        self._register("web.search", self._web_search, {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query (1-500 chars)"},
-                "max_results": {"type": "integer", "description": "Maximum results (1-100)", "default": 10},
-                "language": {"type": "string", "description": "Language filter (ISO 639-1)", "default": "en"},
+        self._register(
+            "web.search",
+            self._web_search,
+            {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (1-500 chars)",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum results (1-100)",
+                        "default": 10,
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Language filter (ISO 639-1)",
+                        "default": "en",
+                    },
+                },
+                "required": ["query"],
             },
-            "required": ["query"],
-        }, "Search the web for information")
+            "Search the web for information",
+        )
 
-        self._register("http.request", self._http_request, {
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "Target URL"},
-                "method": {"type": "string", "description": "HTTP method", "default": "GET"},
-                "headers": {"type": "object", "description": "HTTP headers", "default": {}},
-                "body": {"type": "string", "description": "Request body"},
-                "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+        self._register(
+            "http.request",
+            self._http_request,
+            {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Target URL"},
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method",
+                        "default": "GET",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "HTTP headers",
+                        "default": {},
+                    },
+                    "body": {"type": "string", "description": "Request body"},
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "default": 30,
+                    },
+                },
+                "required": ["url"],
             },
-            "required": ["url"],
-        }, "Make an HTTP request")
+            "Make an HTTP request",
+        )
 
     def _register(
-        self, name: str, fn: ToolFunc, params: dict, desc: str,
+        self,
+        name: str,
+        fn: ToolFunc,
+        params: dict,
+        desc: str,
         secrets_keys: Optional[list[str]] = None,
     ) -> None:
         self._tools[name] = fn
@@ -307,16 +427,45 @@ class ToolRegistry:
 
     # -- File tools ---------------------------------------------------
 
+    def _resolve_path(self, path: str) -> Path:
+        """Resolve a path, trying workspace-relative if the literal path doesn't exist.
+
+        Search order:
+        1. Literal path
+        2. workspace/{path}
+        3. workspace/inputs/{path}
+        4. workspace/inputs/{basename} (fallback for wrong directory prefixes)
+        """
+        p = Path(path)
+        if p.exists():
+            return p
+        if self._workflow_dir and not p.is_absolute():
+            ws_path = self._workflow_dir / "workspace" / path
+            if ws_path.exists():
+                return ws_path
+            # Also check workspace/inputs/
+            inputs_path = self._workflow_dir / "workspace" / "inputs" / path
+            if inputs_path.exists():
+                return inputs_path
+            # Fallback: try just the filename in workspace/inputs/
+            basename_path = self._workflow_dir / "workspace" / "inputs" / p.name
+            if basename_path.exists():
+                return basename_path
+        return p  # return original for error reporting
+
     def _file_read(self, *, path: str, encoding: str = "utf-8") -> dict[str, Any]:
         try:
-            content = Path(path).read_text(encoding=encoding)
+            resolved = self._resolve_path(path)
+            content = resolved.read_text(encoding=encoding)
             return _ok({"content": content, "size": len(content)})
         except FileNotFoundError:
             return _err(f"File not found: {path}", 404)
         except Exception as e:
             return _err(str(e))
 
-    def _file_write(self, *, path: str, content: str, mode: str = "overwrite") -> dict[str, Any]:
+    def _file_write(
+        self, *, path: str, content: str, mode: str = "overwrite"
+    ) -> dict[str, Any]:
         try:
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -329,9 +478,11 @@ class ToolRegistry:
         except Exception as e:
             return _err(str(e))
 
-    def _file_list(self, *, path: str, pattern: str = "*", recursive: bool = False) -> dict[str, Any]:
+    def _file_list(
+        self, *, path: str, pattern: str = "*", recursive: bool = False
+    ) -> dict[str, Any]:
         try:
-            p = Path(path)
+            p = self._resolve_path(path)
             if not p.exists():
                 return _err(f"Directory not found: {path}", 404)
             if recursive:
@@ -344,18 +495,26 @@ class ToolRegistry:
 
     # -- Shell tools --------------------------------------------------
 
-    def _shell_execute(self, *, command: str, timeout: int = 30, cwd: Optional[str] = None) -> dict[str, Any]:
+    def _shell_execute(
+        self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
+    ) -> dict[str, Any]:
         timeout = min(timeout, 120)  # hard cap
         try:
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True,
-                timeout=timeout, cwd=cwd,
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=cwd,
             )
-            return _ok({
-                "stdout": result.stdout[:50000],
-                "stderr": result.stderr[:10000],
-                "returncode": result.returncode,
-            })
+            return _ok(
+                {
+                    "stdout": result.stdout[:50000],
+                    "stderr": result.stderr[:10000],
+                    "returncode": result.returncode,
+                }
+            )
         except subprocess.TimeoutExpired:
             return _err(f"Timeout after {timeout}s", 408)
         except Exception as e:
@@ -379,7 +538,9 @@ class ToolRegistry:
 
     # -- Memory tools -------------------------------------------------
 
-    def _memory_read(self, *, target: str = "long_term", date: Optional[str] = None) -> dict[str, Any]:
+    def _memory_read(
+        self, *, target: str = "long_term", date: Optional[str] = None
+    ) -> dict[str, Any]:
         if not self._memory_dir:
             return _err("No workspace directory configured", 404)
 
@@ -387,14 +548,22 @@ class ToolRegistry:
             mem_file = self._memory_dir / "MEMORY.md"
             if not mem_file.exists():
                 return _ok({"content": "", "exists": False})
-            return _ok({"content": mem_file.read_text(encoding="utf-8"), "exists": True})
+            return _ok(
+                {"content": mem_file.read_text(encoding="utf-8"), "exists": True}
+            )
 
         elif target == "daily":
             d = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
             log_file = self._memory_dir / "memory" / f"{d}.md"
             if not log_file.exists():
                 return _ok({"content": "", "date": d, "exists": False})
-            return _ok({"content": log_file.read_text(encoding="utf-8"), "date": d, "exists": True})
+            return _ok(
+                {
+                    "content": log_file.read_text(encoding="utf-8"),
+                    "date": d,
+                    "exists": True,
+                }
+            )
 
         elif target == "dates":
             mem_dir = self._memory_dir / "memory"
@@ -441,7 +610,9 @@ class ToolRegistry:
             content = mem_file.read_text(encoding="utf-8")
             for i, line in enumerate(content.split("\n")):
                 if query_lower in line.lower():
-                    results.append({"source": "MEMORY.md", "line": i + 1, "text": line.strip()})
+                    results.append(
+                        {"source": "MEMORY.md", "line": i + 1, "text": line.strip()}
+                    )
 
         # Search daily logs
         mem_dir = self._memory_dir / "memory"
@@ -450,7 +621,13 @@ class ToolRegistry:
                 content = log_file.read_text(encoding="utf-8")
                 for i, line in enumerate(content.split("\n")):
                     if query_lower in line.lower():
-                        results.append({"source": log_file.name, "line": i + 1, "text": line.strip()})
+                        results.append(
+                            {
+                                "source": log_file.name,
+                                "line": i + 1,
+                                "text": line.strip(),
+                            }
+                        )
                 if len(results) >= max_results:
                     break
 
@@ -458,20 +635,27 @@ class ToolRegistry:
 
     # -- Web tools ----------------------------------------------------
 
-    def _web_search(self, *, query: str, max_results: int = 10, language: str = "en") -> dict[str, Any]:
+    def _web_search(
+        self, *, query: str, max_results: int = 10, language: str = "en"
+    ) -> dict[str, Any]:
         """Search the web via DuckDuckGo HTML (no API key required)."""
         import urllib.parse
         import urllib.request
 
         try:
-            encoded = urllib.parse.urlencode({
-                "q": query,
-                "kl": f"{language}-{language}",
-            })
+            encoded = urllib.parse.urlencode(
+                {
+                    "q": query,
+                    "kl": f"{language}-{language}",
+                }
+            )
             url = f"https://html.duckduckgo.com/html/?{encoded}"
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "AWP-Runtime/1.0",
-            })
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "AWP-Runtime/1.0",
+                },
+            )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
 
@@ -479,6 +663,7 @@ class ToolRegistry:
             results: list[dict[str, str]] = []
             # Simple regex extraction of result blocks
             import re as _re
+
             for match in _re.finditer(
                 r'class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>.*?'
                 r'class="result__snippet"[^>]*>(.*?)</span>',
@@ -490,23 +675,29 @@ class ToolRegistry:
                 href, title, snippet = match.groups()
                 # DuckDuckGo wraps URLs in a redirect; extract the actual URL
                 actual_url = href
-                ud_match = _re.search(r'uddg=([^&]+)', href)
+                ud_match = _re.search(r"uddg=([^&]+)", href)
                 if ud_match:
                     actual_url = urllib.parse.unquote(ud_match.group(1))
-                results.append({
-                    "title": title.strip(),
-                    "url": actual_url,
-                    "snippet": _re.sub(r'<[^>]+>', '', snippet).strip(),
-                })
+                results.append(
+                    {
+                        "title": title.strip(),
+                        "url": actual_url,
+                        "snippet": _re.sub(r"<[^>]+>", "", snippet).strip(),
+                    }
+                )
 
             return _ok({"results": results, "count": len(results), "query": query})
         except Exception as e:
             return _err(f"Web search failed: {e}")
 
     def _http_request(
-        self, *, url: str, method: str = "GET",
+        self,
+        *,
+        url: str,
+        method: str = "GET",
         headers: Optional[dict[str, str]] = None,
-        body: Optional[str] = None, timeout: int = 30,
+        body: Optional[str] = None,
+        timeout: int = 30,
     ) -> dict[str, Any]:
         """Make an HTTP request using urllib (no external dependencies)."""
         import urllib.request
@@ -522,22 +713,26 @@ class ToolRegistry:
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 resp_body = resp.read().decode("utf-8", errors="replace")
-                return _ok({
-                    "status_code": resp.status,
-                    "headers": dict(resp.headers),
-                    "body": resp_body[:100000],  # cap response size
-                })
+                return _ok(
+                    {
+                        "status_code": resp.status,
+                        "headers": dict(resp.headers),
+                        "body": resp_body[:100000],  # cap response size
+                    }
+                )
         except urllib.error.HTTPError as e:
             body_text = ""
             try:
                 body_text = e.read().decode("utf-8", errors="replace")[:10000]
             except Exception:
                 pass
-            return _ok({
-                "status_code": e.code,
-                "headers": dict(e.headers) if e.headers else {},
-                "body": body_text,
-            })
+            return _ok(
+                {
+                    "status_code": e.code,
+                    "headers": dict(e.headers) if e.headers else {},
+                    "body": body_text,
+                }
+            )
         except urllib.error.URLError as e:
             return _err(f"URL error: {e.reason}")
         except Exception as e:
@@ -582,12 +777,17 @@ class ToolRegistry:
                         for kw in dec.keywords:
                             if kw.arg == "secrets" and isinstance(kw.value, ast.List):
                                 for elt in kw.value.elts:
-                                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                    if isinstance(elt, ast.Constant) and isinstance(
+                                        elt.value, str
+                                    ):
                                         secrets_keys.append(elt.value)
                         self._register_custom_tool(fqn, py_file, node, secrets_keys)
 
     def _register_custom_tool(
-        self, fqn: str, py_file: Path, func_node: ast.FunctionDef,
+        self,
+        fqn: str,
+        py_file: Path,
+        func_node: ast.FunctionDef,
         secrets_keys: Optional[list[str]] = None,
     ) -> None:
         """Register a discovered custom tool."""
@@ -606,7 +806,9 @@ class ToolRegistry:
             # Retry with mcp blocked so the stub fallback is used.
             try:
                 module = importlib.util.module_from_spec(spec)
-                module.__dict__["__builtins__"] = module.__dict__.get("__builtins__", {})
+                module.__dict__["__builtins__"] = module.__dict__.get(
+                    "__builtins__", {}
+                )
                 # Temporarily hide the real mcp package so the stub is used
                 saved = sys.modules.get("mcp.server.fastmcp")
                 sys.modules["mcp.server.fastmcp"] = None  # type: ignore[assignment]
@@ -618,7 +820,9 @@ class ToolRegistry:
                     else:
                         sys.modules.pop("mcp.server.fastmcp", None)
             except Exception as exc2:
-                logger.warning("Failed to load custom tool module %s: %s", py_file.name, exc2)
+                logger.warning(
+                    "Failed to load custom tool module %s: %s", py_file.name, exc2
+                )
                 return
 
         # Find the function in the module
@@ -635,6 +839,7 @@ class ToolRegistry:
 
         # Extract parameters from function signature (excluding _secrets)
         import inspect
+
         sig = inspect.signature(fn)
         params: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
         for pname, param in sig.parameters.items():
@@ -645,7 +850,7 @@ class ToolRegistry:
                 ann = param.annotation
                 if ann in (int, float):
                     ptype = "number"
-                elif ann == bool:
+                elif ann is bool:
                     ptype = "boolean"
                 elif ann in (list, list):
                     ptype = "array"
@@ -653,10 +858,15 @@ class ToolRegistry:
             if param.default == inspect.Parameter.empty:
                 params["required"].append(pname)
 
-        desc = func_node.body[0].value.value if (
-            func_node.body and isinstance(func_node.body[0], ast.Expr)
-            and isinstance(func_node.body[0].value, ast.Constant)
-        ) else f"Custom tool: {fqn}"
+        desc = (
+            func_node.body[0].value.value
+            if (
+                func_node.body
+                and isinstance(func_node.body[0], ast.Expr)
+                and isinstance(func_node.body[0].value, ast.Constant)
+            )
+            else f"Custom tool: {fqn}"
+        )
 
         self._register(fqn, fn, params, desc, secrets_keys=merged_secrets)
         logger.info("Registered custom tool: %s from %s", fqn, py_file.name)
@@ -667,38 +877,80 @@ class ToolRegistry:
         """Wire message bus tools into the registry."""
         self._message_bus = bus
 
-        self._register("agent.send_message", self._agent_send_message, {
-            "type": "object",
-            "properties": {
-                "to": {"type": "string", "description": "Recipient agent ID or '*' for broadcast"},
-                "content": {"description": "Message content (any JSON-serializable value)"},
-                "channel": {"type": "string", "description": "Channel name", "default": "direct"},
-                "type": {"type": "string", "description": "Message type: request, response, event", "default": "event"},
+        self._register(
+            "agent.send_message",
+            self._agent_send_message,
+            {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient agent ID or '*' for broadcast",
+                    },
+                    "content": {
+                        "description": "Message content (any JSON-serializable value)"
+                    },
+                    "channel": {
+                        "type": "string",
+                        "description": "Channel name",
+                        "default": "direct",
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "Message type: request, response, event",
+                        "default": "event",
+                    },
+                },
+                "required": ["to", "content"],
             },
-            "required": ["to", "content"],
-        }, "Send a message to another agent via the message bus")
+            "Send a message to another agent via the message bus",
+        )
 
-        self._register("agent.list_messages", self._agent_list_messages, {
-            "type": "object",
-            "properties": {
-                "channel": {"type": "string", "description": "Filter by channel name"},
-                "from_agent": {"type": "string", "description": "Filter by sender agent ID"},
-                "limit": {"type": "integer", "description": "Maximum messages to return", "default": 50},
+        self._register(
+            "agent.list_messages",
+            self._agent_list_messages,
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "type": "string",
+                        "description": "Filter by channel name",
+                    },
+                    "from_agent": {
+                        "type": "string",
+                        "description": "Filter by sender agent ID",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum messages to return",
+                        "default": 50,
+                    },
+                },
             },
-        }, "List messages received by this agent")
+            "List messages received by this agent",
+        )
 
     def set_code_executor(self, executor: Any) -> None:
         """Wire code execution tool into the registry."""
         self._code_executor = executor
 
-        self._register("code.execute", self._code_execute, {
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "Python code to execute"},
-                "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+        self._register(
+            "code.execute",
+            self._code_execute,
+            {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python code to execute"},
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "default": 30,
+                    },
+                },
+                "required": ["code"],
             },
-            "required": ["code"],
-        }, "Execute Python code in a sandboxed subprocess")
+            "Execute Python code in a sandboxed subprocess",
+        )
 
     def set_security_context(self, security_ctx: Any) -> None:
         """Set security context for access control enforcement."""
@@ -709,8 +961,13 @@ class ToolRegistry:
         self._dynamic_tool_factory = factory
 
     def register_dynamic(
-        self, name: str, fn: ToolFunc, params: dict, desc: str,
-        creator_agent: str, secrets_keys: Optional[list[str]] = None,
+        self,
+        name: str,
+        fn: ToolFunc,
+        params: dict,
+        desc: str,
+        creator_agent: str,
+        secrets_keys: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Register a dynamically created tool with provenance tracking.
 
@@ -758,7 +1015,12 @@ class ToolRegistry:
     # -- Message bus tools ------------------------------------------------
 
     def _agent_send_message(
-        self, *, to: str, content: Any, channel: str = "direct", type: str = "event",
+        self,
+        *,
+        to: str,
+        content: Any,
+        channel: str = "direct",
+        type: str = "event",
     ) -> dict[str, Any]:
         if not self._message_bus:
             return _err("Message bus not configured", 503)
@@ -766,16 +1028,26 @@ class ToolRegistry:
         if to == "*":
             msg_id = self._message_bus.broadcast(from_agent, content, channel=channel)
         else:
-            msg_id = self._message_bus.send(from_agent, to, content, channel=channel, msg_type=type)
-        return _ok({"message_id": msg_id, "from": from_agent, "to": to, "channel": channel})
+            msg_id = self._message_bus.send(
+                from_agent, to, content, channel=channel, msg_type=type
+            )
+        return _ok(
+            {"message_id": msg_id, "from": from_agent, "to": to, "channel": channel}
+        )
 
     def _agent_list_messages(
-        self, *, channel: Optional[str] = None, from_agent: Optional[str] = None, limit: int = 50,
+        self,
+        *,
+        channel: Optional[str] = None,
+        from_agent: Optional[str] = None,
+        limit: int = 50,
     ) -> dict[str, Any]:
         if not self._message_bus:
             return _err("Message bus not configured", 503)
         agent_id = self._current_agent_id or "unknown"
-        messages = self._message_bus.list_messages(agent_id, channel=channel, from_agent=from_agent, limit=limit)
+        messages = self._message_bus.list_messages(
+            agent_id, channel=channel, from_agent=from_agent, limit=limit
+        )
         return _ok({"messages": messages, "count": len(messages)})
 
     # -- Code execution tool ----------------------------------------------
@@ -791,10 +1063,7 @@ class ToolRegistry:
             ws.mkdir(parents=True, exist_ok=True)
             out = self._workflow_dir / "output"
             out.mkdir(parents=True, exist_ok=True)
-            preamble = (
-                f"_workspace_dir = {str(ws)!r}\n"
-                f"_output_dir = {str(out)!r}\n"
-            )
+            preamble = f"_workspace_dir = {str(ws)!r}\n_output_dir = {str(out)!r}\n"
 
         return self._code_executor.execute(preamble + code, timeout=timeout)
 
@@ -802,12 +1071,21 @@ class ToolRegistry:
 
     def _register_memory_curate(self) -> None:
         """Register the memory.curate tool (called during builtin registration)."""
-        self._register("memory.curate", self._memory_curate, {
-            "type": "object",
-            "properties": {
-                "days": {"type": "integer", "description": "Number of recent days to curate from", "default": 7},
+        self._register(
+            "memory.curate",
+            self._memory_curate,
+            {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of recent days to curate from",
+                        "default": 7,
+                    },
+                },
             },
-        }, "Extract stable facts from recent daily logs into long-term memory")
+            "Extract stable facts from recent daily logs into long-term memory",
+        )
 
     def _memory_curate(self, *, days: int = 7) -> dict[str, Any]:
         """Extract key facts from recent daily logs and append to MEMORY.md."""
@@ -820,12 +1098,15 @@ class ToolRegistry:
 
         # Collect recent daily logs
         from datetime import timedelta
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         entries: list[str] = []
         for log_file in sorted(mem_dir.glob("*.md"), reverse=True):
             try:
                 date_str = log_file.stem
-                file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc
+                )
                 if file_date < cutoff:
                     break
                 content = log_file.read_text(encoding="utf-8").strip()
@@ -845,7 +1126,11 @@ class ToolRegistry:
         curation += f"Curated from {len(entries)} daily log(s):\n"
         for entry in entries[:5]:  # Limit to 5 most recent
             # Extract first meaningful line from each entry
-            lines = [l.strip() for l in entry.split("\n") if l.strip() and not l.startswith("##")]
+            lines = [
+                line.strip()
+                for line in entry.split("\n")
+                if line.strip() and not line.startswith("##")
+            ]
             if lines:
                 curation += f"- {lines[0][:200]}\n"
 

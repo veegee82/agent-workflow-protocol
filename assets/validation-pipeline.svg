@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="va" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4fc3f7"/>
+    </marker>
+    <marker id="vr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f44336"/>
+    </marker>
+    <marker id="vg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4CAF50"/>
+    </marker>
+    <filter id="vs">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+
+  <rect width="900" height="420" rx="12" fill="#0a0a1a"/>
+
+  <text x="450" y="35" text-anchor="middle" fill="#e0e0e0" font-size="20" font-weight="bold">Two-Tier Validation Pipeline</text>
+  <text x="450" y="55" text-anchor="middle" fill="#888" font-size="12">Deterministic + Semantic: Two validation tiers for maximum reliability</text>
+
+  <!-- Input -->
+  <rect x="30" y="115" width="130" height="50" rx="25" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="2"/>
+  <text x="95" y="138" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Worker</text>
+  <text x="95" y="155" text-anchor="middle" fill="#888" font-size="10">Result</text>
+
+  <line x1="160" y1="140" x2="210" y2="140" stroke="#4fc3f7" stroke-width="2" marker-end="url(#va)"/>
+
+  <!-- Tier 1: Deterministic -->
+  <rect x="220" y="85" width="250" height="110" rx="10" fill="#1a1a2e" stroke="#FF9800" stroke-width="2" filter="url(#vs)"/>
+  <text x="345" y="110" text-anchor="middle" fill="#FF9800" font-size="14" font-weight="bold">Tier 1: Deterministic</text>
+  <text x="345" y="130" text-anchor="middle" fill="#ccc" font-size="11">Runs ALWAYS</text>
+  <line x1="240" y1="140" x2="450" y2="140" stroke="#333" stroke-width="1"/>
+  <text x="240" y="160" fill="#aaa" font-size="10">JSON Schema Validation (draft-07)</text>
+  <text x="240" y="177" fill="#aaa" font-size="10">Required fields present? (confidence)</text>
+  <text x="240" y="194" fill="#aaa" font-size="10">Types correct? Values in range?</text>
+
+  <!-- Pass/Fail from Tier 1 -->
+  <line x1="470" y1="120" x2="530" y2="120" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#vg)"/>
+  <text x="500" y="113" text-anchor="middle" fill="#4CAF50" font-size="9">PASS</text>
+
+  <line x1="345" y1="195" x2="345" y2="240" stroke="#f44336" stroke-width="1.5" marker-end="url(#vr)"/>
+  <text x="365" y="225" fill="#f44336" font-size="9">FAIL</text>
+
+  <!-- Fail box -->
+  <rect x="270" y="250" width="150" height="40" rx="6" fill="#4a1a1a" stroke="#f44336" stroke-width="1"/>
+  <text x="345" y="275" text-anchor="middle" fill="#f44336" font-size="11">Back to Manager</text>
+
+  <!-- Confidence check (diamond) -->
+  <polygon points="580,120 620,90 660,120 620,150" fill="#1a1a2e" stroke="#7bc67e" stroke-width="1.5"/>
+  <text x="620" y="125" text-anchor="middle" fill="#7bc67e" font-size="9">conf</text>
+  <text x="620" y="135" text-anchor="middle" fill="#7bc67e" font-size="9">&gt; 0.8?</text>
+
+  <!-- High confidence skip -->
+  <line x1="660" y1="120" x2="730" y2="120" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#vg)"/>
+  <text x="695" y="112" text-anchor="middle" fill="#4CAF50" font-size="9">YES</text>
+
+  <!-- Low confidence to Tier 2 -->
+  <line x1="620" y1="150" x2="620" y2="230" stroke="#FF9800" stroke-width="1.5" marker-end="url(#va)"/>
+  <text x="640" y="195" fill="#FF9800" font-size="9">NO</text>
+
+  <!-- Skip to accepted -->
+  <rect x="740" y="95" width="130" height="50" rx="25" fill="#1b5e20" stroke="#4CAF50" stroke-width="2"/>
+  <text x="805" y="118" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">Accepted</text>
+  <text x="805" y="135" text-anchor="middle" fill="#aaa" font-size="10">Continue</text>
+
+  <!-- Tier 2: Semantic -->
+  <rect x="495" y="240" width="250" height="110" rx="10" fill="#1a1a2e" stroke="#9C27B0" stroke-width="2" filter="url(#vs)"/>
+  <text x="620" y="265" text-anchor="middle" fill="#9C27B0" font-size="14" font-weight="bold">Tier 2: Semantic</text>
+  <text x="620" y="285" text-anchor="middle" fill="#ccc" font-size="11">Optional (LLM-based)</text>
+  <line x1="515" y1="295" x2="725" y2="295" stroke="#333" stroke-width="1"/>
+  <text x="515" y="315" fill="#aaa" font-size="10">Does the result make sense?</text>
+  <text x="515" y="332" fill="#aaa" font-size="10">Does it match the task?</text>
+  <text x="515" y="349" fill="#aaa" font-size="10">LLM evaluates quality</text>
+
+  <!-- Tier 2 results -->
+  <line x1="745" y1="280" x2="805" y2="145" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#vg)"/>
+  <text x="790" y="215" fill="#4CAF50" font-size="9">PASS</text>
+
+  <line x1="620" y1="350" x2="620" y2="380" stroke="#f44336" stroke-width="1.5" marker-end="url(#vr)"/>
+
+  <rect x="545" y="385" width="150" height="30" rx="6" fill="#4a1a1a" stroke="#f44336" stroke-width="1"/>
+  <text x="620" y="405" text-anchor="middle" fill="#f44336" font-size="10">Re-Delegation</text>
+</svg>

@@ -12,7 +12,7 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Tracer
 # ---------------------------------------------------------------------------
+
 
 class Tracer:
     """File-based span tracer.  Writes JSONL to ``data/traces/{run_id}.jsonl``."""
@@ -95,6 +96,7 @@ class Tracer:
 # MetricsCollector
 # ---------------------------------------------------------------------------
 
+
 class MetricsCollector:
     """In-memory metrics collector.  Flushes to ``data/metrics/{run_id}.json``."""
 
@@ -111,14 +113,20 @@ class MetricsCollector:
         self._config = config
 
     def increment(
-        self, name: str, value: float = 1.0, labels: Optional[dict[str, str]] = None,
+        self,
+        name: str,
+        value: float = 1.0,
+        labels: Optional[dict[str, str]] = None,
     ) -> None:
         """Increment a counter metric."""
         key = self._key(name, labels)
         self._counters[key] = self._counters.get(key, 0.0) + value
 
     def histogram(
-        self, name: str, value: float, labels: Optional[dict[str, str]] = None,
+        self,
+        name: str,
+        value: float,
+        labels: Optional[dict[str, str]] = None,
     ) -> None:
         """Record a histogram observation."""
         key = self._key(name, labels)
@@ -161,6 +169,7 @@ class MetricsCollector:
 # ---------------------------------------------------------------------------
 # AuditTrail
 # ---------------------------------------------------------------------------
+
 
 class AuditTrail:
     """Append-only audit trail with hash chain integrity.
@@ -240,6 +249,7 @@ class AuditTrail:
 # ---------------------------------------------------------------------------
 # ObservabilityContext
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ObservabilityContext:

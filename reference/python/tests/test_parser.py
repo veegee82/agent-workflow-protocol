@@ -12,6 +12,7 @@ CONFORMANCE = Path(__file__).parents[3] / "conformance" / "fixtures"
 
 # -- Template resolution ---------------------------------------------
 
+
 class TestTemplateResolution:
     def test_simple(self):
         result = resolve_templates("{{name}}", {"name": "hello"})
@@ -51,6 +52,7 @@ class TestTemplateResolution:
 
 
 # -- Manifest parsing ------------------------------------------------
+
 
 class TestManifestParsing:
     def test_hello_world(self):
@@ -94,9 +96,12 @@ class TestManifestParsing:
 
 # -- Agent parsing ---------------------------------------------------
 
+
 class TestAgentParsing:
     def test_greeter(self):
-        a = parse_agent(EXAMPLES / "01-hello-world" / "agents" / "greeter" / "agent.awp.yaml")
+        a = parse_agent(
+            EXAMPLES / "01-hello-world" / "agents" / "greeter" / "agent.awp.yaml"
+        )
         assert a.identity.id == "greeter"
         assert a.awp_agent == "1.0.0"
 

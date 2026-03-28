@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <!-- Era 1: Gray/muted -->
+    <linearGradient id="era1-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2a2a3a"/>
+      <stop offset="100%" style="stop-color:#1a1a2a"/>
+    </linearGradient>
+    <linearGradient id="era1-node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a4a5e"/>
+      <stop offset="100%" style="stop-color:#3a3a4e"/>
+    </linearGradient>
+    <!-- Era 2: Green tones -->
+    <linearGradient id="era2-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f2a1a"/>
+      <stop offset="100%" style="stop-color:#0a1a12"/>
+    </linearGradient>
+    <linearGradient id="era2-node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d8659"/>
+      <stop offset="100%" style="stop-color:#1a6b40"/>
+    </linearGradient>
+    <!-- Era 3: Blue/purple tones -->
+    <linearGradient id="era3-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1040"/>
+      <stop offset="100%" style="stop-color:#0e0a2a"/>
+    </linearGradient>
+    <linearGradient id="era3-node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6c5ce7"/>
+      <stop offset="100%" style="stop-color:#4834d4"/>
+    </linearGradient>
+    <linearGradient id="era3-agent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a29bfe"/>
+      <stop offset="100%" style="stop-color:#6c5ce7"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glow">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#6c5ce7" flood-opacity="0.4"/>
+    </filter>
+    <marker id="arrow-gray" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#888"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7bc67e"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#a29bfe"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="500" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="500" y="38" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">The Three Eras of Computation</text>
+  <text x="500" y="60" text-anchor="middle" fill="#888" font-size="13">From explicit instructions to orchestrated cognition</text>
+
+  <!-- ===== ERA 1: Imperative ===== -->
+  <rect x="20" y="80" width="306" height="400" rx="10" fill="url(#era1-bg)" filter="url(#shadow)"/>
+  <text x="173" y="110" text-anchor="middle" fill="#aaa" font-size="16" font-weight="bold">Era 1: Imperative</text>
+  <text x="173" y="128" text-anchor="middle" fill="#666" font-size="12">1950s - 1990s</text>
+
+  <!-- Programmer -->
+  <rect x="108" y="155" width="130" height="46" rx="8" fill="url(#era1-node)" filter="url(#shadow)"/>
+  <text x="173" y="183" text-anchor="middle" fill="#ccc" font-size="13" font-weight="bold">Programmer</text>
+
+  <!-- Arrow -->
+  <line x1="173" y1="201" x2="173" y2="255" stroke="#888" stroke-width="2" marker-end="url(#arrow-gray)"/>
+  <text x="185" y="233" fill="#777" font-size="10" font-style="italic">writes code</text>
+
+  <!-- Machine -->
+  <rect x="108" y="258" width="130" height="46" rx="8" fill="url(#era1-node)" filter="url(#shadow)"/>
+  <text x="173" y="286" text-anchor="middle" fill="#ccc" font-size="13" font-weight="bold">Machine</text>
+
+  <!-- Arrow -->
+  <line x1="173" y1="304" x2="173" y2="358" stroke="#888" stroke-width="2" marker-end="url(#arrow-gray)"/>
+  <text x="185" y="336" fill="#777" font-size="10" font-style="italic">executes</text>
+
+  <!-- Result -->
+  <rect x="108" y="361" width="130" height="46" rx="8" fill="url(#era1-node)" filter="url(#shadow)"/>
+  <text x="173" y="389" text-anchor="middle" fill="#ccc" font-size="13" font-weight="bold">Result</text>
+
+  <text x="173" y="435" text-anchor="middle" fill="#666" font-size="11">Every step specified</text>
+  <text x="173" y="450" text-anchor="middle" fill="#666" font-size="11">by the programmer</text>
+
+  <!-- ===== ERA 2: Declarative ===== -->
+  <rect x="347" y="80" width="306" height="400" rx="10" fill="url(#era2-bg)" filter="url(#shadow)"/>
+  <text x="500" y="110" text-anchor="middle" fill="#7bc67e" font-size="16" font-weight="bold">Era 2: Declarative</text>
+  <text x="500" y="128" text-anchor="middle" fill="#4a8a5a" font-size="12">1990s - 2020s</text>
+
+  <!-- Programmer -->
+  <rect x="435" y="155" width="130" height="46" rx="8" fill="url(#era2-node)" filter="url(#shadow)"/>
+  <text x="500" y="183" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Programmer</text>
+
+  <!-- Arrow -->
+  <line x1="500" y1="201" x2="500" y2="255" stroke="#7bc67e" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="512" y="233" fill="#5a9a6a" font-size="10" font-style="italic">declares intent</text>
+
+  <!-- Smart Runtime -->
+  <rect x="420" y="258" width="160" height="46" rx="8" fill="url(#era2-node)" filter="url(#shadow)"/>
+  <text x="500" y="286" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Smart Runtime</text>
+
+  <!-- Arrow -->
+  <line x1="500" y1="304" x2="500" y2="358" stroke="#7bc67e" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="512" y="336" fill="#5a9a6a" font-size="10" font-style="italic">optimizes</text>
+
+  <!-- Result -->
+  <rect x="435" y="361" width="130" height="46" rx="8" fill="url(#era2-node)" filter="url(#shadow)"/>
+  <text x="500" y="389" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Result</text>
+
+  <text x="500" y="435" text-anchor="middle" fill="#4a8a5a" font-size="11">Say what, not how.</text>
+  <text x="500" y="450" text-anchor="middle" fill="#4a8a5a" font-size="11">Runtime decides execution.</text>
+
+  <!-- ===== ERA 3: Orchestrated Cognition ===== -->
+  <rect x="674" y="80" width="306" height="400" rx="10" fill="url(#era3-bg)" filter="url(#shadow)"/>
+  <text x="827" y="110" text-anchor="middle" fill="#a29bfe" font-size="16" font-weight="bold">Era 3: Orchestrated Cognition</text>
+  <text x="827" y="128" text-anchor="middle" fill="#6c5ce7" font-size="12">2024+</text>
+
+  <!-- Programmer -->
+  <rect x="762" y="148" width="130" height="42" rx="8" fill="url(#era3-node)" filter="url(#shadow)"/>
+  <text x="827" y="174" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Programmer</text>
+
+  <!-- Arrow to Orchestrator -->
+  <line x1="827" y1="190" x2="827" y2="228" stroke="#a29bfe" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <text x="839" y="214" fill="#8a7ae0" font-size="10" font-style="italic">defines goals</text>
+
+  <!-- Orchestrator -->
+  <rect x="752" y="231" width="150" height="42" rx="8" fill="url(#era3-node)" filter="url(#glow)"/>
+  <text x="827" y="257" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Orchestrator</text>
+
+  <!-- Fan-out arrows to agents -->
+  <line x1="787" y1="273" x2="730" y2="318" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <line x1="827" y1="273" x2="827" y2="318" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <line x1="867" y1="273" x2="924" y2="318" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+
+  <text x="770" y="298" fill="#8a7ae0" font-size="9" font-style="italic">delegates</text>
+
+  <!-- Agent boxes -->
+  <rect x="694" y="321" width="72" height="36" rx="6" fill="url(#era3-agent)" filter="url(#shadow)"/>
+  <text x="730" y="344" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">Agent 1</text>
+
+  <rect x="791" y="321" width="72" height="36" rx="6" fill="url(#era3-agent)" filter="url(#shadow)"/>
+  <text x="827" y="344" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">Agent 2</text>
+
+  <rect x="888" y="321" width="72" height="36" rx="6" fill="url(#era3-agent)" filter="url(#shadow)"/>
+  <text x="924" y="344" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">Agent 3</text>
+
+  <!-- Fan-in arrows to result -->
+  <line x1="730" y1="357" x2="790" y2="396" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <line x1="827" y1="357" x2="827" y2="396" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <line x1="924" y1="357" x2="864" y2="396" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+
+  <!-- Emergent Result -->
+  <rect x="752" y="399" width="150" height="42" rx="8" fill="url(#era3-node)" filter="url(#glow)"/>
+  <text x="827" y="421" text-anchor="middle" fill="#e0e0e0" font-size="12" font-weight="bold">Emergent Result</text>
+
+  <text x="827" y="460" text-anchor="middle" fill="#6c5ce7" font-size="11">Goals in, results out.</text>
+  <text x="827" y="475" text-anchor="middle" fill="#6c5ce7" font-size="11">Agents choose methods.</text>
+</svg>

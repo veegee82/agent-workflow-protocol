@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     valid: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -99,7 +99,9 @@ def validate_schema_desc(
     if not schema_p.exists():
         return ValidationResult(valid=False, errors=[f"Schema not found: {schema_p}"])
     if not desc_p.exists():
-        return ValidationResult(valid=False, errors=[f"Schema desc not found: {desc_p}"])
+        return ValidationResult(
+            valid=False, errors=[f"Schema desc not found: {desc_p}"]
+        )
 
     try:
         schema = json.loads(schema_p.read_text(encoding="utf-8"))

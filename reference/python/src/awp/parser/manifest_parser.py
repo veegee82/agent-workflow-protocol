@@ -14,6 +14,7 @@ from ..models.memory import MemoryConfig
 from ..models.communication import CommunicationConfig
 from ..models.observability import ObservabilityConfig
 from ..models.custom_tools import CustomToolsConfig
+from ..models.manifest import DynamicToolsConfig
 from ..models.security import SecurityConfig
 from .template import resolve_templates
 
@@ -72,8 +73,12 @@ def _extract_manifest_data(resolved: dict[str, Any]) -> dict[str, Any]:
     if "orchestration" in resolved:
         orch_data = dict(resolved["orchestration"])
         # Parse delegation_loop sub-config if present
-        if "delegation_loop" in orch_data and isinstance(orch_data["delegation_loop"], dict):
-            orch_data["delegation_loop"] = DelegationLoopConfig(**orch_data["delegation_loop"])
+        if "delegation_loop" in orch_data and isinstance(
+            orch_data["delegation_loop"], dict
+        ):
+            orch_data["delegation_loop"] = DelegationLoopConfig(
+                **orch_data["delegation_loop"]
+            )
         data["orchestration"] = AWPOrchestrationConfig(**orch_data)
     if "state" in resolved:
         data["state"] = StateModel(**resolved["state"])
@@ -85,6 +90,8 @@ def _extract_manifest_data(resolved: dict[str, Any]) -> dict[str, Any]:
         data["observability"] = ObservabilityConfig(**resolved["observability"])
     if "custom_tools" in resolved:
         data["custom_tools"] = CustomToolsConfig(**resolved["custom_tools"])
+    if "dynamic_tools" in resolved:
+        data["dynamic_tools"] = DynamicToolsConfig(**resolved["dynamic_tools"])
     if "security" in resolved:
         data["security"] = SecurityConfig(**resolved["security"])
 

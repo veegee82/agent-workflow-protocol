@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..models.agent import AWPAgent
 from ..models.manifest import AWPManifest
-from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency
+from ..models.orchestration import ConditionalDependency
 from ..models.common import RESERVED_TOOL_NAMESPACES
 
 
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     valid: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -76,7 +76,6 @@ def validate_rules(
 
     # R5: agent_path is derived
     for agent_id in agents:
-        expected = f"workflows/{manifest.workflow.name}/agents/{agent_id}"
         agent_dir = workflow_path / "agents" / agent_id
         if not agent_dir.exists():
             errors.append(f"R5/R9: Agent directory not found: {agent_dir}")
@@ -132,15 +131,26 @@ def validate_rules(
     # Built-in tool FQNs that may be overridden with local implementations.
     # These are tools defined in the AWP spec (tools-reference.md) that custom
     # implementations may provide when no full AWP runtime is available.
-    BUILTIN_TOOL_FQNS = frozenset({
-        "web.search", "http.request",
-        "file.read", "file.write", "file.list",
-        "shell.execute",
-        "memory.read", "memory.write", "memory.search", "memory.curate",
-        "agent.send_message", "agent.list_messages",
-        "arithmetic.add", "arithmetic.subtract", "arithmetic.multiply",
-        "arithmetic.divide",
-    })
+    BUILTIN_TOOL_FQNS = frozenset(
+        {
+            "web.search",
+            "http.request",
+            "file.read",
+            "file.write",
+            "file.list",
+            "shell.execute",
+            "memory.read",
+            "memory.write",
+            "memory.search",
+            "memory.curate",
+            "agent.send_message",
+            "agent.list_messages",
+            "arithmetic.add",
+            "arithmetic.subtract",
+            "arithmetic.multiply",
+            "arithmetic.divide",
+        }
+    )
     mcp_dir = workflow_path / "mcp"
     tools_dir = workflow_path / "tools"
     for tools_path in [mcp_dir, tools_dir]:
@@ -148,9 +158,7 @@ def validate_rules(
             for py_file in tools_path.glob("*.py"):
                 content = py_file.read_text(encoding="utf-8")
                 # Check for @app.tool("namespace.action") decorators
-                for match in re.finditer(
-                    r'@app\.tool\(["\']([^"\']+)["\']\)', content
-                ):
+                for match in re.finditer(r'@app\.tool\(["\']([^"\']+)["\']\)', content):
                     fqn = match.group(1)
                     # Allow overriding known built-in tools with local
                     # implementations (tool implementation mode).
@@ -168,16 +176,14 @@ def validate_rules(
         if agent.output.format == "json":
             if "confidence" not in agent.output.contract:
                 errors.append(
-                    f"R17: Agent '{agent_id}' must have 'confidence' "
-                    f"in output.contract"
+                    f"R17: Agent '{agent_id}' must have 'confidence' in output.contract"
                 )
 
     # R25: Dynamic tool namespace compliance
     # R26: Dynamic tool creation requires Code Mode and workflow-level flag
     dynamic_tools_cfg = getattr(manifest, "dynamic_tools", None)
-    dynamic_tools_enabled = (
-        dynamic_tools_cfg is not None
-        and getattr(dynamic_tools_cfg, "enabled", False)
+    dynamic_tools_enabled = dynamic_tools_cfg is not None and getattr(
+        dynamic_tools_cfg, "enabled", False
     )
     allowed_namespaces = (
         getattr(dynamic_tools_cfg, "allowed_namespaces", ["dynamic"])

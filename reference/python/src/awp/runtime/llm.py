@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 PROVIDER_URLS: dict[str, str] = {
     "openai": "https://api.openai.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
-    "ollama": "https://ollama.com/v1",
+    "ollama": "http://localhost:11434/v1",
     "groq": "https://api.groq.com/openai/v1",
     "together": "https://api.together.xyz/v1",
     "fireworks": "https://api.fireworks.ai/inference/v1",
@@ -121,7 +121,7 @@ def _strip_provider_prefix(model: str) -> str:
         return model
     detected = _detect_provider(model)
     if detected and model.startswith(f"{detected}/"):
-        return model[len(detected) + 1:]
+        return model[len(detected) + 1 :]
     return model
 
 
@@ -227,10 +227,12 @@ class LLMClient:
         self.timeout = timeout
         self._provider = detected
 
-        # Ollama doesn't need an API key
+        # Local models (Ollama) need longer timeouts and no API key
         if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
             if not self.api_key:
                 self.api_key = "ollama"  # placeholder
+            if timeout == 120:  # only bump if user didn't set explicitly
+                self.timeout = 600
 
     def chat(
         self,
@@ -270,9 +272,16 @@ class LLMClient:
             )
 
         try:
-            return self._do_chat(use_model, messages, temperature,
-                                 max_tokens, tools, response_format,
-                                 tool_choice, parallel_tool_calls)
+            return self._do_chat(
+                use_model,
+                messages,
+                temperature,
+                max_tokens,
+                tools,
+                response_format,
+                tool_choice,
+                parallel_tool_calls,
+            )
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             if 400 <= status < 500:
@@ -280,11 +289,20 @@ class LLMClient:
                 if fallback and fallback != use_model:
                     logger.warning(
                         "Model '%s' failed (%d), falling back to '%s'",
-                        use_model, status, fallback,
+                        use_model,
+                        status,
+                        fallback,
                     )
-                    return self._do_chat(fallback, messages, temperature,
-                                         max_tokens, tools, response_format,
-                                         tool_choice, parallel_tool_calls)
+                    return self._do_chat(
+                        fallback,
+                        messages,
+                        temperature,
+                        max_tokens,
+                        tools,
+                        response_format,
+                        tool_choice,
+                        parallel_tool_calls,
+                    )
             raise
 
     def _do_chat(
@@ -314,7 +332,11 @@ class LLMClient:
 
         # Tool calling control parameters (OpenRouter / OpenAI compatible)
         if tool_choice is not None:
-            if isinstance(tool_choice, str) and tool_choice not in ("auto", "none", "required"):
+            if isinstance(tool_choice, str) and tool_choice not in (
+                "auto",
+                "none",
+                "required",
+            ):
                 # Specific tool name → force that tool
                 safe_name = tool_choice.replace(".", "_")
                 payload["tool_choice"] = {
@@ -337,8 +359,12 @@ class LLMClient:
             if app_url:
                 headers["HTTP-Referer"] = app_url
 
-        logger.debug("LLM request: model=%s, messages=%d, tools=%d",
-                      use_model, len(messages), len(tools or []))
+        logger.debug(
+            "LLM request: model=%s, messages=%d, tools=%d",
+            use_model,
+            len(messages),
+            len(tools or []),
+        )
 
         with httpx.Client(timeout=self.timeout) as client:
             resp = client.post(
@@ -372,7 +398,7 @@ class LLMClient:
         cleaned = text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [line for line in lines if not line.strip().startswith("```")]
             cleaned = "\n".join(lines).strip()
         return json.loads(cleaned)
 
@@ -411,7 +437,8 @@ class LLMClient:
 
         for round_num in range(max_rounds):
             data = self.chat(
-                current_messages, tools=tools,
+                current_messages,
+                tools=tools,
                 tool_choice=tool_choice,
                 parallel_tool_calls=parallel_tool_calls,
                 **kwargs,
@@ -452,11 +479,13 @@ class LLMClient:
                 except Exception as exc:
                     result = {"ok": False, "status": 500, "data": {}, "error": str(exc)}
 
-                current_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "content": json.dumps(result, default=str),
-                })
+                current_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": json.dumps(result, default=str),
+                    }
+                )
 
         # Max rounds reached -- return last message
         logger.warning("Tool calling loop reached max rounds (%d)", max_rounds)

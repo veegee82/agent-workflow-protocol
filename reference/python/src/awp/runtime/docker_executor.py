@@ -8,7 +8,6 @@ pip install for additional packages.
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import shutil
 import subprocess
@@ -102,9 +101,11 @@ class DockerExecutor(BaseExecutor):
                 f"--network={'bridge' if self._network_access else 'none'}",
                 "--cpus=1",
                 # Mount script and output directory
-                "-v", f"{tmpdir}:/workspace:rw",
+                "-v",
+                f"{tmpdir}:/workspace:rw",
                 # Set working directory
-                "-w", "/workspace",
+                "-w",
+                "/workspace",
             ]
 
             # Build the in-container command
@@ -130,8 +131,8 @@ class DockerExecutor(BaseExecutor):
                 timeout=effective_timeout + 5,  # Extra buffer for container startup
             )
 
-            stdout = result.stdout[:self._max_output]
-            stderr = result.stderr[:self._max_output]
+            stdout = result.stdout[: self._max_output]
+            stderr = result.stderr[: self._max_output]
 
             # Collect output files (plots, CSVs, etc.)
             output_files = self._collect_output_files(output_dir)
@@ -156,7 +157,9 @@ class DockerExecutor(BaseExecutor):
                     "ok": False,
                     "status": 500,
                     "data": data,
-                    "error": stderr[:500] if stderr else f"Exit code {result.returncode}",
+                    "error": stderr[:500]
+                    if stderr
+                    else f"Exit code {result.returncode}",
                 }
 
         except subprocess.TimeoutExpired:
@@ -191,11 +194,13 @@ class DockerExecutor(BaseExecutor):
                 continue
             try:
                 content = fpath.read_bytes()
-                files.append({
-                    "name": fpath.name,
-                    "size": len(content),
-                    "content_base64": base64.b64encode(content).decode("ascii"),
-                })
+                files.append(
+                    {
+                        "name": fpath.name,
+                        "size": len(content),
+                        "content_base64": base64.b64encode(content).decode("ascii"),
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to read output file %s: %s", fpath.name, exc)
 

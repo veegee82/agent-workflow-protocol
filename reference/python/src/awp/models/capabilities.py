@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class ToolsCapability(BaseModel):
     """Tool access configuration for an agent."""
+
     enabled: bool = False
     max_calls: int = 0
     allowed: list[str] = Field(default_factory=list)  # Empty = all tools
@@ -16,18 +17,24 @@ class ToolsCapability(BaseModel):
     namespaces: list[str] = Field(default_factory=list)
     max_parallel: int = 16
     timeout_per_call: int = 30
-    tool_choice: Optional[str] = None  # "auto" | "none" | "required" | specific tool name
-    parallel_calls: Optional[bool] = None  # None = provider default, True/False = explicit
+    tool_choice: Optional[str] = (
+        None  # "auto" | "none" | "required" | specific tool name
+    )
+    parallel_calls: Optional[bool] = (
+        None  # None = provider default, True/False = explicit
+    )
 
 
 class SkillsCapability(BaseModel):
     """Skills configuration for an agent."""
+
     agent_skills: list[str] = Field(default_factory=list)  # Agent-level skill refs
     project_skills: bool = True  # Load project-level skills
 
 
 class DataSourceConfig(BaseModel):
     """Data source configuration (e.g., RAG, HTTP, file)."""
+
     name: str = ""
     type: str = ""  # rag | http | file | database | web | api | memory
     description: str = ""
@@ -36,6 +43,7 @@ class DataSourceConfig(BaseModel):
 
 class SandboxConfig(BaseModel):
     """Sandbox configuration for code execution."""
+
     enabled: bool = False
     type: str = "subprocess"  # subprocess | docker | venv | wasm | isolate | none
     runtime: str = "python"
@@ -54,6 +62,7 @@ class SandboxConfig(BaseModel):
 
 class CodeModeConfig(BaseModel):
     """Code Mode configuration (Layer 2 extension)."""
+
     enabled: bool = False
     language: str = "python"  # python | typescript | javascript
     sdk_surface: dict = Field(default_factory=dict)
@@ -66,6 +75,7 @@ class CodeModeConfig(BaseModel):
 
 class AgentCapabilities(BaseModel):
     """Complete capabilities configuration for an agent (Layer 2)."""
+
     tools: ToolsCapability = Field(default_factory=ToolsCapability)
     skills: SkillsCapability = Field(default_factory=SkillsCapability)
     data_sources: list[DataSourceConfig] = Field(default_factory=list)

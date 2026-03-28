@@ -11,6 +11,7 @@ from .common import SemVer, WorkflowName
 
 class ToolDependency(BaseModel):
     """External tool package dependency."""
+
     package: str
     version: str  # SemVer range
     registry: str = "default"
@@ -18,6 +19,7 @@ class ToolDependency(BaseModel):
 
 class WorkflowDependency(BaseModel):
     """Sub-workflow dependency."""
+
     name: str
     ref: str  # "github:org/repo@v1" | "awp-registry:name@v1"
     alias: Optional[str] = None
@@ -25,12 +27,14 @@ class WorkflowDependency(BaseModel):
 
 class SkillDependency(BaseModel):
     """External skill dependency."""
+
     name: str
     ref: str
 
 
 class Dependencies(BaseModel):
     """External dependencies section."""
+
     tools: list[ToolDependency] = Field(default_factory=list)
     workflows: list[WorkflowDependency] = Field(default_factory=list)
     skills: list[SkillDependency] = Field(default_factory=list)
@@ -39,6 +43,7 @@ class Dependencies(BaseModel):
 
 class EnvVar(BaseModel):
     """Required environment variable."""
+
     name: str
     description: str = ""
     sensitive: bool = False
@@ -46,12 +51,14 @@ class EnvVar(BaseModel):
 
 class EnvConfig(BaseModel):
     """Environment variable configuration."""
+
     required: list[EnvVar] = Field(default_factory=list)
     defaults: dict[str, str] = Field(default_factory=dict)
 
 
 class RuntimeRequirements(BaseModel):
     """Runtime requirements for the workflow."""
+
     min_awp_version: Optional[str] = None
     python: str = ">=3.10"
     required_providers: list[str] = Field(default_factory=list)
@@ -60,6 +67,7 @@ class RuntimeRequirements(BaseModel):
 
 class LLMSettings(BaseModel):
     """Global LLM settings."""
+
     default_provider: str = "openrouter"
     models: dict[str, str] = Field(default_factory=dict)
     temperature: float = 0.2
@@ -67,12 +75,14 @@ class LLMSettings(BaseModel):
 
 class WorkflowSettings(BaseModel):
     """Global workflow settings."""
+
     llm: LLMSettings = Field(default_factory=LLMSettings)
     custom: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkflowMetadata(BaseModel):
     """Workflow metadata section."""
+
     name: WorkflowName
     version: SemVer
     description: str = Field(..., max_length=500)
@@ -89,6 +99,7 @@ class WorkflowMetadata(BaseModel):
 
 class DynamicToolsConfig(BaseModel):
     """Configuration for runtime dynamic tool creation."""
+
     enabled: bool = False
     persist: bool = False
     max_total: int = 50
@@ -102,11 +113,14 @@ class AWPManifest(BaseModel):
     Contains workflow metadata, orchestration graph, state management,
     communication, memory, observability, custom tools, and security config.
     """
+
     awp: SemVer
     workflow: WorkflowMetadata
 
     # Inline sections from other layers (all optional at manifest level)
-    orchestration: Optional[Any] = None  # AWPOrchestrationConfig (resolved at parse time)
+    orchestration: Optional[Any] = (
+        None  # AWPOrchestrationConfig (resolved at parse time)
+    )
     state: Optional[Any] = None  # StateModel
     memory: Optional[Any] = None  # MemoryConfig
     communication: Optional[Any] = None  # CommunicationConfig

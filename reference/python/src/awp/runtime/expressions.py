@@ -17,41 +17,43 @@ import operator
 from typing import Any
 
 # Allowed AST node types (whitelist)
-_ALLOWED_NODES = frozenset({
-    ast.Expression,
-    ast.Compare,
-    ast.BoolOp,
-    ast.BinOp,
-    ast.UnaryOp,
-    ast.Attribute,
-    ast.Subscript,
-    ast.Name,
-    ast.Constant,
-    ast.Load,
-    ast.And,
-    ast.Or,
-    ast.Not,
-    ast.Add,
-    ast.Sub,
-    ast.Mult,
-    ast.Div,
-    ast.FloorDiv,
-    ast.Mod,
-    ast.Eq,
-    ast.NotEq,
-    ast.Lt,
-    ast.LtE,
-    ast.Gt,
-    ast.GtE,
-    ast.Is,
-    ast.IsNot,
-    ast.In,
-    ast.NotIn,
-    ast.USub,
-    ast.UAdd,
-    ast.Tuple,
-    ast.List,
-})
+_ALLOWED_NODES = frozenset(
+    {
+        ast.Expression,
+        ast.Compare,
+        ast.BoolOp,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Attribute,
+        ast.Subscript,
+        ast.Name,
+        ast.Constant,
+        ast.Load,
+        ast.And,
+        ast.Or,
+        ast.Not,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Is,
+        ast.IsNot,
+        ast.In,
+        ast.NotIn,
+        ast.USub,
+        ast.UAdd,
+        ast.Tuple,
+        ast.List,
+    }
+)
 
 _CMP_OPS = {
     ast.Eq: operator.eq,
@@ -108,9 +110,7 @@ def _validate_tree(tree: ast.AST) -> None:
     """Walk the AST and reject any node not in the whitelist."""
     for node in ast.walk(tree):
         if type(node) not in _ALLOWED_NODES:
-            raise ValueError(
-                f"Disallowed expression construct: {type(node).__name__}"
-            )
+            raise ValueError(f"Disallowed expression construct: {type(node).__name__}")
 
 
 def _eval_node(node: ast.AST, ctx: dict[str, Any]) -> Any:

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 550" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <filter id="bfS"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.2"/></filter>
+    <marker id="bfA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF9800"/>
+    </marker>
+  </defs>
+  <rect width="960" height="550" rx="12" fill="#0a0a1a"/>
+  <text x="480" y="35" text-anchor="middle" fill="#e0e0e0" font-size="20" font-weight="bold">AWP as Benchmark Framework: Same Workflow, Different Backends</text>
+  <text x="480" y="57" text-anchor="middle" fill="#888" font-size="12">The workflow is the benchmark -- the infrastructure is the variable</text>
+
+  <!-- Central workflow -->
+  <rect x="340" y="80" width="280" height="100" rx="12" fill="#1a1a2e" stroke="#FF9800" stroke-width="2.5" filter="url(#bfS)"/>
+  <text x="480" y="108" text-anchor="middle" fill="#FF9800" font-size="15" font-weight="bold">workflow.awp.yaml</text>
+  <text x="480" y="130" text-anchor="middle" fill="#ccc" font-size="11">Identical Workflow</text>
+  <text x="480" y="148" text-anchor="middle" fill="#ccc" font-size="11">Identical Agents + Tasks</text>
+  <text x="480" y="166" text-anchor="middle" fill="#888" font-size="10">Identical Output Contracts</text>
+
+  <!-- Arrows to backends -->
+  <line x1="380" y1="180" x2="150" y2="240" stroke="#FF9800" stroke-width="2" marker-end="url(#bfA)"/>
+  <line x1="440" y1="180" x2="370" y2="240" stroke="#FF9800" stroke-width="2" marker-end="url(#bfA)"/>
+  <line x1="520" y1="180" x2="590" y2="240" stroke="#FF9800" stroke-width="2" marker-end="url(#bfA)"/>
+  <line x1="580" y1="180" x2="810" y2="240" stroke="#FF9800" stroke-width="2" marker-end="url(#bfA)"/>
+
+  <!-- Backend A: LLM -->
+  <rect x="40" y="245" width="220" height="120" rx="10" fill="#111" stroke="#9C27B0" stroke-width="1.5" filter="url(#bfS)"/>
+  <text x="150" y="270" text-anchor="middle" fill="#9C27B0" font-size="12" font-weight="bold">Run A: LLM Comparison</text>
+  <line x1="60" y1="280" x2="240" y2="280" stroke="#222"/>
+  <text x="60" y="300" fill="#aaa" font-size="10">Claude Sonnet 4</text>
+  <text x="60" y="318" fill="#aaa" font-size="10">GPT-4o</text>
+  <text x="60" y="336" fill="#aaa" font-size="10">Llama 3.1 405B</text>
+  <text x="60" y="354" fill="#aaa" font-size="10">Gemini Pro 2.0</text>
+
+  <!-- Backend B: Memory -->
+  <rect x="280" y="245" width="180" height="120" rx="10" fill="#111" stroke="#4fc3f7" stroke-width="1.5" filter="url(#bfS)"/>
+  <text x="370" y="270" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Run B: Vector DB</text>
+  <line x1="300" y1="280" x2="440" y2="280" stroke="#222"/>
+  <text x="300" y="300" fill="#aaa" font-size="10">Pinecone</text>
+  <text x="300" y="318" fill="#aaa" font-size="10">Weaviate</text>
+  <text x="300" y="336" fill="#aaa" font-size="10">pgvector</text>
+  <text x="300" y="354" fill="#aaa" font-size="10">Qdrant</text>
+
+  <!-- Backend C: Sandbox -->
+  <rect x="500" y="245" width="180" height="120" rx="10" fill="#111" stroke="#4CAF50" stroke-width="1.5" filter="url(#bfS)"/>
+  <text x="590" y="270" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">Run C: Sandbox</text>
+  <line x1="520" y1="280" x2="660" y2="280" stroke="#222"/>
+  <text x="520" y="300" fill="#aaa" font-size="10">subprocess</text>
+  <text x="520" y="318" fill="#aaa" font-size="10">Docker</text>
+  <text x="520" y="336" fill="#aaa" font-size="10">venv</text>
+  <text x="520" y="354" fill="#aaa" font-size="10">Firecracker</text>
+
+  <!-- Backend D: Observability -->
+  <rect x="720" y="245" width="210" height="120" rx="10" fill="#111" stroke="#f44336" stroke-width="1.5" filter="url(#bfS)"/>
+  <text x="825" y="270" text-anchor="middle" fill="#f44336" font-size="12" font-weight="bold">Run D: Observability</text>
+  <line x1="740" y1="280" x2="910" y2="280" stroke="#222"/>
+  <text x="740" y="300" fill="#aaa" font-size="10">Datadog</text>
+  <text x="740" y="318" fill="#aaa" font-size="10">Grafana + Tempo</text>
+  <text x="740" y="336" fill="#aaa" font-size="10">Splunk</text>
+  <text x="740" y="354" fill="#aaa" font-size="10">AWS X-Ray</text>
+
+  <!-- Results comparison -->
+  <rect x="100" y="400" width="760" height="120" rx="10" fill="#1a1a2e" stroke="#7bc67e" stroke-width="1.5"/>
+  <text x="480" y="428" text-anchor="middle" fill="#7bc67e" font-size="14" font-weight="bold">Comparable Metrics (identical Output Contract)</text>
+  <line x1="120" y1="438" x2="840" y2="438" stroke="#333"/>
+
+  <text x="190" y="463" text-anchor="middle" fill="#9C27B0" font-size="11" font-weight="bold">Quality</text>
+  <text x="190" y="483" text-anchor="middle" fill="#888" font-size="10">Confidence Score</text>
+  <text x="190" y="500" text-anchor="middle" fill="#888" font-size="10">Result Accuracy</text>
+
+  <text x="390" y="463" text-anchor="middle" fill="#4fc3f7" font-size="11" font-weight="bold">Performance</text>
+  <text x="390" y="483" text-anchor="middle" fill="#888" font-size="10">Wall Time</text>
+  <text x="390" y="500" text-anchor="middle" fill="#888" font-size="10">Tokens consumed</text>
+
+  <text x="580" y="463" text-anchor="middle" fill="#4CAF50" font-size="11" font-weight="bold">Cost</text>
+  <text x="580" y="483" text-anchor="middle" fill="#888" font-size="10">USD per Run</text>
+  <text x="580" y="500" text-anchor="middle" fill="#888" font-size="10">Token Efficiency</text>
+
+  <text x="770" y="463" text-anchor="middle" fill="#f44336" font-size="11" font-weight="bold">Reliability</text>
+  <text x="770" y="483" text-anchor="middle" fill="#888" font-size="10">Success Rate</text>
+  <text x="770" y="500" text-anchor="middle" fill="#888" font-size="10">Stall/Budget-Exceeded</text>
+</svg>

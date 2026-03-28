@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..models.agent import AWPAgent, OutputField
-from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency
+from ..models.agent import AWPAgent
+from ..models.orchestration import AWPOrchestrationConfig
 
 
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     valid: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)

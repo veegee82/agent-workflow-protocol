@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class LongTermMemoryConfig(BaseModel):
     """Long-term memory (MEMORY.md) configuration."""
+
     enabled: bool = True
     inject: bool = True  # Inject into agent prompt
     max_tokens: int = 2000
@@ -18,6 +19,7 @@ class LongTermMemoryConfig(BaseModel):
 
 class DailyLogConfig(BaseModel):
     """Daily log memory tier configuration."""
+
     enabled: bool = True
     auto_write: bool = True
     retention_days: int = 30
@@ -25,12 +27,14 @@ class DailyLogConfig(BaseModel):
 
 class EpisodicMemoryConfig(BaseModel):
     """Episodic memory (agent outputs) configuration."""
+
     enabled: bool = True
     max_entries: int = 100
 
 
 class SemanticMemoryConfig(BaseModel):
     """Semantic memory (vector DB) configuration."""
+
     enabled: bool = False
     backend: str = "chromadb"  # chromadb | pinecone | qdrant
     collection: Optional[str] = None
@@ -40,6 +44,7 @@ class SemanticMemoryConfig(BaseModel):
 
 class CurationConfig(BaseModel):
     """Memory curation configuration."""
+
     enabled: bool = False
     schedule: str = "after_run"  # after_run | daily | weekly
     days: int = 7
@@ -49,6 +54,7 @@ class CurationConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     """Complete memory configuration (Layer 4)."""
+
     enabled: bool = True
     workspace_dir: str = "workspace"
     long_term: LongTermMemoryConfig = Field(default_factory=LongTermMemoryConfig)

@@ -1,21 +1,20 @@
 """Tests for AWP standalone runtime -- tools, LLM client, agent capabilities."""
 
-import json
 import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from awp.runtime.llm import LLMClient, _detect_provider, _find_api_key, PROVIDER_URLS
+from awp.runtime.llm import LLMClient, _detect_provider, PROVIDER_URLS
 from awp.runtime.tools import ToolRegistry
 from awp.runtime.agent import StandaloneAgent
-from awp.runtime.runner import WorkflowRunner
 
 EXAMPLES = Path(__file__).parents[3] / "examples"
 
 
 # -- Provider detection -----------------------------------------------
+
 
 class TestProviderDetection:
     def test_detect_from_model_prefix(self):
@@ -65,6 +64,7 @@ class TestLLMClient:
 
 
 # -- Tool registry ----------------------------------------------------
+
 
 class TestToolRegistry:
     def test_builtin_tools_registered(self):
@@ -163,7 +163,9 @@ class TestToolRegistry:
             assert "Test entry" in r["data"]["content"]
 
             # Write to long-term
-            w2 = reg.call("memory.write", {"content": "Long-term fact", "target": "long_term"})
+            w2 = reg.call(
+                "memory.write", {"content": "Long-term fact", "target": "long_term"}
+            )
             assert w2["ok"] is True
 
             # Read long-term
@@ -230,6 +232,7 @@ def greet(*, name: str) -> dict:
 
 # -- StandaloneAgent with tools --------------------------------------
 
+
 class TestStandaloneAgentCapabilities:
     def test_skills_loading(self):
         """Test that project-level skills are loaded."""
@@ -244,12 +247,12 @@ class TestStandaloneAgentCapabilities:
             agent_dir.mkdir(parents=True)
             (agent_dir / "agent.awp.yaml").write_text(
                 'awp_agent: "1.0.0"\n'
-                'identity:\n  id: tester\n  role: test\n  description: test\n'
-                'model:\n  name: test/model\n'
-                'prompt:\n  system: instructions/SYSTEM_PROMPT.md\n'
-                'output:\n  format: json\n  contract:\n'
-                '    result:\n      type: string\n      required: true\n'
-                '    confidence:\n      type: number\n      minimum: 0.0\n      maximum: 1.0\n      required: true\n'
+                "identity:\n  id: tester\n  role: test\n  description: test\n"
+                "model:\n  name: test/model\n"
+                "prompt:\n  system: instructions/SYSTEM_PROMPT.md\n"
+                "output:\n  format: json\n  contract:\n"
+                "    result:\n      type: string\n      required: true\n"
+                "    confidence:\n      type: number\n      minimum: 0.0\n      maximum: 1.0\n      required: true\n"
             )
             instr = agent_dir / "workflow" / "instructions"
             instr.mkdir(parents=True)
@@ -258,7 +261,9 @@ class TestStandaloneAgentCapabilities:
             # Create project-level skill
             skill_dir = wf / "skills" / "test_knowledge"
             skill_dir.mkdir(parents=True)
-            (skill_dir / "SKILL.md").write_text("# Test Knowledge\n\nThis is domain knowledge.")
+            (skill_dir / "SKILL.md").write_text(
+                "# Test Knowledge\n\nThis is domain knowledge."
+            )
 
             agent = StandaloneAgent(agent_dir, wf)
             prompt = agent._build_system_prompt()
@@ -272,17 +277,17 @@ class TestStandaloneAgentCapabilities:
             wf = Path(tmp)
             (wf / "workflow.awp.yaml").write_text(
                 'awp: "1.0.0"\nworkflow:\n  name: test\n  version: "1.0.0"\n  description: test\n'
-                'memory:\n  enabled: true\n  long_term:\n    enabled: true\n    inject: true\n'
+                "memory:\n  enabled: true\n  long_term:\n    enabled: true\n    inject: true\n"
             )
             agent_dir = wf / "agents" / "tester"
             agent_dir.mkdir(parents=True)
             (agent_dir / "agent.awp.yaml").write_text(
                 'awp_agent: "1.0.0"\n'
-                'identity:\n  id: tester\n  role: test\n  description: test\n'
-                'model:\n  name: test/model\n'
-                'prompt:\n  system: instructions/SYSTEM_PROMPT.md\n'
-                'output:\n  format: json\n  contract:\n'
-                '    confidence:\n      type: number\n      minimum: 0.0\n      maximum: 1.0\n      required: true\n'
+                "identity:\n  id: tester\n  role: test\n  description: test\n"
+                "model:\n  name: test/model\n"
+                "prompt:\n  system: instructions/SYSTEM_PROMPT.md\n"
+                "output:\n  format: json\n  contract:\n"
+                "    confidence:\n      type: number\n      minimum: 0.0\n      maximum: 1.0\n      required: true\n"
             )
             instr = agent_dir / "workflow" / "instructions"
             instr.mkdir(parents=True)
@@ -300,6 +305,7 @@ class TestStandaloneAgentCapabilities:
 
 
 # -- Tool secrets ---------------------------------------------------------
+
 
 class TestToolSecrets:
     def _make_tool_file(self, mcp_dir: Path) -> None:

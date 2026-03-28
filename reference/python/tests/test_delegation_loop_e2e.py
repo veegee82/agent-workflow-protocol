@@ -26,9 +26,7 @@ import os
 import shutil
 import sys
 import tempfile
-import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -39,10 +37,6 @@ from awp.models.orchestration import (
     DelegationLoopConfig,
     DelegationBudget,
     WorkerPolicy,
-    ValidationConfig,
-    StallDetectionConfig,
-    HistoryConfig,
-    DelegationLoopModels,
     AWPOrchestrationConfig,
 )
 from awp.runtime.delegation_loop_runner import (
@@ -126,7 +120,9 @@ class TestBudgetSnapshot:
         assert "max_total_workers" in reason
 
     def test_budget_fraction(self):
-        budget = DelegationBudget(max_loops=10, max_total_workers=10, max_wall_time=1000)
+        budget = DelegationBudget(
+            max_loops=10, max_total_workers=10, max_wall_time=1000
+        )
         snap = BudgetSnapshot(budget)
         snap.loops_used = 5
         snap.workers_spawned = 2
@@ -176,7 +172,7 @@ class TestStallDetector:
         sd.record(0.5)
         sd.record(0.51)
         sd.record(0.52)  # warn
-        sd.record(0.7)   # big jump
+        sd.record(0.7)  # big jump
         sd.record(0.8)
         result = sd.record(0.9)  # delta=0.2 — progress!
         assert result == "ok"
@@ -188,7 +184,7 @@ class TestRunLogger:
     def test_creates_directory_structure(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_dir = Path(tmpdir) / "test_run"
-            logger = RunLogger(run_dir, fmt="dual")
+            RunLogger(run_dir, fmt="dual")
             assert (run_dir / "iterations").exists()
             assert (run_dir / "history").exists()
             assert (run_dir / "artifacts" / "skills").exists()
@@ -231,12 +227,20 @@ class TestRunLogger:
 
             logger.log_iteration(
                 iteration=1,
-                manager_decision={"decision": "delegate", "reasoning": "Need more data"},
-                delegations=[{
-                    "worker_id": "researcher_1",
-                    "envelope": {"instructions": "Research X", "skills": ["Domain knowledge..."]},
-                    "result": {"findings": "Found X", "confidence": 0.7},
-                }],
+                manager_decision={
+                    "decision": "delegate",
+                    "reasoning": "Need more data",
+                },
+                delegations=[
+                    {
+                        "worker_id": "researcher_1",
+                        "envelope": {
+                            "instructions": "Research X",
+                            "skills": ["Domain knowledge..."],
+                        },
+                        "result": {"findings": "Found X", "confidence": 0.7},
+                    }
+                ],
                 budget=budget,
                 validation_results=[{"worker_id": "researcher_1", "feedback": "ok"}],
             )
@@ -327,7 +331,9 @@ class TestParserIntegration:
         assert dl.history.rolling_summary is True
 
     def test_parse_example_09(self):
-        manifest = parse_manifest(EXAMPLES / "09-recursive-delegation" / "workflow.awp.yaml")
+        manifest = parse_manifest(
+            EXAMPLES / "09-recursive-delegation" / "workflow.awp.yaml"
+        )
         assert manifest.orchestration.engine == "delegation_loop"
         dl = manifest.orchestration.delegation_loop
         assert dl.manager == "agents/analyzer"
@@ -347,7 +353,9 @@ class TestDelegationLoopE2E:
         """Test example 08: basic delegation loop research workflow."""
         wf_dir = EXAMPLES / "08-delegation-loop"
         runner = _make_workflow_runner(wf_dir)
-        result = runner.run("What are the three primary colors and why are they called primary?")
+        result = runner.run(
+            "What are the three primary colors and why are they called primary?"
+        )
 
         # Should have delegation_loop key in result
         assert "delegation_loop" in result or "task" in result
@@ -410,7 +418,7 @@ class TestDelegationLoopE2E:
         """Test that both JSON and MD files are generated."""
         wf_dir = EXAMPLES / "08-delegation-loop"
         runner = _make_workflow_runner(wf_dir)
-        result = runner.run("What is photosynthesis?")
+        runner.run("What is photosynthesis?")
 
         runs_dir = wf_dir / "workspace" / "runs"
         if runs_dir.exists():
@@ -436,7 +444,7 @@ class TestDelegationLoopE2E:
         """Test that validation results are logged."""
         wf_dir = EXAMPLES / "08-delegation-loop"
         runner = _make_workflow_runner(wf_dir)
-        result = runner.run("Name three famous scientists and their contributions")
+        runner.run("Name three famous scientists and their contributions")
 
         runs_dir = wf_dir / "workspace" / "runs"
         if runs_dir.exists():
@@ -472,7 +480,7 @@ def _make_runner() -> DelegationLoopRunner:
         )
 
 
-def _make_workflow_runner(wf_dir: Path) -> "WorkflowRunner":
+def _make_workflow_runner(wf_dir: Path) -> object:
     """Create a WorkflowRunner for E2E testing."""
     from awp.runtime.runner import WorkflowRunner
 

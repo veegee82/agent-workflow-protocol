@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="gRed" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#c62828"/>
+    </linearGradient>
+    <linearGradient id="gYellow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f5a623"/>
+      <stop offset="100%" style="stop-color:#e88a00"/>
+    </linearGradient>
+    <linearGradient id="gBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4fc3f7"/>
+      <stop offset="100%" style="stop-color:#0f3460"/>
+    </linearGradient>
+    <linearGradient id="gPurple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#9c27b0"/>
+      <stop offset="100%" style="stop-color:#533483"/>
+    </linearGradient>
+    <linearGradient id="gGreen" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#66bb6a"/>
+      <stop offset="100%" style="stop-color:#2e7d32"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.4"/>
+    </filter>
+    <marker id="arrowWhite" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#888"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="500" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="500" y="40" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Information Flow in a Data Science Workflow</text>
+  <text x="500" y="62" text-anchor="middle" fill="#888" font-size="13">From raw entropy to structured, validated output</text>
+
+  <!-- Row 1: Main flow nodes -->
+  <!-- Raw Data -->
+  <rect x="30" y="130" width="140" height="70" rx="10" fill="url(#gRed)" filter="url(#shadow)"/>
+  <text x="100" y="160" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">Raw Data</text>
+  <text x="100" y="178" text-anchor="middle" fill="#fdd" font-size="10">High Entropy</text>
+
+  <!-- Arrow Raw -> Cleaning -->
+  <line x1="170" y1="165" x2="215" y2="165" stroke="#888" stroke-width="2" marker-end="url(#arrowWhite)"/>
+
+  <!-- Cleaning Agent -->
+  <rect x="220" y="130" width="150" height="70" rx="10" fill="url(#gYellow)" filter="url(#shadow)"/>
+  <text x="295" y="160" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">Cleaning Agent</text>
+  <text x="295" y="178" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">Normalize, Impute, Filter</text>
+
+  <!-- Arrow Cleaning -> Statistical (upper branch) -->
+  <line x1="370" y1="150" x2="445" y2="125" stroke="#888" stroke-width="2" marker-end="url(#arrowWhite)"/>
+
+  <!-- Arrow Cleaning -> Visualization (lower branch) -->
+  <line x1="370" y1="180" x2="445" y2="210" stroke="#888" stroke-width="2" marker-end="url(#arrowWhite)"/>
+
+  <!-- Statistical Agent -->
+  <rect x="450" y="95" width="160" height="70" rx="10" fill="url(#gBlue)" filter="url(#shadow)"/>
+  <text x="530" y="125" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">Statistical Agent</text>
+  <text x="530" y="143" text-anchor="middle" fill="#ddf" font-size="10">Correlations, Tests, Models</text>
+
+  <!-- Visualization Agent -->
+  <rect x="450" y="195" width="160" height="70" rx="10" fill="url(#gBlue)" filter="url(#shadow)"/>
+  <text x="530" y="225" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">Visualization Agent</text>
+  <text x="530" y="243" text-anchor="middle" fill="#ddf" font-size="10">Charts, Distributions, Trends</text>
+
+  <!-- Arrow Statistical -> Synthesis -->
+  <line x1="610" y1="130" x2="680" y2="155" stroke="#888" stroke-width="2" marker-end="url(#arrowWhite)"/>
+
+  <!-- Arrow Visualization -> Synthesis -->
+  <line x1="610" y1="230" x2="680" y2="185" stroke="#888" stroke-width="2" marker-end="url(#arrowWhite)"/>
+
+  <!-- Synthesis Agent -->
+  <rect x="685" y="135" width="150" height="70" rx="10" fill="url(#gPurple)" filter="url(#shadow)"/>
+  <text x="760" y="165" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">Synthesis Agent</text>
+  <text x="760" y="183" text-anchor="middle" fill="#edf" font-size="10">Merge, Reconcile, Narrate</text>
+
+  <!-- Arrow Synthesis -> Output -->
+  <line x1="835" y1="170" x2="870" y2="170" stroke="#888" stroke-width="2" marker-end="url(#arrowWhite)"/>
+
+  <!-- Output -->
+  <rect x="875" y="135" width="105" height="70" rx="10" fill="url(#gGreen)" filter="url(#shadow)"/>
+  <text x="927" y="165" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">Output</text>
+  <text x="927" y="183" text-anchor="middle" fill="#dfd" font-size="10">High Structure</text>
+
+  <!-- Bottom transform labels -->
+  <!-- Dividing line -->
+  <line x1="50" y1="310" x2="950" y2="310" stroke="#333" stroke-width="1" stroke-dasharray="4,4"/>
+  <text x="500" y="340" text-anchor="middle" fill="#888" font-size="14" font-weight="bold">TRANSFORMATION STAGES</text>
+
+  <!-- Stage 1: Entropy Reduction -->
+  <rect x="55" y="360" width="190" height="55" rx="8" fill="#1a1a2e" stroke="#f5a623" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="150" y="385" text-anchor="middle" fill="#f5a623" font-size="13" font-weight="bold">Entropy Reduction</text>
+  <text x="150" y="403" text-anchor="middle" fill="#aaa" font-size="10">Remove noise, fill gaps</text>
+
+  <!-- Stage 2: Structure Injection -->
+  <rect x="275" y="360" width="190" height="55" rx="8" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="370" y="385" text-anchor="middle" fill="#4fc3f7" font-size="13" font-weight="bold">Structure Injection</text>
+  <text x="370" y="403" text-anchor="middle" fill="#aaa" font-size="10">Apply statistical + visual models</text>
+
+  <!-- Stage 3: Semantic Enrichment -->
+  <rect x="495" y="360" width="200" height="55" rx="8" fill="#1a1a2e" stroke="#9c27b0" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="595" y="385" text-anchor="middle" fill="#ce93d8" font-size="13" font-weight="bold">Semantic Enrichment</text>
+  <text x="595" y="403" text-anchor="middle" fill="#aaa" font-size="10">Cross-modal synthesis</text>
+
+  <!-- Stage 4: Cross-modal Validation -->
+  <rect x="725" y="360" width="220" height="55" rx="8" fill="#1a1a2e" stroke="#66bb6a" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="835" y="385" text-anchor="middle" fill="#66bb6a" font-size="13" font-weight="bold">Cross-modal Validation</text>
+  <text x="835" y="403" text-anchor="middle" fill="#aaa" font-size="10">Consistency + confidence check</text>
+
+  <!-- Arrows between stages -->
+  <line x1="245" y1="388" x2="270" y2="388" stroke="#555" stroke-width="1.5" marker-end="url(#arrowWhite)"/>
+  <line x1="465" y1="388" x2="490" y2="388" stroke="#555" stroke-width="1.5" marker-end="url(#arrowWhite)"/>
+  <line x1="695" y1="388" x2="720" y2="388" stroke="#555" stroke-width="1.5" marker-end="url(#arrowWhite)"/>
+
+  <!-- Entropy gradient bar -->
+  <defs>
+    <linearGradient id="entropyBar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="35%" style="stop-color:#f5a623"/>
+      <stop offset="65%" style="stop-color:#4fc3f7"/>
+      <stop offset="85%" style="stop-color:#9c27b0"/>
+      <stop offset="100%" style="stop-color:#66bb6a"/>
+    </linearGradient>
+  </defs>
+  <rect x="55" y="440" width="890" height="8" rx="4" fill="url(#entropyBar)" opacity="0.6"/>
+  <text x="55" y="465" fill="#e94560" font-size="10">HIGH ENTROPY</text>
+  <text x="945" y="465" text-anchor="end" fill="#66bb6a" font-size="10">HIGH STRUCTURE</text>
+</svg>

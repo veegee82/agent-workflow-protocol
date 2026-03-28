@@ -11,6 +11,7 @@ from .common import AgentId, SemVer
 
 class AgentIdentity(BaseModel):
     """Agent identity section."""
+
     id: AgentId
     role: str
     description: str
@@ -20,12 +21,14 @@ class AgentIdentity(BaseModel):
 
 class AgentRuntime(BaseModel):
     """Runtime constraints for skill-build compatibility."""
+
     class_name: str = "Agent"  # R3: Must be "Agent"
     strategy_folder: str = "workflow"
 
 
 class ModelParameters(BaseModel):
     """LLM model parameters."""
+
     temperature: float = 0.0
     max_tokens: Optional[int] = None
     top_p: float = 1.0
@@ -33,6 +36,7 @@ class ModelParameters(BaseModel):
 
 class ReasoningConfig(BaseModel):
     """Chain-of-thought configuration."""
+
     enabled: bool = True
     effort: str = "medium"  # low | medium | high
     force: bool = True
@@ -45,6 +49,7 @@ class ModelConfig(BaseModel):
     the ``LLM_MODEL`` environment variable (set interactively via the run
     wizard or in the shell environment).
     """
+
     provider: Optional[str] = None  # Inherits from manifest if None
     name: str = ""  # Empty = resolve from LLM_MODEL env var at runtime
     fallback: Optional[str] = None
@@ -54,20 +59,26 @@ class ModelConfig(BaseModel):
 
 class PromptConfig(BaseModel):
     """Prompt architecture configuration."""
+
     system: str  # File path relative to agent dir
     user_template: Optional[str] = None
     additional: list[str] = Field(default_factory=list)
     variables: dict[str, str] = Field(default_factory=dict)
     injection_order: list[str] = Field(
         default_factory=lambda: [
-            "system_prompt", "skills", "memory",
-            "previous_agents", "user_prompt", "context",
+            "system_prompt",
+            "skills",
+            "memory",
+            "previous_agents",
+            "user_prompt",
+            "context",
         ]
     )
 
 
 class OutputField(BaseModel):
     """Single field in the output contract."""
+
     type: str
     description: str = ""
     shareable: bool = True
@@ -83,6 +94,7 @@ class OutputField(BaseModel):
 
 class OutputValidation(BaseModel):
     """Output validation configuration."""
+
     mode: str = "strict"  # strict | lenient | none
     on_invalid: str = "retry"  # retry | skip | abort | use_partial
     max_retries: int = 2
@@ -91,6 +103,7 @@ class OutputValidation(BaseModel):
 
 class OutputConfig(BaseModel):
     """Output contract configuration."""
+
     format: str = "json"  # json | text | markdown
     schema_path: Optional[str] = Field(None, alias="schema")
     schema_description: Optional[str] = None
@@ -102,6 +115,7 @@ class OutputConfig(BaseModel):
 
 class VisionConfig(BaseModel):
     """Vision capabilities configuration."""
+
     enabled: bool = False
     model: Optional[str] = None
     supported_formats: list[str] = Field(
@@ -113,6 +127,7 @@ class VisionConfig(BaseModel):
 
 class PreprocessorConfig(BaseModel):
     """Preprocessor configuration."""
+
     enabled: bool = False
     pipeline: str = "default"
     steps: list[Any] = Field(default_factory=list)
@@ -126,6 +141,7 @@ class AWPAgent(BaseModel):
     Defines agent identity, LLM configuration, prompt architecture,
     output contract, capabilities, vision, and preprocessing.
     """
+
     awp_agent: SemVer
     identity: AgentIdentity
     runtime: AgentRuntime = Field(default_factory=AgentRuntime)

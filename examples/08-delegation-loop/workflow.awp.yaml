@@ -1,7 +1,7 @@
 awp: "1.0.0"
 
 workflow:
-  name: delegation-loop-research
+  name: delegation-loop
   version: "1.0.0"
   description: "Dynamic research workflow using the delegation_loop engine. A manager agent breaks down a research task, delegates to ephemeral worker agents, validates results, and iterates until complete."
   author: "AWP Examples"

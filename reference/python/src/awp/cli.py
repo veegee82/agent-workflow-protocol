@@ -13,6 +13,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .runtime.runner import WorkflowRunner
 import sys
 from pathlib import Path
 
@@ -50,20 +54,35 @@ def main(argv: list[str] | None = None) -> int:
     # compliance (autonomy level)
     p_comp = subparsers.add_parser("compliance", help="Check autonomy level (A0-A4)")
     p_comp.add_argument("path", help="Path to workflow directory")
-    p_comp.add_argument("--level", default="A4", help="Target autonomy level (A0-A4, legacy L0-L5 also accepted)")
+    p_comp.add_argument(
+        "--level",
+        default="A4",
+        help="Target autonomy level (A0-A4, legacy L0-L5 also accepted)",
+    )
 
     # identity-card
     p_ic = subparsers.add_parser("identity-card", help="Generate Agent Identity Card")
     p_ic.add_argument("agent_path", help="Path to agent.awp.yaml")
 
     # run
-    p_run = subparsers.add_parser("run", help="Run an AWP workflow (standalone runtime)")
+    p_run = subparsers.add_parser(
+        "run", help="Run an AWP workflow (standalone runtime)"
+    )
     p_run.add_argument("path", help="Path to workflow directory")
     p_run.add_argument("--task", "-t", required=True, help="Task description")
-    p_run.add_argument("--model", "-m", help="LLM model to use (skips model wizard, sets LLM_MODEL)")
-    p_run.add_argument("--manager-model", help="LLM model for the manager agent (delegation_loop engine)")
-    p_run.add_argument("--worker-model", help="LLM model for worker agents (delegation_loop engine)")
-    p_run.add_argument("--debug", "-d", action="store_true", help="Enable debug mode (verbose output)")
+    p_run.add_argument(
+        "--model", "-m", help="LLM model to use (skips model wizard, sets LLM_MODEL)"
+    )
+    p_run.add_argument(
+        "--manager-model",
+        help="LLM model for the manager agent (delegation_loop engine)",
+    )
+    p_run.add_argument(
+        "--worker-model", help="LLM model for worker agents (delegation_loop engine)"
+    )
+    p_run.add_argument(
+        "--debug", "-d", action="store_true", help="Enable debug mode (verbose output)"
+    )
 
     args = parser.parse_args(argv)
 
@@ -106,7 +125,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
     manifest = parse_manifest(manifest_file)
-    print(f"[ok] Manifest parsed: {manifest.workflow.name} v{manifest.workflow.version}")
+    print(
+        f"[ok] Manifest parsed: {manifest.workflow.name} v{manifest.workflow.version}"
+    )
 
     # Load agents
     agents = {}
@@ -189,7 +210,12 @@ def cmd_visualize(args: argparse.Namespace) -> int:
 def cmd_compliance(args: argparse.Namespace) -> int:
     """Check autonomy level."""
     from .parser import parse_manifest, parse_agent
-    from .validator.compliance import check_compliance, AutonomyLevel, LEVEL_ALIASES, LEVEL_NAMES
+    from .validator.compliance import (
+        check_compliance,
+        AutonomyLevel,
+        LEVEL_ALIASES,
+        LEVEL_NAMES,
+    )
 
     wf_dir = Path(args.path)
     manifest = parse_manifest(wf_dir / "workflow.awp.yaml")
@@ -264,7 +290,11 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
     }
 
     # Capabilities from tools
-    if agent.capabilities and hasattr(agent.capabilities, "tools") and agent.capabilities.tools.enabled:
+    if (
+        agent.capabilities
+        and hasattr(agent.capabilities, "tools")
+        and agent.capabilities.tools.enabled
+    ):
         if agent.capabilities.tools.allowed:
             card["identity_card"]["capabilities"] = agent.capabilities.tools.allowed
         else:
@@ -273,18 +303,22 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
     # Produces from output contract
     for name, field in agent.output.contract.items():
         if field.shareable:
-            card["identity_card"]["produces"].append({
-                "field": name,
-                "type": field.type,
-                "description": field.description,
-            })
+            card["identity_card"]["produces"].append(
+                {
+                    "field": name,
+                    "type": field.type,
+                    "description": field.description,
+                }
+            )
 
     # Vision
     if agent.vision.enabled:
-        card["identity_card"]["accepts"].append({
-            "type": "images",
-            "formats": agent.vision.supported_formats,
-        })
+        card["identity_card"]["accepts"].append(
+            {
+                "type": "images",
+                "formats": agent.vision.supported_formats,
+            }
+        )
 
     print(yaml.dump(card, default_flow_style=False, allow_unicode=True))
     return 0
@@ -292,7 +326,6 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Run an AWP workflow using the standalone runtime."""
-    import time as _time
     from .runtime import WorkflowRunner
 
     import os as _os
@@ -308,7 +341,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     manager_model = getattr(args, "manager_model", None)
     worker_model = getattr(args, "worker_model", None)
 
-    runner = WorkflowRunner(wf_dir, manager_model=manager_model, worker_model=worker_model)
+    runner = WorkflowRunner(
+        wf_dir, manager_model=manager_model, worker_model=worker_model
+    )
 
     # -- Pre-run wizard ------------------------------------------------
     if sys.stdin.isatty():
@@ -363,17 +398,17 @@ def cmd_run(args: argparse.Namespace) -> int:
 # -- Debug mode --------------------------------------------------------
 
 
-def _print_header(runner: "WorkflowRunner", wf_dir: Path, task: str, debug: bool) -> None:
+def _print_header(runner: WorkflowRunner, wf_dir: Path, task: str, debug: bool) -> None:
     print()
     print(f"  Workflow:  {runner.name}")
     print(f"  Task:      {task}")
     print(f"  Path:      {wf_dir}")
     if debug:
-        print(f"  Mode:      DEBUG (verbose)")
+        print("  Mode:      DEBUG (verbose)")
     print()
 
 
-def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
+def _print_debug_config(runner: WorkflowRunner, wf_dir: Path) -> None:
     """Print workflow configuration summary in debug mode."""
     import os
     import yaml as _yaml
@@ -398,10 +433,10 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
         for tool, keys in missing.items():
             print(f"    {tool}: MISSING {', '.join(keys)}")
     else:
-        print(f"    All secrets OK")
+        print("    All secrets OK")
 
     # List all registered tool names
-    print(f"  Tool names:")
+    print("  Tool names:")
     for tname in runner._tools.tool_names:
         print(f"    - {tname}")
 
@@ -429,7 +464,7 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
     orch = runner._manifest.orchestration
     if orch and orch.run_budget:
         rb = orch.run_budget
-        print(f"  Run Budget:")
+        print("  Run Budget:")
         print(f"    max_wall_time:    {rb.max_wall_time}s")
         print(f"    max_total_tokens: {rb.max_total_tokens:,}")
         print(f"    max_tool_calls:   {rb.max_tool_calls}")
@@ -438,16 +473,20 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
         print(f"    enabled_limits:   {', '.join(rb.enabled_limits)}")
 
     # Delegation loop config
-    if orch and getattr(orch, "engine", "dag") == "delegation_loop" and orch.delegation_loop:
+    if (
+        orch
+        and getattr(orch, "engine", "dag") == "delegation_loop"
+        and orch.delegation_loop
+    ):
         dl = orch.delegation_loop
-        print(f"  Delegation Loop:")
+        print("  Delegation Loop:")
         print(f"    Manager:          {dl.manager}")
         if dl.models.manager:
             print(f"    Manager model:    {dl.models.manager}")
         if dl.models.worker:
             print(f"    Worker model:     {dl.models.worker}")
         b = dl.budget
-        print(f"    Budget:")
+        print("    Budget:")
         print(f"      max_loops:         {b.max_loops}")
         print(f"      max_total_workers: {b.max_total_workers}")
         print(f"      max_total_tokens:  {b.max_total_tokens:,}")
@@ -455,22 +494,30 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
         print(f"      max_tool_calls:    {b.max_tool_calls}")
         print(f"      max_depth:         {b.max_depth}")
         if dl.termination:
-            print(f"    Stall detection:  window={dl.termination.window}, "
-                  f"min_delta={dl.termination.min_confidence_delta}, "
-                  f"action={dl.termination.action}")
-        print(f"    Validation:       deterministic={dl.validation.deterministic.always}, "
-              f"llm={dl.validation.llm.enabled}")
-        print(f"    Logging:          format={dl.logging.format}, "
-              f"artifacts={dl.logging.persist_artifacts}")
+            print(
+                f"    Stall detection:  window={dl.termination.window}, "
+                f"min_delta={dl.termination.min_confidence_delta}, "
+                f"action={dl.termination.action}"
+            )
+        print(
+            f"    Validation:       deterministic={dl.validation.deterministic.always}, "
+            f"llm={dl.validation.llm.enabled}"
+        )
+        print(
+            f"    Logging:          format={dl.logging.format}, "
+            f"artifacts={dl.logging.persist_artifacts}"
+        )
         # Worker policy
         wp = dl.worker_policy
-        print(f"    Worker policy:")
+        print("    Worker policy:")
         print(f"      Forbidden tools:   {', '.join(wp.enforced.forbidden_tools)}")
         print(f"      Manager controls:  {', '.join(wp.manager_controlled)}")
-        print(f"      Sandbox:           type={wp.enforced.sandbox.type}, "
-              f"mem={wp.enforced.sandbox.max_memory_mb}MB, "
-              f"cpu={wp.enforced.sandbox.max_cpu_seconds}s, "
-              f"net={wp.enforced.sandbox.network}")
+        print(
+            f"      Sandbox:           type={wp.enforced.sandbox.type}, "
+            f"mem={wp.enforced.sandbox.max_memory_mb}MB, "
+            f"cpu={wp.enforced.sandbox.max_cpu_seconds}s, "
+            f"net={wp.enforced.sandbox.network}"
+        )
 
     # Files
     secrets_yaml = wf_dir / "secrets.yaml"
@@ -507,20 +554,22 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
                     identity = cfg.get("identity", {})
                     model = cfg.get("model", {})
                     caps = cfg.get("capabilities", {})
-                    prompt_cfg = cfg.get("prompt", {})
+                    cfg.get("prompt", {})
 
                     print(f"    [{agent_name}]")
                     if identity.get("role"):
                         print(f"      Role:         {identity['role']}")
                     if identity.get("description"):
-                        desc = identity['description']
+                        desc = identity["description"]
                         print(f"      Description:  {desc}")
                     model_name = model.get("name", os.getenv("LLM_MODEL", "(default)"))
                     print(f"      Model:        {model_name}")
                     params = model.get("parameters", {})
                     if params:
-                        print(f"      Params:       temp={params.get('temperature', 'default')}, "
-                              f"max_tokens={params.get('max_tokens', 'default')}")
+                        print(
+                            f"      Params:       temp={params.get('temperature', 'default')}, "
+                            f"max_tokens={params.get('max_tokens', 'default')}"
+                        )
                     tools_cfg = caps.get("tools", {})
                     if tools_cfg.get("enabled"):
                         allowed = tools_cfg.get("allowed", [])
@@ -529,9 +578,9 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
                         if allowed:
                             print(f"        Allowed:    {', '.join(allowed)}")
                         else:
-                            print(f"        Allowed:    ALL")
+                            print("        Allowed:    ALL")
                     else:
-                        print(f"      Tools:        disabled")
+                        print("      Tools:        disabled")
                     # Agent-level skills
                     agent_skills_dir = agents_dir / agent_name / "workflow" / "skills"
                     if agent_skills_dir.exists():
@@ -541,19 +590,33 @@ def _print_debug_config(runner: "WorkflowRunner", wf_dir: Path) -> None:
                             for sf in ask:
                                 print(f"        - {sf.name}")
                     # System prompt file
-                    sys_prompt_file = agents_dir / agent_name / "workflow" / "instructions" / "SYSTEM_PROMPT.md"
+                    sys_prompt_file = (
+                        agents_dir
+                        / agent_name
+                        / "workflow"
+                        / "instructions"
+                        / "SYSTEM_PROMPT.md"
+                    )
                     if sys_prompt_file.exists():
                         sp_size = sys_prompt_file.stat().st_size
-                        print(f"      System prompt: {sys_prompt_file.name} ({sp_size}B)")
+                        print(
+                            f"      System prompt: {sys_prompt_file.name} ({sp_size}B)"
+                        )
                     # Output schema
-                    schema_file = agents_dir / agent_name / "workflow" / "output_schema" / "output_schema.json"
+                    schema_file = (
+                        agents_dir
+                        / agent_name
+                        / "workflow"
+                        / "output_schema"
+                        / "output_schema.json"
+                    )
                     if schema_file.exists():
                         try:
                             schema = json.loads(schema_file.read_text(encoding="utf-8"))
                             fields = list(schema.get("properties", {}).keys())
                             print(f"      Output schema: {', '.join(fields)}")
                         except Exception:
-                            print(f"      Output schema: (present)")
+                            print("      Output schema: (present)")
                 except Exception:
                     pass
 
@@ -565,7 +628,6 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
     """Execute workflow with rich debug output per agent."""
     import time as _time
     from .runtime.agent import StandaloneAgent
-    from .runtime.llm import LLMClient
 
     state: dict = {"task": task}
     runner._tools.validate_secrets()
@@ -607,7 +669,10 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             agent_dir = wf_dir / "agents" / agent_id
             if not agent_dir.exists():
                 print(f"  ✗ {agent_id} — agent directory not found: {agent_dir}")
-                state[agent_id] = {"error": "Agent directory not found", "confidence": 0.0}
+                state[agent_id] = {
+                    "error": "Agent directory not found",
+                    "confidence": 0.0,
+                }
                 continue
 
             # Read agent config for debug info
@@ -616,6 +681,7 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             try:
                 import os as _os
                 import yaml
+
                 cfg = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
                 cfg_model = cfg.get("model", {}).get("name", "")
                 if cfg_model:
@@ -631,21 +697,24 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             agent_start = _time.time()
             try:
                 agent = StandaloneAgent(
-                    agent_dir, wf_dir,
+                    agent_dir,
+                    wf_dir,
                     llm=runner._llm,
                     tool_registry=runner._tools,
                 )
 
                 # ── DEBUG TRACE: INPUTS ─────────────────────────────
                 print(f"    {'─' * 52}")
-                print(f"    INPUT TRACE")
+                print("    INPUT TRACE")
                 print(f"    {'─' * 52}")
 
                 # System prompt (instructions + skills + memory)
                 try:
                     sys_prompt = agent._build_system_prompt()
                     sys_lines = sys_prompt.count("\n") + 1
-                    print(f"    System Prompt ({len(sys_prompt)} chars, {sys_lines} lines):")
+                    print(
+                        f"    System Prompt ({len(sys_prompt)} chars, {sys_lines} lines):"
+                    )
                     for line in sys_prompt.splitlines():
                         print(f"      | {line}")
                 except Exception as _sp_err:
@@ -655,7 +724,9 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                 try:
                     user_msg = agent._build_user_message(task, state)
                     um_lines = user_msg.count("\n") + 1
-                    print(f"    User Message ({len(user_msg)} chars, {um_lines} lines):")
+                    print(
+                        f"    User Message ({len(user_msg)} chars, {um_lines} lines):"
+                    )
                     for line in user_msg.splitlines():
                         print(f"      | {line}")
                 except Exception as _um_err:
@@ -669,9 +740,9 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                         for line in skills_text.splitlines():
                             print(f"      | {line}")
                     else:
-                        print(f"    Skills: (none)")
+                        print("    Skills: (none)")
                 except Exception:
-                    print(f"    Skills: (none)")
+                    print("    Skills: (none)")
 
                 # Tool definitions
                 try:
@@ -682,25 +753,31 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                         print(f"    Tools ({len(tool_defs)} definitions):")
                         for td in tool_defs:
                             func = td.get("function", td)
-                            print(f"      - {func.get('name', '?')}: {func.get('description', '')}")
+                            print(
+                                f"      - {func.get('name', '?')}: {func.get('description', '')}"
+                            )
                             params = func.get("parameters", {})
                             for pn, pdef in params.get("properties", {}).items():
-                                print(f"          {pn} ({pdef.get('type', '?')}): {pdef.get('description', '')}")
+                                print(
+                                    f"          {pn} ({pdef.get('type', '?')}): {pdef.get('description', '')}"
+                                )
                     else:
-                        print(f"    Tools: disabled")
+                        print("    Tools: disabled")
                 except Exception:
-                    print(f"    Tools: (error reading)")
+                    print("    Tools: (error reading)")
 
                 # Output schema
                 try:
                     schema = agent._load_output_schema()
                     if schema:
-                        print(f"    Output Schema:")
-                        print(f"      {json.dumps(schema, indent=2, default=str, ensure_ascii=False)}")
+                        print("    Output Schema:")
+                        print(
+                            f"      {json.dumps(schema, indent=2, default=str, ensure_ascii=False)}"
+                        )
                     else:
-                        print(f"    Output Schema: (none)")
+                        print("    Output Schema: (none)")
                 except Exception:
-                    print(f"    Output Schema: (none)")
+                    print("    Output Schema: (none)")
 
                 # State context passed to agent
                 state_keys = [k for k in state if not k.startswith("_") and k != "task"]
@@ -709,14 +786,16 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                     for sk in state_keys:
                         sv = state[sk]
                         if isinstance(sv, dict):
-                            print(f"      {sk}: {json.dumps(sv, indent=2, default=str, ensure_ascii=False)}")
+                            print(
+                                f"      {sk}: {json.dumps(sv, indent=2, default=str, ensure_ascii=False)}"
+                            )
                         else:
                             print(f"      {sk}: {sv}")
                 else:
-                    print(f"    State Context: (empty)")
+                    print("    State Context: (empty)")
 
                 print(f"    {'─' * 52}")
-                print(f"    EXECUTING...")
+                print("    EXECUTING...")
                 print(f"    {'─' * 52}")
 
                 # ── EXECUTE AGENT ───────────────────────────────────
@@ -731,7 +810,7 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
 
                 # ── DEBUG TRACE: OUTPUTS ────────────────────────────
                 print(f"    {'─' * 52}")
-                print(f"    OUTPUT TRACE")
+                print("    OUTPUT TRACE")
                 print(f"    {'─' * 52}")
 
                 if has_error:
@@ -750,12 +829,16 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                             for i, item in enumerate(v):
                                 prefix = f"      [{i}] "
                                 if isinstance(item, dict):
-                                    print(f"{prefix}{json.dumps(item, indent=2, default=str, ensure_ascii=False)}")
+                                    print(
+                                        f"{prefix}{json.dumps(item, indent=2, default=str, ensure_ascii=False)}"
+                                    )
                                 else:
                                     print(f"{prefix}{item}")
                         elif isinstance(v, dict):
                             print(f"    Output:  {k} → {len(v)} fields")
-                            print(f"      {json.dumps(v, indent=2, default=str, ensure_ascii=False)}")
+                            print(
+                                f"      {json.dumps(v, indent=2, default=str, ensure_ascii=False)}"
+                            )
                         elif isinstance(v, str):
                             lines = v.count("\n") + 1
                             chars = len(v)
@@ -766,14 +849,22 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                             print(f"    Output:  {k} → {v}")
 
                 # Full JSON dump of agent result
-                print(f"    Full Result JSON:")
-                print(f"      {json.dumps(agent_result, indent=2, default=str, ensure_ascii=False)}")
+                print("    Full Result JSON:")
+                print(
+                    f"      {json.dumps(agent_result, indent=2, default=str, ensure_ascii=False)}"
+                )
                 print(f"    {'─' * 52}")
 
                 # Memory auto-write and show path
                 runner._auto_write_memory(agent_id, agent_result)
                 from datetime import datetime, timezone
-                mem_file = wf_dir / "workspace" / "memory" / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.md"
+
+                mem_file = (
+                    wf_dir
+                    / "workspace"
+                    / "memory"
+                    / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.md"
+                )
                 if mem_file.exists():
                     print(f"    Memory:  {mem_file}")
 
@@ -829,7 +920,7 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
                 if f.is_file():
                     obs_files.append(f)
     if obs_files:
-        print(f"  Observability:")
+        print("  Observability:")
         for f in obs_files:
             size = f.stat().st_size
             size_str = f"{size}B" if size < 1024 else f"{size / 1024:.1f}KB"
@@ -846,7 +937,9 @@ def _run_with_debug(runner: "WorkflowRunner", task: str, wf_dir: Path) -> dict:
             has_err = "error" in value
             status = "ERROR" if has_err else "OK"
             fields = [k for k in value if k not in ("confidence", "error")]
-            print(f"    {key:20s}  {status:5s}  confidence={conf}  fields=[{', '.join(fields)}]")
+            print(
+                f"    {key:20s}  {status:5s}  confidence={conf}  fields=[{', '.join(fields)}]"
+            )
 
     print("=" * 60)
     print()
@@ -879,14 +972,16 @@ def _run_delegation_loop_debug(
     orch = runner._manifest.orchestration
     dl = getattr(orch, "delegation_loop", None)
 
-    print(f"  Engine:        delegation_loop")
+    print("  Engine:        delegation_loop")
     if dl:
         b = getattr(dl, "budget", None)
         if b:
-            print(f"  Budget:        loops={b.max_loops}, workers={b.max_total_workers}, "
-                  f"tokens={b.max_total_tokens:,}, "
-                  f"wall_time={b.max_wall_time}s, depth={b.max_depth}, "
-                  f"tool_calls={b.max_tool_calls}")
+            print(
+                f"  Budget:        loops={b.max_loops}, workers={b.max_total_workers}, "
+                f"tokens={b.max_total_tokens:,}, "
+                f"wall_time={b.max_wall_time}s, depth={b.max_depth}, "
+                f"tool_calls={b.max_tool_calls}"
+            )
         print(f"  Manager:       {dl.manager}")
         if dl.models.manager:
             print(f"  Manager model: {dl.models.manager}")
@@ -900,6 +995,7 @@ def _run_delegation_loop_debug(
             if agent_yaml.exists():
                 try:
                     import yaml as _yaml
+
                     mgr_cfg = _yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
                     identity = mgr_cfg.get("identity", {})
                     print(f"  Manager role:  {identity.get('role', '?')}")
@@ -908,7 +1004,9 @@ def _run_delegation_loop_debug(
                     pass
 
             # Manager system prompt
-            sys_prompt_file = manager_dir / "workflow" / "instructions" / "SYSTEM_PROMPT.md"
+            sys_prompt_file = (
+                manager_dir / "workflow" / "instructions" / "SYSTEM_PROMPT.md"
+            )
             if sys_prompt_file.exists():
                 content = sys_prompt_file.read_text(encoding="utf-8")
                 print(f"  Manager System Prompt ({len(content)} chars):")
@@ -928,11 +1026,13 @@ def _run_delegation_loop_debug(
                             print(f"      | {line}")
 
             # Manager output schema
-            schema_file = manager_dir / "workflow" / "output_schema" / "output_schema.json"
+            schema_file = (
+                manager_dir / "workflow" / "output_schema" / "output_schema.json"
+            )
             if schema_file.exists():
                 try:
                     schema = json.loads(schema_file.read_text(encoding="utf-8"))
-                    print(f"  Manager Output Schema:")
+                    print("  Manager Output Schema:")
                     for line in json.dumps(schema, indent=2, default=str).splitlines():
                         print(f"    {line}")
                 except Exception:
@@ -940,19 +1040,25 @@ def _run_delegation_loop_debug(
 
         # Worker policy
         wp = dl.worker_policy
-        print(f"  Worker policy:")
+        print("  Worker policy:")
         print(f"    Forbidden tools:  {', '.join(wp.enforced.forbidden_tools)}")
         print(f"    Manager controls: {', '.join(wp.manager_controlled)}")
-        print(f"    Sandbox:          type={wp.enforced.sandbox.type}, "
-              f"mem={wp.enforced.sandbox.max_memory_mb}MB")
+        print(
+            f"    Sandbox:          type={wp.enforced.sandbox.type}, "
+            f"mem={wp.enforced.sandbox.max_memory_mb}MB"
+        )
 
         # Validation config
-        print(f"  Validation:    deterministic={dl.validation.deterministic.always}, "
-              f"llm={dl.validation.llm.enabled}")
+        print(
+            f"  Validation:    deterministic={dl.validation.deterministic.always}, "
+            f"llm={dl.validation.llm.enabled}"
+        )
         if dl.termination:
-            print(f"  Stall detect:  window={dl.termination.window}, "
-                  f"delta={dl.termination.min_confidence_delta}, "
-                  f"action={dl.termination.action}")
+            print(
+                f"  Stall detect:  window={dl.termination.window}, "
+                f"delta={dl.termination.min_confidence_delta}, "
+                f"action={dl.termination.action}"
+            )
 
     print()
     print("  Running... (this may take a while)")
@@ -973,7 +1079,7 @@ def _run_delegation_loop_debug(
         print("  [WARN] No workspace logs found.")
 
     # -- Final result JSON -------------------------------------------------
-    dl_result = result.get("delegation_loop", {})
+    result.get("delegation_loop", {})
     print()
     print("  Full output (JSON):")
     print()
@@ -1019,11 +1125,11 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                 reasoning = decision.get("reasoning", decision.get("plan", ""))
 
                 print(f"    {'─' * 48}")
-                print(f"    MANAGER DECISION")
+                print("    MANAGER DECISION")
                 print(f"    {'─' * 48}")
                 print(f"    Decision:    {dec_type}")
                 if reasoning:
-                    print(f"    Reasoning:")
+                    print("    Reasoning:")
                     if isinstance(reasoning, str):
                         for line in reasoning.splitlines():
                             print(f"      | {line}")
@@ -1031,8 +1137,10 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                         print(f"      {reasoning}")
 
                 # Full manager decision JSON
-                print(f"    Full Manager Decision JSON:")
-                for line in json.dumps(decision, indent=2, default=str, ensure_ascii=False).splitlines():
+                print("    Full Manager Decision JSON:")
+                for line in json.dumps(
+                    decision, indent=2, default=str, ensure_ascii=False
+                ).splitlines():
                     print(f"      {line}")
 
                 # Show delegations with FULL inputs
@@ -1060,11 +1168,17 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
 
                         # Full skills content
                         if skills:
-                            total_chars = sum(len(s) for s in skills if isinstance(s, str))
-                            print(f"        Skills ({len(skills)}, {total_chars} chars total):")
+                            total_chars = sum(
+                                len(s) for s in skills if isinstance(s, str)
+                            )
+                            print(
+                                f"        Skills ({len(skills)}, {total_chars} chars total):"
+                            )
                             for si, skill in enumerate(skills):
                                 if isinstance(skill, str):
-                                    print(f"          [Skill {si}] ({len(skill)} chars):")
+                                    print(
+                                        f"          [Skill {si}] ({len(skill)} chars):"
+                                    )
                                     for line in skill.splitlines():
                                         print(f"            | {line}")
                                 else:
@@ -1076,17 +1190,21 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                             for t in tools:
                                 print(f"          - {t}")
                         else:
-                            print(f"        Tools allowed: ALL")
+                            print("        Tools allowed: ALL")
 
                         # Output contract
                         if output_contract:
-                            print(f"        Output contract:")
-                            for line in json.dumps(output_contract, indent=2, default=str).splitlines():
+                            print("        Output contract:")
+                            for line in json.dumps(
+                                output_contract, indent=2, default=str
+                            ).splitlines():
                                 print(f"          {line}")
 
                         # Codemode
                         if codemode:
-                            print(f"        CodeMode: enabled={codemode.get('enabled', False)}")
+                            print(
+                                f"        CodeMode: enabled={codemode.get('enabled', False)}"
+                            )
                             if codemode.get("tool_creation"):
                                 ns = codemode.get("tool_creation_namespace", "dynamic")
                                 print(f"          tool_creation: {ns}.*")
@@ -1106,7 +1224,7 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
         if deleg_dir.exists():
             print()
             print(f"    {'─' * 48}")
-            print(f"    WORKER OUTPUTS")
+            print("    WORKER OUTPUTS")
             print(f"    {'─' * 48}")
             for worker_dir in sorted(deleg_dir.iterdir()):
                 if not worker_dir.is_dir():
@@ -1132,7 +1250,9 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                                 print(f"        Skills ({len(env_skills)}):")
                                 for si, sk in enumerate(env_skills):
                                     if isinstance(sk, str):
-                                        print(f"          [Skill {si}] ({len(sk)} chars):")
+                                        print(
+                                            f"          [Skill {si}] ({len(sk)} chars):"
+                                        )
                                         for line in sk.splitlines():
                                             print(f"            | {line}")
                                     else:
@@ -1144,13 +1264,17 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                             # Show output contract
                             env_oc = envelope.get("output_contract", {})
                             if env_oc:
-                                print(f"        Output contract:")
-                                for line in json.dumps(env_oc, indent=2, default=str).splitlines():
+                                print("        Output contract:")
+                                for line in json.dumps(
+                                    env_oc, indent=2, default=str
+                                ).splitlines():
                                     print(f"          {line}")
                             # Show codemode
                             env_cm = envelope.get("codemode", {})
                             if env_cm:
-                                print(f"        CodeMode: {json.dumps(env_cm, default=str)}")
+                                print(
+                                    f"        CodeMode: {json.dumps(env_cm, default=str)}"
+                                )
                     except Exception:
                         pass
 
@@ -1166,37 +1290,47 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                         print(f"    ← {wid}: {status} (confidence: {conf})")
 
                         if has_error:
-                            print(f"        Error:")
+                            print("        Error:")
                             err = str(w_result["error"])
                             for line in err.splitlines():
                                 print(f"          {line}")
                         else:
                             # Show ALL output fields fully (no truncation)
-                            result_keys = [k for k in w_result if k not in ("confidence", "error")]
+                            result_keys = [
+                                k for k in w_result if k not in ("confidence", "error")
+                            ]
                             for rk in result_keys:
                                 val = w_result[rk]
                                 if isinstance(val, str):
                                     lines = val.count("\n") + 1
-                                    print(f"        {rk} ({len(val)} chars, {lines} lines):")
+                                    print(
+                                        f"        {rk} ({len(val)} chars, {lines} lines):"
+                                    )
                                     for line in val.splitlines():
                                         print(f"          {line}")
                                 elif isinstance(val, list):
                                     print(f"        {rk} ({len(val)} items):")
                                     for li, litem in enumerate(val):
                                         if isinstance(litem, dict):
-                                            print(f"          [{li}] {json.dumps(litem, indent=2, default=str, ensure_ascii=False)}")
+                                            print(
+                                                f"          [{li}] {json.dumps(litem, indent=2, default=str, ensure_ascii=False)}"
+                                            )
                                         else:
                                             print(f"          [{li}] {litem}")
                                 elif isinstance(val, dict):
                                     print(f"        {rk} ({len(val)} fields):")
-                                    for line in json.dumps(val, indent=2, default=str, ensure_ascii=False).splitlines():
+                                    for line in json.dumps(
+                                        val, indent=2, default=str, ensure_ascii=False
+                                    ).splitlines():
                                         print(f"          {line}")
                                 else:
                                     print(f"        {rk}: {val}")
 
                         # Full JSON dump
-                        print(f"        Full Result JSON:")
-                        for line in json.dumps(w_result, indent=2, default=str, ensure_ascii=False).splitlines():
+                        print("        Full Result JSON:")
+                        for line in json.dumps(
+                            w_result, indent=2, default=str, ensure_ascii=False
+                        ).splitlines():
                             print(f"          {line}")
 
                         # Tools created (raw LLM output)
@@ -1212,15 +1346,21 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                                         print(f"              Description: {tdesc}")
                                     treqs = tspec.get("required_secrets", [])
                                     if treqs:
-                                        print(f"              Required secrets: {', '.join(treqs)}")
+                                        print(
+                                            f"              Required secrets: {', '.join(treqs)}"
+                                        )
                                     tparams = tspec.get("parameters", {})
                                     if tparams:
-                                        print(f"              Parameters:")
-                                        for line in json.dumps(tparams, indent=2, default=str).splitlines():
+                                        print("              Parameters:")
+                                        for line in json.dumps(
+                                            tparams, indent=2, default=str
+                                        ).splitlines():
                                             print(f"                {line}")
                                     tcode = tspec.get("code", "")
                                     if tcode:
-                                        print(f"              Code ({len(tcode)} chars):")
+                                        print(
+                                            f"              Code ({len(tcode)} chars):"
+                                        )
                                         for line in tcode.splitlines():
                                             print(f"                | {line}")
 
@@ -1235,26 +1375,36 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                                     status_str = "OK" if registered else "FAILED"
                                     print(f"          [{ti}] {tname}: {status_str}")
                                     if not registered:
-                                        terr = trec.get("error", trec.get("reason", "?"))
+                                        terr = trec.get(
+                                            "error", trec.get("reason", "?")
+                                        )
                                         print(f"              Error: {terr}")
                                         vr = trec.get("validation_result", {})
                                         if vr:
-                                            print(f"              Validation:")
-                                            for line in json.dumps(vr, indent=2, default=str).splitlines():
+                                            print("              Validation:")
+                                            for line in json.dumps(
+                                                vr, indent=2, default=str
+                                            ).splitlines():
                                                 print(f"                {line}")
                                     treqs = trec.get("required_secrets", [])
                                     if treqs:
-                                        print(f"              Required secrets: {', '.join(treqs)}")
+                                        print(
+                                            f"              Required secrets: {', '.join(treqs)}"
+                                        )
                                     # Show code from enriched record
                                     tcode = trec.get("code", "")
                                     if tcode:
-                                        print(f"              Code ({len(tcode)} chars):")
+                                        print(
+                                            f"              Code ({len(tcode)} chars):"
+                                        )
                                         for line in tcode.splitlines():
                                             print(f"                | {line}")
                                     tparams = trec.get("parameters", {})
                                     if tparams:
-                                        print(f"              Parameters:")
-                                        for line in json.dumps(tparams, indent=2, default=str).splitlines():
+                                        print("              Parameters:")
+                                        for line in json.dumps(
+                                            tparams, indent=2, default=str
+                                        ).splitlines():
                                             print(f"                {line}")
 
                     except Exception:
@@ -1268,7 +1418,11 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                         print(f"        Generated Skills ({len(skill_files)}):")
                         for sf in skill_files:
                             content = sf.read_text(encoding="utf-8")
-                            title = content.split("\n")[0].strip("# ").strip() if content else sf.name
+                            title = (
+                                content.split("\n")[0].strip("# ").strip()
+                                if content
+                                else sf.name
+                            )
                             print(f"          Skill: {title} ({sf.stat().st_size}B)")
                             for line in content.splitlines():
                                 print(f"            | {line}")
@@ -1288,11 +1442,15 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                                 print(f"            Description: {tdesc}")
                                 treqs = tdata.get("required_secrets", [])
                                 if treqs:
-                                    print(f"            Required secrets: {', '.join(treqs)}")
+                                    print(
+                                        f"            Required secrets: {', '.join(treqs)}"
+                                    )
                                 params = tdata.get("parameters", {})
                                 if params:
-                                    print(f"            Parameters:")
-                                    for line in json.dumps(params, indent=2, default=str).splitlines():
+                                    print("            Parameters:")
+                                    for line in json.dumps(
+                                        params, indent=2, default=str
+                                    ).splitlines():
                                         print(f"              {line}")
                                 code = tdata.get("code", tdata.get("source", ""))
                                 if code:
@@ -1315,9 +1473,11 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                 wall = bsnap.get("wall_time", {}).get("elapsed_s", "?")
                 confidence_trend.append(f"Iter {iter_num}")
                 print()
-                print(f"    Budget:  {remaining}% remaining | "
-                      f"loops: {loops_used} | workers: {workers_spawned} | "
-                      f"wall: {wall}s")
+                print(
+                    f"    Budget:  {remaining}% remaining | "
+                    f"loops: {loops_used} | workers: {workers_spawned} | "
+                    f"wall: {wall}s"
+                )
             except Exception:
                 pass
 
@@ -1353,8 +1513,10 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
             print(f"  Status:      {comp.get('status', '?')}")
             print(f"  Iterations:  {comp.get('total_iterations', '?')}")
             fb = comp.get("final_budget", {})
-            print(f"  Workers:     {fb.get('workers', {}).get('spawned', '?')}"
-                  f"/{fb.get('workers', {}).get('max', '?')}")
+            print(
+                f"  Workers:     {fb.get('workers', {}).get('spawned', '?')}"
+                f"/{fb.get('workers', {}).get('max', '?')}"
+            )
             print(f"  Budget:      {fb.get('budget_remaining_pct', '?')}% remaining")
         except Exception:
             pass
@@ -1366,9 +1528,7 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
             hist = json.loads(history_file.read_text(encoding="utf-8"))
             entries = hist.get("history", [])
             if entries:
-                trend = " → ".join(
-                    f"{h.get('confidence', '?')}" for h in entries
-                )
+                trend = " → ".join(f"{h.get('confidence', '?')}" for h in entries)
                 print(f"  Confidence:  {trend}")
         except Exception:
             pass
@@ -1376,13 +1536,23 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
     # Artifacts
     artifacts_dir = run_dir / "artifacts"
     if artifacts_dir.exists():
-        skills = list((artifacts_dir / "skills").glob("*.md")) if (artifacts_dir / "skills").exists() else []
-        tools = list((artifacts_dir / "tools").glob("*.json")) if (artifacts_dir / "tools").exists() else []
+        skills = (
+            list((artifacts_dir / "skills").glob("*.md"))
+            if (artifacts_dir / "skills").exists()
+            else []
+        )
+        tools = (
+            list((artifacts_dir / "tools").glob("*.json"))
+            if (artifacts_dir / "tools").exists()
+            else []
+        )
         if skills:
             print(f"  Skills:      {len(skills)} generated")
             for s in skills:
                 content = s.read_text(encoding="utf-8")
-                title = content.split("\n")[0].strip("# ").strip() if content else s.name
+                title = (
+                    content.split("\n")[0].strip("# ").strip() if content else s.name
+                )
                 print(f"    Skill: {s.name}: {title} ({s.stat().st_size}B)")
                 for line in content.splitlines():
                     print(f"      | {line}")
@@ -1413,14 +1583,18 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                         print(f"      Worker: {worker_id}")
                     prov = tdata.get("provenance", {})
                     if prov:
-                        print(f"      Creator: {prov.get('creator_agent', '?')}, "
-                              f"Created: {prov.get('created_at', '?')}")
+                        print(
+                            f"      Creator: {prov.get('creator_agent', '?')}, "
+                            f"Created: {prov.get('created_at', '?')}"
+                        )
 
                     # Parameters
                     tparams = tdata.get("parameters", {})
                     if tparams:
-                        print(f"      Parameters:")
-                        for line in json.dumps(tparams, indent=2, default=str).splitlines():
+                        print("      Parameters:")
+                        for line in json.dumps(
+                            tparams, indent=2, default=str
+                        ).splitlines():
                             print(f"        {line}")
 
                     # Code (full)
@@ -1433,7 +1607,7 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                     # Validation result (if failed)
                     vr = tdata.get("validation_result", {})
                     if vr:
-                        print(f"      Validation result:")
+                        print("      Validation result:")
                         for line in json.dumps(vr, indent=2, default=str).splitlines():
                             print(f"        {line}")
 
@@ -1443,8 +1617,10 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
                         print(f"      Manifest ({len(manifest_tools)} tools):")
                         for mt in manifest_tools:
                             if isinstance(mt, dict):
-                                print(f"        - {mt.get('name', '?')}: "
-                                      f"registered={mt.get('registered', '?')}")
+                                print(
+                                    f"        - {mt.get('name', '?')}: "
+                                    f"registered={mt.get('registered', '?')}"
+                                )
                             else:
                                 print(f"        - {mt}")
 
@@ -1460,11 +1636,15 @@ def _print_delegation_loop_details(run_dir: Path, total_time: float) -> None:
             for dt in dt_files:
                 try:
                     dtdata = json.loads(dt.read_text(encoding="utf-8"))
-                    print(f"    {dtdata.get('fqn', dt.stem)}: {dtdata.get('description', '')}")
+                    print(
+                        f"    {dtdata.get('fqn', dt.stem)}: {dtdata.get('description', '')}"
+                    )
                     prov = dtdata.get("provenance", {})
                     if prov:
-                        print(f"      Creator: {prov.get('creator_agent', '?')}, "
-                              f"Created: {prov.get('created_at', '?')}")
+                        print(
+                            f"      Creator: {prov.get('creator_agent', '?')}, "
+                            f"Created: {prov.get('created_at', '?')}"
+                        )
                     dtcode = dtdata.get("code", "")
                     if dtcode:
                         print(f"      Code ({len(dtcode)} chars):")
@@ -1543,7 +1723,9 @@ def _model_wizard() -> None:
         print(f"  → Using model: {model_id}\n")
     elif idx == len(_MODEL_CHOICES) + 1:
         try:
-            custom = input("  Enter model name (e.g. openrouter/meta/llama-3-70b): ").strip()
+            custom = input(
+                "  Enter model name (e.g. openrouter/meta/llama-3-70b): "
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             print("\n  Skipping.\n")
             return
@@ -1702,11 +1884,11 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
 
     # Limit metadata: (field, label, unit, description)
     ALL_LIMITS = [
-        ("max_wall_time",    "Max Wall Time",   "s",   "total execution time"),
-        ("max_total_tokens", "Max Tokens",      "",    "LLM token cap"),
-        ("max_tool_calls",   "Max Tool Calls",  "",    "total tool invocations"),
-        ("max_agent_runs",   "Max Agent Runs",  "",    "total agent executions"),
-        ("max_cost_usd",     "Max Cost",        "USD", "estimated cost cap"),
+        ("max_wall_time", "Max Wall Time", "s", "total execution time"),
+        ("max_total_tokens", "Max Tokens", "", "LLM token cap"),
+        ("max_tool_calls", "Max Tool Calls", "", "total tool invocations"),
+        ("max_agent_runs", "Max Agent Runs", "", "total agent executions"),
+        ("max_cost_usd", "Max Cost", "USD", "estimated cost cap"),
     ]
 
     print()
@@ -1738,7 +1920,9 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
     print("=" * 60)
 
     try:
-        ans = input("\n  Toggle or adjust limits? Enter numbers (e.g. 1,3) or [N]: ").strip()
+        ans = input(
+            "\n  Toggle or adjust limits? Enter numbers (e.g. 1,3) or [N]: "
+        ).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return
@@ -1759,7 +1943,9 @@ def _limits_wizard(runner: "WorkflowRunner") -> None:
         # Toggle on/off
         currently_on = field in enabled
         try:
-            toggle = input(f"     {label} is {'ON' if currently_on else 'OFF'}. Toggle? [y/N]: ").strip()
+            toggle = input(
+                f"     {label} is {'ON' if currently_on else 'OFF'}. Toggle? [y/N]: "
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             toggle = ""
 
@@ -1829,9 +2015,13 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
     print()
     print("  1) Budget")
     print(f"     Max Loops:       {budget.max_loops:>6}     (manager iterations)")
-    print(f"     Max Workers:     {budget.max_total_workers:>6}     (total workers spawned)")
+    print(
+        f"     Max Workers:     {budget.max_total_workers:>6}     (total workers spawned)"
+    )
     print(f"     Max Wall Time:   {budget.max_wall_time:>5}s    (total execution time)")
-    print(f"     Max Depth:       {budget.max_depth:>6}     (recursive delegation depth)")
+    print(
+        f"     Max Depth:       {budget.max_depth:>6}     (recursive delegation depth)"
+    )
 
     if is_free:
         est_time = budget.max_loops * 2 * 90
@@ -1847,21 +2037,33 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         llm_val = getattr(val_cfg, "llm", None)
         print()
         print("  2) Validation")
-        print(f"     Deterministic:   {'on' if (det and det.always) else 'off':>6}     (schema, confidence, budget checks)")
+        print(
+            f"     Deterministic:   {'on' if (det and det.always) else 'off':>6}     (schema, confidence, budget checks)"
+        )
         if llm_val:
-            print(f"     LLM Validation:  {'on' if llm_val.enabled else 'off':>6}     (semantic check — costs extra tokens)")
+            print(
+                f"     LLM Validation:  {'on' if llm_val.enabled else 'off':>6}     (semantic check — costs extra tokens)"
+            )
             if llm_val.enabled:
-                print(f"     Skip above:      {llm_val.skip_when_confidence_above:>6}     (skip LLM validation when confident)")
+                print(
+                    f"     Skip above:      {llm_val.skip_when_confidence_above:>6}     (skip LLM validation when confident)"
+                )
 
     # Stall Detection
     stall_cfg = getattr(dl, "termination", None)
     if stall_cfg:
         print()
         print("  3) Stall Detection")
-        print(f"     Enabled:         {'on' if stall_cfg.enabled else 'off':>6}     (auto-stop when no progress)")
+        print(
+            f"     Enabled:         {'on' if stall_cfg.enabled else 'off':>6}     (auto-stop when no progress)"
+        )
         if stall_cfg.enabled:
-            print(f"     Window:          {stall_cfg.window:>6}     (iterations to compare)")
-            print(f"     Min Delta:       {stall_cfg.min_confidence_delta:>6}     (minimum confidence improvement)")
+            print(
+                f"     Window:          {stall_cfg.window:>6}     (iterations to compare)"
+            )
+            print(
+                f"     Min Delta:       {stall_cfg.min_confidence_delta:>6}     (minimum confidence improvement)"
+            )
 
     # Logging
     log_cfg = getattr(dl, "logging", None)
@@ -1869,7 +2071,9 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         print()
         print("  4) Logging")
         print(f"     Format:          {log_cfg.format:>6}     (dual=JSON+MD, json, md)")
-        print(f"     Artifacts:       {'on' if log_cfg.persist_artifacts else 'off':>6}     (save generated skills & tools)")
+        print(
+            f"     Artifacts:       {'on' if log_cfg.persist_artifacts else 'off':>6}     (save generated skills & tools)"
+        )
 
     # Models
     mgr_model = runner._manager_model or _os.getenv("LLM_MODEL", "(not set)")
@@ -1916,7 +2120,6 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         return current
 
     def _ask_bool(prompt: str, current: bool) -> bool:
-        cur = "y" if current else "n"
         try:
             val = input(f"     {prompt} [{'Y/n' if current else 'y/N'}]: ").strip()
             if val:
@@ -1943,10 +2146,14 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         rec_wall = min(budget.max_loops * 2 * 90 + 300, 3600) if is_free else 0
         budget.max_loops = _ask_int("Max Loops", budget.max_loops)
         budget.max_total_workers = _ask_int("Max Workers", budget.max_total_workers)
-        budget.max_wall_time = _ask_int("Max Wall Time (seconds)", budget.max_wall_time, rec_wall)
+        budget.max_wall_time = _ask_int(
+            "Max Wall Time (seconds)", budget.max_wall_time, rec_wall
+        )
         budget.max_depth = _ask_int("Max Depth", budget.max_depth)
-        changes.append(f"budget: loops={budget.max_loops}, workers={budget.max_total_workers}, "
-                       f"wall_time={budget.max_wall_time}s")
+        changes.append(
+            f"budget: loops={budget.max_loops}, workers={budget.max_total_workers}, "
+            f"wall_time={budget.max_wall_time}s"
+        )
 
     # 2) Validation
     if "2" in sections and val_cfg:
@@ -1966,15 +2173,21 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         stall_cfg.enabled = _ask_bool("Enabled", stall_cfg.enabled)
         if stall_cfg.enabled:
             stall_cfg.window = _ask_int("Window (iterations)", stall_cfg.window)
-            stall_cfg.min_confidence_delta = _ask_float("Min Delta", stall_cfg.min_confidence_delta)
+            stall_cfg.min_confidence_delta = _ask_float(
+                "Min Delta", stall_cfg.min_confidence_delta
+            )
         changes.append(f"stall: {'on' if stall_cfg.enabled else 'off'}")
 
     # 4) Logging
     if "4" in sections and log_cfg:
         print("\n  -- Logging --")
         log_cfg.format = _ask_str("Format", log_cfg.format, ["dual", "json", "md"])
-        log_cfg.persist_artifacts = _ask_bool("Save artifacts (skills & tools)", log_cfg.persist_artifacts)
-        changes.append(f"logging: {log_cfg.format}, artifacts={'on' if log_cfg.persist_artifacts else 'off'}")
+        log_cfg.persist_artifacts = _ask_bool(
+            "Save artifacts (skills & tools)", log_cfg.persist_artifacts
+        )
+        changes.append(
+            f"logging: {log_cfg.format}, artifacts={'on' if log_cfg.persist_artifacts else 'off'}"
+        )
 
     # 5) Models
     if "5" in sections:

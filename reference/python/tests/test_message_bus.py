@@ -93,7 +93,13 @@ class TestMessageBus:
 
     def test_message_envelope_fields(self):
         bus = MessageBus()
-        bus.send("agent_a", "agent_b", {"key": "value"}, channel="metrics", msg_type="request")
+        bus.send(
+            "agent_a",
+            "agent_b",
+            {"key": "value"},
+            channel="metrics",
+            msg_type="request",
+        )
 
         msgs = bus.list_messages("agent_b")
         msg = msgs[0]

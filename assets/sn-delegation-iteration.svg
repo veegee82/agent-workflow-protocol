@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="gManager" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7c4dff"/>
+      <stop offset="100%" style="stop-color:#533483"/>
+    </linearGradient>
+    <linearGradient id="gStat" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4fc3f7"/>
+      <stop offset="100%" style="stop-color:#0f3460"/>
+    </linearGradient>
+    <linearGradient id="gViz" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#26a69a"/>
+      <stop offset="100%" style="stop-color:#00695c"/>
+    </linearGradient>
+    <linearGradient id="gReview" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f5a623"/>
+      <stop offset="100%" style="stop-color:#e65100"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.4"/>
+    </filter>
+    <marker id="arrowMsg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#aaa"/>
+    </marker>
+    <marker id="arrowResp" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+      <polygon points="8 0, 0 3, 8 6" fill="#aaa"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="700" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="500" y="35" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Delegation Loop: Iterative Refinement</text>
+  <text x="500" y="55" text-anchor="middle" fill="#888" font-size="13">Manager dispatches to workers, iterates until confidence threshold is met</text>
+
+  <!-- Lifeline headers -->
+  <rect x="80" y="72" width="130" height="35" rx="8" fill="url(#gManager)" filter="url(#shadow)"/>
+  <text x="145" y="95" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Manager</text>
+
+  <rect x="295" y="72" width="150" height="35" rx="8" fill="url(#gStat)" filter="url(#shadow)"/>
+  <text x="370" y="95" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Statistical Worker</text>
+
+  <rect x="535" y="72" width="130" height="35" rx="8" fill="url(#gViz)" filter="url(#shadow)"/>
+  <text x="600" y="95" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Viz Worker</text>
+
+  <rect x="755" y="72" width="140" height="35" rx="8" fill="url(#gReview)" filter="url(#shadow)"/>
+  <text x="825" y="95" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Review Worker</text>
+
+  <!-- Lifelines (dashed vertical) -->
+  <line x1="145" y1="107" x2="145" y2="670" stroke="#555" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="370" y1="107" x2="370" y2="670" stroke="#555" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="600" y1="107" x2="600" y2="670" stroke="#555" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="825" y1="107" x2="825" y2="670" stroke="#555" stroke-width="1.5" stroke-dasharray="4,4"/>
+
+  <!-- ==================== ITERATION 1 ==================== -->
+  <rect x="15" y="120" width="970" height="230" rx="8" fill="#0e0e24" stroke="#555" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="30" y="140" fill="#888" font-size="12" font-weight="bold">ITERATION 1</text>
+
+  <!-- Manager -> Statistical: analyze -->
+  <line x1="145" y1="160" x2="365" y2="160" stroke="#4fc3f7" stroke-width="2" marker-end="url(#arrowMsg)"/>
+  <text x="255" y="154" text-anchor="middle" fill="#4fc3f7" font-size="11" font-weight="bold">analyze(data)</text>
+
+  <!-- Statistical -> Manager: conf 0.72 -->
+  <line x1="370" y1="185" x2="150" y2="185" stroke="#4fc3f7" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="255" y="180" text-anchor="middle" fill="#7ecef7" font-size="10">conf: 0.72</text>
+  <polygon points="150,182 158,185 150,188" fill="#4fc3f7"/>
+
+  <!-- Manager -> Viz: visualize -->
+  <line x1="145" y1="210" x2="595" y2="210" stroke="#26a69a" stroke-width="2" marker-end="url(#arrowMsg)"/>
+  <text x="370" y="204" text-anchor="middle" fill="#26a69a" font-size="11" font-weight="bold">visualize(results)</text>
+
+  <!-- Viz -> Manager: conf 0.85 -->
+  <line x1="600" y1="235" x2="150" y2="235" stroke="#26a69a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="370" y="230" text-anchor="middle" fill="#66ccbb" font-size="10">conf: 0.85</text>
+  <polygon points="150,232 158,235 150,238" fill="#26a69a"/>
+
+  <!-- Manager -> Review: check consistency -->
+  <line x1="145" y1="260" x2="820" y2="260" stroke="#f5a623" stroke-width="2" marker-end="url(#arrowMsg)"/>
+  <text x="483" y="254" text-anchor="middle" fill="#f5a623" font-size="11" font-weight="bold">check_consistency(all)</text>
+
+  <!-- Review -> Manager: conf 0.61 -->
+  <line x1="825" y1="290" x2="150" y2="290" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="483" y="285" text-anchor="middle" fill="#ffcc80" font-size="10">conf: 0.61, "seasonality not captured"</text>
+  <polygon points="150,287 158,290 150,293" fill="#f5a623"/>
+
+  <!-- Red threshold box -->
+  <rect x="35" y="310" width="250" height="28" rx="6" fill="#2a0a0a" stroke="#ef5350" stroke-width="2"/>
+  <text x="160" y="329" text-anchor="middle" fill="#ef5350" font-size="12" font-weight="bold">conf 0.61 &lt; threshold 0.80</text>
+  <!-- X mark -->
+  <text x="260" y="330" fill="#ef5350" font-size="16" font-weight="bold">&#x2717;</text>
+
+  <!-- ==================== ITERATION 2 ==================== -->
+  <rect x="15" y="365" width="970" height="255" rx="8" fill="#0e0e24" stroke="#555" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="30" y="385" fill="#888" font-size="12" font-weight="bold">ITERATION 2</text>
+
+  <!-- Manager -> Statistical: re-analyze with seasonal -->
+  <line x1="145" y1="405" x2="365" y2="405" stroke="#4fc3f7" stroke-width="2" marker-end="url(#arrowMsg)"/>
+  <text x="255" y="399" text-anchor="middle" fill="#4fc3f7" font-size="11" font-weight="bold">re-analyze(seasonal=true)</text>
+
+  <!-- Statistical -> Manager: conf 0.89 -->
+  <line x1="370" y1="430" x2="150" y2="430" stroke="#4fc3f7" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="255" y="425" text-anchor="middle" fill="#7ecef7" font-size="10">conf: 0.89</text>
+  <polygon points="150,427 158,430 150,433" fill="#4fc3f7"/>
+
+  <!-- Manager -> Viz: update -->
+  <line x1="145" y1="455" x2="595" y2="455" stroke="#26a69a" stroke-width="2" marker-end="url(#arrowMsg)"/>
+  <text x="370" y="449" text-anchor="middle" fill="#26a69a" font-size="11" font-weight="bold">update(new_results)</text>
+
+  <!-- Viz -> Manager: conf 0.91 -->
+  <line x1="600" y1="480" x2="150" y2="480" stroke="#26a69a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="370" y="475" text-anchor="middle" fill="#66ccbb" font-size="10">conf: 0.91</text>
+  <polygon points="150,477 158,480 150,483" fill="#26a69a"/>
+
+  <!-- Manager -> Review: review -->
+  <line x1="145" y1="510" x2="820" y2="510" stroke="#f5a623" stroke-width="2" marker-end="url(#arrowMsg)"/>
+  <text x="483" y="504" text-anchor="middle" fill="#f5a623" font-size="11" font-weight="bold">review(updated_all)</text>
+
+  <!-- Review -> Manager: conf 0.93 -->
+  <line x1="825" y1="540" x2="150" y2="540" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="483" y="535" text-anchor="middle" fill="#ffcc80" font-size="10">conf: 0.93</text>
+  <polygon points="150,537 158,540 150,543" fill="#f5a623"/>
+
+  <!-- Green threshold box -->
+  <rect x="35" y="560" width="310" height="28" rx="6" fill="#0a2a0a" stroke="#66bb6a" stroke-width="2"/>
+  <text x="190" y="579" text-anchor="middle" fill="#66bb6a" font-size="12" font-weight="bold">conf 0.93 &#x2265; threshold 0.80 &#x2192; COMPLETE</text>
+  <!-- Check mark -->
+  <text x="320" y="580" fill="#66bb6a" font-size="16" font-weight="bold">&#x2713;</text>
+
+  <!-- Budget tracker at bottom -->
+  <rect x="400" y="638" width="250" height="30" rx="6" fill="#1a1a2e" stroke="#555" stroke-width="1"/>
+  <text x="525" y="658" text-anchor="middle" fill="#888" font-size="11">Loops: 2 / max_loops: 5  |  Workers: 6 / 20</text>
+</svg>

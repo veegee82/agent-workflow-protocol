@@ -56,7 +56,10 @@ class CodeExecutor(BaseExecutor):
         effective_timeout = min(timeout or self._max_timeout, self._max_timeout)
 
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, encoding="utf-8",
+            mode="w",
+            suffix=".py",
+            delete=False,
+            encoding="utf-8",
         ) as tmp:
             tmp.write(code)
             tmp_path = tmp.name
@@ -70,8 +73,8 @@ class CodeExecutor(BaseExecutor):
                 cwd=str(self._cwd) if self._cwd else None,
             )
 
-            stdout = result.stdout[:self._max_output]
-            stderr = result.stderr[:self._max_output]
+            stdout = result.stdout[: self._max_output]
+            stderr = result.stderr[: self._max_output]
 
             if result.returncode == 0:
                 return {
@@ -93,7 +96,9 @@ class CodeExecutor(BaseExecutor):
                         "stderr": stderr,
                         "returncode": result.returncode,
                     },
-                    "error": stderr[:500] if stderr else f"Exit code {result.returncode}",
+                    "error": stderr[:500]
+                    if stderr
+                    else f"Exit code {result.returncode}",
                 }
 
         except subprocess.TimeoutExpired:

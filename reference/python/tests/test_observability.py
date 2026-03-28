@@ -4,9 +4,11 @@ import json
 import time
 from pathlib import Path
 
-import pytest
 from awp.runtime.observability import (
-    Tracer, MetricsCollector, AuditTrail, ObservabilityContext,
+    Tracer,
+    MetricsCollector,
+    AuditTrail,
+    ObservabilityContext,
 )
 
 
@@ -94,13 +96,13 @@ class TestMetricsCollector:
 class TestAuditTrail:
     def test_record_creates_hash_chain(self, tmp_path):
         audit = AuditTrail(tmp_path, "test-run")
-        e1 = audit.record("workflow.start", details={"task": "test"})
-        e2 = audit.record("agent.start", agent_id="a1")
-        e3 = audit.record("agent.complete", agent_id="a1")
+        audit.record("workflow.start", details={"task": "test"})
+        audit.record("agent.start", agent_id="a1")
+        audit.record("agent.complete", agent_id="a1")
         path = audit.flush()
 
         lines = path.read_text().strip().split("\n")
-        entries = [json.loads(l) for l in lines]
+        entries = [json.loads(line) for line in lines]
         assert len(entries) == 3
 
         # Verify chain
@@ -116,7 +118,7 @@ class TestAuditTrail:
         path = audit.flush()
 
         lines = path.read_text().strip().split("\n")
-        entries = [json.loads(l) for l in lines]
+        entries = [json.loads(line) for line in lines]
         assert AuditTrail.verify_chain(entries) is True
 
     def test_tampered_chain_detected(self, tmp_path):
@@ -126,7 +128,7 @@ class TestAuditTrail:
         path = audit.flush()
 
         lines = path.read_text().strip().split("\n")
-        entries = [json.loads(l) for l in lines]
+        entries = [json.loads(line) for line in lines]
 
         # Tamper with first entry
         entries[0]["details"] = {"tampered": True}

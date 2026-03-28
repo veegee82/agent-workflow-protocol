@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Circuit Breaker
 # ---------------------------------------------------------------------------
 
+
 class CircuitBreaker:
     """Simple in-memory circuit breaker.
 
@@ -93,6 +94,7 @@ class CircuitBreaker:
 # Rate Limiter
 # ---------------------------------------------------------------------------
 
+
 class RateLimiter:
     """Sliding window rate limiter per agent."""
 
@@ -131,6 +133,7 @@ class RateLimiter:
 # Access Controller
 # ---------------------------------------------------------------------------
 
+
 class AccessController:
     """Enforce tool access policies per agent."""
 
@@ -142,7 +145,7 @@ class AccessController:
         self._default_policy = default_policy
         # Build lookup: agent_id → set of denied tools
         self._denied: dict[str, set[str]] = {}
-        for rule in (rules or []):
+        for rule in rules or []:
             agent = rule.get("agent", "")
             denied = rule.get("deny_tools", [])
             if agent and denied:
@@ -162,6 +165,7 @@ class AccessController:
 # ---------------------------------------------------------------------------
 # SecurityContext
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SecurityContext:
@@ -211,7 +215,11 @@ class SecurityContext:
                         if isinstance(rule, dict):
                             rules.append(rule)
                         else:
-                            rules.append(rule.model_dump() if hasattr(rule, "model_dump") else dict(rule))
+                            rules.append(
+                                rule.model_dump()
+                                if hasattr(rule, "model_dump")
+                                else dict(rule)
+                            )
                 ac = AccessController(
                     default_policy=getattr(ac_cfg, "default_policy", "allow"),
                     rules=rules,

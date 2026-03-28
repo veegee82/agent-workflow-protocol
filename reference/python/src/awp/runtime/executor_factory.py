@@ -41,7 +41,8 @@ def create_executor(
 
         logger.info(
             "Creating Docker executor (image=%s, packages=%s)",
-            config.image, config.packages,
+            config.image,
+            config.packages,
         )
         return DockerExecutor(
             image=config.image,

@@ -27,22 +27,23 @@ Usage::
 from __future__ import annotations
 
 import importlib.util
-import json
 import logging
 import subprocess
 import sys
 import time
 import uuid
-from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..parser import parse_manifest
 from ..models.capabilities import SandboxConfig
-from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency, RunBudgetLimits
+from ..models.orchestration import (
+    AWPOrchestrationConfig,
+    ConditionalDependency,
+    RunBudgetLimits,
+)
 from .agent import StandaloneAgent
-from .code_executor import CodeExecutor
 from .executor_factory import create_executor
 from .expressions import safe_eval
 from .llm import LLMClient
@@ -95,7 +96,10 @@ class RunBudgetTracker:
                 return False, f"max_wall_time exceeded ({self._budget.max_wall_time}s)"
         if "max_total_tokens" in self._enabled:
             if self.tokens_used >= self._budget.max_total_tokens:
-                return False, f"max_total_tokens reached ({self._budget.max_total_tokens})"
+                return (
+                    False,
+                    f"max_total_tokens reached ({self._budget.max_total_tokens})",
+                )
         if "max_tool_calls" in self._enabled:
             if self.tool_calls >= self._budget.max_tool_calls:
                 return False, f"max_tool_calls reached ({self._budget.max_tool_calls})"
@@ -216,6 +220,7 @@ class WorkflowRunner:
                 if agent_yaml.exists():
                     try:
                         import yaml
+
                         data = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
                         caps = data.get("capabilities", {})
                         sb = caps.get("sandbox")
@@ -242,7 +247,8 @@ class WorkflowRunner:
             logger.info("Workflow dependencies installed successfully")
         except subprocess.CalledProcessError as exc:
             logger.warning(
-                "Failed to install workflow dependencies: %s", exc.stderr.decode() if exc.stderr else str(exc)
+                "Failed to install workflow dependencies: %s",
+                exc.stderr.decode() if exc.stderr else str(exc),
             )
 
     def _load_agent(self, agent_dir: Path) -> StandaloneAgent:
@@ -258,7 +264,8 @@ class WorkflowRunner:
         if agent_py.exists():
             try:
                 spec = importlib.util.spec_from_file_location(
-                    f"awp_agent_{agent_dir.name}", str(agent_py),
+                    f"awp_agent_{agent_dir.name}",
+                    str(agent_py),
                 )
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)  # type: ignore[union-attr]
@@ -274,10 +281,12 @@ class WorkflowRunner:
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
                     "Could not load Agent class from %s, using StandaloneAgent: %s",
-                    agent_py, exc,
+                    agent_py,
+                    exc,
                 )
         return StandaloneAgent(
-            agent_dir, self._dir,
+            agent_dir,
+            self._dir,
             llm=self._llm,
             tool_registry=self._tools,
         )
@@ -316,7 +325,9 @@ class WorkflowRunner:
             for key, value in self._manifest.state.auto_inject.items():
                 if isinstance(value, str):
                     value = value.replace("{{RUN_ID}}", run_id)
-                    value = value.replace("{{TIMESTAMP}}", datetime.now(timezone.utc).isoformat())
+                    value = value.replace(
+                        "{{TIMESTAMP}}", datetime.now(timezone.utc).isoformat()
+                    )
                 state.setdefault(key, value)
 
         orch = self._manifest.orchestration
@@ -345,16 +356,22 @@ class WorkflowRunner:
         # Start workflow trace span
         root_span = None
         if obs.tracer:
-            root_span = obs.tracer.start_span("workflow.run", attributes={
-                "workflow.name": self.name,
-                "run_id": run_id,
-            })
+            root_span = obs.tracer.start_span(
+                "workflow.run",
+                attributes={
+                    "workflow.name": self.name,
+                    "run_id": run_id,
+                },
+            )
         if obs.audit:
             obs.audit.record("workflow.start", details={"task": task, "run_id": run_id})
 
         logger.info(
             "Running workflow '%s' [run_id=%s] with %d agents in %d levels",
-            self.name, run_id, sum(len(l) for l in levels), len(levels),
+            self.name,
+            run_id,
+            sum(len(lvl) for lvl in levels),
+            len(levels),
         )
 
         workflow_start = time.monotonic()
@@ -369,16 +386,23 @@ class WorkflowRunner:
                 if self._run_budget:
                     can_go, reason = self._run_budget.check()
                     if not can_go:
-                        logger.warning("  Run budget limit hit: %s — stopping workflow", reason)
+                        logger.warning(
+                            "  Run budget limit hit: %s — stopping workflow", reason
+                        )
                         if obs.audit:
-                            obs.audit.record("workflow.budget_exceeded", details={
-                                "reason": reason,
-                                "budget_summary": self._run_budget.summary(),
-                            })
+                            obs.audit.record(
+                                "workflow.budget_exceeded",
+                                details={
+                                    "reason": reason,
+                                    "budget_summary": self._run_budget.summary(),
+                                },
+                            )
                         state["_run_budget"] = self._run_budget.summary()
                         state["_run_budget"]["exceeded"] = reason
                         # Break out of both loops
-                        return self._finalize_run(state, obs, root_span, workflow_start, levels)
+                        return self._finalize_run(
+                            state, obs, root_span, workflow_start, levels
+                        )
 
                 node = self._get_node(orch, agent_id)
                 if node and not node.enabled:
@@ -389,7 +413,11 @@ class WorkflowRunner:
                 if not self._evaluate_when(node, state):
                     logger.info("  Skipping agent %s: when condition not met", agent_id)
                     if obs.audit:
-                        obs.audit.record("agent.skipped", agent_id, details={"reason": "when_condition"})
+                        obs.audit.record(
+                            "agent.skipped",
+                            agent_id,
+                            details={"reason": "when_condition"},
+                        )
                     continue
 
                 # Rate limiter check
@@ -407,7 +435,10 @@ class WorkflowRunner:
                         logger.warning("  Circuit breaker open, skipping: %s", agent_id)
                         if obs.audit:
                             obs.audit.record("agent.circuit_breaker", agent_id)
-                        state[agent_id] = {"error": "Circuit breaker open", "confidence": 0.0}
+                        state[agent_id] = {
+                            "error": "Circuit breaker open",
+                            "confidence": 0.0,
+                        }
                         continue
 
                 # Set current agent for tool access control
@@ -416,7 +447,12 @@ class WorkflowRunner:
                 # Execute agent with retry
                 agent_dir = self._dir / "agents" / agent_id
                 result = self._run_agent_with_retry(
-                    agent_id, agent_dir, task, state, node, obs,
+                    agent_id,
+                    agent_dir,
+                    task,
+                    state,
+                    node,
+                    obs,
                     root_span_id=root_span,
                 )
                 state.update(result)
@@ -433,7 +469,9 @@ class WorkflowRunner:
                 try:
                     self._state_persistence.save_checkpoint(agent_id, state)
                 except Exception as exc:
-                    logger.warning("Failed to save checkpoint for %s: %s", agent_id, exc)
+                    logger.warning(
+                        "Failed to save checkpoint for %s: %s", agent_id, exc
+                    )
 
         return self._finalize_run(state, obs, root_span, workflow_start, levels)
 
@@ -453,17 +491,25 @@ class WorkflowRunner:
             state.setdefault("_run_budget", self._run_budget.summary())
 
         if obs.tracer and root_span:
-            obs.tracer.end_span(root_span, status="ok", attributes={
-                "duration_s": round(workflow_duration, 2),
-                "agents_executed": sum(len(l) for l in levels),
-            })
+            obs.tracer.end_span(
+                root_span,
+                status="ok",
+                attributes={
+                    "duration_s": round(workflow_duration, 2),
+                    "agents_executed": sum(len(lvl) for lvl in levels),
+                },
+            )
         if obs.metrics:
-            obs.metrics.histogram("workflow.duration_s", workflow_duration,
-                                  labels={"workflow": self.name})
+            obs.metrics.histogram(
+                "workflow.duration_s", workflow_duration, labels={"workflow": self.name}
+            )
         if obs.audit:
-            obs.audit.record("workflow.complete", details={
-                "duration_s": round(workflow_duration, 2),
-            })
+            obs.audit.record(
+                "workflow.complete",
+                details={
+                    "duration_s": round(workflow_duration, 2),
+                },
+            )
 
         # Flush observability
         obs.flush_all()
@@ -498,6 +544,7 @@ class WorkflowRunner:
             )
 
         import os
+
         manager_model = (
             self._manager_model
             or (dl_config.models.manager if dl_config.models else None)
@@ -561,11 +608,16 @@ class WorkflowRunner:
             if not agent_dir.exists():
                 logger.error("  Agent dir not found: %s", agent_dir)
                 if obs.tracer and agent_span:
-                    obs.tracer.end_span(agent_span, status="error",
-                                        attributes={"error": "dir_not_found"})
+                    obs.tracer.end_span(
+                        agent_span,
+                        status="error",
+                        attributes={"error": "dir_not_found"},
+                    )
                 if node and node.on_failure == "abort":
                     raise RuntimeError(f"Agent directory not found: {agent_dir}")
-                return {agent_id: {"error": "Agent directory not found", "confidence": 0.0}}
+                return {
+                    agent_id: {"error": "Agent directory not found", "confidence": 0.0}
+                }
 
             try:
                 agent = self._load_agent(agent_dir)
@@ -574,19 +626,30 @@ class WorkflowRunner:
 
                 # Success
                 if obs.tracer and agent_span:
-                    obs.tracer.end_span(agent_span, status="ok", attributes={
-                        "duration_s": round(agent_duration, 2),
-                    })
+                    obs.tracer.end_span(
+                        agent_span,
+                        status="ok",
+                        attributes={
+                            "duration_s": round(agent_duration, 2),
+                        },
+                    )
                 if obs.metrics:
-                    obs.metrics.histogram("agent.duration_s", agent_duration,
-                                          labels={"agent": agent_id})
-                    obs.metrics.increment("agent.executions", labels={"agent": agent_id, "status": "ok"})
+                    obs.metrics.histogram(
+                        "agent.duration_s", agent_duration, labels={"agent": agent_id}
+                    )
+                    obs.metrics.increment(
+                        "agent.executions", labels={"agent": agent_id, "status": "ok"}
+                    )
                 if obs.audit:
                     agent_result = result.get(agent_id, {})
-                    obs.audit.record("agent.complete", agent_id, details={
-                        "duration_s": round(agent_duration, 2),
-                        "confidence": agent_result.get("confidence", "N/A"),
-                    })
+                    obs.audit.record(
+                        "agent.complete",
+                        agent_id,
+                        details={
+                            "duration_s": round(agent_duration, 2),
+                            "confidence": agent_result.get("confidence", "N/A"),
+                        },
+                    )
                 if self._security.circuit_breaker:
                     self._security.circuit_breaker.record_success()
 
@@ -599,25 +662,38 @@ class WorkflowRunner:
 
             except Exception as exc:
                 agent_duration = time.monotonic() - agent_start
-                logger.error("  Failed: %s -- %s (attempt %d/%d)",
-                             agent_id, exc, attempt + 1, max_retries + 1)
+                logger.error(
+                    "  Failed: %s -- %s (attempt %d/%d)",
+                    agent_id,
+                    exc,
+                    attempt + 1,
+                    max_retries + 1,
+                )
 
                 if obs.tracer and agent_span:
-                    obs.tracer.end_span(agent_span, status="error",
-                                        attributes={"error": str(exc)})
+                    obs.tracer.end_span(
+                        agent_span, status="error", attributes={"error": str(exc)}
+                    )
                 if obs.metrics:
-                    obs.metrics.increment("agent.executions",
-                                          labels={"agent": agent_id, "status": "error"})
+                    obs.metrics.increment(
+                        "agent.executions",
+                        labels={"agent": agent_id, "status": "error"},
+                    )
                 if obs.audit:
-                    obs.audit.record("agent.error", agent_id, details={
-                        "error": str(exc), "attempt": attempt,
-                    })
+                    obs.audit.record(
+                        "agent.error",
+                        agent_id,
+                        details={
+                            "error": str(exc),
+                            "attempt": attempt,
+                        },
+                    )
                 if self._security.circuit_breaker:
                     self._security.circuit_breaker.record_failure()
 
                 # Retry?
                 if attempt < max_retries:
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     logger.info("  Retrying %s in %.1fs...", agent_id, delay)
                     time.sleep(delay)
                     continue
@@ -661,7 +737,9 @@ class WorkflowRunner:
             logger.info("  when '%s' => %s", when_expr, result)
             return bool(result)
         except Exception as exc:
-            logger.warning("  when expression error '%s': %s (defaulting to True)", when_expr, exc)
+            logger.warning(
+                "  when expression error '%s': %s (defaulting to True)", when_expr, exc
+            )
             return True
 
     # -- Memory -------------------------------------------------------

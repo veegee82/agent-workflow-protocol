@@ -27,6 +27,7 @@ print(json.dumps(data))
         result = executor.execute(code)
         assert result["ok"] is True
         import json
+
         output = json.loads(result["data"]["stdout"].strip())
         assert output["mean"] == 42.5
 

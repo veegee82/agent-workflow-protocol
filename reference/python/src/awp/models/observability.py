@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class LoggingConfig(BaseModel):
     """Logging configuration."""
+
     level: str = "INFO"
     format: str = "json"  # json | text | structured
     destination: str = "stdout"  # stdout | file | otlp
@@ -23,6 +24,7 @@ class LoggingConfig(BaseModel):
 
 class CustomMetric(BaseModel):
     """Custom metric definition."""
+
     name: str
     type: str = "counter"  # counter | gauge | histogram
     description: str = ""
@@ -33,6 +35,7 @@ class CustomMetric(BaseModel):
 
 class MetricsConfig(BaseModel):
     """Metrics collection configuration."""
+
     enabled: bool = False
     collector: str = "internal"  # internal | prometheus | otlp
     export_interval: int = 60  # seconds
@@ -53,6 +56,7 @@ class MetricsConfig(BaseModel):
 
 class TracingConfig(BaseModel):
     """Distributed tracing configuration."""
+
     enabled: bool = False
     exporter: str = "internal"  # internal | otlp | jaeger | zipkin
     sample_rate: float = 1.0
@@ -63,6 +67,7 @@ class TracingConfig(BaseModel):
 
 class AuditConfig(BaseModel):
     """Audit trail configuration."""
+
     enabled: bool = False
     format: str = "jsonl"  # jsonl | json
     hash_chain: bool = True  # Each entry contains hash of previous
@@ -86,12 +91,14 @@ class AuditConfig(BaseModel):
 
 class LivenessFailureConfig(BaseModel):
     """What to do when liveness checks fail."""
+
     max_consecutive: int = 3
     action: str = "pause_and_notify"  # pause_and_notify | abort | ignore
 
 
 class ReadinessConfig(BaseModel):
     """Readiness check — before workflow starts."""
+
     checks: list[str] = Field(
         default_factory=lambda: [
             "llm_provider_reachable",
@@ -104,6 +111,7 @@ class ReadinessConfig(BaseModel):
 
 class LivenessConfig(BaseModel):
     """Liveness check — during workflow execution."""
+
     interval: int = 30
     timeout: int = 5
     checks: list[str] = Field(
@@ -119,12 +127,14 @@ class LivenessConfig(BaseModel):
 
 class HealthCheckConfig(BaseModel):
     """Health check configuration."""
+
     readiness: ReadinessConfig = Field(default_factory=lambda: ReadinessConfig())
     liveness: LivenessConfig = Field(default_factory=lambda: LivenessConfig())
 
 
 class ObservabilityConfig(BaseModel):
     """Complete observability configuration (Layer 6)."""
+
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)

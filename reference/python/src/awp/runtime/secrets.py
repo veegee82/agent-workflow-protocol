@@ -53,7 +53,9 @@ def load_secrets(workflow_dir: Path) -> dict[str, str]:
         global_dotenv = _load_dotenv_file(global_env_path)
         if global_dotenv:
             merged.update(global_dotenv)
-            logger.debug("Loaded %d entries from global %s", len(global_dotenv), global_env_path)
+            logger.debug(
+                "Loaded %d entries from global %s", len(global_dotenv), global_env_path
+            )
 
     # Layer 3: .env file in workflow dir
     dotenv = _load_dotenv(workflow_dir)
@@ -71,7 +73,8 @@ def load_secrets(workflow_dir: Path) -> dict[str, str]:
 
 
 def _load_secrets_yaml(
-    workflow_dir: Path, env: dict[str, str],
+    workflow_dir: Path,
+    env: dict[str, str],
 ) -> dict[str, str]:
     """Parse secrets.yaml and resolve ``{{ env.VAR }}`` templates.
 
@@ -120,7 +123,8 @@ def _load_secrets_yaml(
 
 
 def _parse_simple_yaml(
-    path: Path, env: dict[str, str],
+    path: Path,
+    env: dict[str, str],
 ) -> dict[str, str]:
     """Minimal YAML parser for flat secrets format (no PyYAML dependency).
 
@@ -199,6 +203,7 @@ def _resolve_template(value: str, env: dict[str, str]) -> str:
     Raises:
         ValueError: If a referenced variable is not found in env.
     """
+
     def _replacer(match: re.Match[str]) -> str:
         var_name = match.group(1)
         if var_name not in env:

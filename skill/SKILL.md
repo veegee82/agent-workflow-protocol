@@ -334,196 +334,195 @@ there are always decisions that need clarification. Present ALL questions at onc
 single message so the user can answer them together.
 
 For every question: provide concrete suggestions based on what the user already told you,
-mark one as the recommended default (with `← empfohlen` / `← recommended`), and always
-include a "Sonstiges / Other" option so the user can specify something not listed.
+mark one as the recommended default (with `← recommended`), and always
+include an "Other" option so the user can specify something not listed.
 
 If the user already answered a question clearly in their initial request, pre-fill the
-answer and mark it with `✓ (aus deiner Beschreibung)` — but still show it so the user
+answer and mark it with `✓ (from your description)` — but still show it so the user
 can correct it.
 
 ---
 
 **Present the following questionnaire:**
 
-#### 1. Workflow-Grundlagen / Workflow Basics
+#### 1. Workflow Basics
 
-**1.1 Name:** Wie soll der Workflow heißen?
-> Vorschläge: `{suggest 2-3 snake_case names based on user's description}`
-> Sonstiges: ___
+**1.1 Name:** What should the workflow be called?
+> Suggestions: `{suggest 2-3 snake_case names based on user's description}`
+> Other: ___
 
-**1.2 Beschreibung:** Was soll der Workflow in einem Satz tun?
-> Vorschlag: `{1-sentence summary based on user's description}`
-> Sonstiges: ___
+**1.2 Description:** What should the workflow do in one sentence?
+> Suggestion: `{1-sentence summary based on user's description}`
+> Other: ___
 
-**1.3 Sprache der Prompts:** In welcher Sprache sollen die System-Prompts und Ausgaben sein?
-> a) Deutsch ← empfohlen (wenn User auf Deutsch schreibt)
-> b) Englisch
-> c) Sonstiges: ___
+**1.3 Prompt Language:** In which language should the system prompts and outputs be?
+> a) English ← recommended
+> b) Other: ___
 
 ---
 
-#### 2. Agents & Rollen
+#### 2. Agents & Roles
 
-**2.1 Welche Agents soll der Workflow haben?** Jeder Agent hat eine klar definierte Rolle.
-> Vorschläge (basierend auf deiner Beschreibung):
+**2.1 Which agents should the workflow have?** Each agent has a clearly defined role.
+> Suggestions (based on your description):
 > {list each suggested agent with id, role name, and 1-line description}
 >
-> Sollen Agents hinzugefügt, entfernt oder umbenannt werden?
-> Sonstiges: ___
+> Should agents be added, removed, or renamed?
+> Other: ___
 
-**2.2 Ausführungsreihenfolge:** Wie sollen die Agents ausgeführt werden?
-> a) Sequenziell (einer nach dem anderen in fester Reihenfolge) ← empfohlen
-> b) Parallel (unabhängige Agents gleichzeitig)
-> c) Bedingt (Agents werden je nach Ergebnis übersprungen)
-> d) Sonstiges: ___
+**2.2 Execution Order:** How should the agents be executed?
+> a) Sequential (one after another in fixed order) ← recommended
+> b) Parallel (independent agents simultaneously)
+> c) Conditional (agents are skipped depending on results)
+> d) Other: ___
 
-**2.3 Datenfluss:** Welche Daten gibt jeder Agent an den nächsten weiter?
-> Vorschlag:
+**2.3 Data Flow:** Which data does each agent pass to the next?
+> Suggestion:
 > {show suggested data flow: agent_a → [fields] → agent_b → [fields] → agent_c}
 >
-> Änderungen? Sonstiges: ___
+> Changes? Other: ___
 
 ---
 
-#### 3. LLM-Konfiguration
+#### 3. LLM Configuration
 
-> **Hinweis:** LLM-Modelle werden **nicht** im Workflow festgelegt. Sie werden
-> beim Start über den **Run-Wizard** (`awp run`) oder die Umgebungsvariable
-> `LLM_MODEL` konfiguriert. So kann der User das Modell jederzeit wechseln,
-> ohne den Workflow zu ändern.
+> **Note:** LLM models are **not** specified in the workflow. They are
+> configured at startup via the **Run-Wizard** (`awp run`) or the environment variable
+> `LLM_MODEL`. This allows the user to switch models at any time
+> without modifying the workflow.
 
-**3.1 Temperatur:** Wie kreativ sollen die Agents antworten?
-> a) Niedrig (0.1) — faktisch, präzise ← empfohlen für Analyse/Recherche
-> b) Mittel (0.3) — ausgewogen
-> c) Hoch (0.7) — kreativ, variabel
-> d) Pro Agent unterschiedlich (bitte angeben)
-> e) Sonstiges: ___
+**3.1 Temperature:** How creative should the agents respond?
+> a) Low (0.1) — factual, precise ← recommended for analysis/research
+> b) Medium (0.3) — balanced
+> c) High (0.7) — creative, variable
+> d) Different per agent (please specify)
+> e) Other: ___
 
 ---
 
-#### 4. Tools, Code Mode & Fähigkeiten
+#### 4. Tools, Code Mode & Capabilities
 
-**4.1 Welche Tools brauchen die Agents?**
-> Vorschläge pro Agent:
+**4.1 Which tools do the agents need?**
+> Suggestions per agent:
 > {for each agent, list suggested tools with brief explanation, e.g.:}
-> - `{agent_id}`: `web.search` (Webrecherche), `memory.write` (Ergebnisse speichern)
-> - `{agent_id}`: keine Tools (reiner LLM-Agent)
+> - `{agent_id}`: `web.search` (web search), `memory.write` (save results)
+> - `{agent_id}`: no tools (pure LLM agent)
 >
-> Änderungen? Sonstiges: ___
+> Changes? Other: ___
 
-> **Hinweis:** Erweiterte Tool-Calling-Optionen (`tool_choice`, `parallel_calls`)
-> können pro Agent in `agent.awp.yaml` unter `capabilities.tools` konfiguriert werden.
-> Defaults sind sinnvoll für die meisten Workflows — nur bei Bedarf anpassen.
+> **Note:** Advanced tool-calling options (`tool_choice`, `parallel_calls`)
+> can be configured per agent in `agent.awp.yaml` under `capabilities.tools`.
+> Defaults are sensible for most workflows — only adjust when needed.
 
-**4.2 Tool-Implementierungen generieren?** Sollen funktionierende Implementierungen
-für die Tools miterzeugt werden (z.B. `web.search` mit DuckDuckGo, `memory.*` mit
-Dateispeicher)? Ohne dies sind Tools nur Platzhalter, die eine AWP-Runtime bereitstellen muss.
-> a) Ja — alle verwendeten Tools als MCP-Implementierungen generieren ← empfohlen für Standalone
-> b) Nein — nur Tool-Deklarationen, Runtime stellt sie bereit ← empfohlen für AWP-Runtime
-> c) Nur bestimmte Tools implementieren (bitte angeben)
-> d) Sonstiges: ___
+**4.2 Generate tool implementations?** Should working implementations
+be generated for the tools (e.g., `web.search` with DuckDuckGo, `memory.*` with
+file storage)? Without this, tools are only placeholders that an AWP runtime must provide.
+> a) Yes — generate all used tools as MCP implementations ← recommended for Standalone
+> b) No — only tool declarations, runtime provides them ← recommended for AWP Runtime
+> c) Only implement specific tools (please specify)
+> d) Other: ___
 
-**4.3 Code Mode (Alternative Tool-Ausführung)?** Statt Tools einzeln aufzurufen,
-schreibt der Agent Code gegen ein typed SDK. Reduziert Token-Verbrauch und
-LLM-Roundtrips bei vielen Tools.
-> a) Nein — klassische Tool-Aufrufe ← empfohlen für einfache Workflows
-> b) Ja — Agent schreibt TypeScript gegen SDK ← empfohlen bei >5 Tools
-> c) Ja — Agent schreibt Python gegen SDK
-> d) Sonstiges: ___
+**4.3 Code Mode (Alternative Tool Execution)?** Instead of calling tools individually,
+the agent writes code against a typed SDK. Reduces token consumption and
+LLM roundtrips when using many tools.
+> a) No — classic tool calls ← recommended for simple workflows
+> b) Yes — agent writes TypeScript against SDK ← recommended for >5 tools
+> c) Yes — agent writes Python against SDK
+> d) Other: ___
 
 ---
 
 #### 4b. API Keys & Secrets
 
-**4b.1 Brauchen die Tools API-Schlüssel oder Zugangsdaten?** Secrets werden über
-`secrets.yaml` (gitignored) bereitgestellt und sicher an Tools injiziert — das LLM
-sieht sie nie.
-> Vorschläge basierend auf den gewählten Tools:
+**4b.1 Do the tools need API keys or credentials?** Secrets are provided via
+`secrets.yaml` (gitignored) and securely injected into tools — the LLM
+never sees them.
+> Suggestions based on the selected tools:
 > {for each tool that typically needs API keys, e.g.:}
-> - `web.search`: Optional — DuckDuckGo (kostenlos, kein Key) oder Premium-API (Google, Bing, SearXNG)
-> - `http.request`: Abhängig vom Ziel-API — Bearer Token, API Key, etc.
-> - Eigene Tools: bitte Keys auflisten
+> - `web.search`: Optional — DuckDuckGo (free, no key) or premium API (Google, Bing, SearXNG)
+> - `http.request`: Depends on target API — Bearer Token, API Key, etc.
+> - Custom tools: please list keys
 >
-> a) Keine API-Schlüssel nötig ← empfohlen für Einstieg
-> b) Ja — folgende Keys werden gebraucht: ___
-> c) Sonstiges: ___
+> a) No API keys needed ← recommended for getting started
+> b) Yes — the following keys are needed: ___
+> c) Other: ___
 
 ---
 
-#### 5. Ausgabeformat & Schemas
+#### 5. Output Format & Schemas
 
-**5.1 Ausgabeformat der Agents:**
-> a) JSON (strukturiert, maschinenlesbar) ← empfohlen
-> b) Markdown (Freitext, menschenlesbar)
-> c) Gemischt (manche JSON, manche Markdown — bitte angeben)
-> d) Sonstiges: ___
+**5.1 Output format of the agents:**
+> a) JSON (structured, machine-readable) ← recommended
+> b) Markdown (free text, human-readable)
+> c) Mixed (some JSON, some Markdown — please specify)
+> d) Other: ___
 
-**5.2 Welche Felder soll jeder Agent ausgeben?**
-> Vorschläge:
+**5.2 Which fields should each agent output?**
+> Suggestions:
 > {for each agent, list suggested output fields with types}
-> (Hinweis: `confidence` (0.0-1.0) wird automatisch ergänzt — AWP-Pflichtfeld.)
+> (Note: `confidence` (0.0-1.0) is automatically added — AWP required field.)
 >
-> Änderungen? Sonstiges: ___
+> Changes? Other: ___
 
 ---
 
-#### 6. Memory & Persistenz
+#### 6. Memory & Persistence
 
-**6.1 Soll der Workflow ein Langzeitgedächtnis haben?** (Ergebnisse über Sessions hinweg speichern)
-> a) Nein — jeder Lauf ist unabhängig ← empfohlen für einfache Workflows
-> b) Ja — MEMORY.md für übergreifende Erkenntnisse
-> c) Ja — mit täglichen Logs und MEMORY.md ← empfohlen für wiederkehrende Aufgaben
-> d) Sonstiges: ___
-
----
-
-#### 7. Skills & Domänenwissen
-
-**7.1 Braucht der Workflow spezifisches Domänenwissen?** (Wird als SKILL.md in die Prompts injiziert)
-> a) Nein
-> b) Ja — bitte Thema/Domain beschreiben: ___
-> c) Vorschlag: `{suggest a skill based on user's domain, e.g.: "industry-regulations"}`
-> d) Sonstiges: ___
+**6.1 Should the workflow have long-term memory?** (Store results across sessions)
+> a) No — each run is independent ← recommended for simple workflows
+> b) Yes — MEMORY.md for cross-session insights
+> c) Yes — with daily logs and MEMORY.md ← recommended for recurring tasks
+> d) Other: ___
 
 ---
 
-#### 8. Ausgabeverzeichnis & Projektstruktur
+#### 7. Skills & Domain Knowledge
 
-**8.1 Wo soll der Workflow gespeichert werden?**
+**7.1 Does the workflow need specific domain knowledge?** (Injected as SKILL.md into prompts)
+> a) No
+> b) Yes — please describe topic/domain: ___
+> c) Suggestion: `{suggest a skill based on user's domain, e.g.: "industry-regulations"}`
+> d) Other: ___
+
+---
+
+#### 8. Output Directory & Project Structure
+
+**8.1 Where should the workflow be saved?**
 > a) `{suggest path based on context, e.g.: ~/projects/{workflow_name}/}`
-> b) Aktuelles Verzeichnis
-> c) Sonstiges: ___
+> b) Current directory
+> c) Other: ___
 
 ---
 
-#### 9. Ziel-Plattform
+#### 9. Target Platform
 
-**9.1 Wo soll der Workflow laufen?**
-> a) **Standalone (Python)** — lokale Ausführung mit `awp-protocol` ← empfohlen für Einstieg
-> b) **Cloudflare Workers** — serverless Edge-Deployment (TypeScript)
-> c) Sonstiges: ___
+**9.1 Where should the workflow run?**
+> a) **Standalone (Python)** — local execution with `awp-protocol` ← recommended for getting started
+> b) **Cloudflare Workers** — serverless Edge deployment (TypeScript)
+> c) Other: ___
 
 ---
 
 #### 10. Autonomy Level
 
-**9.1 Welches AWP-Autonomy-Level?**
-> a) **A0 Prescribed** — statischer DAG, feste Agents und Tools ← empfohlen für Einstieg
-> b) **A1 Adaptive** — Bedingungen, Schleifen, Fan-out ← empfohlen für die meisten Workflows
-> c) **A2 Delegating** — Manager spawnt Worker dynamisch (Budget nötig)
-> d) **A3 Self-Tooling** — Agents erstellen Tools zur Laufzeit (Safety Envelope nötig)
-> e) **A4 Self-Organizing** — Rekursive Delegation, Budget-Verteilung
-> f) Sonstiges: ___
+**9.1 Which AWP Autonomy Level?**
+> a) **A0 Prescribed** — static DAG, fixed agents and tools ← recommended for getting started
+> b) **A1 Adaptive** — conditions, loops, fan-out ← recommended for most workflows
+> c) **A2 Delegating** — manager spawns workers dynamically (budget required)
+> d) **A3 Self-Tooling** — agents create tools at runtime (safety envelope required)
+> e) **A4 Self-Organizing** — recursive delegation, budget distribution
+> f) Other: ___
 >
-> **Hinweis:** Communication, Memory, Observability und Security sind Features die auf jedem Level genutzt werden können.
+> **Note:** Communication, Memory, Observability, and Security are features that can be used at any level.
 
 ---
 
-#### 11. Sonstiges
+#### 11. Other
 
-**10.1 Gibt es weitere Anforderungen, Einschränkungen oder Wünsche?**
-> z.B. Timeouts, Fehlerbehandlung, Sicherheitsanforderungen, spezielle Datenquellen,
-> Zielgruppe der Ausgabe, …
+**10.1 Are there any additional requirements, constraints, or requests?**
+> e.g., timeouts, error handling, security requirements, special data sources,
+> target audience for output, ...
 > ___
 
 ---
@@ -531,17 +530,17 @@ sieht sie nie.
 #### 11b. Orchestration Engine (if A2+ selected)
 
 ```
-Welche Orchestration Engine?
+Which Orchestration Engine?
 
-a) DAG — Statischer Graph, feste Agenten                    ← für A0-A1
-b) Delegation Loop — Manager spawnt Worker dynamisch         ← für A2+ empfohlen
-c) Hybrid — DAG mit eingebettetem Delegation Loop
+a) DAG — Static graph, fixed agents                          ← for A0-A1
+b) Delegation Loop — Manager spawns workers dynamically      ← recommended for A2+
+c) Hybrid — DAG with embedded Delegation Loop
 
-Falls Delegation Loop:
+If Delegation Loop:
 - Budget: Max Loops? [10]  Max Workers? [20]  Max Wall Time? [300s]
-- Safety Envelope aktiv? [Ja, ab A3 Pflicht]
-- LLM Validation? [Ja / Nein]
-- Stall Detection? [Ja, empfohlen]
+- Safety Envelope active? [Yes, required from A3]
+- LLM Validation? [Yes / No]
+- Stall Detection? [Yes, recommended]
 ```
 
 ---
@@ -671,74 +670,74 @@ is a focused checklist, not a second questionnaire.
 
 ---
 
-**Plan-Validierung -- bitte prüfe die folgenden Punkte:**
+**Plan Validation -- please check the following items:**
 
-**V1. Agent-Anzahl und -Rollen**
-> → a) {N} Agents: `{agent_1}` ({role_1}), `{agent_2}` ({role_2}), ... ← aus dem Plan
-> b) Agent hinzufügen: z.B. `{suggested_extra_agent}` ({suggested_role})
-> c) Agent entfernen: welchen? ___
-> d) Agent umbenennen: welchen? ___
-> e) Sonstiges: ___
+**V1. Agent Count and Roles**
+> → a) {N} Agents: `{agent_1}` ({role_1}), `{agent_2}` ({role_2}), ... ← from the plan
+> b) Add agent: e.g., `{suggested_extra_agent}` ({suggested_role})
+> c) Remove agent: which one? ___
+> d) Rename agent: which one? ___
+> e) Other: ___
 
-**V2. Ausführungsreihenfolge**
-> → a) {mode aus dem Plan}: `{agent_1}` → `{agent_2}` → `{agent_3}` ← aus dem Plan
-> b) {alternative_mode}: {concrete alternative, e.g., agent_1 + agent_2 parallel, dann agent_3}
-> c) Bedingt: {suggest a condition, e.g., "agent_2 nur wenn agent_1.confidence > 0.7"}
-> d) Sonstiges: ___
+**V2. Execution Order**
+> → a) {mode from the plan}: `{agent_1}` → `{agent_2}` → `{agent_3}` ← from the plan
+> b) {alternative_mode}: {concrete alternative, e.g., agent_1 + agent_2 parallel, then agent_3}
+> c) Conditional: {suggest a condition, e.g., "agent_2 only if agent_1.confidence > 0.7"}
+> d) Other: ___
 
-**V3. Datenfluss zwischen Agents**
-> → a) Wie geplant: `{agent_1}` teilt `{field_1}, {field_2}` → `{agent_2}` teilt `{field_3}` → `{agent_3}` ← aus dem Plan
-> b) Feld hinzufügen: welches, bei welchem Agent? ___
-> c) Feld entfernen: welches? ___
-> d) Sonstiges: ___
+**V3. Data Flow Between Agents**
+> → a) As planned: `{agent_1}` shares `{field_1}, {field_2}` → `{agent_2}` shares `{field_3}` → `{agent_3}` ← from the plan
+> b) Add field: which one, for which agent? ___
+> c) Remove field: which one? ___
+> d) Other: ___
 
-**V4. Tools pro Agent**
-> Für jeden Agent eine Zeile:
-> → a) `{agent_1}`: `{tool_1}`, `{tool_2}` ← aus dem Plan
-> → b) `{agent_2}`: keine Tools ← aus dem Plan
-> → c) `{agent_3}`: `{tool_3}` ← aus dem Plan
-> Änderungen? Tool hinzufügen/entfernen? ___
+**V4. Tools Per Agent**
+> One line for each agent:
+> → a) `{agent_1}`: `{tool_1}`, `{tool_2}` ← from the plan
+> → b) `{agent_2}`: no tools ← from the plan
+> → c) `{agent_3}`: `{tool_3}` ← from the plan
+> Changes? Add/remove tools? ___
 
-**V5. Ausgabefelder pro Agent**
-> Für jeden Agent die geplanten Output-Felder:
-> → a) `{agent_1}`: `{field_1}` (string), `{field_2}` (array), `confidence` (number) ← aus dem Plan
-> → b) `{agent_2}`: `{field_3}` (object), `confidence` (number) ← aus dem Plan
-> Felder ändern/hinzufügen/entfernen? ___
+**V5. Output Fields Per Agent**
+> Planned output fields for each agent:
+> → a) `{agent_1}`: `{field_1}` (string), `{field_2}` (array), `confidence` (number) ← from the plan
+> → b) `{agent_2}`: `{field_3}` (object), `confidence` (number) ← from the plan
+> Change/add/remove fields? ___
 
 **V6. Autonomy Level**
-> → a) A{N} {Level Name} ← aus dem Plan
-> b) Niedriger: A{N-1} {Name} (entfernt: {was wegfällt})
-> c) Höher: A{N+1} {Name} (fügt hinzu: {was dazukommt})
-> d) Sonstiges: ___
+> → a) A{N} {Level Name} ← from the plan
+> b) Lower: A{N-1} {Name} (removes: {what is dropped})
+> c) Higher: A{N+1} {Name} (adds: {what is gained})
+> d) Other: ___
 
-**V7. Memory & Persistenz**
-> → a) {geplante Memory-Konfiguration, z.B. "Kein Memory" oder "MEMORY.md + tägliche Logs"} ← aus dem Plan
-> b) {alternative, z.B. "Memory hinzufügen: MEMORY.md für übergreifende Erkenntnisse"}
-> c) {alternative, z.B. "Nur tägliche Logs, kein Langzeitgedächtnis"}
-> d) Sonstiges: ___
+**V7. Memory & Persistence**
+> → a) {planned memory configuration, e.g., "No memory" or "MEMORY.md + daily logs"} ← from the plan
+> b) {alternative, e.g., "Add memory: MEMORY.md for cross-session insights"}
+> c) {alternative, e.g., "Daily logs only, no long-term memory"}
+> d) Other: ___
 
 **V8. Code Mode**
-> → a) {geplanter Code Mode, z.B. "Nein — klassische Tool-Aufrufe"} ← aus dem Plan
-> b) {alternative, z.B. "Ja — TypeScript Code Mode mit SDK"}
-> c) {alternative, z.B. "Ja — Python Code Mode mit SDK"}
-> d) Sonstiges: ___
+> → a) {planned Code Mode, e.g., "No — classic tool calls"} ← from the plan
+> b) {alternative, e.g., "Yes — TypeScript Code Mode with SDK"}
+> c) {alternative, e.g., "Yes — Python Code Mode with SDK"}
+> d) Other: ___
 
-**V9. Ziel-Plattform**
-> → a) {geplante Plattform, z.B. "Standalone (Python)"} ← aus dem Plan
-> b) {alternative, z.B. "Cloudflare Workers (TypeScript)"}
-> c) Sonstiges: ___
+**V9. Target Platform**
+> → a) {planned platform, e.g., "Standalone (Python)"} ← from the plan
+> b) {alternative, e.g., "Cloudflare Workers (TypeScript)"}
+> c) Other: ___
 
-**V10. Tool-Implementierungen**
-> → a) {geplanter Modus, z.B. "Ja -- alle Tools als MCP-Implementierungen"} ← aus dem Plan
-> b) {alternative, z.B. "Nein -- nur Deklarationen, Runtime stellt sie bereit"}
-> c) Nur bestimmte implementieren: welche? ___
-> d) Sonstiges: ___
+**V10. Tool Implementations**
+> → a) {planned mode, e.g., "Yes -- all tools as MCP implementations"} ← from the plan
+> b) {alternative, e.g., "No -- declarations only, runtime provides them"}
+> c) Only implement specific ones: which? ___
+> d) Other: ___
 
-**V11. Gesamtbewertung**
-> → a) Plan ist korrekt -- bitte generieren
-> b) Plan anpassen (bitte oben die betroffenen Punkte korrigieren)
-> c) Plan verwerfen und neu planen
-> d) Fragen zum Plan: ___
+**V11. Overall Assessment**
+> → a) Plan is correct -- please generate
+> b) Adjust plan (please correct the affected items above)
+> c) Discard plan and re-plan
+> d) Questions about the plan: ___
 
 ---
 
@@ -1065,46 +1064,46 @@ The file follows a **top-down structure** from abstract to concrete:
 
 ---
 
-## Workflow-Diagramm
+## Workflow Diagram
 
 {ASCII box-and-arrow diagram — see format below}
 
 ---
 
-## Überblick (Abstract)
+## Overview (Abstract)
 
 {2-3 sentences: What problem does this workflow solve? What is the input,
 what is the output? Written for someone who has never seen AWP.}
 
-## Agent-Rollen (Conceptual)
+## Agent Roles (Conceptual)
 
 {For each agent: name, role in plain language, what it receives, what it delivers.
 Use a table or bullet list.}
 
-| Agent | Rolle | Empfängt von | Liefert an |
-|-------|-------|-------------|-----------|
-| `{id}` | {role} | {upstream or "User-Eingabe"} | {downstream or "Endausgabe"} |
+| Agent | Role | Receives from | Delivers to |
+|-------|------|--------------|------------|
+| `{id}` | {role} | {upstream or "User input"} | {downstream or "Final output"} |
 
-## Datenfluss (Architectural)
+## Data Flow (Architectural)
 
 {Concrete data contracts: which fields flow between agents, with types.
 Use the ASCII arrow notation from Phase 2 Step 3.}
 
-## Tools & Fähigkeiten (Technical)
+## Tools & Capabilities (Technical)
 
 {Table mapping each agent to its tools, memory, skills, code mode.}
 
-## Dateistruktur (Implementation)
+## File Structure (Implementation)
 
 {Tree listing of all generated files, grouped by agent.}
 
-## Wie starten
+## Getting Started
 
 {Ready-to-use commands: install, run, validate.}
 
 ---
 
-*Generiert von AWP Workflow Builder — {date}*
+*Generated by AWP Workflow Builder — {date}*
 ```
 
 **Diagram rendering rules:**
@@ -1460,48 +1459,48 @@ Present in this format:
 
 ---
 
-**Erforderliche API Keys / Required API Keys**
+**Required API Keys**
 
-> Das LLM-Modell wird beim Start über den **Run-Wizard** oder `LLM_MODEL`
-> gewählt. Je nach Modell wird ein passender API Key benötigt:
+> The LLM model is selected at startup via the **Run-Wizard** or `LLM_MODEL`.
+> Depending on the model, a matching API key is required:
 
-| Zweck | Env-Variable | Anbieter | Key besorgen |
-|-------|-------------|----------|-------------|
-| LLM (OpenRouter) | `OPENROUTER_API_KEY` | OpenRouter | https://openrouter.ai/keys (kostenlos) |
+| Purpose | Env Variable | Provider | Obtain Key |
+|---------|-------------|----------|------------|
+| LLM (OpenRouter) | `OPENROUTER_API_KEY` | OpenRouter | https://openrouter.ai/keys (free) |
 | LLM (OpenAI) | `OPENAI_API_KEY` | OpenAI | https://platform.openai.com/api-keys |
-| LLM (Groq) | `GROQ_API_KEY` | Groq | https://console.groq.com/keys (kostenlos) |
-| LLM (Ollama) | — | Ollama (lokal) | Kein Key nötig — https://ollama.com |
+| LLM (Groq) | `GROQ_API_KEY` | Groq | https://console.groq.com/keys (free) |
+| LLM (Ollama) | — | Ollama (local) | No key needed — https://ollama.com |
 | LLM (Deepseek) | `DEEPSEEK_API_KEY` | DeepSeek | https://platform.deepseek.com/api_keys |
 | LLM (Mistral) | `MISTRAL_API_KEY` | Mistral | https://console.mistral.ai/api-keys |
 | LLM (Together) | `TOGETHER_API_KEY` | Together AI | https://api.together.xyz/settings/api-keys |
 | LLM (Fireworks) | `FIREWORKS_API_KEY` | Fireworks | https://fireworks.ai/account/api-keys |
-| LLM (universell) | `LLM_API_KEY` | Beliebig | Überschreibt alle provider-spezifischen Keys |
+| LLM (universal) | `LLM_API_KEY` | Any | Overrides all provider-specific keys |
 
-> **Tipp:** Es wird nur **ein** LLM-Key benötigt — passend zum gewählten Provider.
-> OpenRouter ist empfohlen, da es Zugang zu vielen Modellen über einen Key bietet.
+> **Tip:** Only **one** LLM key is needed — matching the chosen provider.
+> OpenRouter is recommended as it provides access to many models via a single key.
 
 {If the workflow uses tools that need API keys, add a second table:}
 
-| Tool | Env-Variable | Beschreibung | Key besorgen |
-|------|-------------|-------------|-------------|
-| `web.search` (Premium) | `SEARCH_API_KEY` | Optional — DuckDuckGo funktioniert ohne Key | Abhängig vom Anbieter (Google, Bing, SearXNG) |
-| `http.request` | `AUTH_TOKEN` | Nur wenn Ziel-API Authentifizierung braucht | Vom jeweiligen API-Anbieter |
+| Tool | Env Variable | Description | Obtain Key |
+|------|-------------|------------|------------|
+| `web.search` (Premium) | `SEARCH_API_KEY` | Optional — DuckDuckGo works without a key | Depends on provider (Google, Bing, SearXNG) |
+| `http.request` | `AUTH_TOKEN` | Only if target API requires authentication | From the respective API provider |
 | {custom_tool} | `{SECRET_NAME}` | {description} | {where to get it} |
 
 {Only include tool rows that are actually used in this workflow. Omit the tool
 table entirely if no tools need secrets.}
 
-> **Secrets einrichten:**
+> **Setting up secrets:**
 >
 > ```bash
-> # Option 1: Environment-Variable setzen
+> # Option 1: Set environment variable
 > export OPENROUTER_API_KEY="sk-or-..."
 >
-> # Option 2: In secrets.yaml speichern (wird beim ersten `awp run` angeboten)
+> # Option 2: Store in secrets.yaml (offered on first `awp run`)
 > cp secrets.yaml.example secrets.yaml
-> # Datei editieren und Keys eintragen
+> # Edit file and enter keys
 >
-> # Option 3: In ~/.awp/.env für alle Workflows global setzen
+> # Option 3: Set globally in ~/.awp/.env for all workflows
 > echo 'OPENROUTER_API_KEY=sk-or-...' >> ~/.awp/.env
 > ```
 

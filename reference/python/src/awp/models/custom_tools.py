@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class ToolMeta(BaseModel):
     """Tool metadata for documentation and optimization."""
+
     side_effects: bool = False
     idempotent: bool = False
     deterministic: bool = False
@@ -18,6 +19,7 @@ class ToolMeta(BaseModel):
 
 class CustomToolDeclaration(BaseModel):
     """Single custom MCP tool declaration."""
+
     fqn: str  # "namespace.action"
     description: str
     file: str  # Python file in mcp/ or tools/
@@ -28,13 +30,24 @@ class CustomToolDeclaration(BaseModel):
 
 class CustomToolsConfig(BaseModel):
     """Custom MCP tools configuration in workflow.awp.yaml."""
+
     source_dir: str = "mcp/"
     auto_discovery: bool = True
     auto_inject: bool = True
     declarations: list[CustomToolDeclaration] = Field(default_factory=list)
     reserved_namespaces: list[str] = Field(
         default_factory=lambda: [
-            "web", "http", "file", "shell", "agent", "memory",
-            "arithmetic", "numpy", "matplot", "pandas", "doc", "sklearn",
+            "web",
+            "http",
+            "file",
+            "shell",
+            "agent",
+            "memory",
+            "arithmetic",
+            "numpy",
+            "matplot",
+            "pandas",
+            "doc",
+            "sklearn",
         ]
     )

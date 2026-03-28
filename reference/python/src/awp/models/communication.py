@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class BusConfig(BaseModel):
     """Message bus configuration."""
+
     type: str = "internal"  # internal | redis | nats | kafka | rabbitmq
     persistence: str = "run"  # run | session | permanent
     delivery: str = "at_least_once"  # at_most_once | at_least_once | exactly_once
@@ -20,12 +21,14 @@ class BusConfig(BaseModel):
 
 class ChannelACL(BaseModel):
     """Access control for a channel."""
+
     publishers: list[str] = Field(default_factory=list)  # Agent IDs or "*"
     subscribers: list[str] = Field(default_factory=list)
 
 
 class Channel(BaseModel):
     """Communication channel definition."""
+
     name: str
     type: str = "direct"  # direct | broadcast | topic | request_response
     description: str = ""
@@ -35,6 +38,7 @@ class Channel(BaseModel):
 
 class PatternConfig(BaseModel):
     """Communication pattern configuration."""
+
     type: str  # request_response | pub_sub | pipeline | scatter_gather
     timeout: int = 30
     max_rounds: int = 5
@@ -43,6 +47,7 @@ class PatternConfig(BaseModel):
 
 class CommunicationConfig(BaseModel):
     """Complete communication configuration (Layer 3)."""
+
     bus: BusConfig = Field(default_factory=BusConfig)
     channels: list[Channel] = Field(default_factory=list)
     patterns: list[PatternConfig] = Field(default_factory=list)
@@ -51,6 +56,7 @@ class CommunicationConfig(BaseModel):
 
 class MessageMetadata(BaseModel):
     """Message metadata."""
+
     priority: str = "normal"  # normal | high | critical
     ttl: Optional[int] = None  # Time-to-live in seconds
     requires_ack: bool = False
@@ -63,6 +69,7 @@ class MessageEnvelope(BaseModel):
 
     Every message on the bus uses this envelope format.
     """
+
     id: str  # UUID v7
     timestamp: str  # ISO 8601
     version: str = "1.0.0"

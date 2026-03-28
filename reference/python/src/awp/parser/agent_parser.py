@@ -37,7 +37,9 @@ def parse_agent(
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise ValueError(f"Agent config must be a YAML mapping, got {type(raw).__name__}")
+        raise ValueError(
+            f"Agent config must be a YAML mapping, got {type(raw).__name__}"
+        )
 
     # Resolve templates with manifest context if provided
     context = manifest_context or {}

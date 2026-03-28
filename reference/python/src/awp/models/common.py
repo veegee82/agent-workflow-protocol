@@ -48,7 +48,19 @@ ToolFQN = Annotated[str, AfterValidator(_validate_tool_fqn)]
 WorkflowName = Annotated[str, AfterValidator(_validate_workflow_name)]
 
 # Reserved tool namespaces that custom tools must not use
-RESERVED_TOOL_NAMESPACES = frozenset({
-    "web", "http", "file", "shell", "agent", "memory", "arithmetic",
-    "numpy", "matplot", "pandas", "doc", "sklearn",
-})
+RESERVED_TOOL_NAMESPACES = frozenset(
+    {
+        "web",
+        "http",
+        "file",
+        "shell",
+        "agent",
+        "memory",
+        "arithmetic",
+        "numpy",
+        "matplot",
+        "pandas",
+        "doc",
+        "sklearn",
+    }
+)

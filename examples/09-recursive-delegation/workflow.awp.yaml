@@ -1,7 +1,7 @@
 awp: "1.0.0"
 
 workflow:
-  name: recursive-delegation-analysis
+  name: recursive-delegation
   version: "1.0.0"
   description: "Demonstrates DAG + delegation_loop composition. A planner agent runs first (DAG), then a delegation_loop node dynamically orchestrates analysis workers that can sub-delegate. Finally a reporter summarizes."
   author: "AWP Examples"

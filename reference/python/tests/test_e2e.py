@@ -1,16 +1,20 @@
 """End-to-end tests for AWP protocol tooling."""
 
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from awp import AWPAgent, __version__
+from awp import __version__
 from awp.parser import parse_manifest, parse_agent
-from awp.validator import validate_graph, validate_contracts, check_compliance, ComplianceLevel
+from awp.validator import (
+    validate_graph,
+    validate_contracts,
+    check_compliance,
+    ComplianceLevel,
+)
 from awp.validator.rules import validate_rules
-from awp.validator.schema_validator import validate_schema, validate_schema_desc
+from awp.validator.schema_validator import validate_schema
 from awp.schema_generator import generate_output_schema, generate_output_schema_desc
 from awp.visualizer import to_mermaid, to_ascii
 from awp.packager import pack_workflow, unpack_workflow
@@ -48,7 +52,9 @@ class TestEndToEnd:
         assert contract_result.valid
 
         # 5. Check autonomy level
-        compliance = check_compliance(manifest, agents, wf_dir, ComplianceLevel.A0_PRESCRIBED)
+        compliance = check_compliance(
+            manifest, agents, wf_dir, ComplianceLevel.A0_PRESCRIBED
+        )
         assert compliance.level >= ComplianceLevel.A0_PRESCRIBED
 
         # 6. Validate rules
@@ -58,7 +64,14 @@ class TestEndToEnd:
 
         # 7. Validate schemas
         for agent_id in agents:
-            schema_path = wf_dir / "agents" / agent_id / "workflow" / "output_schema" / "output_schema.json"
+            schema_path = (
+                wf_dir
+                / "agents"
+                / agent_id
+                / "workflow"
+                / "output_schema"
+                / "output_schema.json"
+            )
             if schema_path.exists():
                 assert validate_schema(schema_path).valid
 
@@ -123,11 +136,15 @@ class TestSchemaGenerator:
 
     def test_generate_schema(self):
         from awp.models.agent import OutputField
+
         contract = {
             "result": OutputField(type="string", description="Result", required=True),
             "confidence": OutputField(
-                type="number", minimum=0.0, maximum=1.0,
-                description="Confidence", required=True,
+                type="number",
+                minimum=0.0,
+                maximum=1.0,
+                description="Confidence",
+                required=True,
             ),
         }
         schema = generate_output_schema(contract)
@@ -138,6 +155,7 @@ class TestSchemaGenerator:
 
     def test_auto_adds_confidence(self):
         from awp.models.agent import OutputField
+
         contract = {
             "result": OutputField(type="string", description="Result", required=True),
         }
@@ -147,6 +165,7 @@ class TestSchemaGenerator:
 
     def test_generate_desc(self):
         from awp.models.agent import OutputField
+
         contract = {
             "result": OutputField(type="string", description="The result"),
             "confidence": OutputField(type="number", description="Score"),

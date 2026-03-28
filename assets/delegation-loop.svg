@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 850" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <filter id="shadow2">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4CAF50"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f44336"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF9800"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4fc3f7"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="850" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="450" y="40" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Delegation-Loop-Engine (A2-A4)</text>
+  <text x="450" y="62" text-anchor="middle" fill="#888" font-size="13">Iterative manager-worker cycle with budget enforcement and validation gates</text>
+
+  <!-- Task Input -->
+  <rect x="350" y="85" width="200" height="40" rx="20" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="2"/>
+  <text x="450" y="110" text-anchor="middle" fill="#4fc3f7" font-size="13" font-weight="bold">Task + Inputs</text>
+  <line x1="450" y1="125" x2="450" y2="150" stroke="#4fc3f7" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <!-- Manager Box -->
+  <rect x="250" y="155" width="400" height="100" rx="10" fill="#1a1a2e" stroke="#FF9800" stroke-width="2" filter="url(#shadow2)"/>
+  <text x="450" y="185" text-anchor="middle" fill="#FF9800" font-size="16" font-weight="bold">MANAGER</text>
+  <text x="450" y="205" text-anchor="middle" fill="#aaa" font-size="11">System prompt + previous results + rolling summary</text>
+  <text x="450" y="225" text-anchor="middle" fill="#ccc" font-size="12">Decision: DELEGATE | COMPLETE | FAIL</text>
+
+  <!-- Three decision paths -->
+  <!-- DELEGATE path (center) -->
+  <line x1="450" y1="255" x2="450" y2="310" stroke="#FF9800" stroke-width="2" marker-end="url(#arrowOrange)"/>
+  <text x="470" y="288" fill="#FF9800" font-size="11" font-weight="bold">DELEGATE</text>
+
+  <!-- COMPLETE path (right) -->
+  <line x1="580" y1="255" x2="780" y2="310" stroke="#4CAF50" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="700" y="280" fill="#4CAF50" font-size="11" font-weight="bold">COMPLETE</text>
+
+  <!-- FAIL path (left) -->
+  <line x1="320" y1="255" x2="120" y2="310" stroke="#f44336" stroke-width="2" marker-end="url(#arrowRed)"/>
+  <text x="195" y="280" fill="#f44336" font-size="11" font-weight="bold">FAIL</text>
+
+  <!-- Complete Result -->
+  <rect x="700" y="315" width="170" height="50" rx="25" fill="#1b5e20" stroke="#4CAF50" stroke-width="2"/>
+  <text x="785" y="340" text-anchor="middle" fill="#4CAF50" font-size="13" font-weight="bold">Result</text>
+  <text x="785" y="356" text-anchor="middle" fill="#aaa" font-size="10">confidence > 0</text>
+
+  <!-- Fail Result -->
+  <rect x="30" y="315" width="170" height="50" rx="25" fill="#4a1a1a" stroke="#f44336" stroke-width="2"/>
+  <text x="115" y="340" text-anchor="middle" fill="#f44336" font-size="13" font-weight="bold">Failed</text>
+  <text x="115" y="356" text-anchor="middle" fill="#aaa" font-size="10">partial_result</text>
+
+  <!-- Fan-Out Workers -->
+  <rect x="250" y="315" width="400" height="45" rx="6" fill="#111" stroke="#FF9800" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="450" y="335" text-anchor="middle" fill="#FF9800" font-size="12" font-weight="bold">Fan-Out: Parallel Worker Spawning</text>
+  <text x="450" y="352" text-anchor="middle" fill="#888" font-size="10">Manager can delegate multiple workers per iteration</text>
+
+  <!-- Workers -->
+  <line x1="350" y1="360" x2="200" y2="400" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="450" y1="360" x2="450" y2="400" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="550" y1="360" x2="700" y2="400" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Worker A -->
+  <rect x="115" y="405" width="170" height="80" rx="8" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="1.5"/>
+  <text x="200" y="428" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Worker A</text>
+  <text x="200" y="448" text-anchor="middle" fill="#aaa" font-size="10">code.execute</text>
+  <text x="200" y="465" text-anchor="middle" fill="#aaa" font-size="10">Sandbox-isolated</text>
+  <text x="200" y="478" text-anchor="middle" fill="#666" font-size="9">instructions + skills + tools</text>
+
+  <!-- Worker B -->
+  <rect x="365" y="405" width="170" height="80" rx="8" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="1.5"/>
+  <text x="450" y="428" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Worker B</text>
+  <text x="450" y="448" text-anchor="middle" fill="#aaa" font-size="10">code.execute</text>
+  <text x="450" y="465" text-anchor="middle" fill="#aaa" font-size="10">Sandbox-isolated</text>
+  <text x="450" y="478" text-anchor="middle" fill="#666" font-size="9">instructions + skills + tools</text>
+
+  <!-- Worker C -->
+  <rect x="615" y="405" width="170" height="80" rx="8" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="1.5"/>
+  <text x="700" y="428" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Worker C</text>
+  <text x="700" y="448" text-anchor="middle" fill="#aaa" font-size="10">code.execute</text>
+  <text x="700" y="465" text-anchor="middle" fill="#aaa" font-size="10">Sandbox-isolated</text>
+  <text x="700" y="478" text-anchor="middle" fill="#666" font-size="9">instructions + skills + tools</text>
+
+  <!-- Results flowing back -->
+  <line x1="200" y1="485" x2="350" y2="530" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="450" y1="485" x2="450" y2="530" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="700" y1="485" x2="550" y2="530" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Aggregation -->
+  <rect x="300" y="535" width="300" height="40" rx="6" fill="#111" stroke="#888"/>
+  <text x="450" y="560" text-anchor="middle" fill="#ccc" font-size="12">Result Aggregation</text>
+
+  <line x1="450" y1="575" x2="450" y2="610" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Validation Gate -->
+  <rect x="280" y="615" width="340" height="60" rx="8" fill="#1a1a2e" stroke="#7bc67e" stroke-width="1.5"/>
+  <text x="450" y="640" text-anchor="middle" fill="#7bc67e" font-size="13" font-weight="bold">Validation Gate</text>
+  <text x="450" y="660" text-anchor="middle" fill="#aaa" font-size="10">Tier 1: Schema (deterministic) | Tier 2: LLM (semantic, optional)</text>
+
+  <line x1="450" y1="675" x2="450" y2="710" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Budget + Stall Check -->
+  <rect x="280" y="715" width="340" height="60" rx="8" fill="#1a1a2e" stroke="#f44336" stroke-width="1.5"/>
+  <text x="450" y="740" text-anchor="middle" fill="#f44336" font-size="13" font-weight="bold">Budget &amp; Stall Check</text>
+  <text x="450" y="758" text-anchor="middle" fill="#aaa" font-size="10">Tokens | Loops | Workers | Wall Time | Confidence Delta</text>
+
+  <!-- Loop back arrow -->
+  <path d="M 450,775 L 450,800 L 830,800 L 830,205 L 650,205" stroke="#FF9800" stroke-width="2" fill="none" marker-end="url(#arrowOrange)" stroke-dasharray="8,4"/>
+  <text x="845" y="500" fill="#FF9800" font-size="11" font-weight="bold" transform="rotate(90,845,500)">Next Iteration</text>
+
+  <!-- Budget exceeded exit -->
+  <line x1="280" y1="745" x2="120" y2="745" stroke="#f44336" stroke-width="2" marker-end="url(#arrowRed)"/>
+  <text x="120" y="738" fill="#f44336" font-size="10" font-weight="bold" text-anchor="end">Budget</text>
+  <text x="120" y="752" fill="#f44336" font-size="10" text-anchor="end">exceeded</text>
+</svg>

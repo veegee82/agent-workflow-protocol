@@ -3,7 +3,7 @@
 import pytest
 
 from awp.models import AWPManifest
-from awp.models.agent import AWPAgent, OutputField, OutputConfig
+from awp.models.agent import AWPAgent, OutputField
 from awp.models.common import (
     _validate_semver,
     _validate_agent_id,
@@ -12,15 +12,15 @@ from awp.models.common import (
     RESERVED_TOOL_NAMESPACES,
 )
 from awp.models.orchestration import AWPOrchestrationConfig, GraphNode
-from awp.models.communication import CommunicationConfig, MessageEnvelope
+from awp.models.communication import CommunicationConfig
 from awp.models.memory import MemoryConfig
 from awp.models.observability import ObservabilityConfig
 from awp.models.security import SecurityConfig
 from awp.models.capabilities import AgentCapabilities, ToolsCapability
-from awp.models.custom_tools import CustomToolsConfig
 
 
 # -- Common validators -----------------------------------------------
+
 
 class TestSemVer:
     def test_valid(self):
@@ -79,6 +79,7 @@ class TestWorkflowName:
 
 # -- Manifest --------------------------------------------------------
 
+
 class TestManifest:
     def test_minimal(self):
         m = AWPManifest(
@@ -111,29 +112,45 @@ class TestManifest:
 
 # -- Agent -----------------------------------------------------------
 
+
 class TestAgent:
     def test_minimal(self):
         a = AWPAgent(
             awp_agent="1.0.0",
-            identity={"id": "researcher", "role": "investigator", "description": "Researches"},
+            identity={
+                "id": "researcher",
+                "role": "investigator",
+                "description": "Researches",
+            },
             model={"name": "provider/model"},
             prompt={"system": "instructions/SYSTEM_PROMPT.md"},
-            output={"format": "json", "contract": {
-                "result": {"type": "string", "required": True},
-                "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0, "required": True},
-            }},
+            output={
+                "format": "json",
+                "contract": {
+                    "result": {"type": "string", "required": True},
+                    "confidence": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "required": True,
+                    },
+                },
+            },
         )
         assert a.identity.id == "researcher"
         assert a.model.name == "provider/model"
         assert "confidence" in a.output.contract
 
     def test_output_field(self):
-        f = OutputField(type="string", description="test", shareable=True, required=True)
+        f = OutputField(
+            type="string", description="test", shareable=True, required=True
+        )
         assert f.shareable is True
         assert f.sensitive is False
 
 
 # -- Orchestration ---------------------------------------------------
+
 
 class TestOrchestration:
     def test_graph_node(self):
@@ -151,6 +168,7 @@ class TestOrchestration:
 
 # -- Capabilities ----------------------------------------------------
 
+
 class TestCapabilities:
     def test_tools_default(self):
         t = ToolsCapability()
@@ -167,6 +185,7 @@ class TestCapabilities:
 
 # -- Communication ---------------------------------------------------
 
+
 class TestCommunication:
     def test_defaults(self):
         c = CommunicationConfig()
@@ -175,6 +194,7 @@ class TestCommunication:
 
 
 # -- Memory ----------------------------------------------------------
+
 
 class TestMemory:
     def test_defaults(self):
@@ -187,6 +207,7 @@ class TestMemory:
 
 # -- Observability ---------------------------------------------------
 
+
 class TestObservability:
     def test_defaults(self):
         o = ObservabilityConfig()
@@ -197,6 +218,7 @@ class TestObservability:
 
 # -- Security --------------------------------------------------------
 
+
 class TestSecurity:
     def test_defaults(self):
         s = SecurityConfig()
@@ -206,6 +228,7 @@ class TestSecurity:
 
 
 # -- Reserved namespaces ---------------------------------------------
+
 
 class TestReservedNamespaces:
     def test_builtins(self):

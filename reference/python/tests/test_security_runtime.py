@@ -2,9 +2,11 @@
 
 import time
 
-import pytest
 from awp.runtime.security import (
-    CircuitBreaker, RateLimiter, AccessController, SecurityContext,
+    CircuitBreaker,
+    RateLimiter,
+    AccessController,
+    SecurityContext,
 )
 
 
@@ -66,7 +68,9 @@ class TestCircuitBreaker:
         assert cb.state == "closed"
 
     def test_half_open_max_calls(self):
-        cb = CircuitBreaker(failure_threshold=1, reset_timeout=0.01, half_open_max_calls=1)
+        cb = CircuitBreaker(
+            failure_threshold=1, reset_timeout=0.01, half_open_max_calls=1
+        )
         cb.record_failure()
         time.sleep(0.02)
 
@@ -118,7 +122,9 @@ class TestAccessController:
     def test_multiple_denied_tools(self):
         ac = AccessController(
             default_policy="allow",
-            rules=[{"agent": "restricted", "deny_tools": ["shell.execute", "web.search"]}],
+            rules=[
+                {"agent": "restricted", "deny_tools": ["shell.execute", "web.search"]}
+            ],
         )
         assert ac.is_allowed("restricted", "shell.execute") is False
         assert ac.is_allowed("restricted", "web.search") is False
@@ -133,6 +139,7 @@ class TestSecurityContext:
     def test_from_config_none(self):
         class MockManifest:
             security = None
+
         ctx = SecurityContext.from_config(MockManifest())
         assert ctx.circuit_breaker is None
         assert ctx.rate_limiter is None

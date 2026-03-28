@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a1a"/>
+      <stop offset="100%" style="stop-color:#0d0d24"/>
+    </linearGradient>
+    <linearGradient id="spectrumBar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e53935"/>
+      <stop offset="15%" style="stop-color:#ff7043"/>
+      <stop offset="35%" style="stop-color:#66bb6a"/>
+      <stop offset="65%" style="stop-color:#43a047"/>
+      <stop offset="85%" style="stop-color:#78909c"/>
+      <stop offset="100%" style="stop-color:#546e7a"/>
+    </linearGradient>
+    <linearGradient id="redZone" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e53935;stop-opacity:0.2"/>
+      <stop offset="100%" style="stop-color:#e53935;stop-opacity:0.05"/>
+    </linearGradient>
+    <linearGradient id="greenZone" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#43a047;stop-opacity:0.25"/>
+      <stop offset="100%" style="stop-color:#43a047;stop-opacity:0.08"/>
+    </linearGradient>
+    <linearGradient id="grayZone" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#546e7a;stop-opacity:0.2"/>
+      <stop offset="100%" style="stop-color:#546e7a;stop-opacity:0.05"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.4"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="300" rx="12" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="500" y="35" text-anchor="middle" fill="#e0e0e0" font-size="20" font-weight="bold">The Emergence-Control Spectrum</text>
+  <text x="500" y="53" text-anchor="middle" fill="#888" font-size="11">Where AWP sits: creative freedom within engineered boundaries</text>
+
+  <!-- Three zones -->
+  <!-- Red zone: Pure Emergence -->
+  <rect x="40" y="70" width="260" height="140" rx="10" fill="url(#redZone)" stroke="#e53935" stroke-width="1.5" stroke-opacity="0.5"/>
+  <text x="170" y="95" text-anchor="middle" fill="#ef5350" font-size="15" font-weight="bold">Pure Emergence</text>
+  <text x="170" y="115" text-anchor="middle" fill="#ef9a9a" font-size="11">No constraints</text>
+  <text x="170" y="132" text-anchor="middle" fill="#ef9a9a" font-size="11">Unpredictable outcomes</text>
+  <text x="170" y="149" text-anchor="middle" fill="#ef9a9a" font-size="11">No budget limits</text>
+  <text x="170" y="166" text-anchor="middle" fill="#ef9a9a" font-size="11">No observability</text>
+  <rect x="100" y="180" width="140" height="22" rx="4" fill="#e53935" fill-opacity="0.25"/>
+  <text x="170" y="195" text-anchor="middle" fill="#ff8a80" font-size="11" font-weight="bold">DANGEROUS</text>
+
+  <!-- Green zone: Bounded Emergence (highlighted) -->
+  <rect x="340" y="65" width="320" height="150" rx="10" fill="url(#greenZone)" stroke="#43a047" stroke-width="2.5" filter="url(#glow)"/>
+  <text x="500" y="90" text-anchor="middle" fill="#66bb6a" font-size="16" font-weight="bold">Bounded Emergence</text>
+  <text x="500" y="108" text-anchor="middle" fill="#81c784" font-size="12" font-weight="bold">AWP A2 - A4</text>
+  <text x="500" y="130" text-anchor="middle" fill="#a5d6a7" font-size="11">Creative within limits</text>
+  <text x="500" y="147" text-anchor="middle" fill="#a5d6a7" font-size="11">Budget-controlled execution</text>
+  <text x="500" y="164" text-anchor="middle" fill="#a5d6a7" font-size="11">Observable and auditable</text>
+  <text x="500" y="181" text-anchor="middle" fill="#a5d6a7" font-size="11">Safety envelope enforced</text>
+  <rect x="420" y="192" width="160" height="22" rx="4" fill="#43a047" fill-opacity="0.35"/>
+  <text x="500" y="207" text-anchor="middle" fill="#c8e6c9" font-size="11" font-weight="bold">OPTIMAL ZONE</text>
+
+  <!-- Gray zone: Pure Control -->
+  <rect x="700" y="70" width="260" height="140" rx="10" fill="url(#grayZone)" stroke="#78909c" stroke-width="1.5" stroke-opacity="0.5"/>
+  <text x="830" y="95" text-anchor="middle" fill="#90a4ae" font-size="15" font-weight="bold">Pure Control</text>
+  <text x="830" y="115" text-anchor="middle" fill="#b0bec5" font-size="11">No emergence</text>
+  <text x="830" y="132" text-anchor="middle" fill="#b0bec5" font-size="11">Fully predictable</text>
+  <text x="830" y="149" text-anchor="middle" fill="#b0bec5" font-size="11">Static workflows only</text>
+  <text x="830" y="166" text-anchor="middle" fill="#b0bec5" font-size="11">No adaptation</text>
+  <rect x="760" y="180" width="140" height="22" rx="4" fill="#546e7a" fill-opacity="0.3"/>
+  <text x="830" y="195" text-anchor="middle" fill="#b0bec5" font-size="11" font-weight="bold">LIMITED</text>
+
+  <!-- Spectrum bar -->
+  <rect x="40" y="232" width="920" height="12" rx="6" fill="url(#spectrumBar)" filter="url(#shadow)"/>
+
+  <!-- Arrow: left to center -->
+  <line x1="300" y1="255" x2="400" y2="255" stroke="#66bb6a" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <defs>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8" fill="none" stroke="#66bb6a" stroke-width="1.5"/>
+    </marker>
+    <marker id="arrowGray" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8" fill="none" stroke="#90a4ae" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <text x="350" y="273" text-anchor="middle" fill="#81c784" font-size="10">add budget,</text>
+  <text x="350" y="285" text-anchor="middle" fill="#81c784" font-size="10">safety envelope</text>
+
+  <!-- Arrow: center to right -->
+  <line x1="600" y1="255" x2="700" y2="255" stroke="#90a4ae" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+  <text x="650" y="273" text-anchor="middle" fill="#b0bec5" font-size="10">remove dynamic</text>
+  <text x="650" y="285" text-anchor="middle" fill="#b0bec5" font-size="10">behavior</text>
+
+  <!-- Spectrum labels -->
+  <text x="40" y="228" fill="#ef5350" font-size="9">MORE EMERGENCE</text>
+  <text x="960" y="228" text-anchor="end" fill="#90a4ae" font-size="9">MORE CONTROL</text>
+</svg>

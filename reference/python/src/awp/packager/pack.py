@@ -74,9 +74,7 @@ def pack_workflow(
         skills_dir = wf_dir / "skills"
 
         num_agents = len(list(agents_dir.iterdir())) if agents_dir.exists() else 0
-        num_tools = (
-            len(list(tools_dir.glob("*.py"))) if tools_dir.exists() else 0
-        ) + (
+        num_tools = (len(list(tools_dir.glob("*.py"))) if tools_dir.exists() else 0) + (
             len(list(tools_dir_alt.glob("*.py"))) if tools_dir_alt.exists() else 0
         )
         num_skills = len(list(skills_dir.iterdir())) if skills_dir.exists() else 0

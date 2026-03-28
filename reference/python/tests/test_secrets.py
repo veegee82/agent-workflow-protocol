@@ -1,12 +1,15 @@
 """Tests for AWP secrets loader."""
 
-import os
-from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
-from awp.runtime.secrets import load_secrets, _load_secrets_yaml, _load_dotenv, _resolve_template
+from awp.runtime.secrets import (
+    load_secrets,
+    _load_secrets_yaml,
+    _load_dotenv,
+    _resolve_template,
+)
 
 
 class TestResolveTemplate:
@@ -41,7 +44,7 @@ class TestLoadDotenv:
         assert result == {"KEY1": "value1", "KEY2": "value2"}
 
     def test_quoted_values(self, tmp_path):
-        (tmp_path / ".env").write_text('KEY="quoted"\nKEY2=\'single\'\n')
+        (tmp_path / ".env").write_text("KEY=\"quoted\"\nKEY2='single'\n")
         result = _load_dotenv(tmp_path)
         assert result == {"KEY": "quoted", "KEY2": "single"}
 
@@ -57,27 +60,33 @@ class TestLoadDotenv:
 
 class TestLoadSecretsYaml:
     def test_basic(self, tmp_path):
-        (tmp_path / "secrets.yaml").write_text(dedent("""\
+        (tmp_path / "secrets.yaml").write_text(
+            dedent("""\
             secrets:
               API_KEY: "sk-123"
               TOKEN: bearer-abc
-        """))
+        """)
+        )
         result = _load_secrets_yaml(tmp_path, {})
         assert result == {"API_KEY": "sk-123", "TOKEN": "bearer-abc"}
 
     def test_env_template(self, tmp_path):
-        (tmp_path / "secrets.yaml").write_text(dedent("""\
+        (tmp_path / "secrets.yaml").write_text(
+            dedent("""\
             secrets:
               DB_URL: "{{ env.PROD_DB }}"
-        """))
+        """)
+        )
         result = _load_secrets_yaml(tmp_path, {"PROD_DB": "postgres://..."})
         assert result == {"DB_URL": "postgres://..."}
 
     def test_missing_env_template_raises(self, tmp_path):
-        (tmp_path / "secrets.yaml").write_text(dedent("""\
+        (tmp_path / "secrets.yaml").write_text(
+            dedent("""\
             secrets:
               KEY: "{{ env.NOPE }}"
-        """))
+        """)
+        )
         with pytest.raises(ValueError, match="NOPE"):
             _load_secrets_yaml(tmp_path, {})
 
@@ -96,10 +105,12 @@ class TestLoadSecrets:
         """secrets.yaml wins over .env, which wins over os.environ."""
         monkeypatch.setenv("SHARED_KEY", "from-env")
         (tmp_path / ".env").write_text("SHARED_KEY=from-dotenv\n")
-        (tmp_path / "secrets.yaml").write_text(dedent("""\
+        (tmp_path / "secrets.yaml").write_text(
+            dedent("""\
             secrets:
               SHARED_KEY: "from-yaml"
-        """))
+        """)
+        )
         result = load_secrets(tmp_path)
         assert result["SHARED_KEY"] == "from-yaml"
 

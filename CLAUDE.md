@@ -96,3 +96,20 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 - Use `logging` module, never `print()`
 - Pydantic or dataclasses for structured data
 - Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
+
+## Language Policy
+
+- **All documentation (.md files), code comments, docstrings, commit messages, and YAML descriptions MUST be in English.**
+- No German (or other non-English) text in any committed file. Variable names in code examples within docs should also be English.
+- This applies to: README.md, README_NERD.md, docs/, examples/, skill/, spec/, CLAUDE.md, inline comments, and docstrings.
+
+
+Add under ## Code Quality or ## LLM Integration section\n\nWhen editing code that involves LLM response parsing, always validate for non-JSON responses, malformed output, and add fallback/retry logic. Never assume LLM outputs will be well-formed.
+Add under ## Testing section\n\nAfter making code fixes, verify that existing functionality still works — run the relevant test suite before committing. Do not assume a fix is isolated; check for regressions.
+Add under ## File Formats section\n\nWhen generating or editing YAML files, always validate against the expected schema before considering the task done. Pay attention to: frontmatter format, required fields, field types (especially enums like persistence type, state.sharing format).
+Add under ## Development Server section or ## General Rules\n\nAlways kill any server processes you start (FastAPI, Vite, etc.) before starting new ones. Check for port conflicts with `lsof -i :<port>` before launching servers.
+Add under ## Code Changes section\n\nWhen implementing multi-file changes, do a dry-run validation pass after all edits: check imports resolve, function signatures match callers, and config references exist. Do not wait for runtime errors.
+
+Run the full test suite with `pytest -x --tb=short`. For each failure: 1) Read the failing test and the source file it tests, 2) Diagnose the root cause, 3) Fix the source code (not the test unless the test is wrong), 4) Re-run that specific test to confirm the fix, 5) After fixing all individual failures, run the full suite again. Repeat this loop until ALL tests pass with 0 failures. Do not stop or ask me questions — use your judgment to resolve ambiguities. Report a final summary of what you changed and why.
+I need you to implement a new AWP feature: [FEATURE]. Break this into parallel work streams and use sub-agents for each: Agent 1: Create/modify all runtime Python modules in src/ needed for the feature. Agent 2: Write comprehensive pytest tests in tests/ covering happy path, edge cases, and integration. Agent 3: Update all documentation (README.md, SKILL.md, docs/) and YAML templates. After all agents complete, run the full test suite yourself, fix any cross-agent integration issues (import mismatches, naming inconsistencies, missing fields), and iterate until tests pass. Push to main when green.
+Before committing, run this full validation pipeline on all changed files: 1) Parse all YAML files and validate against AWP schema (check state.sharing format, required agent fields, contract fields, persistence type). 2) Run `python -c 'import src'` and verify all imports resolve — flag any circular or missing imports. 3) Validate all Pydantic models by instantiating them with test fixtures — check for extra/misnamed fields. 4) Run `pytest tests/ -x --tb=short` and fix any failures. 5) Grep for common issues: placeholder strings like 'TODO', hardcoded model names, missing timeout configs. 6) Run type checking with `mypy src/ --ignore-missing-imports`. Fix everything you find, then show me a summary diff and confirm all checks pass.

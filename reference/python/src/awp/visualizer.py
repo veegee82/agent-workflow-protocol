@@ -86,10 +86,7 @@ def _topological_levels(config: AWPOrchestrationConfig) -> list[list[str]]:
 
     while remaining:
         # Find nodes with all dependencies satisfied
-        level = [
-            nid for nid in remaining
-            if not deps.get(nid, set()) & remaining
-        ]
+        level = [nid for nid in remaining if not deps.get(nid, set()) & remaining]
 
         if not level:
             # Cycle -- just dump remaining

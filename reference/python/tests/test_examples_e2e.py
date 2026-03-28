@@ -30,12 +30,11 @@ Logs are written to each example's logs/ directory.
 import json
 import logging
 import os
-import shutil
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
@@ -43,7 +42,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from awp.parser import parse_manifest, parse_agent
-from awp.validator import validate_graph, validate_contracts, check_compliance, ComplianceLevel
+from awp.validator import (
+    validate_graph,
+    validate_contracts,
+    check_compliance,
+    ComplianceLevel,
+)
 from awp.validator.rules import validate_rules
 from awp.validator.schema_validator import validate_schema
 from awp.runtime.runner import WorkflowRunner
@@ -76,10 +80,12 @@ def setup_example_logger(example_name: str, log_dir: Path) -> logging.Logger:
     # File handler - detailed
     fh = logging.FileHandler(log_file, encoding="utf-8")
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    fh.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
     logger.addHandler(fh)
 
     # Console handler - summary
@@ -103,13 +109,21 @@ def log_state(logger: logging.Logger, label: str, state: dict[str, Any]) -> None
             logger.info("  %s: %s", key, str(value)[:200])
 
 
-def log_agent_result(logger: logging.Logger, agent_id: str, result: dict[str, Any]) -> None:
+def log_agent_result(
+    logger: logging.Logger, agent_id: str, result: dict[str, Any]
+) -> None:
     """Log individual agent result."""
     agent_data = result.get(agent_id, {})
     confidence = agent_data.get("confidence", "N/A")
     error = agent_data.get("error")
-    logger.info("Agent '%s' completed: confidence=%s, error=%s", agent_id, confidence, error)
-    logger.debug("Agent '%s' full output: %s", agent_id, json.dumps(agent_data, indent=2, default=str)[:2000])
+    logger.info(
+        "Agent '%s' completed: confidence=%s, error=%s", agent_id, confidence, error
+    )
+    logger.debug(
+        "Agent '%s' full output: %s",
+        agent_id,
+        json.dumps(agent_data, indent=2, default=str)[:2000],
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -120,15 +134,20 @@ def log_agent_result(logger: logging.Logger, agent_id: str, result: dict[str, An
 class TestValidateExamples:
     """Validate all example workflows without LLM calls."""
 
-    @pytest.mark.parametrize("example,expected_agents,min_level", [
-        ("01-hello-world", 1, ComplianceLevel.A0_PRESCRIBED),
-        ("02-research-pipeline", 3, ComplianceLevel.A1_ADAPTIVE),
-        ("03-chat-team", 2, ComplianceLevel.A1_ADAPTIVE),
-        ("04-memory-workflow", 2, ComplianceLevel.A1_ADAPTIVE),
-        ("05-observable-analytics", 3, ComplianceLevel.A1_ADAPTIVE),
-        ("06-enterprise", 5, ComplianceLevel.A1_ADAPTIVE),
-    ])
-    def test_validate_example(self, example: str, expected_agents: int, min_level: ComplianceLevel):
+    @pytest.mark.parametrize(
+        "example,expected_agents,min_level",
+        [
+            ("01-hello-world", 1, ComplianceLevel.A0_PRESCRIBED),
+            ("02-research-pipeline", 3, ComplianceLevel.A1_ADAPTIVE),
+            ("03-chat-team", 2, ComplianceLevel.A1_ADAPTIVE),
+            ("04-memory-workflow", 2, ComplianceLevel.A1_ADAPTIVE),
+            ("05-observable-analytics", 3, ComplianceLevel.A1_ADAPTIVE),
+            ("06-enterprise", 5, ComplianceLevel.A1_ADAPTIVE),
+        ],
+    )
+    def test_validate_example(
+        self, example: str, expected_agents: int, min_level: ComplianceLevel
+    ):
         """Parse, validate, and check autonomy level for each example."""
         wf_dir = EXAMPLES / example
         if not wf_dir.exists():
@@ -140,8 +159,14 @@ class TestValidateExamples:
 
         # 1. Parse manifest
         manifest = parse_manifest(wf_dir / "workflow.awp.yaml")
-        assert manifest.workflow.name == example.split("-", 1)[1] if "-" in example[3:] else example[3:]
-        logger.info("Manifest parsed: %s v%s", manifest.workflow.name, manifest.workflow.version)
+        assert (
+            manifest.workflow.name == example.split("-", 1)[1]
+            if "-" in example[3:]
+            else example[3:]
+        )
+        logger.info(
+            "Manifest parsed: %s v%s", manifest.workflow.name, manifest.workflow.version
+        )
 
         # 2. Parse agents
         agents = {}
@@ -150,8 +175,12 @@ class TestValidateExamples:
             awp = ad / "agent.awp.yaml"
             if awp.exists():
                 agents[ad.name] = parse_agent(awp)
-                logger.info("Agent parsed: %s (%s)", ad.name, agents[ad.name].identity.role)
-        assert len(agents) == expected_agents, f"Expected {expected_agents} agents, found {len(agents)}"
+                logger.info(
+                    "Agent parsed: %s (%s)", ad.name, agents[ad.name].identity.role
+                )
+        assert len(agents) == expected_agents, (
+            f"Expected {expected_agents} agents, found {len(agents)}"
+        )
 
         # 3. Validate graph
         graph_result = validate_graph(manifest.orchestration)
@@ -160,14 +189,19 @@ class TestValidateExamples:
 
         # 4. Validate contracts
         contract_result = validate_contracts(agents, manifest.orchestration)
-        assert contract_result.valid, f"Contract validation failed: {contract_result.errors}"
+        assert contract_result.valid, (
+            f"Contract validation failed: {contract_result.errors}"
+        )
         logger.info("Contract validation: PASS")
 
         # 5. Check compliance level
         compliance = check_compliance(manifest, agents, wf_dir, min_level)
-        assert compliance.level >= min_level, \
+        assert compliance.level >= min_level, (
             f"Compliance check failed: got {compliance.level}, expected >= {min_level}. Errors: {compliance.errors}"
-        logger.info("Compliance: %s (target: %s)", compliance.level.name, min_level.name)
+        )
+        logger.info(
+            "Compliance: %s (target: %s)", compliance.level.name, min_level.name
+        )
 
         # 6. Validate rules
         rules = validate_rules(manifest, agents, wf_dir)
@@ -178,7 +212,14 @@ class TestValidateExamples:
 
         # 7. Validate output schemas
         for agent_id in agents:
-            schema_path = wf_dir / "agents" / agent_id / "workflow" / "output_schema" / "output_schema.json"
+            schema_path = (
+                wf_dir
+                / "agents"
+                / agent_id
+                / "workflow"
+                / "output_schema"
+                / "output_schema.json"
+            )
             if schema_path.exists():
                 result = validate_schema(schema_path)
                 assert result.valid, f"Schema {agent_id}: {result.errors}"
@@ -209,8 +250,9 @@ class TestValidateExamples:
                     continue
                 for req_file in required_files:
                     path = agent_dir / req_file
-                    assert path.exists(), \
+                    assert path.exists(), (
                         f"Missing required file: {example_dir.name}/agents/{agent_dir.name}/{req_file}"
+                    )
 
     def test_all_schemas_have_confidence(self):
         """Verify R17: all output schemas include confidence field."""
@@ -222,14 +264,18 @@ class TestValidateExamples:
                 continue
 
             for agent_dir in sorted(agents_dir.iterdir()):
-                schema_path = agent_dir / "workflow" / "output_schema" / "output_schema.json"
+                schema_path = (
+                    agent_dir / "workflow" / "output_schema" / "output_schema.json"
+                )
                 if not schema_path.exists():
                     continue
                 schema = json.loads(schema_path.read_text())
-                assert "confidence" in schema.get("properties", {}), \
+                assert "confidence" in schema.get("properties", {}), (
                     f"Missing confidence field: {example_dir.name}/{agent_dir.name}"
-                assert schema["properties"]["confidence"]["type"] == "number", \
+                )
+                assert schema["properties"]["confidence"]["type"] == "number", (
                     f"confidence must be number: {example_dir.name}/{agent_dir.name}"
+                )
 
 
 # --------------------------------------------------------------------------- #
@@ -286,16 +332,24 @@ def _run_workflow_with_logging(
         raise
 
 
-def _assert_agent_output(state: dict, agent_id: str, required_fields: list[str]) -> dict:
+def _assert_agent_output(
+    state: dict, agent_id: str, required_fields: list[str]
+) -> dict:
     """Assert an agent produced valid output with required fields."""
-    assert agent_id in state, f"Agent '{agent_id}' not in state. Keys: {list(state.keys())}"
+    assert agent_id in state, (
+        f"Agent '{agent_id}' not in state. Keys: {list(state.keys())}"
+    )
     agent_data = state[agent_id]
-    assert isinstance(agent_data, dict), f"Agent '{agent_id}' output is not a dict: {type(agent_data)}"
+    assert isinstance(agent_data, dict), (
+        f"Agent '{agent_id}' output is not a dict: {type(agent_data)}"
+    )
 
     # Check confidence (R17)
     assert "confidence" in agent_data, f"Agent '{agent_id}' missing confidence field"
     confidence = agent_data["confidence"]
-    assert isinstance(confidence, (int, float)), f"Agent '{agent_id}' confidence is not numeric: {type(confidence)}"
+    assert isinstance(confidence, (int, float)), (
+        f"Agent '{agent_id}' confidence is not numeric: {type(confidence)}"
+    )
 
     # Check required fields
     for field in required_fields:
@@ -318,7 +372,9 @@ class TestE2EWithLLM:
         if not wf_dir.exists():
             pytest.skip("Example not found")
 
-        state = _run_workflow_with_logging(wf_dir, "Greet Alice warmly", "01-hello-world")
+        state = _run_workflow_with_logging(
+            wf_dir, "Greet Alice warmly", "01-hello-world"
+        )
 
         result = _assert_agent_output(state, "greeter", ["greeting", "tone"])
         assert len(result["greeting"]) > 0, "Greeting should not be empty"
@@ -337,11 +393,13 @@ class TestE2EWithLLM:
         )
 
         # Planner should produce research questions
-        planner = _assert_agent_output(state, "planner", ["research_questions", "search_strategy"])
+        planner = _assert_agent_output(
+            state, "planner", ["research_questions", "search_strategy"]
+        )
         assert len(planner["research_questions"]) > 0, "Should have research questions"
 
         # Researcher should produce findings (may use tools)
-        researcher = _assert_agent_output(state, "researcher", ["findings", "sources"])
+        _assert_agent_output(state, "researcher", ["findings", "sources"])
 
         # Writer should produce a report
         writer = _assert_agent_output(state, "writer", ["report"])
@@ -359,8 +417,10 @@ class TestE2EWithLLM:
             "03-chat-team",
         )
 
-        coordinator = _assert_agent_output(state, "coordinator", ["task_breakdown", "assignments"])
-        specialist = _assert_agent_output(state, "specialist", ["analysis", "recommendations"])
+        _assert_agent_output(state, "coordinator", ["task_breakdown", "assignments"])
+        specialist = _assert_agent_output(
+            state, "specialist", ["analysis", "recommendations"]
+        )
         assert len(specialist["analysis"]) > 0, "Analysis should not be empty"
 
     def test_04_memory_workflow(self):
@@ -375,8 +435,8 @@ class TestE2EWithLLM:
             "04-memory-workflow",
         )
 
-        researcher = _assert_agent_output(state, "researcher", ["findings", "key_facts"])
-        analyst = _assert_agent_output(state, "analyst", ["analysis", "insights"])
+        _assert_agent_output(state, "researcher", ["findings", "key_facts"])
+        _assert_agent_output(state, "analyst", ["analysis", "insights"])
 
         # Check memory was written
         memory_file = wf_dir / "workspace" / "MEMORY.md"
@@ -405,7 +465,7 @@ class TestE2EWithLLM:
         audit_dir = data_dir / "audit"
 
         # At least one of these should exist after a run
-        has_artifacts = (
+        (
             (traces_dir.exists() and any(traces_dir.iterdir()))
             or (metrics_dir.exists() and any(metrics_dir.iterdir()))
             or (audit_dir.exists() and any(audit_dir.iterdir()))
@@ -426,7 +486,9 @@ class TestE2EWithLLM:
         )
 
         # Data collector
-        _assert_agent_output(state, "data_collector", ["collected_data", "data_summary"])
+        _assert_agent_output(
+            state, "data_collector", ["collected_data", "data_summary"]
+        )
 
         # Code executor (parallel with analyst)
         _assert_agent_output(state, "code_executor", ["computation_result", "metrics"])
@@ -455,11 +517,18 @@ class TestLocalTools:
     def test_memory_tools_roundtrip(self):
         """Test memory read/write/search cycle."""
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             reg = ToolRegistry(Path(tmp))
 
             # Write
-            w = reg.call("memory.write", {"content": "AWP test fact: protocol version 1.0", "target": "long_term"})
+            w = reg.call(
+                "memory.write",
+                {
+                    "content": "AWP test fact: protocol version 1.0",
+                    "target": "long_term",
+                },
+            )
             assert w["ok"]
 
             # Read
@@ -482,11 +551,14 @@ class TestLocalTools:
         if "custom.analyze_risk" not in reg.tool_names:
             pytest.skip("Custom tool not discovered")
 
-        result = reg.call("custom.analyze_risk", {
-            "likelihood": 3,
-            "impact": 4,
-            "category": "operational",
-        })
+        result = reg.call(
+            "custom.analyze_risk",
+            {
+                "likelihood": 3,
+                "impact": 4,
+                "category": "operational",
+            },
+        )
         assert result["ok"]
         assert result["data"]["risk_score"] == 0.48
         assert result["data"]["level"] == "medium"
@@ -501,11 +573,14 @@ class TestLocalTools:
 
         # Send message
         reg._current_agent_id = "agent_a"
-        send_result = reg.call("agent.send_message", {
-            "to": "agent_b",
-            "content": "Hello from agent_a",
-            "channel": "direct",
-        })
+        send_result = reg.call(
+            "agent.send_message",
+            {
+                "to": "agent_b",
+                "content": "Hello from agent_a",
+                "channel": "direct",
+            },
+        )
         assert send_result["ok"]
 
         # List messages
@@ -542,7 +617,12 @@ class TestToolCallsWithLLM:
         assert len(tools) == 1
 
         result = client.chat_with_tools(
-            messages=[{"role": "user", "content": "What is 17 + 25? Use the arithmetic.add tool."}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "What is 17 + 25? Use the arithmetic.add tool.",
+                }
+            ],
             tools=tools,
             tool_executor=reg.call,
             max_rounds=3,
@@ -564,13 +644,19 @@ class TestOpenRouter:
     def test_provider_detection(self):
         """Verify OpenRouter provider is detected from model name."""
         from awp.runtime.llm import _detect_provider
+
         assert _detect_provider("anthropic/claude-sonnet-4") == "openrouter"
 
     def test_json_response(self):
         """Test JSON mode response parsing."""
         client = LLMClient()
         result = client.chat_json(
-            [{"role": "user", "content": 'Respond with exactly this JSON: {"status": "ok", "confidence": 0.95}'}],
+            [
+                {
+                    "role": "user",
+                    "content": 'Respond with exactly this JSON: {"status": "ok", "confidence": 0.95}',
+                }
+            ],
             max_tokens=50,
         )
         assert isinstance(result, dict)
@@ -584,10 +670,12 @@ class TestOpenRouter:
         tools = reg.get_definitions(["arithmetic.*"])
 
         result = client.chat_with_tools(
-            messages=[{
-                "role": "user",
-                "content": "Calculate: (5 + 3) * 2. First add 5+3, then multiply the result by 2.",
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Calculate: (5 + 3) * 2. First add 5+3, then multiply the result by 2.",
+                }
+            ],
             tools=tools,
             tool_executor=reg.call,
             max_rounds=5,
@@ -604,10 +692,12 @@ class TestOpenRouter:
         tools = reg.get_definitions(["web.search"])
 
         result = client.chat_with_tools(
-            messages=[{
-                "role": "user",
-                "content": "Search the web for 'Agent Workflow Protocol AWP'. Report what you find.",
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Search the web for 'Agent Workflow Protocol AWP'. Report what you find.",
+                }
+            ],
             tools=tools,
             tool_executor=reg.call,
             max_rounds=3,

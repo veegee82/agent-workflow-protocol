@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 500" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="dagArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4fc3f7"/>
+    </marker>
+    <marker id="dagArrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
+    </marker>
+    <filter id="dagShadow">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="850" height="500" rx="12" fill="#0a0a1a"/>
+
+  <text x="425" y="35" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">DAG Engine (A0-A1)</text>
+  <text x="425" y="57" text-anchor="middle" fill="#888" font-size="13">Topological execution with parallel levels and state sharing</text>
+
+  <!-- Execution levels -->
+  <text x="50" y="100" fill="#555" font-size="11">Level 0</text>
+  <text x="50" y="210" fill="#555" font-size="11">Level 1</text>
+  <text x="50" y="320" fill="#555" font-size="11">Level 2</text>
+  <text x="50" y="430" fill="#555" font-size="11">Level 3</text>
+
+  <!-- Level indicators -->
+  <rect x="40" y="80" width="5" height="50" rx="2" fill="#2196F3" opacity="0.5"/>
+  <rect x="40" y="190" width="5" height="50" rx="2" fill="#4CAF50" opacity="0.5"/>
+  <rect x="40" y="300" width="5" height="50" rx="2" fill="#FF9800" opacity="0.5"/>
+  <rect x="40" y="410" width="5" height="50" rx="2" fill="#9C27B0" opacity="0.5"/>
+
+  <!-- Level 0: Single entry node -->
+  <rect x="350" y="80" width="150" height="50" rx="8" fill="#1a1a2e" stroke="#2196F3" stroke-width="2" filter="url(#dagShadow)"/>
+  <text x="425" y="102" text-anchor="middle" fill="#2196F3" font-size="13" font-weight="bold">load_data</text>
+  <text x="425" y="120" text-anchor="middle" fill="#888" font-size="10">share: [df_path]</text>
+
+  <!-- Arrows from level 0 to level 1 -->
+  <line x1="390" y1="130" x2="230" y2="195" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#dagArrow)"/>
+  <line x1="460" y1="130" x2="620" y2="195" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#dagArrow)"/>
+
+  <!-- Level 1: Two parallel nodes -->
+  <rect x="130" y="190" width="180" height="50" rx="8" fill="#1a1a2e" stroke="#4CAF50" stroke-width="2" filter="url(#dagShadow)"/>
+  <text x="220" y="212" text-anchor="middle" fill="#4CAF50" font-size="13" font-weight="bold">statistical_analysis</text>
+  <text x="220" y="230" text-anchor="middle" fill="#888" font-size="10">share: [stats, insights]</text>
+
+  <rect x="540" y="190" width="180" height="50" rx="8" fill="#1a1a2e" stroke="#4CAF50" stroke-width="2" filter="url(#dagShadow)"/>
+  <text x="630" y="212" text-anchor="middle" fill="#4CAF50" font-size="13" font-weight="bold">visualization</text>
+  <text x="630" y="230" text-anchor="middle" fill="#888" font-size="10">share: [chart_paths]</text>
+
+  <!-- Parallel execution indicator -->
+  <rect x="350" y="197" width="100" height="30" rx="4" fill="#111" stroke="#4CAF50" stroke-dasharray="3,2"/>
+  <text x="400" y="217" text-anchor="middle" fill="#4CAF50" font-size="10">PARALLEL</text>
+
+  <!-- Conditional node -->
+  <line x1="220" y1="240" x2="220" y2="305" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#dagArrow)"/>
+  <line x1="630" y1="240" x2="630" y2="305" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#dagArrow)"/>
+
+  <!-- Level 2: Conditional node -->
+  <rect x="130" y="300" width="180" height="50" rx="8" fill="#1a1a2e" stroke="#FF9800" stroke-width="2" filter="url(#dagShadow)"/>
+  <text x="220" y="322" text-anchor="middle" fill="#FF9800" font-size="13" font-weight="bold">quality_check</text>
+  <text x="220" y="340" text-anchor="middle" fill="#888" font-size="10">when: stats.nulls > 0</text>
+
+  <rect x="540" y="300" width="180" height="50" rx="8" fill="#1a1a2e" stroke="#FF9800" stroke-width="2" filter="url(#dagShadow)"/>
+  <text x="630" y="322" text-anchor="middle" fill="#FF9800" font-size="13" font-weight="bold">optimize_charts</text>
+  <text x="630" y="340" text-anchor="middle" fill="#888" font-size="10">when: always</text>
+
+  <!-- Arrows to final node -->
+  <line x1="260" y1="350" x2="380" y2="415" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#dagArrow)"/>
+  <line x1="590" y1="350" x2="470" y2="415" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#dagArrow)"/>
+
+  <!-- Level 3: Aggregation -->
+  <rect x="325" y="410" width="200" height="50" rx="8" fill="#1a1a2e" stroke="#9C27B0" stroke-width="2" filter="url(#dagShadow)"/>
+  <text x="425" y="432" text-anchor="middle" fill="#9C27B0" font-size="13" font-weight="bold">generate_report</text>
+  <text x="425" y="450" text-anchor="middle" fill="#888" font-size="10">state: {stats, charts, insights}</text>
+
+  <!-- State sharing indicator on right side -->
+  <rect x="740" y="85" width="90" height="370" rx="6" fill="none" stroke="#333" stroke-dasharray="4,2"/>
+  <text x="785" y="105" text-anchor="middle" fill="#555" font-size="10" font-weight="bold">STATE</text>
+  <text x="785" y="122" text-anchor="middle" fill="#444" font-size="9">df_path</text>
+  <text x="785" y="220" text-anchor="middle" fill="#444" font-size="9">stats</text>
+  <text x="785" y="237" text-anchor="middle" fill="#444" font-size="9">insights</text>
+  <text x="785" y="254" text-anchor="middle" fill="#444" font-size="9">chart_paths</text>
+  <text x="785" y="340" text-anchor="middle" fill="#444" font-size="9">quality_ok</text>
+  <text x="785" y="440" text-anchor="middle" fill="#444" font-size="9">All fields</text>
+  <text x="785" y="455" text-anchor="middle" fill="#444" font-size="9">available</text>
+
+  <!-- Dotted lines to state -->
+  <line x1="500" y1="105" x2="740" y2="110" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="310" y1="215" x2="740" y2="230" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="720" y1="215" x2="740" y2="245" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+</svg>

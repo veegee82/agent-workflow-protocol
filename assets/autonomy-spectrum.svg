@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="spectrumGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#2196F3"/>
+      <stop offset="25%" style="stop-color:#4CAF50"/>
+      <stop offset="50%" style="stop-color:#FF9800"/>
+      <stop offset="75%" style="stop-color:#f44336"/>
+      <stop offset="100%" style="stop-color:#9C27B0"/>
+    </linearGradient>
+    <linearGradient id="safetyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:0.2"/>
+      <stop offset="100%" style="stop-color:#f44336;stop-opacity:0.4"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1000" height="650" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="500" y="40" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Autonomy Spectrum A0 - A4</text>
+  <text x="500" y="62" text-anchor="middle" fill="#888" font-size="13">Autonomy is not a switch, but a continuum with proportional safety</text>
+
+  <!-- Main spectrum bar -->
+  <rect x="80" y="90" width="840" height="16" rx="8" fill="url(#spectrumGrad)" filter="url(#glow)"/>
+
+  <!-- Level markers -->
+  <circle cx="122" cy="98" r="6" fill="#fff"/>
+  <circle cx="290" cy="98" r="6" fill="#fff"/>
+  <circle cx="458" cy="98" r="6" fill="#fff"/>
+  <circle cx="626" cy="98" r="6" fill="#fff"/>
+  <circle cx="878" cy="98" r="6" fill="#fff"/>
+
+  <!-- A0 -->
+  <text x="122" y="80" text-anchor="middle" fill="#2196F3" font-size="16" font-weight="bold">A0</text>
+  <rect x="42" y="120" width="160" height="200" rx="8" fill="#1a1a2e" stroke="#2196F3" stroke-width="1.5"/>
+  <text x="122" y="145" text-anchor="middle" fill="#2196F3" font-size="14" font-weight="bold">Prescribed</text>
+  <text x="122" y="163" text-anchor="middle" fill="#aaa" font-size="11">Prescribed</text>
+  <line x1="62" y1="175" x2="182" y2="175" stroke="#333" stroke-width="1"/>
+  <text x="52" y="195" fill="#ccc" font-size="10">Static DAG</text>
+  <text x="52" y="212" fill="#ccc" font-size="10">Fixed Agents</text>
+  <text x="52" y="229" fill="#ccc" font-size="10">Static Tools</text>
+  <text x="52" y="246" fill="#ccc" font-size="10">No decisions</text>
+  <line x1="62" y1="258" x2="182" y2="258" stroke="#333" stroke-width="1"/>
+  <text x="52" y="278" fill="#4CAF50" font-size="10" font-weight="bold">Safety: Minimal</text>
+  <text x="52" y="295" fill="#888" font-size="9">No special</text>
+  <text x="52" y="308" fill="#888" font-size="9">requirements</text>
+
+  <!-- A1 -->
+  <text x="290" y="80" text-anchor="middle" fill="#4CAF50" font-size="16" font-weight="bold">A1</text>
+  <rect x="210" y="120" width="160" height="200" rx="8" fill="#1a1a2e" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="290" y="145" text-anchor="middle" fill="#4CAF50" font-size="14" font-weight="bold">Adaptive</text>
+  <text x="290" y="163" text-anchor="middle" fill="#aaa" font-size="11">Adaptive</text>
+  <line x1="230" y1="175" x2="350" y2="175" stroke="#333" stroke-width="1"/>
+  <text x="220" y="195" fill="#ccc" font-size="10">DAG + Conditions</text>
+  <text x="220" y="212" fill="#ccc" font-size="10">Fixed Agents</text>
+  <text x="220" y="229" fill="#ccc" font-size="10">Context-dep. Tools</text>
+  <text x="220" y="246" fill="#ccc" font-size="10">when-expressions</text>
+  <line x1="230" y1="258" x2="350" y2="258" stroke="#333" stroke-width="1"/>
+  <text x="220" y="278" fill="#4CAF50" font-size="10" font-weight="bold">Safety: Minimal</text>
+  <text x="220" y="295" fill="#888" font-size="9">State Sharing</text>
+  <text x="220" y="308" fill="#888" font-size="9">validated</text>
+
+  <!-- A2 -->
+  <text x="458" y="80" text-anchor="middle" fill="#FF9800" font-size="16" font-weight="bold">A2</text>
+  <rect x="378" y="120" width="160" height="200" rx="8" fill="#1a1a2e" stroke="#FF9800" stroke-width="1.5"/>
+  <text x="458" y="145" text-anchor="middle" fill="#FF9800" font-size="14" font-weight="bold">Delegating</text>
+  <text x="458" y="163" text-anchor="middle" fill="#aaa" font-size="11">Delegating</text>
+  <line x1="398" y1="175" x2="518" y2="175" stroke="#333" stroke-width="1"/>
+  <text x="388" y="195" fill="#ccc" font-size="10">Manager-Worker Loop</text>
+  <text x="388" y="212" fill="#ccc" font-size="10">Dynamic Workers</text>
+  <text x="388" y="229" fill="#ccc" font-size="10">Manager assigns tools</text>
+  <text x="388" y="246" fill="#ccc" font-size="10">Fan-Out parallel</text>
+  <line x1="398" y1="258" x2="518" y2="258" stroke="#333" stroke-width="1"/>
+  <text x="388" y="278" fill="#FF9800" font-size="10" font-weight="bold">Safety: BUDGET</text>
+  <text x="388" y="295" fill="#FF9800" font-size="9">max_loops, max_tokens</text>
+  <text x="388" y="308" fill="#FF9800" font-size="9">max_wall_time REQUIRED</text>
+
+  <!-- A3 -->
+  <text x="626" y="80" text-anchor="middle" fill="#f44336" font-size="16" font-weight="bold">A3</text>
+  <rect x="546" y="120" width="160" height="200" rx="8" fill="#1a1a2e" stroke="#f44336" stroke-width="1.5"/>
+  <text x="626" y="145" text-anchor="middle" fill="#f44336" font-size="14" font-weight="bold">Self-Tooling</text>
+  <text x="626" y="163" text-anchor="middle" fill="#aaa" font-size="11">Self-Tooling</text>
+  <line x1="566" y1="175" x2="686" y2="175" stroke="#333" stroke-width="1"/>
+  <text x="556" y="195" fill="#ccc" font-size="10">Manager-Worker Loop</text>
+  <text x="556" y="212" fill="#ccc" font-size="10">Dynamic Workers</text>
+  <text x="556" y="229" fill="#ccc" font-size="10">Tool Creation (MCP)</text>
+  <text x="556" y="246" fill="#ccc" font-size="10">Skill Generation</text>
+  <line x1="566" y1="258" x2="686" y2="258" stroke="#333" stroke-width="1"/>
+  <text x="556" y="278" fill="#f44336" font-size="10" font-weight="bold">Safety: ENVELOPE</text>
+  <text x="556" y="295" fill="#f44336" font-size="9">Immutable Sandbox</text>
+  <text x="556" y="308" fill="#f44336" font-size="9">forbidden_tools REQUIRED</text>
+
+  <!-- A4 -->
+  <text x="878" y="80" text-anchor="middle" fill="#9C27B0" font-size="16" font-weight="bold">A4</text>
+  <rect x="798" y="120" width="160" height="200" rx="8" fill="#1a1a2e" stroke="#9C27B0" stroke-width="1.5"/>
+  <text x="878" y="145" text-anchor="middle" fill="#9C27B0" font-size="14" font-weight="bold">Self-Organizing</text>
+  <text x="878" y="163" text-anchor="middle" fill="#aaa" font-size="11">Self-Organizing</text>
+  <line x1="818" y1="175" x2="938" y2="175" stroke="#333" stroke-width="1"/>
+  <text x="808" y="195" fill="#ccc" font-size="10">Recursive Delegation</text>
+  <text x="808" y="212" fill="#ccc" font-size="10">Sub-Manager</text>
+  <text x="808" y="229" fill="#ccc" font-size="10">Dynamic Hierarchies</text>
+  <text x="808" y="246" fill="#ccc" font-size="10">Unlimited Depth*</text>
+  <line x1="818" y1="258" x2="938" y2="258" stroke="#333" stroke-width="1"/>
+  <text x="808" y="278" fill="#9C27B0" font-size="10" font-weight="bold">Safety: FULL</text>
+  <text x="808" y="295" fill="#9C27B0" font-size="9">Observability REQUIRED</text>
+  <text x="808" y="308" fill="#9C27B0" font-size="9">Tracing + Audit REQUIRED</text>
+
+  <!-- Safety scaling arrow -->
+  <text x="80" y="365" fill="#888" font-size="12" font-weight="bold">Safety Requirements</text>
+  <rect x="80" y="375" width="840" height="24" rx="4" fill="url(#safetyGrad)"/>
+  <text x="122" y="392" text-anchor="middle" fill="#4CAF50" font-size="11">Minimal</text>
+  <text x="500" y="392" text-anchor="middle" fill="#FF9800" font-size="11">Budget + Limits</text>
+  <text x="878" y="392" text-anchor="middle" fill="#9C27B0" font-size="11">Full Observability</text>
+
+  <!-- Analogies section -->
+  <text x="500" y="440" text-anchor="middle" fill="#e0e0e0" font-size="16" font-weight="bold">Analogies</text>
+
+  <!-- A0 analogy -->
+  <rect x="42" y="460" width="160" height="55" rx="6" fill="#111" stroke="#333"/>
+  <text x="122" y="483" text-anchor="middle" fill="#2196F3" font-size="11" font-weight="bold">Assembly Line</text>
+  <text x="122" y="500" text-anchor="middle" fill="#888" font-size="10">Every step prescribed</text>
+
+  <!-- A1 analogy -->
+  <rect x="210" y="460" width="160" height="55" rx="6" fill="#111" stroke="#333"/>
+  <text x="290" y="483" text-anchor="middle" fill="#4CAF50" font-size="11" font-weight="bold">Assembly Line + Switches</text>
+  <text x="290" y="500" text-anchor="middle" fill="#888" font-size="10">Route changes</text>
+
+  <!-- A2 analogy -->
+  <rect x="378" y="460" width="160" height="55" rx="6" fill="#111" stroke="#333"/>
+  <text x="458" y="483" text-anchor="middle" fill="#FF9800" font-size="11" font-weight="bold">Project Lead + Team</text>
+  <text x="458" y="500" text-anchor="middle" fill="#888" font-size="10">Dynamic tasks</text>
+
+  <!-- A3 analogy -->
+  <rect x="546" y="460" width="160" height="55" rx="6" fill="#111" stroke="#333"/>
+  <text x="626" y="483" text-anchor="middle" fill="#f44336" font-size="11" font-weight="bold">Workshop</text>
+  <text x="626" y="500" text-anchor="middle" fill="#888" font-size="10">Builds its own tools</text>
+
+  <!-- A4 analogy -->
+  <rect x="798" y="460" width="160" height="55" rx="6" fill="#111" stroke="#333"/>
+  <text x="878" y="483" text-anchor="middle" fill="#9C27B0" font-size="11" font-weight="bold">Organization</text>
+  <text x="878" y="500" text-anchor="middle" fill="#888" font-size="10">Structures itself</text>
+
+  <!-- Key insight -->
+  <rect x="80" y="545" width="840" height="80" rx="8" fill="#111" stroke="#555" stroke-dasharray="4,2"/>
+  <text x="500" y="572" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Core design principle: Safety scales proportionally with autonomy</text>
+  <text x="500" y="595" text-anchor="middle" fill="#aaa" font-size="11">A0-A1: No special safety requirements (deterministic)</text>
+  <text x="500" y="613" text-anchor="middle" fill="#aaa" font-size="11">A2: Budget enforcement is required | A3: Immutable Safety Envelope | A4: Full Observability + Audit</text>
+</svg>

@@ -2,436 +2,709 @@
   <img src="assets/awp_logo.png" alt="AWP Logo" width="200" />
 </p>
 
-<h1 align="center">AWP - Agent Workflow Protocol</h1>
+<h1 align="center">AWP -- Agent Workflow Protocol</h1>
 
 <p align="center">
-  <strong>An open standard for multi-agent workflows -- from scripted pipelines to self-organizing teams.</strong><br/>
-  Declarative. Runtime-agnostic. Portable.
+  <strong>The handbook: Multi-agent workflows for Data Science, Enterprise, and Infrastructure Benchmarking.</strong><br/>
+  From the first line of code to the theoretical foundation.
 </p>
 
 <p align="center">
   <a href="docs/">Docs</a> &middot;
-  <a href="primer/quickstart.md">Quickstart</a> &middot;
   <a href="examples/">Examples</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
-  <a href="https://clawhub.ai/veegee82/awp-workflow-builder">ClawHub</a>
+  <a href="README_GENERATION.md">Workflow Generation</a> &middot;
+  <a href="README_NERD.md">Theory Reference</a> &middot;
+  <a href="README_SUPER_NERD.md">Deep Theory</a>
 </p>
 
 ---
 
-## The Problem
+## Table of Contents
 
-Building multi-agent systems today means choosing a framework and being
-locked into it. Every platform -- LangGraph, CrewAI, AutoGen, custom
-solutions -- uses its own format. Moving a workflow means rewriting everything.
-
-Existing standards each solve a piece:
-
-| Standard | Covers | Misses |
-|----------|--------|--------|
-| MCP | Tool access for LLMs | No agents, no orchestration, no state |
-| A2A | Agent communication | No orchestration, no memory, no tools |
-| OpenAPI | HTTP API description | No agent concept, no DAG structure |
-
-**AWP fills the gap.** One portable format that describes the complete
-multi-agent system -- and lets you choose how autonomous that system should be.
+**From concrete to abstract:**
+1. [Quickstart: 3 Lines of Code](#1-quickstart-3-lines-of-code)
+2. [Data Science Integration](#2-data-science-integration)
+3. [Enterprise Architecture](#3-enterprise-architecture)
+4. [Infrastructure Benchmarking](#4-infrastructure-benchmarking)
+5. [YAML Workflows & CLI](#5-yaml-workflows--cli)
+6. [The Delegation Loop in Detail](#6-the-delegation-loop-in-detail)
+7. [Budget, Safety, Validation](#7-budget-safety-validation)
+8. [The Autonomy Spectrum (A0-A4)](#8-the-autonomy-spectrum-a0-a4)
+9. [The 7-Layer Model](#9-the-7-layer-model)
+10. [Repository & Links](#10-repository--links)
 
 ---
 
-## The Big Idea: Autonomy as a Spectrum
+## 1. Quickstart: 3 Lines of Code
 
-Most agent frameworks force a choice: either you hardcode every step (safe but
-rigid), or you give agents full freedom (powerful but unpredictable). AWP
-rejects this binary. Instead, it treats **autonomy as a spectrum** -- and lets
-you dial it to exactly the level your task requires.
+<p align="center">
+  <img src="assets/quickstart-flow.svg" alt="Quickstart Flow" width="100%"/>
+</p>
 
-```
-  A0 Prescribed ──── A1 Adaptive ──── A2 Delegating ──── A3 Self-Tooling ──── A4 Self-Organizing
-  │                  │                │                  │                    │
-  │ You define       │ Agents react   │ A manager agent  │ Agents create      │ Agents organize
-  │ every step.      │ to results:    │ decides what     │ their own tools    │ sub-teams, split
-  │ Fixed graph,     │ skip, repeat,  │ workers to       │ and domain         │ budgets, delegate
-  │ fixed agents,    │ branch based   │ spawn, what      │ knowledge at       │ recursively.
-  │ fixed tools.     │ on conditions. │ instructions     │ runtime.           │ Full autonomy
-  │                  │                │ to give them.    │                    │ within bounds.
-  "Do exactly this"  "React to this"  "Figure this out"  "Build what          "Run the team"
-                                                          you need"
+### Installation
+
+```bash
+pip install -e "reference/python/[data]"
 ```
 
-**The key insight:** Features like memory, communication, observability, and
-security are not levels -- they are capabilities available at every autonomy
-level. A simple A0 pipeline can have full observability. A complex A4
-self-organizing system must have it.
+### Configure LLM Provider
 
-### What Each Level Means
+```python
+import os
 
-**A0 Prescribed** -- You define a DAG of agents with explicit dependencies.
-The runtime executes them in topological order. Predictable, auditable,
-easy to debug. This is where most workflows start.
+# Option A: OpenRouter (50+ models, one key)
+os.environ["LLM_API_KEY"] = "sk-or-v1-..."
+os.environ["LLM_BASE_URL"] = "https://openrouter.ai/api/v1"
+
+# Option B: Ollama (local, free)
+os.environ["LLM_API_KEY"] = "ollama"
+os.environ["LLM_BASE_URL"] = "http://localhost:11434/v1"
+
+# Option C: OpenAI / Azure / Bedrock
+os.environ["LLM_API_KEY"] = "sk-..."
+os.environ["LLM_BASE_URL"] = "https://api.openai.com/v1"
+```
+
+### First Workflow
+
+```python
+import numpy as np
+import pandas as pd
+from awp.data import AgentWorkflow
+
+df = pd.DataFrame({
+    "date": pd.date_range("2024-01-01", periods=100, freq="D"),
+    "revenue": [100 + i * 2.5 + (i % 7) * 10 for i in range(100)],
+    "region": ["EU", "US", "APAC", "EU", "US"] * 20,
+})
+
+# Inputs: DataFrames, numpy arrays, images (by path), dicts, strings, ...
+result = AgentWorkflow(
+    inputs={
+        "sales_data": df,                             # pandas DataFrame -> CSV
+        "weights": np.array([0.5, 0.3, 0.2]),        # numpy -> .npy
+        "logo": "/path/to/company_logo.png",          # image -> copy + metadata
+    },
+    task="Analyze the sales data: trends per region, weighted growth rates, summary.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    max_loops=5,
+    output_dir="./analysis",
+).run()
+
+print(result["status"])      # "complete"
+print(result["artifacts"])   # ["./analysis/output/chart.png", ...]
+print(result["metadata"])    # {"loops": 3, "tokens_used": 45000, "wall_time": 42.5, ...}
+```
+
+**What happens**: AWP creates a manager agent that breaks the task into subtasks. Worker agents execute Python code in sandboxes (pandas, matplotlib, sklearn). Results are validated and aggregated. All in a single call.
+
+---
+
+## 2. Data Science Integration
+
+<p align="center">
+  <img src="assets/data-science-workflow.svg" alt="Data Science with AWP" width="100%"/>
+</p>
+
+### The Notebook Problem -- and AWP's Solution
+
+| Problem | AWP Solution |
+|---------|-------------|
+| Monolithic notebooks without structure | Agent-based decomposition into subtasks |
+| "It worked on my machine" | Sandbox execution, complete artifact documentation |
+| One analysis, many datasets | Delegation loop with dynamic worker creation |
+| Results lost in Slack | Persistent workspace artifacts with Markdown reports |
+
+### Supported Input Types
+
+AWP classifies inputs automatically:
+
+| Python Type | InputType | Workspace Format | Processing |
+|------------|-----------|-----------------|-------------|
+| `pd.DataFrame` | `dataframe` | `.csv` | Schema (shape, dtypes, head, describe) |
+| `np.ndarray` | `ndarray` | `.npy` | Schema (shape, dtype, min/max/mean/std) |
+| `str` (image path) | `image` | copy to `inputs/` | Auto-detected by extension (.png, .jpg, .gif, .bmp, .tiff, .webp, ...), PIL metadata (width, height, mode) |
+| `str` (file path) | `file_path` | copy to `inputs/` | Any files/directories |
+| `dict` / `list` | `dict` / `list` | `.json` | JSON export, dicts inlined in manager prompt |
+| `str` / `int` / `float` | `string` / `numeric` | inline | Directly in manager prompt |
+| `bytes` | `bytes` | `.bin` | Binary file in workspace |
+
+**numpy arrays** are stored losslessly as `.npy`. Workers load them via `np.load()`.
+**Images** are detected by file extension (not MIME type). If PIL/Pillow is available, dimensions, color mode, and format are extracted and reported to the manager.
+
+### Workflow Examples
+
+#### Exploratory Data Analysis
+
+```python
+result = AgentWorkflow(
+    inputs={"dataset": df_raw},
+    task="""
+    Perform a complete EDA:
+    1. Data quality (null values, duplicates, outliers)
+    2. Statistical summary per feature
+    3. Correlation analysis
+    4. Visualizations (histograms, boxplots, scatter)
+    5. Actionable recommendations
+    """,
+    model=MODEL,
+    max_loops=8,
+    packages=["matplotlib", "seaborn", "scipy"],
+    output_dir="./eda",
+).run()
+```
+
+#### numpy as Data Source
+
+numpy arrays are stored as `.npy` in the workspace and can be loaded by workers via `np.load()`. Schema information (shape, dtype, statistics) is automatically available to the manager.
+
+```python
+import numpy as np
+
+# Combination: DataFrame + numpy array
+embeddings = np.random.rand(1000, 768)       # e.g. sentence embeddings
+labels = np.array(["pos", "neg", "neutral"] * 333 + ["pos"])
+
+result = AgentWorkflow(
+    inputs={
+        "customers": df_customers,            # DataFrame with customer data
+        "embeddings": embeddings,             # numpy: embedding matrix
+        "labels": labels,                     # numpy: string array
+        "config": {"n_clusters": 5, "metric": "cosine"},
+    },
+    task="Perform clustering on the embeddings (KMeans), "
+         "derive cluster profiles from the customer data, visualize with t-SNE.",
+    model=MODEL,
+    packages=["scikit-learn", "matplotlib"],
+    output_dir="./clustering",
+).run()
+```
+
+Worker code looks like this:
+```python
+import numpy as np
+import pandas as pd
+
+embeddings = np.load(_workspace_dir + "/inputs/embeddings.npy")  # (1000, 768)
+labels = np.load(_workspace_dir + "/inputs/labels.npy")          # (1000,)
+df = pd.read_csv(_workspace_dir + "/inputs/customers.csv")
+```
+
+#### Image Analysis
+
+Images are automatically detected by file extension, copied to the workspace, and enriched with PIL metadata (dimensions, color mode, format).
+
+```python
+result = AgentWorkflow(
+    inputs={
+        "scan": "/path/to/document_scan.png",        # image by path
+        "reference": "/path/to/template.jpg",        # second image
+        "rules": {"min_confidence": 0.85, "language": "en"},
+    },
+    task="Compare the scan with the reference template. "
+         "Extract all text fields, check for deviations.",
+    model=MODEL,
+    packages=["Pillow", "pytesseract"],
+).run()
+```
+
+#### Feature Engineering & Modeling
+
+```python
+result = AgentWorkflow(
+    inputs={
+        "train": df_train,
+        "test": df_test,
+        "config": {"target": "churn", "metric": "f1_score"},
+    },
+    task="Feature engineering, train three models (LogReg, RandomForest, XGBoost), "
+         "cross-validation, select best model, create report.",
+    model=MODEL,
+    packages=["scikit-learn", "xgboost"],
+).run()
+```
+
+#### Automated Quarterly Reports
+
+```python
+result = AgentWorkflow(
+    inputs={
+        "q4": df_q4, "q3": df_q3,
+        "targets": {"revenue_target": 1_000_000, "growth_target": 0.15},
+    },
+    task="Quarter comparison Q3 vs Q4: target achievement, deviation analysis, "
+         "top/bottom products, visualizations, executive summary.",
+    model=MODEL,
+    output_dir="./quarterly_report",
+).run()
+```
+
+#### NLP & Sentiment Analysis
+
+```python
+result = AgentWorkflow(
+    inputs={"reviews": df_reviews},
+    task="Sentiment analysis: sentiment distribution, topic modeling, "
+         "word clouds, temporal trends.",
+    model=MODEL,
+    packages=["nltk", "wordcloud"],
+).run()
+```
+
+### Pipeline Integration
+
+AWP integrates seamlessly into existing data science toolchains:
+
+```python
+# In Airflow
+def analysis_task(**ctx):
+    df = ctx["ti"].xcom_pull(task_ids="load_data")
+    return AgentWorkflow(inputs={"data": df}, task="...", model=MODEL).run()
+
+# In FastAPI
+@app.post("/analyze")
+async def analyze(data: UploadFile):
+    df = pd.read_csv(data.file)
+    return AgentWorkflow(inputs={"upload": df}, task="...", model=MODEL).run()
+
+# In CI/CD (automated report)
+result = AgentWorkflow(
+    inputs={"data": "/data/daily_export.csv"},
+    task="Daily anomaly report",
+    model=MODEL,
+).run()
+```
+
+### Parameter Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model` | *(required)* | LLM model (e.g. `openrouter/anthropic/claude-sonnet-4`) |
+| `worker_model` | = `model` | Separate model for workers |
+| `max_loops` | 10 | Max delegation iterations |
+| `max_total_tokens` | 500,000 | Total token limit |
+| `max_wall_time` | 300 | Time limit in seconds |
+| `max_tool_calls` | 100 | Max tool invocations |
+| `max_total_workers` | 30 | Max worker agents |
+| `max_depth` | 5 | Recursion depth (A4) |
+| `sandbox` | `"subprocess"` | subprocess / docker / venv / none |
+| `packages` | `[]` | Extra pip packages for sandbox |
+| `output_dir` | *(temp)* | Artifact directory |
+| `verbose` | `False` | Enable debug logging |
+| `tools` | code.execute + file.* | Available worker tools |
+| `forbidden_tools` | shell.execute, file.write_outside_workspace | Blocked tools |
+
+---
+
+## 3. Enterprise Architecture
+
+<p align="center">
+  <img src="assets/enterprise-architecture.svg" alt="Enterprise Architecture" width="100%"/>
+</p>
+
+### AWP in Enterprise Infrastructure
+
+AWP replaces nothing -- it **plugs into existing systems**:
+
+```
+  AWP Tool Interface              Your Backend
+  ──────────────────              ──────────────────────
+  memory.search    ──────────→   Pinecone / Weaviate / pgvector
+  web.search       ──────────→   Internal Search API
+  custom.erp       ──────────→   SAP / Salesforce
+  file.read        ──────────→   S3 / ADLS / GCS
+  Skills (.md)     ──────────→   Confluence Export
+  Tracing          ──────────→   Datadog / Grafana / Splunk
+  Secrets          ──────────→   Vault / AWS SSM / Azure KV
+```
+
+The YAML never changes -- only the backend behind the MCP tool interface.
+
+### Governance by Design
+
+| Enterprise Requirement | AWP Mechanism |
+|------------------------|----------------|
+| **Audit Trail** | Dual logging: JSON (machines) + Markdown (humans) per iteration |
+| **Cost Control** | Budget system: 6 hard limits (tokens, time, workers, loops, tools, depth) |
+| **Isolation** | Sandbox: subprocess, Docker, venv -- code never runs directly on the host |
+| **Compliance** | `awp validate` (R1-R26) + `awp compliance --level A2` as CI/CD gate |
+| **Versioning** | YAML in Git, `.awp.zip` for registry and distribution |
+| **Secrets** | `required_secrets` mechanism, never stored in YAML |
+| **Traceability** | Every manager decision, worker delegation, and tool call documented |
+
+### CI/CD Integration
+
+```bash
+# Pre-commit hook: workflow validation
+awp validate ./workflows/quarterly-report/
+
+# Pipeline gate: check autonomy level
+awp compliance ./workflows/quarterly-report/ --level A2
+
+# Conformance tests
+pytest conformance/ -x
+```
+
+### Industry Scenarios
+
+#### Finance
+
+```python
+AgentWorkflow(
+    inputs={"portfolio": df_portfolio, "market_data": df_market,
+            "regulation": {"framework": "Basel III"}},
+    task="VaR calculation, stress tests, regulatory report.",
+    model=MODEL, sandbox="docker",  # max isolation
+).run()
+```
+
+#### Manufacturing & IoT
+
+```python
+AgentWorkflow(
+    inputs={"sensors": df_iot},
+    task="Anomaly detection on sensor time series, predictive maintenance.",
+    model=MODEL, packages=["prophet", "scikit-learn"],
+    max_wall_time=120,  # time-critical
+).run()
+```
+
+#### Healthcare
+
+```python
+AgentWorkflow(
+    inputs={"study_data": df_clinical,
+            "protocol": {"phase": "III", "endpoints": ["primary", "secondary"]}},
+    task="Statistical analysis, subgroup analyses, safety report.",
+    model=MODEL, sandbox="docker", packages=["scipy", "lifelines"],
+).run()
+```
+
+### Workspace Artifacts (Audit Trail)
+
+Every run produces complete documentation:
+
+```
+output_dir/
++-- workspace/
+|   +-- inputs/                     # Prepared inputs
+|   +-- input_manifest.json         # Metadata for all inputs
+|   +-- runs/{run_id}/
+|       +-- RUN_SUMMARY.md          # Human-readable summary
+|       +-- run_manifest.json       # Run configuration
+|       +-- iterations/
+|       |   +-- 001/
+|       |   |   +-- ITERATION_SUMMARY.md
+|       |   |   +-- manager_decision.json    # Raw manager decision
+|       |   |   +-- budget_snapshot.json     # Budget after iteration
+|       |   |   +-- delegations/
+|       |   |       +-- worker_a/
+|       |   |           +-- envelope.json    # Worker assignment
+|       |   |           +-- result.json      # Worker result
+|       |   |           +-- tool_calls.json  # Executed tools
+|       |   |           +-- RESULT.md        # Human-readable
+|       |   +-- 002/, 003/, ...
+|       +-- history/
+|       |   +-- rolling_summary.json         # Context management
+|       +-- artifacts/
+|           +-- skills/                      # Generated skills
+|           +-- tools/                       # Tool calls
++-- output/                                  # Final output files
+```
+
+---
+
+## 4. Infrastructure Benchmarking
+
+<p align="center">
+  <img src="assets/benchmark-framework.svg" alt="AWP as Benchmark Framework" width="100%"/>
+</p>
+
+### The Core Idea: The Workflow Is the Benchmark
+
+Because AWP separates workflow definition from infrastructure, organizations can **run identical agent workflows on different backends** and compare results objectively. No synthetic benchmarks, no framework bias -- real agents, real tasks, different backends.
+
+### What Can Be Benchmarked
+
+| Infrastructure Component | How AWP Benchmarks | Example |
+|--------------------------|-------------------|---------|
+| **LLM Providers** | Same workflow, different models | Claude vs. GPT-4o vs. Llama: quality, speed, cost |
+| **Vector Databases** | Same RAG workflow, different `memory.search` backends | Pinecone vs. Weaviate vs. pgvector: recall, latency |
+| **Sandbox Technologies** | Same code-mode workflow, different sandboxes | subprocess vs. Docker vs. venv: startup time, isolation |
+| **Observability Platforms** | Same workflow, different tracing backends | Datadog vs. Grafana: overhead, completeness |
+| **Orchestration Runtimes** | Same YAML, different engines | Python runtime vs. Cloudflare Workers: throughput |
+| **Security Implementations** | Same A3 workflow, different sandbox configs | Rate limiter comparison, sandbox escape tests |
+
+### Example: Setting Up an LLM Benchmark
+
+```python
+import json
+
+MODELS = [
+    "openrouter/anthropic/claude-sonnet-4",
+    "openrouter/openai/gpt-4o",
+    "openrouter/meta-llama/llama-3.1-405b-instruct",
+    "openrouter/google/gemini-pro-1.5",
+]
+
+results = {}
+for model in MODELS:
+    result = AgentWorkflow(
+        inputs={"data": df_benchmark},
+        task="Analyze the dataset: trends, outliers, top 3 insights.",
+        model=model,
+        max_loops=5,
+        max_wall_time=300,
+        output_dir=f"./benchmark/{model.split('/')[-1]}",
+    ).run()
+
+    results[model] = {
+        "status": result["status"],
+        "confidence": result["result"].get("confidence", 0),
+        "tokens": result["metadata"]["tokens_used"],
+        "wall_time": result["metadata"]["wall_time"],
+        "loops": result["metadata"]["loops"],
+        "workers": result["metadata"]["workers_spawned"],
+    }
+
+# Result: objective comparison across identical tasks
+print(json.dumps(results, indent=2))
+```
+
+### Comparable Metrics
+
+Because all runs share the same output contract, results are directly comparable:
+
+| Metric | What It Measures | Source |
+|--------|-------------|--------|
+| **Confidence** | Result quality (self-reported) | `result.confidence` |
+| **Wall Time** | Total runtime | `metadata.wall_time` |
+| **Tokens Used** | LLM consumption | `metadata.tokens_used` |
+| **Workers Spawned** | How many agents were needed | `metadata.workers_spawned` |
+| **Loops** | Iteration efficiency | `metadata.loops` |
+| **Status** | Success rate | `result.status` |
+| **Artifacts** | What was produced | `result.artifacts` |
+
+### Community Benchmark Suites
+
+AWP enables standardized benchmark suites:
+
+```bash
+# Run all example workflows as benchmarks
+for dir in examples/0{1..6}*/; do
+    awp run "$dir" --task "Standard benchmark" \
+        --manager-model "$MODEL_A" \
+        --output-dir "./bench/model_a/$(basename $dir)"
+done
+
+# Same workflows with a different backend
+for dir in examples/0{1..6}*/; do
+    awp run "$dir" --task "Standard benchmark" \
+        --manager-model "$MODEL_B" \
+        --output-dir "./bench/model_b/$(basename $dir)"
+done
+
+# Comparison: same workflows, same tasks, different models
+```
+
+**The paradigm shift**: Instead of "who has the best framework?" the question becomes "who has the best infrastructure?" -- which is what the real competition should be.
+
+---
+
+## 5. YAML Workflows & CLI
+
+### For Reproducible, Versionable Pipelines
+
+In addition to the programmatic API (`AgentWorkflow`), AWP offers declarative YAML workflows:
+
+#### A0: Static DAG
 
 ```yaml
-orchestration:
-  engine: dag
-  graph:
-    - id: planner
-      agent: planner
-    - id: researcher
-      agent: researcher
-      depends_on: [planner]
-    - id: writer
-      agent: writer
-      depends_on: [researcher]
+awp: "1.0.0"
+name: analysis_pipeline
+execution:
+  mode: sequential
+agents:
+  - id: load_data
+    path: agents/load_data
+  - id: analyze
+    path: agents/analyze
+    depends_on: [load_data]
+  - id: report
+    path: agents/report
+    depends_on: [analyze]
+state:
+  sharing:
+    - from: load_data
+      share_output: [dataframe_path]
 ```
 
-**A1 Adaptive** -- The graph reacts to intermediate results. Conditional
-execution (`when` expressions), loops, fan-out. Agents still exist in YAML,
-but the path through the graph depends on what they find.
+#### A1: DAG with Conditions
 
 ```yaml
 - id: deep_analysis
   agent: deep_analyzer
   depends_on: [initial_scan]
-  when: "state.initial_scan.risk_score > 0.7"   # only if risk is high
+  when: "state.initial_scan.risk_score > 0.7"
 ```
 
-**A2 Delegating** -- A manager agent receives the task and **dynamically
-decides** what workers to spawn. Workers don't exist as static YAML files --
-the manager generates their instructions, skills, and tool configurations
-at runtime. This is the delegation loop engine.
+#### A2: Delegation Loop
 
 ```yaml
 orchestration:
   engine: delegation_loop
   delegation_loop:
     manager: agents/manager
+    models:
+      manager: openrouter/anthropic/claude-sonnet-4
+      worker: openrouter/anthropic/claude-sonnet-4
     budget:
       max_loops: 10
       max_total_workers: 20
-      max_wall_time: 300
+      max_total_tokens: 500000
+      max_wall_time: 600
+    worker_policy:
+      enforced:
+        sandbox: { type: subprocess }
+        forbidden_tools: [shell.execute]
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - codemode.enabled
 ```
 
-The manager generates **delegation envelopes** for each worker:
-```
-Manager: "I need market research and competitive analysis."
-  → Worker A: instructions="Research EV market size", skills=["## Market Analysis\n..."]
-  → Worker B: instructions="Analyze top 5 competitors", skills=["## Competitive Intel\n..."]
-Workers execute in parallel, report back.
-Manager evaluates: "Need deeper data on pricing." → spawns Worker C
-Manager evaluates: "Complete." → returns final result
-```
-
-**A3 Self-Tooling** -- Agents don't just use tools -- they **create** them.
-Via Code Mode's `sdk.tools.create()`, an agent reads a configuration, API spec,
-or data schema and generates specialized MCP tools on the fly. Downstream
-agents use these tools immediately. The toolchain evolves with the workflow.
-
-```python
-# Agent reads scoring config and creates tools dynamically
-for criterion in config["criteria"]:
-    await sdk.tools.create(
-        name=f"scoring.{criterion['name']}",
-        description=f"Score: {criterion['name']}",
-        parameters={"type": "object", "properties": {"value": {"type": "number"}}},
-        code=f"def handler(*, value): return {{'ok': True, 'data': {{'score': value * {criterion['weight']}}}}}"
-    )
-```
-
-**A4 Self-Organizing** -- Workers can become managers themselves. They split
-their allocated budget and delegate to sub-workers. The execution tree grows
-organically, bounded by a **budget system** that guarantees termination and
-cost control.
-
-```
-Manager (budget: 20 workers, 500k tokens)
-├── Worker A → becomes sub-manager (budget: 8 workers, 150k tokens)
-│   ├── Sub-Worker A1
-│   └── Sub-Worker A2
-├── Worker B (budget: 4 workers, 100k tokens)
-└── Worker C → becomes sub-manager (budget: 6 workers, 120k tokens)
-    └── Sub-Worker C1
-```
-
-### Safety Scales with Autonomy
-
-More autonomy demands more guardrails:
-
-| Level | Required Safety |
-|-------|----------------|
-| A0-A1 | Security + observability recommended |
-| A2 | **Budget system required** -- hard limits on loops, workers, tokens, wall time |
-| A3 | **Safety envelope required** -- manager cannot disable sandbox, override models, or remove tool restrictions |
-| A4 | **Observability required** -- full audit trail mandatory for self-organizing systems |
-
-This is enforced by the runtime, not by convention. A manager agent at A2+
-literally cannot spawn workers without a budget. A worker at A3+ literally
-cannot escape its sandbox.
+### CLI Reference
 
 ```bash
-awp compliance my-workflow/ --level A2   # Check if workflow achieves A2
+awp run <dir> --task "..."                        # Execute workflow
+awp run <dir> --task "..." --manager-model opus   # Model split
+awp validate <dir>                                # Check rules R1-R26
+awp compliance <dir> --level A2                   # Check autonomy level
+awp visualize <dir> --format mermaid              # Visualize DAG
+awp pack <dir>                                    # Create .awp.zip
+awp identity-card <agent.awp.yaml>                # Show agent capabilities
 ```
 
-### Cross-Cutting: Features Available at Every Level
+### Design Patterns
 
-Memory, communication, observability, and security are **not** gated behind
-autonomy levels. They are capabilities you add when your workflow needs them:
-
-| Capability | What it does | Available at |
-|------------|-------------|-------------|
-| Memory | Long-term, daily log, episodic, semantic | Any level |
-| Communication | Message bus with typed channels | Any level |
-| Observability | Tracing, metrics, audit trail | Any level (required at A4) |
-| Security | Circuit breaker, rate limiting, access control | Any level (required at A3+) |
-
-A single-agent A0 workflow with full observability is perfectly valid.
-A complex A4 workflow without memory is also fine -- if the task doesn't need it.
+```
+Pipeline (A0-A1)         planner -> researcher -> writer
+Fan-Out/Fan-In (A1)      splitter -> [w1, w2, w3] -> aggregator
+Conditional (A1)         analyzer -> (risk>0.7) -> deep | summary
+Manager-Worker (A2)      manager -> [workers] -> validate -> iterate
+Tool Builder (A3)        iter1: build tools -> iter2: use tools
+Self-Organizing (A4)     manager -> [sub_mgr_a, sub_mgr_b] -> recursive
+```
 
 ---
 
-## How AWP Works: The 7-Layer Model
+## 6. The Delegation Loop in Detail
 
-AWP organizes a workflow into seven layers plus security as a cross-cutting concern:
+The delegation loop is the engine behind A2-A4 -- and behind `AgentWorkflow`:
+
+<p align="center">
+  <img src="assets/delegation-loop.svg" alt="Delegation Loop" width="100%"/>
+</p>
+
+### Flow per Iteration
+
+1. **Manager receives**: Task + previous results + rolling summary + budget status
+2. **Manager decides**: `DELEGATE` (new workers) | `COMPLETE` (done) | `FAIL` (give up)
+3. **On DELEGATE**:
+   - Generate worker envelopes (instructions, skills, tools, output_contract)
+   - Start workers in parallel in sandboxes (**fan-out**)
+   - Collect results
+4. **Two-Tier Validation**:
+   - Tier 1: Deterministic (schema, required fields, types) -- always runs
+   - Tier 2: Semantic (LLM checks plausibility) -- only at low confidence
+5. **Budget check** + **stall detection**
+6. **Update rolling summary** -> next iteration
+
+### Fan-Out: Parallel Workers
+
+```json
+{
+  "decision": "delegate",
+  "delegations": [
+    { "worker_id": "trend_analysis", "instructions": "..." },
+    { "worker_id": "outlier_detection", "instructions": "..." },
+    { "worker_id": "visualization", "instructions": "..." }
+  ]
+}
+```
+
+All workers run in parallel -- like a DAG within a single iteration.
+
+### Code Mode: Full Programs Instead of Individual Tool Calls
 
 ```
- Layer 6  OBSERVABILITY     How do I monitor this?          (cross-cutting)
- Layer 5  ORCHESTRATION     How do agents coordinate?       (DAG or Delegation Loop)
- Layer 4  MEMORY & STATE    What does the workflow remember?
- Layer 3  COMMUNICATION     How do agents talk?
- Layer 2  CAPABILITIES      What can an agent do?           (tools, skills, code mode)
- Layer 1  AGENT IDENTITY    Who is this agent?
- Layer 0  MANIFEST          What is this workflow?
+Classic:    Agent -> LLM -> tool -> result -> LLM -> tool -> result  (3 roundtrips)
+Code Mode:  Agent -> LLM -> Python program -> sandbox executes      (1 roundtrip)
 ```
 
-Start at the bottom. Layer 0 and 1 are always required. Everything above is opt-in.
+Workers write complete programs with `_workspace_dir` and `_output_dir` as predefined variables.
 
----
+### Rolling Summary: Context Window Management
 
-## The Capability Stack
-
-AWP provides five pillars that enable agents at every autonomy level:
-
-### 1. Generated Skills -- Domain Knowledge on Demand
-
-Skills are Markdown files injected into the agent's system prompt. They provide
-domain expertise without manual prompt engineering:
-
-```
-skills/cloud-security/SKILL.md
-  → CIS Benchmarks, NIST 800-53 controls, severity classifications
-```
-
-At A2+ (delegation loop), the **manager generates skills dynamically** for each
-worker -- tailored to the specific subtask. No static skill files needed.
-
-### 2. MCP Tools -- The Agent's Hands
-
-Every agent can call tools: search the web, read/write files, query APIs,
-access memory. Tools are declared in YAML and resolved at runtime:
+Older iterations are compressed, latest remain in full text:
 
 ```yaml
-capabilities:
-  tools:
-    enabled: true
-    allowed: [web.search, file.read, memory.*]
-```
-
-Custom tools go into `mcp/` -- auto-discovered, auto-registered. Need to
-override a built-in? Use the same FQN.
-
-### 3. Code Mode -- Write Code, Not Tool Calls
-
-Instead of calling tools one-at-a-time (one LLM roundtrip per tool), Code Mode
-lets the agent write a program against a typed SDK. One roundtrip, ten tool calls:
-
-```
-Classic:  Agent → LLM → tool → result → LLM → tool → result → LLM     (3 roundtrips)
-Code:     Agent → LLM → code block → sandbox executes all → result     (1 roundtrip)
-```
-
-### 4. Dynamic Tool Creation -- Agents That Build Tools
-
-The most powerful capability: agents with Code Mode can **create new MCP tools
-at runtime** via `sdk.tools.create()`. A tool-builder agent reads a config and
-generates specialized tools. Downstream agents use them immediately.
-
-This is what enables **A3 Self-Tooling**: the toolchain itself becomes a
-runtime artifact, not a static dependency.
-
-### 5. Two Orchestration Engines
-
-| Engine | Autonomy | How it works |
-|--------|----------|-------------|
-| **DAG** | A0-A1 | Static graph of agents, topological execution |
-| **Delegation Loop** | A2-A4 | Manager-worker loop with dynamic orchestration |
-
-The engines compose: a DAG node can **be** a delegation loop. This gives
-predictable outer flow with adaptive inner steps.
-
-```bash
-# DAG workflow
-awp run my-pipeline/ --task "Process quarterly report"
-
-# Delegation loop with separate models for manager and workers
-awp run my-research/ --task "Analyze market trends" \
-  --manager-model openrouter/anthropic/claude-opus-4 \
-  --worker-model openrouter/anthropic/claude-sonnet-4
-```
-
-See [docs/ORCHESTRATION_ENGINES.md](docs/ORCHESTRATION_ENGINES.md) for the
-complete reference.
-
----
-
-## Design Patterns
-
-AWP workflows follow common patterns. Choose the right one for your task:
-
-**Pipeline** (A0-A1) -- Linear chain, each agent feeds the next.
-```
-planner → researcher → writer
-```
-
-**Fan-Out / Fan-In** (A1) -- Split, process in parallel, aggregate.
-```
-splitter → [worker_1, worker_2, worker_3] → aggregator
-```
-
-**Conditional Branching** (A1) -- Route based on intermediate results.
-```
-analyzer → (risk > 0.7) → deep_analysis
-         → (risk ≤ 0.7) → summary
-```
-
-**Manager-Worker** (A2) -- Manager delegates, evaluates, iterates.
-```
-manager → [worker_a, worker_b] → validate → manager → complete
-```
-
-**Tool Builder** (A3) -- Phase 1 creates tools, Phase 2 uses them.
-```
-Iter 1: manager → tool_builder (creates scoring.*)
-Iter 2: manager → [analyst_1, analyst_2] (uses scoring.*)
-Iter 3: manager → complete
-```
-
-**Self-Organizing Team** (A4) -- Manager delegates to sub-managers.
-```
-manager (budget: 20 workers)
-├── sub_mgr_a (budget: 8) → [worker_a1, worker_a2]
-├── worker_b
-└── sub_mgr_c (budget: 6) → [worker_c1]
+history:
+  rolling_summary: true       # Enabled
+  full_results_window: 3      # Last 3 iterations in full
+  persist_to_disk: true       # Older ones to disk
 ```
 
 ---
 
-## The Delegation Loop in Detail
+## 7. Budget, Safety, Validation
 
-The delegation loop is the engine that powers A2-A4. Here's how it works:
+### Budget System (Required from A2)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     DELEGATION LOOP                          │
-│                                                              │
-│   ┌──────────────┐                                           │
-│   │   MANAGER     │ ← Task + Rolling Summary + Budget Status │
-│   │   (strong     │                                          │
-│   │    model)     │ → Decision: DELEGATE / COMPLETE / FAIL   │
-│   └──────┬───────┘                                           │
-│          │ DELEGATE                                          │
-│    ┌─────┴─────┬──────────┐   Fan-Out                        │
-│    ▼           ▼          ▼                                   │
-│  Worker A   Worker B   Worker C   ← Ephemeral, dynamic       │
-│  (sonnet)   (sonnet)   (sonnet)     instructions + skills     │
-│    │           │          │                                   │
-│    └─────┬─────┴──────────┘                                  │
-│          ▼                                                   │
-│   ┌──────────────┐                                           │
-│   │  VALIDATION   │  Tier 1: Deterministic (schema, budget)  │
-│   │  (2-tier)     │  Tier 2: LLM semantic (does it make      │
-│   └──────┬───────┘          sense?)                          │
-│          ▼                                                   │
-│   Stall detection → Budget check → Next iteration            │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Budget System
-
-Every delegation loop has a hard budget. No exceptions.
+Six hard limits -- the manager cannot override them:
 
 ```yaml
 budget:
-  max_loops: 20              # Manager iterations
-  max_total_workers: 30      # Total workers spawned
+  max_loops: 20              # Delegation iterations
+  max_total_workers: 30      # Total workers
   max_total_tokens: 1000000  # LLM token cap
-  max_wall_time: 600         # Wall clock seconds
-  max_depth: 5               # Recursive delegation depth
+  max_wall_time: 600         # Seconds
+  max_tool_calls: 200        # Tool invocations
+  max_depth: 5               # Recursion depth (A4)
 ```
 
-When workers sub-delegate (A4), they split their budget. The invariant
-`sum(children) + self <= allocation` is enforced deterministically.
+On exceeding a limit: graceful termination with a report of which limit was reached.
 
-### Run Budget Limits -- Global Limits for Any Workflow
+### Run Budget Limits (for any workflow type)
 
-Independent of the delegation loop budget, AWP supports **global run budget
-limits** that apply to **any workflow type** (DAG or delegation loop). These
-limits cap total resource consumption across the entire run.
+Independent of the delegation loop budget, there are global limits:
 
 ```yaml
 orchestration:
-  engine: dag                    # Works with both dag and delegation_loop
   run_budget:
-    max_wall_time: 300           # 5 minutes total
-    max_total_tokens: 500000     # LLM token cap
-    max_tool_calls: 100          # Total tool invocations
-    max_agent_runs: 50           # Total agent executions
-    max_cost_usd: 5.0            # Estimated cost cap in USD
-    enabled_limits:              # Choose which limits are active
-      - max_wall_time
-      - max_total_tokens
-      - max_cost_usd
+    max_wall_time: 300
+    max_total_tokens: 500000
+    max_cost_usd: 5.0
+    enabled_limits: [max_wall_time, max_total_tokens]
 ```
 
-**Free models:** When using a free model (`:free` suffix), `max_cost_usd` is
-automatically disabled because there are no costs to cap. In that case
-`max_total_tokens` becomes the **primary resource limit** — tokens are the
-real constraint for free-tier models (rate limits, context windows).
+For free models (`:free` suffix), `max_cost_usd` is automatically disabled.
 
-**Selectable limits:** The `enabled_limits` field lets you activate only the
-limits you care about. During `awp run`, the **Limits Wizard** lets you
-interactively toggle each limit on/off and adjust its value:
+### Safety Envelope (Required from A3)
 
-```
-============================================================
-  Run Budget Limits
-============================================================
-
-  ⚠ Free model detected — cost limit disabled, token limit is primary.
-
-  1) [ON ] Max Wall Time          300 s    (total execution time)
-  2) [ON ] Max Tokens          500000      (LLM token cap)              ← primary limit
-  3) [OFF] Max Tool Calls         100      (total tool invocations)
-  4) [OFF] Max Agent Runs          50      (total agent executions)
-  5) [OFF] Max Cost              5.0 USD   (estimated cost cap)         ← disabled (free model)
-
-============================================================
-
-  Toggle or adjust limits? Enter numbers (e.g. 1,3) or [N]:
-```
-
-When a limit is hit, the workflow stops gracefully and reports which limit
-was exceeded in the final state under `_run_budget.exceeded`.
-
-### Safety Envelope
-
-The manager controls what workers do -- but cannot override security:
+The manager controls *what* workers do -- but not *how safely*:
 
 ```yaml
 worker_policy:
-  enforced:                         # Manager CANNOT change
+  enforced:                         # IMMUTABLE
     sandbox: {type: subprocess, max_memory_mb: 512}
     rate_limiting: {max_llm_calls_per_minute: 30}
     forbidden_tools: [shell.execute]
-  manager_controlled:               # Manager CAN set
+    codemode: {max_tools_per_worker: 10}
+  manager_controlled:               # Manager may change
     - instructions
     - skills
     - tools_allowed
@@ -439,293 +712,171 @@ worker_policy:
     - codemode.enabled
 ```
 
-The user controls the models (`--manager-model`, `--worker-model`). The
-manager cannot upgrade workers to expensive models.
+### Stall Detection
 
-### Logging -- Everything on Disk
-
-Every run produces a full audit trail:
-
-```
-workspace/runs/{run_id}/
-├── RUN_SUMMARY.md                 # Human-readable overview
-├── run_manifest.json              # Machine-readable config
-├── iterations/
-│   ├── 001/
-│   │   ├── ITERATION_SUMMARY.md   # What happened
-│   │   ├── manager_decision.json  # Manager's raw output
-│   │   ├── budget_snapshot.json   # Budget after this iteration
-│   │   └── delegations/
-│   │       └── worker_a/
-│   │           ├── envelope.json  # What the worker received
-│   │           ├── result.json    # What the worker returned
-│   │           └── RESULT.md      # Human-readable result
-├── history/
-│   ├── ROLLING_SUMMARY.md         # Keeps context window manageable
-│   └── rolling_summary.json
-└── artifacts/
-    ├── skills/                    # All generated skills
-    └── tools/                     # All generated tools
+```yaml
+termination:
+  enabled: true
+  window: 3                    # Last 3 iterations
+  min_confidence_delta: 0.05   # Minimum progress
+  action: warn_then_stop
 ```
 
-Both JSON (machines) and Markdown (humans). The rolling summary prevents
-context overflow: recent iterations in full, older ones summarized.
-
----
-
-## From Idea to Workflow -- The Red Thread
-
-AWP follows a deliberate path from abstract idea to running code:
-
-```
- Idea → Requirements → Plan → Code → Run → Share
-  abstract ─────────────────────────────── concrete
-```
-
-### Step 0: Install AWP
+### Validation Rules R1-R26
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/veegee82/agent-workflow-protocol/main/install.sh | bash
+awp validate ./my-workflow/    # Checks all 26 rules
 ```
 
-Or: `pip install awp-protocol`
+| Category | Rules | Checks |
+|-----------|--------|--------|
+| Identity | R1-R4 | Naming, uniqueness, conventions |
+| Structure | R5-R10 | Directories, config files, prompts |
+| Graph | R11-R13 | No cycles, dependencies, state sharing |
+| Tools & Output | R14-R18 | Tool references, **confidence (R17)**, JSON schema |
+| Budget & Security | R19-R26 | Budget limits, memory, namespaces, sandbox |
 
-### Step 1: Install the AWP Skill in Claude
+### Two-Tier Validation
 
-The AWP skill is a Markdown file (`skill/SKILL.md`) that turns Claude into an
-AWP workflow architect. Add it to Claude Code or Claude Desktop:
+<p align="center">
+  <img src="assets/validation-pipeline.svg" alt="Two-Tier Validation" width="100%"/>
+</p>
+
+- **Tier 1** (deterministic, always): Schema, required fields, types
+- **Tier 2** (semantic, optional): LLM checks whether the result *makes sense* -- only at low confidence
+
+---
+
+## 8. The Autonomy Spectrum (A0-A4)
+
+<p align="center">
+  <img src="assets/autonomy-spectrum.svg" alt="Autonomy Spectrum" width="100%"/>
+</p>
+
+### Five Levels, Proportional Safety
+
+| Level | Name | Orchestration | Safety |
+|-------|------|---------------|------------|
+| **A0** | Prescribed | Static DAG, fixed agents | Schema validation |
+| **A1** | Adaptive | DAG + conditions (`when`) | + state sharing validation |
+| **A2** | Delegating | Manager-worker loop, dynamic workers | + **budget (required)** |
+| **A3** | Self-Tooling | + dynamic tool creation, skill generation | + **safety envelope (required)** |
+| **A4** | Self-Organizing | + recursive delegation, sub-managers | + **full observability (required)** |
+
+### Safety Scales with Autonomy
+
+<p align="center">
+  <img src="assets/safety-scaling.svg" alt="Safety Scaling" width="100%"/>
+</p>
+
+**Core principle**: More autonomy requires proportionally more safety. An A3 workflow without a safety envelope fails the compliance check. This is by design.
 
 ```bash
-# Claude Code
-echo "Read and follow the instructions in skill/SKILL.md" >> CLAUDE.md
-
-# Or install via ClawHub
-clawhub install awp-workflow-builder
+awp compliance ./workflow/ --level A3   # Checks whether safety envelope is present
 ```
 
-### Step 2: Describe your idea
+### Cross-Cutting: Available at Every Level
 
-> "I need a research pipeline that plans, investigates, and writes articles."
+Memory, Communication, Observability, and Security are **not** tied to autonomy levels:
 
-The AI asks structured questions: agent roles, tools, data flow, autonomy level,
-memory needs. You answer or accept defaults.
-
-### Step 3: The AI builds a plan
-
-Before writing code, the AI creates a **Workflow Plan**: goal statement, agent
-roles, data flow, tool mapping, file manifest, validation preview. You confirm
-or adjust.
-
-### Step 4: The AI generates all files
-
-```
-research-pipeline/
-  workflow.awp.yaml            Manifest: 3 agents, DAG, state sharing
-  agents/
-    planner/
-      agent.awp.yaml           Agent config: model, prompt, output contract
-      agent.py                 Agent class (platform-agnostic)
-      workflow/
-        instructions/SYSTEM_PROMPT.md
-        prompt/00_INTRO.md
-        output_schema/output_schema.json
-```
-
-Every file follows the AWP spec. Every rule is validated.
-
-### Step 5: Run it
-
-```bash
-awp run research-pipeline/ --task "Research quantum computing trends"
-```
-
-Or via Python:
-
-```python
-from awp.runtime import WorkflowRunner
-
-runner = WorkflowRunner("research-pipeline")
-result = runner.run("Research quantum computing trends")
-```
-
-### Step 6: Share it
-
-```bash
-awp pack research-pipeline/              # Creates .awp.zip
-clawhub publish research-pipeline/       # Or publish to ClawHub
-```
+| Capability | Available | Required |
+|------------|-----------|---------|
+| Memory (4 tiers) | Every level | Never |
+| Message Bus | Every level | Never |
+| Observability | Every level | From A4 |
+| Security | Every level | From A3 |
 
 ---
 
-## LLM-Planned Workflows: Everything is Generated
+## 9. The 7-Layer Model
 
-The most powerful aspect of AWP: **the entire capability stack is generated by
-the LLM itself**. Skills, tools, agent code -- all produced by the same AI that
-plans the workflow.
+<p align="center">
+  <img src="assets/7-layer-model.svg" alt="7-Layer Model" width="100%"/>
+</p>
 
-```
-  LLM receives: "Build a compliance audit for AWS"
+Every AWP workflow is organized into 7 semantic layers:
 
-  LLM generates:
-  ┌──────────────────────────────────────────────────────────────┐
-  │  Skills → skills/aws-compliance/SKILL.md                     │
-  │           CIS Benchmarks, NIST controls, remediation         │
-  │                                                              │
-  │  Tools  → mcp/aws_scanner.py                                 │
-  │           aws.scan_security_groups, aws.check_iam_policies   │
-  │                                                              │
-  │  Agents → agents/scanner/ (Code Mode, uses dynamic tools)    │
-  │           agents/analyzer/ (correlates findings)              │
-  │           agents/reporter/ (produces executive summary)       │
-  │                                                              │
-  │  Orchestration → workflow.awp.yaml                           │
-  │                  DAG or delegation loop, based on complexity  │
-  └──────────────────────────────────────────────────────────────┘
-```
+| Layer | Name | Question | Required |
+|-------|------|-------|---------|
+| 0 | **Manifest** | What is this workflow? | Always |
+| 1 | **Agent Identity** | Who is this agent? | Always |
+| 2 | **Capabilities** | What can it do? (Tools, Skills, Code Mode) | Optional |
+| 3 | **Communication** | How do agents talk? (Message Bus) | Optional |
+| 4 | **Memory & State** | What does the system remember? | Optional |
+| 5 | **Orchestration** | In what order? (DAG / Loop) | Multi-Agent |
+| 6 | **Observability** | How do I monitor? (Tracing, Audit) | Optional (A4: required) |
+| | **Security** | Cross-cutting across all layers | Optional (A3: required) |
 
-The LLM decides the **architecture** (A0 pipeline or A2 delegation loop),
-generates the **capabilities** (skills, tools, code), and produces a
-**validated, runnable workflow**. One intelligence plans the entire system --
-there is no integration gap.
+**Opt-in principle**: Only layers 0+1 are required. A minimal workflow needs 5 lines of YAML. Complexity is only introduced where it's needed.
+
+For the complete theoretical derivation of all concepts (mental models, emergence theory, cybernetics parallels, analogies) see the [Theory Reference (README_NERD.md)](README_NERD.md).
 
 ---
 
-## Platform Independence
+## 10. Repository & Links
 
-AWP separates **what** a workflow does from **how** it runs:
-
-```python
-from awp.agent import AWPAgent
-
-class Agent(AWPAgent):
-    @property
-    def name(self) -> str:
-        return "researcher"
-
-    def run(self, task: str, state: dict) -> dict:
-        return {self.name: {"findings": "...", "confidence": 0.85}}
-```
-
-| Runtime | Language | Deployment | Best for |
-|---------|----------|-----------|----------|
-| **Standalone** (`awp-protocol`) | Python | Local / Server | Development, prototyping |
-| **Cloudflare Workers** | TypeScript | Edge (serverless) | Production, global scale |
-
-Third-party platforms provide their own adapters.
-
----
-
-## Enterprise Integration
-
-AWP doesn't replace your infrastructure -- it **plugs into it**:
-
-```
-  AWP Workflow (portable)          Your Infrastructure (custom)
-  ─────────────────────           ──────────────────────────────
-  memory.write  ──────────────→   Pinecone / Weaviate / pgvector
-  web.search    ──────────────→   Internal search API
-  custom.erp    ──────────────→   SAP / Salesforce
-  Skills (.md)  ──────────────→   Confluence export
-  Tracing       ──────────────→   Datadog / Grafana
-```
-
-Override any built-in tool by dropping a Python file into `mcp/`. Inject
-company knowledge via `skills/`. Route observability to your OTEL collector.
-Manage secrets via `secrets.yaml`. The YAML never changes -- only the backend.
-
-### Competitive Benchmarking: Same Workflow, Different Backends
-
-Because AWP separates the workflow definition from the infrastructure, companies
-can **benchmark their technologies against each other using identical agentic
-workflows**.
-
-A memory vendor builds a better vector search? Swap the `memory.search` MCP
-tool and run the same workflow. An observability platform claims lower overhead?
-Plug it in and compare. A new LLM provider is faster? Change the model and
-measure.
-
-```
-  Same workflow.awp.yaml                Different backends
-  ─────────────────────                 ──────────────────────
-                                        Run A: Pinecone + GPT-4o
-  research-pipeline/                →   Run B: Weaviate + Claude Sonnet
-    planner → researcher → writer       Run C: pgvector + Llama 3
-                                        Run D: Qdrant + Gemini Pro
-```
-
-This creates a **shared evaluation framework** for the entire AI infrastructure
-ecosystem:
-
-| What you're building | How AWP helps |
-|---------------------|---------------|
-| **Memory / RAG** | Benchmark your vector DB against competitors using real multi-agent workflows, not synthetic queries |
-| **LLM Providers** | Compare model quality, speed, and cost on identical agent tasks with identical prompts |
-| **Observability** | Prove your tracing adds less overhead by running the same workflow with different collectors |
-| **Orchestration** | Show your runtime is faster/cheaper by executing the same AWP workflow on your platform |
-| **Tool Platforms** | Demonstrate your MCP tool implementations outperform alternatives on the same agent graph |
-| **Security** | Validate your sandbox/rate-limiter catches more edge cases using standardized A3/A4 workflows |
-
-The key insight: **the workflow is the benchmark**. When everyone uses the same
-portable format, the competition shifts from "who has the best framework" to
-"who has the best infrastructure" -- which is where the real value lies.
-
-Companies can publish their AWP-compatible implementations, and the community
-can run standardized benchmark suites to compare them objectively. No vendor
-lock-in, no synthetic benchmarks, no framework-specific bias. Just the same
-agents, the same tasks, the same output contracts -- different backends.
-
----
-
-## Repository Structure
+### Directory Structure
 
 ```
 agent-workflow-protocol/
-  install.sh                  Linux/macOS installer
-  docs/                       Complete protocol reference
-  spec/                       Normative specification
-  schemas/                    JSON Schemas for validation
-  examples/                   Runnable workflows (A0-A4)
-    01-hello-world/           A0 Prescribed: single agent greeting
-    02-research-pipeline/     A1 Adaptive: 3-agent DAG (planner→researcher→writer)
-    03-chat-team/             A1 + Communication: message bus between agents
-    04-memory-workflow/        A1 + Memory: long-term memory persistence
-    05-observable-analytics/   A1 + Observability: tracing, metrics, audit
-    06-enterprise/             A1 + All Features: security, skills, code mode
-    07-dynamic-tools/          A3 Self-Tooling: dynamic tool creation via DAG
-    08-delegation-loop/        A2 Delegating: manager-worker delegation loop
-    09-recursive-delegation/   A4 Self-Organizing: recursive delegation + budget
-    10-skill-and-tool-gen/     A3 Self-Tooling: skill generation in delegation loop
-    11-tool-creation-loop/     A3 Self-Tooling: scoring tool creation + usage
-    12-full-autonomy-test/     A4 Full Test: tools + skills + multi-iteration + budget
-  skill/                      AWP Skill for AI assistants
+  assets/                     SVG diagrams (this document)
+  docs/                       Complete protocol reference (16 files)
+  spec/versions/1.0/          Normative specification (RFC 2119)
+  schemas/                    JSON Schemas
+  examples/                   12 workflows (A0-A4) + Jupyter
+    01-hello-world/           A0: Minimal workflow
+    02-research-pipeline/     A1: 3-agent DAG with state sharing
+    03-chat-team/             A1 + Message Bus
+    04-memory-workflow/       A1 + 4-tier memory
+    05-observable-analytics/  A1 + Tracing & Metrics
+    06-enterprise/            A1 + All features
+    07-dynamic-tools/         A3: Dynamic Tool Creation
+    08-delegation-loop/       A2: Manager-Worker Loop
+    09-recursive-delegation/  A4: Recursive Sub-Managers
+    10-skill-and-tool-gen/    A3: Skill Generation
+    11-tool-creation-loop/    A3: Iterative Tool Creation
+    12-full-autonomy-test/    A4: Full A4 Test
+    jupyter/                  Programmatic API (Notebook)
+  skill/                      AWP Skill for Claude
   reference/python/           Python reference implementation
-  conformance/                Conformance test suite
+  conformance/                Conformance tests
+  README_NERD.md              Theory reference
 ```
 
-## CLI Reference
+### SVG Diagrams (assets/)
 
-```bash
-awp run <dir> --task "..."                          # Run workflow (DAG or delegation loop)
-awp run <dir> --task "..." --manager-model opus     # Delegation loop with model split
-awp validate <dir>                                  # Validate structure (R1-R26)
-awp compliance <dir> --level A2                     # Check autonomy level
-awp visualize <dir> --format mermaid                # Visualize agent graph
-awp pack <dir>                                      # Pack as .awp.zip
-awp identity-card <agent.awp.yaml>                  # Show agent capabilities
-```
+| File | Content |
+|-------|--------|
+| `quickstart-flow.svg` | 3-step quickstart |
+| `data-science-workflow.svg` | Data science integration |
+| `enterprise-architecture.svg` | Enterprise architecture |
+| `benchmark-framework.svg` | Infrastructure benchmarking |
+| `7-layer-model.svg` | 7-layer model |
+| `autonomy-spectrum.svg` | A0-A4 spectrum |
+| `safety-scaling.svg` | Safety scales with autonomy |
+| `delegation-loop.svg` | Delegation loop flow |
+| `dag-engine.svg` | DAG engine |
+| `recursive-delegation.svg` | Recursive delegation (A4) |
+| `validation-pipeline.svg` | Two-tier validation |
+| `agent-output-contract.svg` | Output contract |
+| `concept-map.svg` | Concept map |
+| `impact-levels.svg` | Impact analysis |
+| `generation-pipeline.svg` | Workflow generation pipeline |
+| `architecture-selection.svg` | LLM architecture selection tree |
 
-## Quick Links
+### Quick Links
 
-| Resource | Start here if you... |
-|----------|---------------------|
-| [Docs](docs/) | Want the complete protocol reference |
-| [Quickstart](primer/quickstart.md) | Want to build your first workflow in 5 minutes |
-| [Orchestration Engines](docs/ORCHESTRATION_ENGINES.md) | Want to understand DAG vs Delegation Loop |
-| [Specification](spec/versions/1.0/spec.md) | Need the normative technical specification |
-| [Examples](examples/) | Want to see complete, runnable workflows |
-| [Skill](skill/SKILL.md) | Want AI to generate workflows for you |
-| [FAQ](primer/faq.md) | Have questions |
+| Resource | When you... |
+|-----------|------------|
+| [Docs](docs/) | need the complete protocol reference |
+| [Workflow Generation](README_GENERATION.md) | want to understand how skills generate workflows |
+| [Theory Reference](README_NERD.md) | want to understand the conceptual foundations |
+| [Orchestration Engines](docs/ORCHESTRATION_ENGINES.md) | want to compare DAG vs. Delegation Loop |
+| [Specification](spec/versions/1.0/spec.md) | want to read the normative specification |
+| [Examples](examples/) | want to see runnable workflows |
+| [Jupyter Notebook](examples/jupyter/) | want to try the programmatic API |
+| [Skill](skill/SKILL.md) | want to generate workflows with Claude |
 
-## License
+### License
 
 MIT License. See [LICENSE](LICENSE).

@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <!-- Chain: Yellow/amber -->
+    <linearGradient id="chain-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2a2210"/>
+      <stop offset="100%" style="stop-color:#1a1608"/>
+    </linearGradient>
+    <linearGradient id="chain-node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5a623"/>
+      <stop offset="100%" style="stop-color:#d4881a"/>
+    </linearGradient>
+    <!-- Parallel: Blue -->
+    <linearGradient id="par-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a1a30"/>
+      <stop offset="100%" style="stop-color:#06101e"/>
+    </linearGradient>
+    <linearGradient id="par-node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4fc3f7"/>
+      <stop offset="100%" style="stop-color:#2196f3"/>
+    </linearGradient>
+    <linearGradient id="par-worker" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#81d4fa"/>
+      <stop offset="100%" style="stop-color:#4fc3f7"/>
+    </linearGradient>
+    <!-- Nested: Purple -->
+    <linearGradient id="nest-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1040"/>
+      <stop offset="100%" style="stop-color:#0e0a2a"/>
+    </linearGradient>
+    <linearGradient id="nest-node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a29bfe"/>
+      <stop offset="100%" style="stop-color:#6c5ce7"/>
+    </linearGradient>
+    <linearGradient id="nest-sub" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d4b0ff"/>
+      <stop offset="100%" style="stop-color:#a29bfe"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arr-yellow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f5a623"/>
+    </marker>
+    <marker id="arr-blue" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4fc3f7"/>
+    </marker>
+    <marker id="arr-purple" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#a29bfe"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="400" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="500" y="35" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Agent Composition Patterns</text>
+  <text x="500" y="55" text-anchor="middle" fill="#888" font-size="13">Three fundamental ways to compose agent workflows</text>
+
+  <!-- ===== CHAIN PATTERN ===== -->
+  <rect x="18" y="72" width="310" height="310" rx="10" fill="url(#chain-bg)" filter="url(#shadow)"/>
+  <text x="173" y="100" text-anchor="middle" fill="#f5a623" font-size="16" font-weight="bold">Chain (Sequential)</text>
+  <text x="173" y="118" text-anchor="middle" fill="#a07818" font-size="11">Each agent feeds the next</text>
+
+  <!-- Node A -->
+  <rect x="118" y="140" width="110" height="42" rx="8" fill="url(#chain-node)" filter="url(#shadow)"/>
+  <text x="173" y="166" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">A</text>
+
+  <line x1="173" y1="182" x2="173" y2="216" stroke="#f5a623" stroke-width="2" marker-end="url(#arr-yellow)"/>
+
+  <!-- Node B -->
+  <rect x="118" y="219" width="110" height="42" rx="8" fill="url(#chain-node)" filter="url(#shadow)"/>
+  <text x="173" y="245" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">B</text>
+
+  <line x1="173" y1="261" x2="173" y2="295" stroke="#f5a623" stroke-width="2" marker-end="url(#arr-yellow)"/>
+
+  <!-- Node C -->
+  <rect x="118" y="298" width="110" height="42" rx="8" fill="url(#chain-node)" filter="url(#shadow)"/>
+  <text x="173" y="324" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">C</text>
+
+  <text x="173" y="362" text-anchor="middle" fill="#a07818" font-size="11">A0 -- Fixed pipeline</text>
+
+  <!-- ===== PARALLEL PATTERN ===== -->
+  <rect x="345" y="72" width="310" height="310" rx="10" fill="url(#par-bg)" filter="url(#shadow)"/>
+  <text x="500" y="100" text-anchor="middle" fill="#4fc3f7" font-size="16" font-weight="bold">Parallel (Fan-out / Fan-in)</text>
+  <text x="500" y="118" text-anchor="middle" fill="#2a7aaa" font-size="11">Concurrent execution with aggregation</text>
+
+  <!-- Dispatcher -->
+  <rect x="435" y="135" width="130" height="38" rx="8" fill="url(#par-node)" filter="url(#shadow)"/>
+  <text x="500" y="159" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Dispatcher</text>
+
+  <!-- Fan-out arrows -->
+  <line x1="465" y1="173" x2="410" y2="215" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+  <line x1="500" y1="173" x2="500" y2="215" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+  <line x1="535" y1="173" x2="590" y2="215" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+  <!-- Workers -->
+  <rect x="370" y="218" width="80" height="36" rx="6" fill="url(#par-worker)" filter="url(#shadow)"/>
+  <text x="410" y="241" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">W1</text>
+
+  <rect x="460" y="218" width="80" height="36" rx="6" fill="url(#par-worker)" filter="url(#shadow)"/>
+  <text x="500" y="241" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">W2</text>
+
+  <rect x="550" y="218" width="80" height="36" rx="6" fill="url(#par-worker)" filter="url(#shadow)"/>
+  <text x="590" y="241" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">W3</text>
+
+  <!-- Fan-in arrows -->
+  <line x1="410" y1="254" x2="465" y2="294" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+  <line x1="500" y1="254" x2="500" y2="294" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+  <line x1="590" y1="254" x2="535" y2="294" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+  <!-- Aggregator -->
+  <rect x="435" y="297" width="130" height="38" rx="8" fill="url(#par-node)" filter="url(#shadow)"/>
+  <text x="500" y="321" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Aggregator</text>
+
+  <text x="500" y="362" text-anchor="middle" fill="#2a7aaa" font-size="11">A1 -- Branching DAG</text>
+
+  <!-- ===== NESTED PATTERN ===== -->
+  <rect x="672" y="72" width="310" height="310" rx="10" fill="url(#nest-bg)" filter="url(#shadow)"/>
+  <text x="827" y="100" text-anchor="middle" fill="#a29bfe" font-size="16" font-weight="bold">Nested (Hierarchical)</text>
+  <text x="827" y="118" text-anchor="middle" fill="#6c5ce7" font-size="11">Recursive delegation with budget</text>
+
+  <!-- Manager -->
+  <rect x="767" y="135" width="120" height="38" rx="8" fill="url(#nest-node)" filter="url(#shadow)"/>
+  <text x="827" y="159" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Manager</text>
+
+  <!-- Arrow to Sub-Manager -->
+  <line x1="827" y1="173" x2="827" y2="211" stroke="#a29bfe" stroke-width="2" marker-end="url(#arr-purple)"/>
+
+  <!-- Sub-Manager -->
+  <rect x="762" y="214" width="130" height="38" rx="8" fill="url(#nest-sub)" filter="url(#shadow)"/>
+  <text x="827" y="238" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Sub-Manager</text>
+
+  <!-- Fan-out to workers -->
+  <line x1="800" y1="252" x2="762" y2="290" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <line x1="854" y1="252" x2="892" y2="290" stroke="#a29bfe" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+
+  <!-- Workers -->
+  <rect x="720" y="293" width="84" height="36" rx="6" fill="url(#nest-node)" filter="url(#shadow)"/>
+  <text x="762" y="316" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Worker 1</text>
+
+  <rect x="850" y="293" width="84" height="36" rx="6" fill="url(#nest-node)" filter="url(#shadow)"/>
+  <text x="892" y="316" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Worker 2</text>
+
+  <text x="827" y="362" text-anchor="middle" fill="#6c5ce7" font-size="11">A2-A4 -- Dynamic hierarchy</text>
+</svg>

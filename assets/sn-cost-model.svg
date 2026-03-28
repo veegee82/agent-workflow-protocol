@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 450" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a1a"/>
+      <stop offset="100%" style="stop-color:#0d0d24"/>
+    </linearGradient>
+    <linearGradient id="fixedGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2e7d32"/>
+      <stop offset="100%" style="stop-color:#1b5e20"/>
+    </linearGradient>
+    <linearGradient id="varGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f57c00"/>
+      <stop offset="100%" style="stop-color:#e65100"/>
+    </linearGradient>
+    <linearGradient id="scaleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1565c0"/>
+      <stop offset="100%" style="stop-color:#0d47a1"/>
+    </linearGradient>
+    <linearGradient id="barA0" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4fc3f7"/>
+      <stop offset="100%" style="stop-color:#0288d1"/>
+    </linearGradient>
+    <linearGradient id="barA1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4db6ac"/>
+      <stop offset="100%" style="stop-color:#00897b"/>
+    </linearGradient>
+    <linearGradient id="barA2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffb74d"/>
+      <stop offset="100%" style="stop-color:#f57c00"/>
+    </linearGradient>
+    <linearGradient id="barA3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff8a65"/>
+      <stop offset="100%" style="stop-color:#e64a19"/>
+    </linearGradient>
+    <linearGradient id="barA4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ce93d8"/>
+      <stop offset="100%" style="stop-color:#7b1fa2"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.4"/>
+    </filter>
+    <filter id="shadowSm">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="450" rx="12" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="500" y="38" text-anchor="middle" fill="#e0e0e0" font-size="20" font-weight="bold">Cost Dimensions in Agent Workflows</text>
+  <text x="500" y="56" text-anchor="middle" fill="#888" font-size="11">Understanding fixed, variable, and scaling cost characteristics across autonomy levels</text>
+
+  <!-- === COLUMN 1: Fixed Costs === -->
+  <rect x="30" y="75" width="290" height="350" rx="10" fill="none" stroke="#43a047" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <!-- Column header -->
+  <rect x="30" y="75" width="290" height="42" rx="10" fill="url(#fixedGrad)" filter="url(#shadow)"/>
+  <rect x="30" y="100" width="290" height="17" fill="url(#fixedGrad)"/>
+  <text x="175" y="101" text-anchor="middle" fill="#fff" font-size="15" font-weight="bold">Fixed Costs</text>
+  <text x="175" y="130" text-anchor="middle" fill="#81c784" font-size="11">One-time design &amp; setup</text>
+
+  <!-- Items -->
+  <rect x="50" y="150" width="250" height="50" rx="8" fill="#2e7d32" fill-opacity="0.15" stroke="#43a047" stroke-width="1" stroke-opacity="0.3"/>
+  <text x="175" y="172" text-anchor="middle" fill="#a5d6a7" font-size="13" font-weight="bold">Workflow Definition</text>
+  <text x="175" y="190" text-anchor="middle" fill="#81c784" font-size="10">YAML schema, DAG structure</text>
+
+  <rect x="50" y="215" width="250" height="50" rx="8" fill="#2e7d32" fill-opacity="0.15" stroke="#43a047" stroke-width="1" stroke-opacity="0.3"/>
+  <text x="175" y="237" text-anchor="middle" fill="#a5d6a7" font-size="13" font-weight="bold">Agent Design</text>
+  <text x="175" y="255" text-anchor="middle" fill="#81c784" font-size="10">Prompts, roles, output contracts</text>
+
+  <rect x="50" y="280" width="250" height="50" rx="8" fill="#2e7d32" fill-opacity="0.15" stroke="#43a047" stroke-width="1" stroke-opacity="0.3"/>
+  <text x="175" y="302" text-anchor="middle" fill="#a5d6a7" font-size="13" font-weight="bold">Validation Rules</text>
+  <text x="175" y="320" text-anchor="middle" fill="#81c784" font-size="10">R1-R26, schema validation</text>
+
+  <!-- Cost indicator -->
+  <rect x="100" y="355" width="150" height="28" rx="6" fill="#43a047" fill-opacity="0.2"/>
+  <text x="175" y="374" text-anchor="middle" fill="#66bb6a" font-size="12" font-weight="bold">$ Predictable</text>
+
+  <!-- === COLUMN 2: Variable Costs === -->
+  <rect x="355" y="75" width="290" height="350" rx="10" fill="none" stroke="#f57c00" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <rect x="355" y="75" width="290" height="42" rx="10" fill="url(#varGrad)" filter="url(#shadow)"/>
+  <rect x="355" y="100" width="290" height="17" fill="url(#varGrad)"/>
+  <text x="500" y="101" text-anchor="middle" fill="#fff" font-size="15" font-weight="bold">Variable Costs</text>
+  <text x="500" y="130" text-anchor="middle" fill="#ffb74d" font-size="11">Per-execution, budget-bounded</text>
+
+  <rect x="375" y="150" width="250" height="50" rx="8" fill="#e65100" fill-opacity="0.15" stroke="#f57c00" stroke-width="1" stroke-opacity="0.3"/>
+  <text x="500" y="172" text-anchor="middle" fill="#ffcc80" font-size="13" font-weight="bold">LLM Tokens</text>
+  <text x="500" y="190" text-anchor="middle" fill="#ffb74d" font-size="10">Bounded by max_total_tokens</text>
+
+  <rect x="375" y="215" width="250" height="50" rx="8" fill="#e65100" fill-opacity="0.15" stroke="#f57c00" stroke-width="1" stroke-opacity="0.3"/>
+  <text x="500" y="237" text-anchor="middle" fill="#ffcc80" font-size="13" font-weight="bold">Compute Time</text>
+  <text x="500" y="255" text-anchor="middle" fill="#ffb74d" font-size="10">Bounded by max_wall_time</text>
+
+  <rect x="375" y="280" width="250" height="50" rx="8" fill="#e65100" fill-opacity="0.15" stroke="#f57c00" stroke-width="1" stroke-opacity="0.3"/>
+  <text x="500" y="302" text-anchor="middle" fill="#ffcc80" font-size="13" font-weight="bold">Tool Calls</text>
+  <text x="500" y="320" text-anchor="middle" fill="#ffb74d" font-size="10">Bounded by max_loops, workers</text>
+
+  <rect x="425" y="355" width="150" height="28" rx="6" fill="#f57c00" fill-opacity="0.2"/>
+  <text x="500" y="374" text-anchor="middle" fill="#ffb74d" font-size="12" font-weight="bold">$$ Bounded</text>
+
+  <!-- === COLUMN 3: Scaling by Autonomy === -->
+  <rect x="680" y="75" width="290" height="350" rx="10" fill="none" stroke="#1e88e5" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <rect x="680" y="75" width="290" height="42" rx="10" fill="url(#scaleGrad)" filter="url(#shadow)"/>
+  <rect x="680" y="100" width="290" height="17" fill="url(#scaleGrad)"/>
+  <text x="825" y="101" text-anchor="middle" fill="#fff" font-size="15" font-weight="bold">Scaling by Autonomy</text>
+  <text x="825" y="130" text-anchor="middle" fill="#64b5f6" font-size="11">Cost envelope grows with autonomy level</text>
+
+  <!-- Bar chart: ascending steps -->
+  <!-- Base line -->
+  <line x1="710" y1="380" x2="950" y2="380" stroke="#555" stroke-width="1"/>
+
+  <!-- A0 bar -->
+  <rect x="720" y="340" width="36" height="40" rx="4" fill="url(#barA0)" filter="url(#shadowSm)"/>
+  <text x="738" y="396" text-anchor="middle" fill="#4fc3f7" font-size="10" font-weight="bold">A0</text>
+  <text x="738" y="335" text-anchor="middle" fill="#4fc3f7" font-size="8">Fixed</text>
+
+  <!-- A1 bar -->
+  <rect x="768" y="310" width="36" height="70" rx="4" fill="url(#barA1)" filter="url(#shadowSm)"/>
+  <text x="786" y="396" text-anchor="middle" fill="#4db6ac" font-size="10" font-weight="bold">A1</text>
+  <text x="786" y="305" text-anchor="middle" fill="#4db6ac" font-size="8">Near-fixed</text>
+
+  <!-- A2 bar -->
+  <rect x="816" y="265" width="36" height="115" rx="4" fill="url(#barA2)" filter="url(#shadowSm)"/>
+  <text x="834" y="396" text-anchor="middle" fill="#ffb74d" font-size="10" font-weight="bold">A2</text>
+  <text x="834" y="260" text-anchor="middle" fill="#ffb74d" font-size="8">Bounded</text>
+
+  <!-- A3 bar -->
+  <rect x="864" y="215" width="36" height="165" rx="4" fill="url(#barA3)" filter="url(#shadowSm)"/>
+  <text x="882" y="396" text-anchor="middle" fill="#ff8a65" font-size="10" font-weight="bold">A3</text>
+  <text x="882" y="210" text-anchor="middle" fill="#ff8a65" font-size="8">Higher</text>
+
+  <!-- A4 bar -->
+  <rect x="912" y="165" width="36" height="215" rx="4" fill="url(#barA4)" filter="url(#shadowSm)"/>
+  <text x="930" y="396" text-anchor="middle" fill="#ce93d8" font-size="10" font-weight="bold">A4</text>
+  <text x="930" y="160" text-anchor="middle" fill="#ce93d8" font-size="8">Highest</text>
+
+  <!-- Ascending arrow -->
+  <line x1="715" y1="150" x2="955" y2="150" stroke="#64b5f6" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <text x="825" y="145" text-anchor="middle" fill="#64b5f6" font-size="9">All bounded by safety envelope</text>
+
+  <!-- Bottom label -->
+  <text x="500" y="440" text-anchor="middle" fill="#666" font-size="11">AWP ensures all variable costs remain within pre-defined budget envelopes at every autonomy level</text>
+</svg>

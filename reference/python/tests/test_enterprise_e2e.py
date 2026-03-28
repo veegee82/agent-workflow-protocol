@@ -6,18 +6,19 @@ tool discovery, and a mocked full workflow run.
 
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
 from awp.parser import parse_manifest, parse_agent
 from awp.runtime.expressions import safe_eval
 from awp.runtime.message_bus import MessageBus
-from awp.runtime.observability import ObservabilityContext, Tracer, MetricsCollector, AuditTrail
-from awp.runtime.security import SecurityContext, AccessController
+from awp.runtime.observability import Tracer, MetricsCollector, AuditTrail
+from awp.runtime.security import AccessController
 from awp.runtime.state_persistence import StatePersistence
 from awp.runtime.tools import ToolRegistry
 
-ENTERPRISE_DIR = Path(__file__).parent.parent.parent.parent / "examples" / "06-enterprise"
+ENTERPRISE_DIR = (
+    Path(__file__).parent.parent.parent.parent / "examples" / "06-enterprise"
+)
 
 
 @pytest.fixture
@@ -39,13 +40,19 @@ def agents():
 class TestEnterpriseParsing:
     @pytest.mark.skipif(not ENTERPRISE_DIR.exists(), reason="Enterprise test not found")
     def test_manifest_parses(self, manifest):
-        assert manifest.workflow.name == "enterprise_feature_test"
+        assert manifest.workflow.name == "enterprise"
         assert manifest.workflow.version == "1.0.0"
 
     @pytest.mark.skipif(not ENTERPRISE_DIR.exists(), reason="Enterprise test not found")
     def test_all_agents_parse(self, agents):
         assert len(agents) == 5
-        expected = {"data_collector", "code_executor", "analyst", "communicator", "report_writer"}
+        expected = {
+            "data_collector",
+            "code_executor",
+            "analyst",
+            "communicator",
+            "report_writer",
+        }
         assert set(agents.keys()) == expected
 
     @pytest.mark.skipif(not ENTERPRISE_DIR.exists(), reason="Enterprise test not found")
@@ -62,10 +69,8 @@ class TestEnterpriseParsing:
         for node in manifest.orchestration.graph:
             if node.id == "report_writer":
                 # Check depends_on for when clause
-                found_when = False
                 for dep in node.depends_on:
                     if hasattr(dep, "when") and dep.when:
-                        found_when = True
                         assert "risk_score" in dep.when
                 break
 
@@ -147,7 +152,7 @@ class TestEnterpriseToolDiscovery:
         assert "web.search" in names
 
         # Custom tool from mcp/
-        assert "custom.fetch_market_data" in names
+        assert "custom.analyze_risk" in names
 
     @pytest.mark.skipif(not ENTERPRISE_DIR.exists(), reason="Enterprise test not found")
     def test_tool_count(self):
@@ -170,7 +175,9 @@ class TestEnterpriseAccessControl:
 class TestEnterpriseMessageBus:
     def test_communicator_can_broadcast(self):
         bus = MessageBus()
-        msg_id = bus.broadcast("communicator", {"status": "all_clear"}, channel="alerts")
+        msg_id = bus.broadcast(
+            "communicator", {"status": "all_clear"}, channel="alerts"
+        )
         assert msg_id
 
         # Other agents see the broadcast
@@ -210,7 +217,9 @@ class TestEnterpriseObservability:
         assert audit_path.exists()
 
         # Verify audit chain
-        entries = [json.loads(l) for l in audit_path.read_text().strip().split("\n")]
+        entries = [
+            json.loads(line) for line in audit_path.read_text().strip().split("\n")
+        ]
         assert AuditTrail.verify_chain(entries) is True
         assert len(entries) == 8  # start + 3*(start+complete) + complete
 

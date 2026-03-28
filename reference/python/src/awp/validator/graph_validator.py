@@ -11,6 +11,7 @@ from ..models.orchestration import AWPOrchestrationConfig, ConditionalDependency
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     valid: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -35,7 +36,9 @@ def validate_graph(config: AWPOrchestrationConfig) -> ValidationResult:
     warnings: list[str] = []
 
     if not config.graph:
-        return ValidationResult(valid=False, errors=["Graph must have at least one node"])
+        return ValidationResult(
+            valid=False, errors=["Graph must have at least one node"]
+        )
 
     # Collect all node IDs
     node_ids = [node.id for node in config.graph]
@@ -59,10 +62,7 @@ def validate_graph(config: AWPOrchestrationConfig) -> ValidationResult:
                 )
 
     # R7: Cycle detection (Kahn's algorithm)
-    loop_agents = {
-        node.id for node in config.graph
-        if node.loop and node.loop.enabled
-    }
+    loop_agents = {node.id for node in config.graph if node.loop and node.loop.enabled}
     cycle_errors = _detect_cycles(config.graph, loop_agents)
     errors.extend(cycle_errors)
 

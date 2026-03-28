@@ -40,7 +40,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ..models.orchestration import DelegationLoopConfig, DelegationBudget
 from .agent import StandaloneAgent
@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 class BudgetSnapshot:
     """Tracks consumed resources across the entire delegation tree."""
@@ -136,7 +137,7 @@ class StallDetector:
         if len(self._history) < self.window:
             return "ok"
 
-        recent = self._history[-self.window:]
+        recent = self._history[-self.window :]
         delta = recent[-1] - recent[0]
 
         if abs(delta) < self.min_delta:
@@ -165,8 +166,10 @@ class RunLogger:
     def write_json(self, path: Path, data: Any) -> None:
         if self.fmt in ("dual", "json"):
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data, indent=2, default=str, ensure_ascii=False),
-                            encoding="utf-8")
+            path.write_text(
+                json.dumps(data, indent=2, default=str, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
     def write_md(self, path: Path, content: str) -> None:
         if self.fmt in ("dual", "md"):
@@ -178,8 +181,14 @@ class RunLogger:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
-    def log_run_start(self, task: str, run_id: str, config: DelegationLoopConfig,
-                      manager_model: str, worker_model: str) -> None:
+    def log_run_start(
+        self,
+        task: str,
+        run_id: str,
+        config: DelegationLoopConfig,
+        manager_model: str,
+        worker_model: str,
+    ) -> None:
         manifest = {
             "run_id": run_id,
             "task": task,
@@ -205,9 +214,14 @@ class RunLogger:
             )
         self.write_md(self.run_dir / "RUN_SUMMARY.md", md)
 
-    def log_iteration(self, iteration: int, manager_decision: dict,
-                      delegations: list[dict], budget: BudgetSnapshot,
-                      validation_results: list[dict]) -> None:
+    def log_iteration(
+        self,
+        iteration: int,
+        manager_decision: dict,
+        delegations: list[dict],
+        budget: BudgetSnapshot,
+        validation_results: list[dict],
+    ) -> None:
         iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
 
@@ -216,7 +230,9 @@ class RunLogger:
 
         # Delegations
         for i, deleg in enumerate(delegations):
-            worker_dir = iter_dir / "delegations" / (deleg.get("worker_id", f"worker_{i}"))
+            worker_dir = (
+                iter_dir / "delegations" / (deleg.get("worker_id", f"worker_{i}"))
+            )
             worker_dir.mkdir(parents=True, exist_ok=True)
             self.write_json(worker_dir / "envelope.json", deleg.get("envelope", {}))
             self.write_json(worker_dir / "result.json", deleg.get("result", {}))
@@ -229,7 +245,9 @@ class RunLogger:
             if isinstance(instructions, str) and instructions.strip():
                 instr_file = worker_dir / "instructions.md"
                 self.write_md(instr_file, f"# Worker: {wid}\n\n{instructions}")
-                artifact_instr = self.run_dir / "artifacts" / "skills" / f"{wid}_instructions.md"
+                artifact_instr = (
+                    self.run_dir / "artifacts" / "skills" / f"{wid}_instructions.md"
+                )
                 self.write_md(artifact_instr, f"# Worker: {wid}\n\n{instructions}")
 
             # Save envelope skills as artifacts (input skills from manager)
@@ -239,25 +257,40 @@ class RunLogger:
                     skill_file = worker_dir / "generated_skills" / f"skill_{j}.md"
                     self.write_md(skill_file, skill)
                     # Central artifacts copy
-                    artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_skill_{j}.md"
+                    artifact_file = (
+                        self.run_dir / "artifacts" / "skills" / f"{wid}_skill_{j}.md"
+                    )
                     self.write_md(artifact_file, skill)
 
             # Save worker-generated skills from result (output skills)
             worker_result = deleg.get("result", {})
-            result_skills = worker_result.get("skills_created", worker_result.get("skills", []))
+            result_skills = worker_result.get(
+                "skills_created", worker_result.get("skills", [])
+            )
             if isinstance(result_skills, list):
                 for j, skill in enumerate(result_skills):
                     if isinstance(skill, str) and skill.strip():
-                        skill_file = worker_dir / "generated_skills" / f"result_skill_{j}.md"
+                        skill_file = (
+                            worker_dir / "generated_skills" / f"result_skill_{j}.md"
+                        )
                         self.write_md(skill_file, skill)
-                        artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_result_skill_{j}.md"
+                        artifact_file = (
+                            self.run_dir
+                            / "artifacts"
+                            / "skills"
+                            / f"{wid}_result_skill_{j}.md"
+                        )
                         self.write_md(artifact_file, skill)
                     elif isinstance(skill, dict):
                         sname = skill.get("name", f"skill_{j}")
-                        scontent = skill.get("content", skill.get("text", json.dumps(skill, indent=2)))
+                        scontent = skill.get(
+                            "content", skill.get("text", json.dumps(skill, indent=2))
+                        )
                         skill_file = worker_dir / "generated_skills" / f"{sname}.md"
                         self.write_md(skill_file, scontent)
-                        artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_{sname}.md"
+                        artifact_file = (
+                            self.run_dir / "artifacts" / "skills" / f"{wid}_{sname}.md"
+                        )
                         self.write_md(artifact_file, scontent)
 
             # Save generated tools — always store FULL specs (code, parameters,
@@ -297,7 +330,9 @@ class RunLogger:
                     self.write_json(tool_file, tool_info)
 
                     # Central artifacts copy (full spec with code)
-                    artifact_file = self.run_dir / "artifacts" / "tools" / f"{safe_name}.json"
+                    artifact_file = (
+                        self.run_dir / "artifacts" / "tools" / f"{safe_name}.json"
+                    )
                     self.write_json(artifact_file, tool_info)
 
                     # Save tool code as .py file for easy inspection
@@ -313,7 +348,9 @@ class RunLogger:
                         )
                         py_file = worker_dir / "generated_tools" / f"{safe_name}.py"
                         self._write_file(py_file, header + tool_code)
-                        artifact_py = self.run_dir / "artifacts" / "tools" / f"{safe_name}.py"
+                        artifact_py = (
+                            self.run_dir / "artifacts" / "tools" / f"{safe_name}.py"
+                        )
                         self._write_file(artifact_py, header + tool_code)
 
                 # Save a combined manifest with all tools for this worker
@@ -323,14 +360,18 @@ class RunLogger:
                     "tool_count": len(all_tool_specs),
                     "tools": all_tool_specs,
                 }
-                manifest_file = self.run_dir / "artifacts" / "tools" / f"{wid}_manifest.json"
+                manifest_file = (
+                    self.run_dir / "artifacts" / "tools" / f"{wid}_manifest.json"
+                )
                 self.write_json(manifest_file, tool_manifest)
 
             # Also check for tool_names (alternative format — name-only list)
             tool_names = worker_result.get("tool_names", [])
             if isinstance(tool_names, list) and tool_names:
                 tool_names_manifest = {"worker_id": wid, "tools": tool_names}
-                artifact_file = self.run_dir / "artifacts" / "tools" / f"{wid}_tools.json"
+                artifact_file = (
+                    self.run_dir / "artifacts" / "tools" / f"{wid}_tools.json"
+                )
                 self.write_json(artifact_file, tool_names_manifest)
 
             # Save tool call traces as artifacts (especially code.execute calls)
@@ -339,7 +380,9 @@ class RunLogger:
                 # Save full tool call log as JSON
                 calls_file = worker_dir / "tool_calls.json"
                 self.write_json(calls_file, tool_calls)
-                artifact_calls = self.run_dir / "artifacts" / "tools" / f"{wid}_tool_calls.json"
+                artifact_calls = (
+                    self.run_dir / "artifacts" / "tools" / f"{wid}_tool_calls.json"
+                )
                 self.write_json(artifact_calls, tool_calls)
 
                 # Extract and save code.execute calls as .py files
@@ -372,9 +415,18 @@ class RunLogger:
                             if stderr:
                                 footer += f"\n# --- STDERR ---\n# {stderr[:2000]}\n"
 
-                            py_file = worker_dir / "generated_tools" / f"code_execute_{code_idx}.py"
+                            py_file = (
+                                worker_dir
+                                / "generated_tools"
+                                / f"code_execute_{code_idx}.py"
+                            )
                             self._write_file(py_file, header + code_text + footer)
-                            artifact_py = self.run_dir / "artifacts" / "tools" / f"{wid}_code_execute_{code_idx}.py"
+                            artifact_py = (
+                                self.run_dir
+                                / "artifacts"
+                                / "tools"
+                                / f"{wid}_code_execute_{code_idx}.py"
+                            )
                             self._write_file(artifact_py, header + code_text + footer)
                             code_idx += 1
 
@@ -410,11 +462,19 @@ class RunLogger:
             conf = deleg.get("result", {}).get("confidence", "?")
             md_lines.append(f"- **{wid}**: confidence={conf}")
 
-        md_lines.append(f"\n## Budget\n- Remaining: {budget.budget_fraction_remaining*100:.0f}%\n")
+        md_lines.append(
+            f"\n## Budget\n- Remaining: {budget.budget_fraction_remaining * 100:.0f}%\n"
+        )
         self.write_md(iter_dir / "ITERATION_SUMMARY.md", "\n".join(md_lines))
 
-    def log_completion(self, run_id: str, final_result: dict, budget: BudgetSnapshot,
-                       total_iterations: int, status: str) -> None:
+    def log_completion(
+        self,
+        run_id: str,
+        final_result: dict,
+        budget: BudgetSnapshot,
+        total_iterations: int,
+        status: str,
+    ) -> None:
         summary = {
             "run_id": run_id,
             "status": status,
@@ -438,13 +498,18 @@ class RunLogger:
             existing = run_summary.read_text(encoding="utf-8")
         self.write_md(run_summary, existing + md)
 
-    def update_rolling_summary(self, iteration: int, confidence: float,
-                               key_findings: str, full_history: list[dict],
-                               window: int = 3) -> None:
+    def update_rolling_summary(
+        self,
+        iteration: int,
+        confidence: float,
+        key_findings: str,
+        full_history: list[dict],
+        window: int = 3,
+    ) -> None:
         """Write ROLLING_SUMMARY.md with recent details and older summaries."""
         lines = [
-            f"# Rolling Summary\n",
-            f"## Progress\n",
+            "# Rolling Summary\n",
+            "## Progress\n",
             f"- Iteration: {iteration}\n",
             f"- Current Confidence: {confidence}\n\n",
         ]
@@ -472,18 +537,21 @@ class RunLogger:
         # Older iterations summarized
         older = full_history[:-window] if len(full_history) > window else []
         if older:
-            lines.append(f"## Older Iterations (Summary)\n")
+            lines.append("## Older Iterations (Summary)\n")
             for h in older:
                 lines.append(
                     f"- Iter {h['iteration']}: confidence={h.get('confidence', '?')}\n"
                 )
 
         self.write_md(self.run_dir / "history" / "ROLLING_SUMMARY.md", "".join(lines))
-        self.write_json(self.run_dir / "history" / "rolling_summary.json", {
-            "iteration": iteration,
-            "confidence": confidence,
-            "history": full_history,
-        })
+        self.write_json(
+            self.run_dir / "history" / "rolling_summary.json",
+            {
+                "iteration": iteration,
+                "confidence": confidence,
+                "history": full_history,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +586,12 @@ class DelegationLoopRunner:
         self._tools = tool_registry
         self._manager_model = manager_model or config.models.manager or ""
         self._worker_model = worker_model or config.models.worker or self._manager_model
-        self._run_id = run_id or datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S") + "_" + uuid.uuid4().hex[:8]
+        self._run_id = (
+            run_id
+            or datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+            + "_"
+            + uuid.uuid4().hex[:8]
+        )
         self._depth = depth
 
         # Budget: use parent's remaining budget or create fresh
@@ -529,10 +602,14 @@ class DelegationLoopRunner:
 
         # Stall detection
         stall_cfg = config.termination
-        self._stall = StallDetector(
-            window=stall_cfg.window if stall_cfg else 3,
-            min_delta=stall_cfg.min_confidence_delta if stall_cfg else 0.05,
-        ) if (stall_cfg and stall_cfg.enabled) else None
+        self._stall = (
+            StallDetector(
+                window=stall_cfg.window if stall_cfg else 3,
+                min_delta=stall_cfg.min_confidence_delta if stall_cfg else 0.05,
+            )
+            if (stall_cfg and stall_cfg.enabled)
+            else None
+        )
 
         # Logger
         run_dir = self._dir / "workspace" / "runs" / self._run_id
@@ -541,14 +618,17 @@ class DelegationLoopRunner:
         # History
         self._history: list[dict[str, Any]] = []
 
-    def _load_agent(self, agent_dir: Path, llm: Optional[LLMClient] = None) -> StandaloneAgent:
+    def _load_agent(
+        self, agent_dir: Path, llm: Optional[LLMClient] = None
+    ) -> StandaloneAgent:
         """Load the Agent class from ``agent.py``, falling back to
         :class:`StandaloneAgent`.  See :meth:`WorkflowRunner._load_agent`."""
         agent_py = agent_dir / "agent.py"
         if agent_py.exists():
             try:
                 spec = importlib.util.spec_from_file_location(
-                    f"awp_agent_{agent_dir.name}", str(agent_py),
+                    f"awp_agent_{agent_dir.name}",
+                    str(agent_py),
                 )
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)  # type: ignore[union-attr]
@@ -563,10 +643,12 @@ class DelegationLoopRunner:
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
                     "Could not load Agent from %s, using StandaloneAgent: %s",
-                    agent_py, exc,
+                    agent_py,
+                    exc,
                 )
         return StandaloneAgent(
-            agent_dir, self._dir,
+            agent_dir,
+            self._dir,
             llm=llm,
             tool_registry=self._tools,
         )
@@ -578,12 +660,17 @@ class DelegationLoopRunner:
 
         logger.info(
             "DelegationLoop [%s] depth=%d starting: %s",
-            self._run_id, self._depth, task[:80],
+            self._run_id,
+            self._depth,
+            task[:80],
         )
 
         self._logger.log_run_start(
-            task, self._run_id, self._config,
-            self._manager_model, self._worker_model,
+            task,
+            self._run_id,
+            self._config,
+            self._manager_model,
+            self._worker_model,
         )
 
         final_result: Dict[str, Any] = {}
@@ -597,8 +684,11 @@ class DelegationLoopRunner:
             status = "error"
 
         self._logger.log_completion(
-            self._run_id, final_result, self._budget,
-            self._budget.loops_used, status,
+            self._run_id,
+            final_result,
+            self._budget,
+            self._budget.loops_used,
+            status,
         )
 
         return {"delegation_loop": final_result}
@@ -628,13 +718,23 @@ class DelegationLoopRunner:
                 # Support flat complete format (report_md, chart_paths, json_data at top level)
                 if not result:
                     result = {}
-                    for key in ("report_md", "chart_paths", "json_data", "plan", "reasoning"):
+                    for key in (
+                        "report_md",
+                        "chart_paths",
+                        "json_data",
+                        "plan",
+                        "reasoning",
+                    ):
                         if key in manager_decision:
                             result[key] = manager_decision[key]
                 if "confidence" not in result:
                     result["confidence"] = manager_decision.get("confidence", 0.8)
                 self._logger.log_iteration(
-                    iteration, manager_decision, [], self._budget, [],
+                    iteration,
+                    manager_decision,
+                    [],
+                    self._budget,
+                    [],
                 )
                 return result, "complete"
 
@@ -647,7 +747,10 @@ class DelegationLoopRunner:
 
             if decision_type != "delegate":
                 logger.warning("Unknown decision: %s, treating as fail", decision_type)
-                return {"error": f"Unknown decision: {decision_type}", "confidence": 0.0}, "fail"
+                return {
+                    "error": f"Unknown decision: {decision_type}",
+                    "confidence": 0.0,
+                }, "fail"
 
             # 3. Execute delegations (fan-out)
             envelopes = manager_decision.get("delegations", [])
@@ -662,26 +765,35 @@ class DelegationLoopRunner:
 
             # 5. Log iteration
             self._logger.log_iteration(
-                iteration, manager_decision, delegation_results,
-                self._budget, validation_results,
+                iteration,
+                manager_decision,
+                delegation_results,
+                self._budget,
+                validation_results,
             )
 
             # 6. Aggregate into history
             agg_confidence = self._aggregate_confidence(delegation_results)
             key_findings = self._extract_key_findings(delegation_results)
 
-            self._history.append({
-                "iteration": iteration,
-                "confidence": agg_confidence,
-                "key_findings": key_findings,
-                "worker_count": len(delegation_results),
-                "validation": validation_results,
-            })
+            self._history.append(
+                {
+                    "iteration": iteration,
+                    "confidence": agg_confidence,
+                    "key_findings": key_findings,
+                    "worker_count": len(delegation_results),
+                    "validation": validation_results,
+                }
+            )
 
             # 7. Update rolling summary
             window = self._config.history.full_results_window
             self._logger.update_rolling_summary(
-                iteration, agg_confidence, key_findings, self._history, window,
+                iteration,
+                agg_confidence,
+                key_findings,
+                self._history,
+                window,
             )
 
             # 8. Update state with results
@@ -695,7 +807,9 @@ class DelegationLoopRunner:
                 stall_status = self._stall.record(agg_confidence)
                 if stall_status == "stop":
                     logger.warning("Stall detected — stopping loop")
-                    return self._build_partial_result("stall_detected"), "stall_detected"
+                    return self._build_partial_result(
+                        "stall_detected"
+                    ), "stall_detected"
                 elif stall_status == "warn":
                     logger.warning("Stall warning — confidence not improving")
 
@@ -723,7 +837,11 @@ class DelegationLoopRunner:
             # If the agent returned a wrapped non-JSON result, try to extract
             # the actual JSON from the "result" field (LLM may have returned
             # JSON wrapped in markdown or extra text)
-            if isinstance(manager_output, dict) and "result" in manager_output and "decision" not in manager_output:
+            if (
+                isinstance(manager_output, dict)
+                and "result" in manager_output
+                and "decision" not in manager_output
+            ):
                 raw_text = manager_output.get("result", "")
                 if isinstance(raw_text, str) and "{" in raw_text:
                     extracted = self._parse_json_response(raw_text)
@@ -733,8 +851,12 @@ class DelegationLoopRunner:
             parsed = self._parse_manager_output(manager_output)
 
             # If parsing still failed, fall back to inline manager
-            if parsed.get("decision") == "fail" and "missing 'decision' field" in parsed.get("reason", ""):
-                logger.warning("Agent manager returned unparseable output, falling back to inline manager")
+            if parsed.get(
+                "decision"
+            ) == "fail" and "missing 'decision' field" in parsed.get("reason", ""):
+                logger.warning(
+                    "Agent manager returned unparseable output, falling back to inline manager"
+                )
                 return self._run_inline_manager(task, state, iteration)
 
             return parsed
@@ -824,7 +946,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
 ## Worker Policy (Enforced Limits)
 - Sandbox: {enforced.sandbox.type}, max {enforced.sandbox.max_memory_mb}MB RAM, {enforced.sandbox.max_cpu_seconds}s CPU
 - Max tools per worker: {enforced.codemode.max_tools_per_worker}
-- Forbidden tools: {', '.join(enforced.forbidden_tools)}
+- Forbidden tools: {", ".join(enforced.forbidden_tools)}
 
 ## Rules
 - Give each worker a unique, descriptive worker_id (snake_case)
@@ -839,7 +961,9 @@ You MUST respond with a JSON object containing ONE of these decisions:
         parts = [f"## Original Task\n{task}\n"]
 
         # Budget status
-        parts.append(f"## Budget Status\n```json\n{json.dumps(self._budget.to_dict(), indent=2)}\n```\n")
+        parts.append(
+            f"## Budget Status\n```json\n{json.dumps(self._budget.to_dict(), indent=2)}\n```\n"
+        )
 
         # Iteration info
         parts.append(f"## Current Iteration: {iteration}\n")
@@ -858,16 +982,22 @@ You MUST respond with a JSON object containing ONE of these decisions:
             if older:
                 parts.append("### Earlier Iterations (Summary)\n")
                 for h in older:
-                    parts.append(f"- Iter {h['iteration']}: confidence={h.get('confidence', '?')}\n")
+                    parts.append(
+                        f"- Iter {h['iteration']}: confidence={h.get('confidence', '?')}\n"
+                    )
 
         # Validation feedback from last iteration
         if self._history and self._history[-1].get("validation"):
             parts.append("## Validation Feedback\n")
             for v in self._history[-1]["validation"]:
-                parts.append(f"- Worker {v.get('worker_id', '?')}: {v.get('feedback', 'ok')}\n")
+                parts.append(
+                    f"- Worker {v.get('worker_id', '?')}: {v.get('feedback', 'ok')}\n"
+                )
 
         # State from previous workers
-        worker_states = {k: v for k, v in state.items() if k != "task" and not k.startswith("_")}
+        worker_states = {
+            k: v for k, v in state.items() if k != "task" and not k.startswith("_")
+        }
         if worker_states:
             parts.append("## Worker Results Available in State\n")
             for k, v in worker_states.items():
@@ -884,7 +1014,10 @@ You MUST respond with a JSON object containing ONE of these decisions:
         if isinstance(output, str):
             output = self._parse_json_response(output)
         if not isinstance(output, dict):
-            return {"decision": "fail", "reason": f"Invalid manager output type: {type(output)}"}
+            return {
+                "decision": "fail",
+                "reason": f"Invalid manager output type: {type(output)}",
+            }
 
         # Normalize "workers" key to "delegations" (both formats accepted)
         if "workers" in output and "delegations" not in output:
@@ -909,7 +1042,16 @@ You MUST respond with a JSON object containing ONE of these decisions:
             # Normalize decision value — LLMs sometimes return verbose strings
             raw = str(output["decision"]).strip().lower()
             _DELEGATE_WORDS = {"delegate", "delegat", "assign", "dispatch", "spawn"}
-            _COMPLETE_WORDS = {"complete", "done", "finalize", "finish", "final", "synthesize", "conclude", "submit"}
+            _COMPLETE_WORDS = {
+                "complete",
+                "done",
+                "finalize",
+                "finish",
+                "final",
+                "synthesize",
+                "conclude",
+                "submit",
+            }
             _FAIL_WORDS = {"fail", "abort", "error", "cancel", "impossible"}
 
             if any(w in raw for w in _DELEGATE_WORDS):
@@ -924,8 +1066,9 @@ You MUST respond with a JSON object containing ONE of these decisions:
 
     # -- Worker execution -------------------------------------------------
 
-    def _execute_delegations(self, envelopes: list[dict], task: str,
-                             state: dict) -> list[dict]:
+    def _execute_delegations(
+        self, envelopes: list[dict], task: str, state: dict
+    ) -> list[dict]:
         """Execute all delegations in parallel (fan-out)."""
         results: list[dict] = []
 
@@ -961,14 +1104,48 @@ You MUST respond with a JSON object containing ONE of these decisions:
 
         return results
 
-    def _run_ephemeral_worker(self, worker_id: str, envelope: dict,
-                              task: str, state: dict) -> dict:
+    def _run_ephemeral_worker(
+        self, worker_id: str, envelope: dict, task: str, state: dict
+    ) -> dict:
         """Run an ephemeral worker configured entirely by the delegation envelope."""
         instructions = envelope.get("instructions", "")
         skills = envelope.get("skills", [])
         tools_allowed = envelope.get("tools_allowed", [])
         output_contract = envelope.get("output_contract", {})
         codemode = envelope.get("codemode", {})
+
+        # Enforce codemode from worker policy manager_controlled.
+        # The manager LLM frequently ignores prompt instructions and sends
+        # codemode.enabled=false.  When the policy lists these fields in
+        # manager_controlled, force them to true so workers always get the
+        # configured capabilities.
+        if not isinstance(codemode, dict):
+            codemode = {}
+        wp = getattr(self._config, "worker_policy", None)
+        if wp and "codemode.enabled" in (wp.manager_controlled or []):
+            if not codemode.get("enabled", False):
+                logger.info(
+                    "Worker %s: enforcing codemode.enabled=true (policy override)",
+                    worker_id,
+                )
+            codemode["enabled"] = True
+        if wp and "codemode.tool_creation" in (wp.manager_controlled or []):
+            if not codemode.get("tool_creation", False):
+                logger.info(
+                    "Worker %s: enforcing codemode.tool_creation=true (policy override)",
+                    worker_id,
+                )
+            codemode["tool_creation"] = True
+
+        # Ensure code.execute is in tools_allowed when codemode is enabled
+        if codemode.get("enabled", False) and "code.execute" not in tools_allowed:
+            tools_allowed = list(tools_allowed) + ["code.execute"]
+            logger.info(
+                "Worker %s: auto-added code.execute (codemode.enabled=true)", worker_id
+            )
+
+        envelope["codemode"] = codemode
+        envelope["tools_allowed"] = tools_allowed
 
         # Debug: log full envelope
         logger.debug(
@@ -994,35 +1171,57 @@ You MUST respond with a JSON object containing ONE of these decisions:
             system_parts.append("## Domain Knowledge\n")
             for i, skill in enumerate(skills):
                 if isinstance(skill, str):
-                    system_parts.append(f"### Skill {i+1}\n{skill}\n")
+                    system_parts.append(f"### Skill {i + 1}\n{skill}\n")
 
         # If codemode is enabled, tell the worker about file I/O capabilities
         if isinstance(codemode, dict) and codemode.get("enabled", False):
             workspace_path = str(self._dir / "workspace")
             output_path = str(self._dir / "output")
-            system_parts.append(f"""
-## File Output
 
-When using `code.execute` or creating tools, you can save files to disk:
-- **Workspace directory** (intermediate files): `{workspace_path}`
-- **Output directory** (final deliverables — charts, reports, exports): `{output_path}`
+            # List available input files so the worker knows exact paths
+            inputs_dir = self._dir / "workspace" / "inputs"
+            input_files_list = ""
+            if inputs_dir.exists():
+                files = sorted(f.name for f in inputs_dir.iterdir() if f.is_file())
+                if files:
+                    file_lines = "\n".join(
+                        f'- `_workspace_dir + "/inputs/{f}"`' for f in files
+                    )
+                    input_files_list = f"""
+## Available Input Files
+
+The following files are available in the workspace inputs directory:
+{file_lines}
+
+To read a file in `code.execute`, use the `_workspace_dir` variable:
+```python
+import pandas as pd
+df = pd.read_csv(_workspace_dir + "/inputs/FILENAME.csv")
+```
+"""
+
+            system_parts.append(f"""{input_files_list}
+## File I/O
 
 In `code.execute` calls, these paths are available as pre-defined variables:
-- `_workspace_dir` = `"{workspace_path}"`
-- `_output_dir` = `"{output_path}"`
+- `_workspace_dir` = `"{workspace_path}"` (workspace directory with input files)
+- `_output_dir` = `"{output_path}"` (save final deliverables here)
 
-Use Python's built-in `open()` for file I/O. Do NOT import `os` or `pathlib`.
+**IMPORTANT:** Always use `_workspace_dir + "/inputs/FILENAME"` to read input files.
+Do NOT use relative paths like `open("data.csv")` — they will fail.
+
 Use string concatenation for paths: `_output_dir + "/chart.png"`
 
-Example (saving a matplotlib chart via code.execute):
+Example (reading CSV and saving a chart):
 ```python
+import pandas as pd
+df = pd.read_csv(_workspace_dir + "/inputs/data.csv")
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 plt.figure(figsize=(10, 6))
-plt.plot([1, 2, 3, 4], [10, 20, 25, 30])
-plt.title("My Chart")
+df.plot()
 plt.savefig(_output_dir + "/chart.png", dpi=150, bbox_inches="tight")
 plt.close()
 print("Chart saved")
@@ -1063,9 +1262,13 @@ print("Chart saved")
 
             # Always ensure confidence is mentioned
             if "confidence" not in output_contract:
-                system_parts.append("- `confidence` (float 0.0-1.0): How confident you are\n")
+                system_parts.append(
+                    "- `confidence` (float 0.0-1.0): How confident you are\n"
+                )
             if tool_creation:
-                system_parts.append('- `tools_created` (array): List of tool objects you created\n')
+                system_parts.append(
+                    "- `tools_created` (array): List of tool objects you created\n"
+                )
             system_parts.append("\nRespond ONLY with the JSON object.\n")
 
         system_prompt = "\n".join(system_parts)
@@ -1093,8 +1296,14 @@ print("Chart saved")
         ]
 
         # Enforce forbidden_tools from worker_policy
-        enforced = getattr(self._config.worker_policy, "enforced", None) if self._config.worker_policy else None
-        forbidden = set(getattr(enforced, "forbidden_tools", []) or []) if enforced else set()
+        enforced = (
+            getattr(self._config.worker_policy, "enforced", None)
+            if self._config.worker_policy
+            else None
+        )
+        forbidden = (
+            set(getattr(enforced, "forbidden_tools", []) or []) if enforced else set()
+        )
         if forbidden and tools_allowed:
             original = list(tools_allowed)
             tools_allowed = [t for t in tools_allowed if t not in forbidden]
@@ -1102,12 +1311,15 @@ print("Chart saved")
             if removed:
                 logger.warning(
                     "  Worker %s: removed forbidden tools: %s",
-                    worker_id, ", ".join(sorted(removed)),
+                    worker_id,
+                    ", ".join(sorted(removed)),
                 )
 
         # Determine if tools are needed
         if tools_allowed and self._tools:
-            tool_defs = self._tools.get_definitions(tools_allowed if tools_allowed else None)
+            tool_defs = self._tools.get_definitions(
+                tools_allowed if tools_allowed else None
+            )
             if tool_defs:
                 # Wrap tool_executor to capture code.execute calls for artifacts
                 _tool_call_log: list[dict] = []
@@ -1115,18 +1327,22 @@ print("Chart saved")
 
                 def _tracking_call(name: str, arguments: dict) -> dict:
                     result = _original_call(name, arguments)
-                    _tool_call_log.append({
-                        "tool": name,
-                        "arguments": arguments,
-                        "result": result,
-                    })
+                    _tool_call_log.append(
+                        {
+                            "tool": name,
+                            "arguments": arguments,
+                            "result": result,
+                        }
+                    )
                     return result
 
                 final_msg = llm.chat_with_tools(
-                    messages, tools=tool_defs,
+                    messages,
+                    tools=tool_defs,
                     tool_executor=_tracking_call,
                     max_rounds=5,
-                    temperature=0.2, max_tokens=4096,
+                    temperature=0.2,
+                    max_tokens=4096,
                 )
                 content = ""
                 if isinstance(final_msg, dict):
@@ -1152,14 +1368,19 @@ print("Chart saved")
                     tools_in_result = result.get("tools_created", [])
                     logger.info(
                         "Worker %s returned %d tools_created entries",
-                        worker_id, len(tools_in_result) if isinstance(tools_in_result, list) else 0,
+                        worker_id,
+                        len(tools_in_result)
+                        if isinstance(tools_in_result, list)
+                        else 0,
                     )
                     self._process_tool_creation(result, worker_id, codemode)
 
                     logger.info(
                         "Worker %s after tool processing — tools_registered: %s",
                         worker_id,
-                        json.dumps(result.get("tools_registered", []), indent=2, default=str),
+                        json.dumps(
+                            result.get("tools_registered", []), indent=2, default=str
+                        ),
                     )
                 return result
 
@@ -1186,7 +1407,8 @@ print("Chart saved")
             tools_in_result = result.get("tools_created", [])
             logger.info(
                 "Worker %s returned %d tools_created entries (simple call)",
-                worker_id, len(tools_in_result) if isinstance(tools_in_result, list) else 0,
+                worker_id,
+                len(tools_in_result) if isinstance(tools_in_result, list) else 0,
             )
             self._process_tool_creation(result, worker_id, codemode)
 
@@ -1206,7 +1428,7 @@ print("Chart saved")
         """
         # Collect available secret key names (never expose values)
         available_secret_keys: list[str] = []
-        if self._tools and hasattr(self._tools, '_secrets') and self._tools._secrets:
+        if self._tools and hasattr(self._tools, "_secrets") and self._tools._secrets:
             available_secret_keys = sorted(self._tools._secrets.keys())
 
         secrets_section = ""
@@ -1334,8 +1556,9 @@ Rules:
 - The `_secrets`, `_workspace_dir`, `_output_dir` variables are pre-defined — do NOT add them as handler parameters
 {secrets_section}"""
 
-    def _process_tool_creation(self, result: dict, worker_id: str,
-                               codemode: dict) -> None:
+    def _process_tool_creation(
+        self, result: dict, worker_id: str, codemode: dict
+    ) -> None:
         """Extract tools from worker result and register them via DynamicToolFactory.
 
         Preserves the full ``tools_created`` array (with code, parameters, etc.)
@@ -1386,14 +1609,17 @@ Rules:
                 "    Parameters:  %s\n"
                 "    Required secrets: %s\n"
                 "    Code (%d chars):\n%s",
-                worker_id, name, description,
+                worker_id,
+                name,
+                description,
                 json.dumps(parameters, indent=2, default=str),
                 req_secrets,
-                len(code), code,
+                len(code),
+                code,
             )
 
             # Try to register via DynamicToolFactory if available
-            if self._tools and hasattr(self._tools, '_dynamic_tool_factory'):
+            if self._tools and hasattr(self._tools, "_dynamic_tool_factory"):
                 factory = self._tools._dynamic_tool_factory
                 if factory and factory.enabled:
                     reg_result = factory.create_tool(
@@ -1407,7 +1633,9 @@ Rules:
                         required_secrets=req_secrets if req_secrets else None,
                     )
                     if reg_result.get("ok"):
-                        logger.info("  Worker %s created tool: %s — OK", worker_id, name)
+                        logger.info(
+                            "  Worker %s created tool: %s — OK", worker_id, name
+                        )
                         full_record["registered"] = True
                     else:
                         error = reg_result.get("error", "unknown")
@@ -1415,7 +1643,8 @@ Rules:
                             "  Tool creation FAILED for %s: %s\n"
                             "    Status: %s\n"
                             "    Full result: %s",
-                            name, error,
+                            name,
+                            error,
                             reg_result.get("status", "?"),
                             json.dumps(reg_result, indent=2, default=str),
                         )
@@ -1426,8 +1655,11 @@ Rules:
                     continue
 
             # Fallback: just log that we received the tool spec
-            logger.info("  Worker %s defined tool: %s (not registered — no factory)",
-                        worker_id, name)
+            logger.info(
+                "  Worker %s defined tool: %s (not registered — no factory)",
+                worker_id,
+                name,
+            )
             full_record["registered"] = False
             full_record["reason"] = "no_factory"
             registered.append(full_record)
@@ -1438,8 +1670,9 @@ Rules:
 
     # -- Validation -------------------------------------------------------
 
-    def _validate_results(self, delegation_results: list[dict],
-                          task: str) -> list[dict]:
+    def _validate_results(
+        self, delegation_results: list[dict], task: str
+    ) -> list[dict]:
         """Two-tier validation: deterministic + LLM."""
         validation_results = []
 
@@ -1453,16 +1686,21 @@ Rules:
             v["deterministic"] = det
 
             if not det.get("passed", False):
-                v["feedback"] = f"Deterministic validation failed: {det.get('errors', [])}"
+                v["feedback"] = (
+                    f"Deterministic validation failed: {det.get('errors', [])}"
+                )
                 validation_results.append(v)
                 continue
 
             # Tier 2: LLM (if enabled and conditions met)
             val_cfg = self._config.validation
             confidence = result.get("confidence", 0.0)
-            if (val_cfg.llm.enabled
+            if (
+                val_cfg.llm.enabled
                 and confidence < val_cfg.llm.skip_when_confidence_above
-                and self._budget.budget_fraction_remaining > val_cfg.llm.skip_when_budget_remaining_below):
+                and self._budget.budget_fraction_remaining
+                > val_cfg.llm.skip_when_budget_remaining_below
+            ):
                 llm_result = self._validate_llm(result, task, worker_id)
                 v["llm"] = llm_result
                 v["feedback"] = llm_result.get("feedback", "ok")
@@ -1509,20 +1747,26 @@ Rules:
             llm = LLMClient(model=self._worker_model)
 
             messages = [
-                {"role": "system", "content": (
-                    "You are a Validation Agent. Evaluate whether a worker's result "
-                    "meaningfully addresses the original task. Respond with JSON:\n"
-                    '{"valid": true/false, "adjusted_confidence": 0.0-1.0, '
-                    '"feedback": "...", "suggestion": "..."}'
-                )},
-                {"role": "user", "content": (
-                    f"## Original Task\n{task}\n\n"
-                    f"## Worker ID: {worker_id}\n"
-                    f"## Worker Result\n```json\n"
-                    f"{json.dumps(result, indent=2, default=str)}\n```\n\n"
-                    f"Does this result meaningfully address the task? "
-                    f"Is the confidence realistic?"
-                )},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Validation Agent. Evaluate whether a worker's result "
+                        "meaningfully addresses the original task. Respond with JSON:\n"
+                        '{"valid": true/false, "adjusted_confidence": 0.0-1.0, '
+                        '"feedback": "...", "suggestion": "..."}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"## Original Task\n{task}\n\n"
+                        f"## Worker ID: {worker_id}\n"
+                        f"## Worker Result\n```json\n"
+                        f"{json.dumps(result, indent=2, default=str)}\n```\n\n"
+                        f"Does this result meaningfully address the task? "
+                        f"Is the confidence realistic?"
+                    ),
+                },
             ]
 
             v_result = llm.chat_json(messages, temperature=0.1, max_tokens=1024)
@@ -1543,7 +1787,7 @@ Rules:
         # Strip markdown code fences
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [line for line in lines if not line.strip().startswith("```")]
             cleaned = "\n".join(lines).strip()
         try:
             parsed = json.loads(cleaned)
@@ -1571,7 +1815,14 @@ Rules:
             wid = dr.get("worker_id", "?")
             result = dr.get("result", {})
             # Try common field names
-            for key in ("findings", "result", "summary", "analysis", "answer", "output"):
+            for key in (
+                "findings",
+                "result",
+                "summary",
+                "analysis",
+                "answer",
+                "output",
+            ):
                 if key in result:
                     val = result[key]
                     if isinstance(val, str):
@@ -1588,7 +1839,9 @@ Rules:
 
     def _build_partial_result(self, reason: str) -> dict:
         """Build a partial result when the loop terminates early."""
-        last_confidence = self._history[-1].get("confidence", 0.0) if self._history else 0.0
+        last_confidence = (
+            self._history[-1].get("confidence", 0.0) if self._history else 0.0
+        )
         return {
             "partial": True,
             "termination_reason": reason,

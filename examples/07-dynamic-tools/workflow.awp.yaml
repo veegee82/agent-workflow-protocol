@@ -1,7 +1,7 @@
 awp: "1.0.0"
 
 workflow:
-  name: dynamic-tools-demo
+  name: dynamic-tools
   version: "1.0.0"
   description: "Demonstrates dynamic MCP tool creation via Code Mode. Agent A creates scoring tools at runtime, Agent B uses them to analyze items."
 

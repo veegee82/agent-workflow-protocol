@@ -32,12 +32,14 @@ class TestExecutorFactory:
         config = SandboxConfig(type="venv", packages=[])
         executor = create_executor(config, working_dir=tmp_path)
         from awp.runtime.venv_executor import VenvExecutor
+
         assert isinstance(executor, VenvExecutor)
         executor.cleanup()
 
     def test_docker_without_docker_raises(self, monkeypatch):
         """If Docker is not installed, DockerExecutor should raise."""
         import shutil
+
         monkeypatch.setattr(shutil, "which", lambda x: None)
         config = SandboxConfig(type="docker")
         with pytest.raises(RuntimeError, match="Docker is not installed"):

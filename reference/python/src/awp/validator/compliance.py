@@ -28,15 +28,15 @@ from pathlib import Path
 
 from ..models.manifest import AWPManifest
 from ..models.agent import AWPAgent
-from ..models.orchestration import AWPOrchestrationConfig
 
 
 class AutonomyLevel(IntEnum):
     """AWP autonomy levels — how self-directed is the workflow?"""
-    A0_PRESCRIBED = 0       # Static DAG, predefined agents
-    A1_ADAPTIVE = 1         # Conditional execution, loops, fan-out
-    A2_DELEGATING = 2       # Manager spawns workers dynamically
-    A3_SELF_TOOLING = 3     # Agents create tools/skills at runtime
+
+    A0_PRESCRIBED = 0  # Static DAG, predefined agents
+    A1_ADAPTIVE = 1  # Conditional execution, loops, fan-out
+    A2_DELEGATING = 2  # Manager spawns workers dynamically
+    A3_SELF_TOOLING = 3  # Agents create tools/skills at runtime
     A4_SELF_ORGANIZING = 4  # Recursive delegation, budget distribution
 
 
@@ -72,6 +72,7 @@ LEVEL_NAMES: dict[AutonomyLevel, str] = {
 @dataclass
 class ComplianceResult:
     """Result of autonomy level checking."""
+
     level: AutonomyLevel
     max_achievable: AutonomyLevel
     checks: dict[str, bool] = field(default_factory=dict)
@@ -139,8 +140,11 @@ def check_compliance(
 
     if target_level < AutonomyLevel.A2_DELEGATING:
         return ComplianceResult(
-            level=achieved, max_achievable=target_level,
-            checks=checks, errors=errors, cross_cutting=cross_cutting,
+            level=achieved,
+            max_achievable=target_level,
+            checks=checks,
+            errors=errors,
+            cross_cutting=cross_cutting,
         )
 
     # A2: Delegating — Delegation loop engine or dynamic worker spawning
@@ -150,8 +154,11 @@ def check_compliance(
 
     if target_level < AutonomyLevel.A3_SELF_TOOLING:
         return ComplianceResult(
-            level=achieved, max_achievable=target_level,
-            checks=checks, errors=errors, cross_cutting=cross_cutting,
+            level=achieved,
+            max_achievable=target_level,
+            checks=checks,
+            errors=errors,
+            cross_cutting=cross_cutting,
         )
 
     # A3: Self-Tooling — Dynamic tool creation or runtime skill generation
@@ -161,8 +168,11 @@ def check_compliance(
 
     if target_level < AutonomyLevel.A4_SELF_ORGANIZING:
         return ComplianceResult(
-            level=achieved, max_achievable=target_level,
-            checks=checks, errors=errors, cross_cutting=cross_cutting,
+            level=achieved,
+            max_achievable=target_level,
+            checks=checks,
+            errors=errors,
+            cross_cutting=cross_cutting,
         )
 
     # A4: Self-Organizing — Recursive delegation + budget system
@@ -181,6 +191,7 @@ def check_compliance(
 
 
 # -- Cross-cutting: Security + Observability (all levels) ------------------
+
 
 def _check_cross_cutting(manifest: AWPManifest, warnings: list[str]) -> dict[str, bool]:
     """Check cross-cutting concerns (security + observability)."""
@@ -202,6 +213,7 @@ def _check_cross_cutting(manifest: AWPManifest, warnings: list[str]) -> dict[str
 
 
 # -- A0: Prescribed --------------------------------------------------------
+
 
 def _check_a0(
     manifest: AWPManifest,
@@ -233,6 +245,7 @@ def _check_a0(
 
 
 # -- A1: Adaptive ----------------------------------------------------------
+
 
 def _check_a1(
     manifest: AWPManifest,
@@ -281,13 +294,16 @@ def _check_a1(
         multi_agent = has_graph and len(orch.graph) >= 2
         checks["multi_agent_dag"] = multi_agent
         if not multi_agent:
-            errors.append("A1: Requires adaptive features (when, loop, fan_out) or multi-agent DAG")
+            errors.append(
+                "A1: Requires adaptive features (when, loop, fan_out) or multi-agent DAG"
+            )
             ok = False
 
     return ok
 
 
 # -- A2: Delegating --------------------------------------------------------
+
 
 def _check_a2(
     manifest: AWPManifest,
@@ -321,6 +337,7 @@ def _check_a2(
 
 
 # -- A3: Self-Tooling ------------------------------------------------------
+
 
 def _check_a3(
     manifest: AWPManifest,
@@ -360,7 +377,9 @@ def _check_a3(
 
     is_self_tooling = has_dynamic_tools or has_tool_creator or dl_allows_tool_creation
     if not is_self_tooling:
-        errors.append("A3: Requires dynamic_tools.enabled, agent with tool_creation, or delegation loop with tool_creation")
+        errors.append(
+            "A3: Requires dynamic_tools.enabled, agent with tool_creation, or delegation loop with tool_creation"
+        )
         return False
 
     # Safety envelope REQUIRED at A3+
@@ -377,6 +396,7 @@ def _check_a3(
 
 
 # -- A4: Self-Organizing ---------------------------------------------------
+
 
 def _check_a4(
     manifest: AWPManifest,

@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <filter id="cm">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.2"/>
+    </filter>
+    <marker id="cma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="700" rx="12" fill="#0a0a1a"/>
+
+  <text x="500" y="35" text-anchor="middle" fill="#e0e0e0" font-size="20" font-weight="bold">AWP Concept Map</text>
+  <text x="500" y="55" text-anchor="middle" fill="#888" font-size="12">How the core concepts relate to each other</text>
+
+  <!-- Central concept: Workflow -->
+  <rect x="400" y="80" width="200" height="50" rx="25" fill="#1a1a2e" stroke="#FF9800" stroke-width="2.5" filter="url(#cm)"/>
+  <text x="500" y="110" text-anchor="middle" fill="#FF9800" font-size="15" font-weight="bold">Workflow</text>
+
+  <!-- Definition side (left) -->
+  <rect x="60" y="180" width="180" height="45" rx="8" fill="#1a1a2e" stroke="#4fc3f7" stroke-width="1.5" filter="url(#cm)"/>
+  <text x="150" y="207" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">YAML Definition</text>
+
+  <rect x="60" y="260" width="180" height="40" rx="6" fill="#111" stroke="#4fc3f7" stroke-width="1"/>
+  <text x="150" y="284" text-anchor="middle" fill="#aaa" font-size="11">7-Layer Model</text>
+
+  <rect x="60" y="330" width="180" height="40" rx="6" fill="#111" stroke="#4fc3f7" stroke-width="1"/>
+  <text x="150" y="354" text-anchor="middle" fill="#aaa" font-size="11">Validation R1-R26</text>
+
+  <rect x="60" y="400" width="180" height="40" rx="6" fill="#111" stroke="#4fc3f7" stroke-width="1"/>
+  <text x="150" y="424" text-anchor="middle" fill="#aaa" font-size="11">Compliance A0-A4</text>
+
+  <!-- Lines from definition -->
+  <line x1="150" y1="225" x2="150" y2="260" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="150" y1="300" x2="150" y2="330" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="150" y1="370" x2="150" y2="400" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+
+  <!-- Execution side (right) -->
+  <rect x="760" y="180" width="180" height="45" rx="8" fill="#1a1a2e" stroke="#4CAF50" stroke-width="1.5" filter="url(#cm)"/>
+  <text x="850" y="207" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">Runtime Engine</text>
+
+  <rect x="760" y="260" width="180" height="40" rx="6" fill="#111" stroke="#4CAF50" stroke-width="1"/>
+  <text x="850" y="284" text-anchor="middle" fill="#aaa" font-size="11">DAG Engine</text>
+
+  <rect x="760" y="330" width="180" height="40" rx="6" fill="#111" stroke="#4CAF50" stroke-width="1"/>
+  <text x="850" y="354" text-anchor="middle" fill="#aaa" font-size="11">Delegation-Loop</text>
+
+  <rect x="760" y="400" width="180" height="40" rx="6" fill="#111" stroke="#4CAF50" stroke-width="1"/>
+  <text x="850" y="424" text-anchor="middle" fill="#aaa" font-size="11">Code Executor</text>
+
+  <!-- Lines from execution -->
+  <line x1="850" y1="225" x2="850" y2="260" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="850" y1="300" x2="850" y2="330" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="850" y1="370" x2="850" y2="400" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+
+  <!-- Connect to center -->
+  <line x1="240" y1="202" x2="400" y2="105" stroke="#4fc3f7" stroke-width="1.5" marker-end="url(#cma)"/>
+  <text x="310" y="145" fill="#4fc3f7" font-size="10" transform="rotate(-25,310,145)">defined by</text>
+
+  <line x1="760" y1="202" x2="600" y2="105" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#cma)"/>
+  <text x="690" y="145" fill="#4CAF50" font-size="10" transform="rotate(25,690,145)">executed by</text>
+
+  <!-- Central concepts -->
+  <!-- Agent -->
+  <rect x="370" y="200" width="120" height="40" rx="8" fill="#1a1a2e" stroke="#9C27B0" stroke-width="1.5" filter="url(#cm)"/>
+  <text x="430" y="224" text-anchor="middle" fill="#9C27B0" font-size="12" font-weight="bold">Agent</text>
+
+  <rect x="510" y="200" width="120" height="40" rx="8" fill="#1a1a2e" stroke="#f44336" stroke-width="1.5" filter="url(#cm)"/>
+  <text x="570" y="224" text-anchor="middle" fill="#f44336" font-size="12" font-weight="bold">Security</text>
+
+  <line x1="500" y1="130" x2="430" y2="200" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="500" y1="130" x2="570" y2="200" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+
+  <!-- Agent sub-concepts -->
+  <rect x="300" y="280" width="110" height="35" rx="6" fill="#111" stroke="#9C27B0" stroke-width="1"/>
+  <text x="355" y="302" text-anchor="middle" fill="#aaa" font-size="10">Identity</text>
+
+  <rect x="300" y="330" width="110" height="35" rx="6" fill="#111" stroke="#9C27B0" stroke-width="1"/>
+  <text x="355" y="352" text-anchor="middle" fill="#aaa" font-size="10">Capabilities</text>
+
+  <rect x="300" y="380" width="110" height="35" rx="6" fill="#111" stroke="#9C27B0" stroke-width="1"/>
+  <text x="355" y="402" text-anchor="middle" fill="#aaa" font-size="10">Output Contract</text>
+
+  <rect x="300" y="430" width="110" height="35" rx="6" fill="#111" stroke="#9C27B0" stroke-width="1"/>
+  <text x="355" y="452" text-anchor="middle" fill="#aaa" font-size="10">Confidence</text>
+
+  <line x1="400" y1="240" x2="355" y2="280" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="355" y1="315" x2="355" y2="330" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="355" y1="365" x2="355" y2="380" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="355" y1="415" x2="355" y2="430" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+
+  <!-- Security sub-concepts -->
+  <rect x="530" y="280" width="130" height="35" rx="6" fill="#111" stroke="#f44336" stroke-width="1"/>
+  <text x="595" y="302" text-anchor="middle" fill="#aaa" font-size="10">Budget System</text>
+
+  <rect x="530" y="330" width="130" height="35" rx="6" fill="#111" stroke="#f44336" stroke-width="1"/>
+  <text x="595" y="352" text-anchor="middle" fill="#aaa" font-size="10">Safety Envelope</text>
+
+  <rect x="530" y="380" width="130" height="35" rx="6" fill="#111" stroke="#f44336" stroke-width="1"/>
+  <text x="595" y="402" text-anchor="middle" fill="#aaa" font-size="10">Sandbox</text>
+
+  <rect x="530" y="430" width="130" height="35" rx="6" fill="#111" stroke="#f44336" stroke-width="1"/>
+  <text x="595" y="452" text-anchor="middle" fill="#aaa" font-size="10">Forbidden Tools</text>
+
+  <line x1="570" y1="240" x2="595" y2="280" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="595" y1="315" x2="595" y2="330" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="595" y1="365" x2="595" y2="380" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+  <line x1="595" y1="415" x2="595" y2="430" stroke="#555" stroke-width="1" marker-end="url(#cma)"/>
+
+  <!-- Bottom: Programmatic API -->
+  <rect x="350" y="520" width="300" height="50" rx="25" fill="#1a1a2e" stroke="#7bc67e" stroke-width="2" filter="url(#cm)"/>
+  <text x="500" y="545" text-anchor="middle" fill="#7bc67e" font-size="13" font-weight="bold">AgentWorkflow API</text>
+  <text x="500" y="562" text-anchor="middle" fill="#888" font-size="10">Programmatic, no YAML</text>
+
+  <line x1="500" y1="130" x2="500" y2="520" stroke="#7bc67e" stroke-width="1" stroke-dasharray="4,4" opacity="0.3"/>
+  <text x="510" y="500" fill="#7bc67e" font-size="10">simplifies to</text>
+
+  <!-- Philosophical note -->
+  <rect x="150" y="610" width="700" height="60" rx="8" fill="#111" stroke="#555" stroke-dasharray="4,2"/>
+  <text x="500" y="635" text-anchor="middle" fill="#ccc" font-size="12" font-weight="bold">Core philosophy: Separation of definition and execution</text>
+  <text x="500" y="655" text-anchor="middle" fill="#888" font-size="11">The same YAML can run on different engines -- the standard is runtime-agnostic</text>
+</svg>
