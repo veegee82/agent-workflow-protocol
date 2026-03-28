@@ -1,13 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="'Segoe UI', Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="Segoe UI, Arial, sans-serif">
   <defs>
-    <filter id="eaS" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="2" result="blur"/>
-      <feOffset dx="1" dy="2" result="offsetBlur"/>
-      <feFlood flood-color="#000" flood-opacity="0.25" result="color"/>
-      <feComposite in="color" in2="offsetBlur" operator="in" result="shadow"/>
-      <feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <marker id="eaA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-auto">
+<marker id="eaA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#666"/>
     </marker>
   </defs>
@@ -15,7 +8,7 @@
   <text x="480" y="35" text-anchor="middle" fill="#e0e0e0" font-size="20" font-weight="bold">Enterprise Architecture: AWP in Corporate Infrastructure</text>
 
   <!-- AWP Core (center) -->
-  <rect x="310" y="200" width="340" height="180" rx="12" fill="#1a1a2e" stroke="#FF9800" stroke-width="2.5" filter="url(#eaS)"/>
+  <rect x="310" y="200" width="340" height="180" rx="12" fill="#1a1a2e" stroke="#FF9800" stroke-width="2.5"/>
   <text x="480" y="228" text-anchor="middle" fill="#FF9800" font-size="16" font-weight="bold">AWP Runtime</text>
   <line x1="330" y1="238" x2="630" y2="238" stroke="#333"/>
 

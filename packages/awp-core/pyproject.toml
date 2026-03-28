@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awp-core"
+version = "1.0.0"
+description = "Agent Workflow Protocol — models, parser, validator, and schema tools"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{name = "Silvio Jurk"}, {name = "AWP Contributors"}]
+keywords = [
+    "agents", "multi-agent", "workflow", "orchestration", "llm",
+    "delegation", "dag", "protocol", "awp", "ai", "validation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/veegee82/agent-workflow-protocol"
+Repository = "https://github.com/veegee82/agent-workflow-protocol"
+Documentation = "https://github.com/veegee82/agent-workflow-protocol/tree/main/docs"
+Issues = "https://github.com/veegee82/agent-workflow-protocol/issues"
+Changelog = "https://github.com/veegee82/agent-workflow-protocol/blob/main/CHANGELOG.md"
+
+[project.scripts]
+awp = "awp.cli:_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

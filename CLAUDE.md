@@ -8,24 +8,26 @@ Agent Workflow Protocol (AWP) is an open standard for defining and orchestrating
 
 ## Development Commands
 
-All commands run from `reference/python/`.
-
 ```bash
-# Install
-pip install -e reference/python/
+# Install (both packages, editable)
+pip install -e packages/awp-core/
+pip install -e "packages/awp-runtime/[data]"
 
 # Lint and format
 ruff check .
 ruff format .
 
 # Run all tests
-pytest reference/python/tests/
+pytest packages/awp-core/tests/ packages/awp-runtime/tests/
 
-# Run a single test file
-pytest reference/python/tests/test_validator.py
+# Run core tests only (models, parser, validator)
+pytest packages/awp-core/tests/
+
+# Run runtime tests only (no E2E)
+pytest packages/awp-runtime/tests/ -k "not e2e"
 
 # Run a specific test
-pytest reference/python/tests/test_validator.py::test_function_name -v
+pytest packages/awp-core/tests/test_validator.py::test_function_name -v
 
 # CLI commands (after install)
 awp validate <path>              # Validate workflow (rules R1-R26)
@@ -39,19 +41,32 @@ E2E tests that call LLMs require an OpenRouter or OpenAI-compatible API key. Val
 
 ## Architecture
 
+### Two PyPI Packages
+
+The Python code lives in `packages/` as two independent, publishable packages:
+
+- **`awp-core`** (`packages/awp-core/src/awp/`) — Protocol layer: models, parser, validator, CLI
+- **`awp-runtime`** (`packages/awp-runtime/src/awp/`) — Execution layer: engines, LLM, tools, data API
+
+`awp-runtime` depends on `awp-core`. Both share the `awp.*` namespace.
+
 ### Two Orchestration Engines
 
-- **DAG Engine** (`reference/python/src/awp/runtime/runner.py`): Topological execution for A0-A1 workflows. Agents run in dependency order with state sharing via `share_output`.
-- **Delegation Loop Engine** (`reference/python/src/awp/runtime/delegation_loop_runner.py`): Manager-worker loop for A2-A4 workflows. Manager dispatches tasks to ephemeral workers with budget enforcement and validation gates.
+- **DAG Engine** (`packages/awp-runtime/src/awp/runtime/runner.py`): Topological execution for A0-A1 workflows. Agents run in dependency order with state sharing via `share_output`.
+- **Delegation Loop Engine** (`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`): Manager-worker loop for A2-A4 workflows. Manager dispatches tasks to ephemeral workers with budget enforcement and validation gates.
 
-### Core Source Layout (`reference/python/src/awp/`)
+### awp-core Source Layout (`packages/awp-core/src/awp/`)
 
 - `models/` — Pydantic models for all 7 layers (manifest, agent, orchestration, capabilities, communication, memory, security, observability)
 - `parser/` — Parses `workflow.awp.yaml` and `agent.awp.yaml` into Pydantic models, resolves imports
 - `validator/` — Rule engine (R1-R26) covering naming, graph structure, confidence, tool namespaces, budgets. Key file: `rules.py`
-- `runtime/` — Execution engines, `StandaloneAgent` base class, `LLMClient`, `ToolRegistry`, code executors (Docker, venv)
 - `agent.py` — Abstract `AWPAgent` interface: agents must return `{self.name: {result_dict}}` with a `confidence` float (R17)
 - `cli.py` — CLI entry point (`awp` command)
+
+### awp-runtime Source Layout (`packages/awp-runtime/src/awp/`)
+
+- `runtime/` — Execution engines, `StandaloneAgent` base class, `LLMClient`, `ToolRegistry`, code executors (Docker, venv)
+- `data/` — Programmatic API (`AgentWorkflow`) for running workflows from Python
 
 ### Key Protocols
 

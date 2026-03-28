@@ -45,8 +45,51 @@
 
 ### Installation
 
+AWP is split into two PyPI packages — install what you need:
+
 ```bash
-pip install -e "reference/python/[data]"
+# Full runtime (execution engines + data science tools) — includes awp-core automatically
+pip install awp-runtime[data]
+
+# Or: just the protocol tools (models, parser, validator, CLI) — no runtime dependencies
+pip install awp-core
+```
+
+**For local development** (editable install from this repo):
+
+```bash
+pip install -e "packages/awp-runtime/[data]"   # pulls in awp-core automatically
+# or individually:
+pip install -e packages/awp-core/
+pip install -e "packages/awp-runtime/[data]"
+```
+
+### Package Architecture
+
+AWP is published as **two separate PyPI packages** that share the `awp` namespace:
+
+| Package | PyPI | What it provides | Dependencies |
+|---------|------|------------------|--------------|
+| **`awp-core`** | `pip install awp-core` | Models, parser, validator, visualizer, packager, CLI (`awp validate`, `awp compliance`, `awp visualize`, `awp pack`) | pydantic, pyyaml |
+| **`awp-runtime`** | `pip install awp-runtime` | DAG engine, delegation loop engine, LLM client, tool registry, code executors, programmatic API (`awp.data`) | awp-core, httpx |
+
+```
+awp-runtime  ──depends on──►  awp-core
+   │                              │
+   ├── httpx                      ├── pydantic
+   ├── pandas, numpy (optional)   └── pyyaml
+   └── docker (optional)
+```
+
+**Why two packages?** Most users only need validation and parsing (CI pipelines, linters, schema tools) — they get `awp-core` with just 2 dependencies. Users who run workflows install `awp-runtime`, which pulls in `awp-core` automatically. This also enables third-party runtimes (`awp-runtime-langchain`, `awp-runtime-crewai`) that build on the stable `awp-core` protocol layer.
+
+All imports stay under the unified `awp.*` namespace regardless of which package is installed:
+
+```python
+from awp.models import AWPManifest        # awp-core
+from awp.validator import validate_rules   # awp-core
+from awp.runtime import WorkflowRunner     # awp-runtime (requires awp-runtime installed)
+from awp.data import AgentWorkflow         # awp-runtime
 ```
 
 ### Configure LLM Provider
@@ -819,10 +862,19 @@ For the complete theoretical derivation of all concepts (mental models, emergenc
 
 ```
 agent-workflow-protocol/
-  assets/                     SVG diagrams (this document)
-  docs/                       Complete protocol reference (16 files)
+  packages/                   PyPI-publishable Python packages
+    awp-core/                 Protocol: models, parser, validator, CLI
+      src/awp/                  models/, parser/, validator/, packager/, cli.py
+      tests/                    Core unit tests
+      pyproject.toml            → pip install awp-core
+    awp-runtime/              Runtime: execution engines, LLM client, tools
+      src/awp/runtime/          runner.py, delegation_loop_runner.py, llm.py, tools.py, ...
+      src/awp/data/             Programmatic API (AgentWorkflow)
+      tests/                    Runtime + E2E tests
+      pyproject.toml            → pip install awp-runtime (depends on awp-core)
   spec/versions/1.0/          Normative specification (RFC 2119)
   schemas/                    JSON Schemas
+  docs/                       Complete protocol reference (16 files)
   examples/                   12 workflows (A0-A4) + Jupyter
     01-hello-world/           A0: Minimal workflow
     02-research-pipeline/     A1: 3-agent DAG with state sharing
@@ -838,8 +890,8 @@ agent-workflow-protocol/
     12-full-autonomy-test/    A4: Full A4 Test
     jupyter/                  Programmatic API (Notebook)
   skill/                      AWP Skill for Claude
-  reference/python/           Python reference implementation
   conformance/                Conformance tests
+  assets/                     SVG diagrams
   README_NERD.md              Theory reference
 ```
 
