@@ -3,20 +3,23 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "awp-protocol"
+name = "awp-agents"
 version = "1.0.0"
-description = "Agent Workflow Protocol — open standard for multi-agent workflow orchestration (A0–A4)"
-readme = "README.md"
+description = "Agent Workflow Protocol — an open standard for orchestrating multi-agent AI workflows with YAML definitions, DAG execution, and recursive delegation loops (A0-A4 autonomy)"
+readme = "PYPI_README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{name = "Silvio Jurk"}, {name = "AWP Contributors"}]
 keywords = [
     "agents", "multi-agent", "workflow", "orchestration", "llm",
-    "delegation", "dag", "protocol", "awp", "ai",
+    "delegation", "dag", "protocol", "awp", "ai", "autonomous",
+    "agent-framework", "yaml-workflows", "openai", "claude",
+    "openrouter", "ollama", "data-science", "pipeline",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -34,7 +37,9 @@ dependencies = [
 
 [project.optional-dependencies]
 data = ["pandas>=2.0", "numpy>=1.24", "Pillow>=10.0"]
-dev = ["pytest>=7.0", "ruff>=0.4"]
+docker = ["docker>=7.0"]
+dev = ["pytest>=7.0", "ruff>=0.4", "mypy>=1.0"]
+all = ["pandas>=2.0", "numpy>=1.24", "Pillow>=10.0", "docker>=7.0"]
 
 [project.urls]
 Homepage = "https://github.com/veegee82/agent-workflow-protocol"
