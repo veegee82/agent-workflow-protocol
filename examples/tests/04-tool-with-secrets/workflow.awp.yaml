@@ -23,7 +23,7 @@ orchestration:
           max_memory_mb: 512
           max_cpu_seconds: 30
         forbidden_tools: ["shell.execute", "file.write_outside_workspace"]
-      manager_controlled: [instructions, skills, tools_allowed, output_contract, codemode.enabled, codemode.tool_creation]
+      manager_controlled: [instructions, skills, tools_allowed, output_contract, codemode.enabled, codemode.tool_creation, temperature]
     termination:
       enabled: true
       window: 3

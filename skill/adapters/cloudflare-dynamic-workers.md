@@ -14,31 +14,37 @@ Use this adapter when:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│            Dispatch Worker (Orchestrator)            │
-│                                                     │
-│  - Reads embedded workflow.awp.yaml (as JSON)       │
-│  - Executes DAG (sequential/parallel)               │
-│  - Calls LLM for each agent                         │
-│  - Validates output against schema                   │
-│  - Manages state between agents                      │
-│                                                     │
-│  Bindings:                                          │
-│    STATE   → KV Namespace (Workflow State)           │
-│    MEMORY  → R2 Bucket (Long-term Memory)           │
-│    DB      → D1 Database (Short-term/Daily Log)     │
-│    AI      → Workers AI (optional LLM Backend)      │
-├─────────────────────────────────────────────────────┤
-│              Shared Infrastructure                   │
-│                                                     │
-│  KV Namespace     → Agent Configs + Runtime State   │
-│  D1 (SQLite)      → Short-term Memory, Daily Logs   │
-│  R2 Bucket        → Long-term Memory (MEMORY.md)    │
-│  Workers AI       → LLM Inference (optional)        │
-│  External API     → OpenAI/Anthropic/OpenRouter     │
-└─────────────────────────────────────────────────────┘
-```
+<svg viewBox="0 0 620 380" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <!-- Outer container -->
+  <rect x="5" y="5" width="610" height="370" rx="8" fill="#f8f9fc" stroke="#4a6fa5" stroke-width="2"/>
+  <!-- Dispatch Worker section -->
+  <rect x="15" y="15" width="590" height="200" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="310" y="38" text-anchor="middle" font-weight="bold" font-size="15" fill="#2a3f5f">Dispatch Worker (Orchestrator)</text>
+  <text x="30" y="62" fill="#555">Reads embedded workflow.awp.yaml (as JSON)</text>
+  <text x="30" y="80" fill="#555">Executes DAG (sequential/parallel)</text>
+  <text x="30" y="98" fill="#555">Calls LLM for each agent</text>
+  <text x="30" y="116" fill="#555">Validates output against schema</text>
+  <text x="30" y="134" fill="#555">Manages state between agents</text>
+  <text x="30" y="160" font-weight="bold" fill="#2a3f5f">Bindings:</text>
+  <text x="50" y="178" fill="#555">STATE → KV Namespace (Workflow State)</text>
+  <text x="340" y="178" fill="#555">MEMORY → R2 Bucket (Long-term Memory)</text>
+  <text x="50" y="196" fill="#555">DB → D1 Database (Short-term/Daily Log)</text>
+  <text x="340" y="196" fill="#555">AI → Workers AI (optional LLM Backend)</text>
+  <!-- Shared Infrastructure section -->
+  <rect x="15" y="225" width="590" height="140" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
+  <text x="310" y="248" text-anchor="middle" font-weight="bold" font-size="15" fill="#2d5a2d">Shared Infrastructure</text>
+  <!-- Infrastructure items as rounded boxes -->
+  <rect x="30" y="260" width="260" height="28" rx="4" fill="#fff" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="160" y="279" text-anchor="middle" fill="#555">KV Namespace → Agent Configs + State</text>
+  <rect x="310" y="260" width="280" height="28" rx="4" fill="#fff" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="450" y="279" text-anchor="middle" fill="#555">D1 (SQLite) → Short-term Memory, Logs</text>
+  <rect x="30" y="296" width="260" height="28" rx="4" fill="#fff" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="160" y="315" text-anchor="middle" fill="#555">R2 Bucket → Long-term Memory</text>
+  <rect x="310" y="296" width="280" height="28" rx="4" fill="#fff" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="450" y="315" text-anchor="middle" fill="#555">Workers AI → LLM Inference (optional)</text>
+  <rect x="130" y="332" width="340" height="28" rx="4" fill="#fff" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="300" y="351" text-anchor="middle" fill="#555">External API → OpenAI / Anthropic / OpenRouter</text>
+</svg>
 
 ### How Execution Works
 

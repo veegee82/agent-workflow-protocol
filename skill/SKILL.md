@@ -15,15 +15,36 @@ allowed-tools: Read Write Edit Bash Glob Grep
 
 AWP organizes a workflow into seven protocol layers. Each layer answers one question:
 
-```
- Layer 6  OBSERVABILITY     How do I monitor this workflow?
- Layer 5  ORCHESTRATION     In what order and under what conditions?
- Layer 4  MEMORY & STATE    What does the workflow remember?
- Layer 3  COMMUNICATION     How do agents talk to each other?
- Layer 2  CAPABILITIES      What can an agent do? (tools, skills)
- Layer 1  AGENT IDENTITY    Who is this agent?
- Layer 0  MANIFEST          What is this workflow?
-```
+<svg viewBox="0 0 620 290" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <rect x="20" y="5" width="580" height="34" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="30" y="27" font-weight="bold" fill="#2a3f5f">Layer 6</text>
+  <text x="120" y="27" fill="#2a3f5f">OBSERVABILITY</text>
+  <text x="590" y="27" text-anchor="end" fill="#666">How do I monitor this workflow?</text>
+  <rect x="20" y="43" width="580" height="34" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
+  <text x="30" y="65" font-weight="bold" fill="#2d5a2d">Layer 5</text>
+  <text x="120" y="65" fill="#2d5a2d">ORCHESTRATION</text>
+  <text x="590" y="65" text-anchor="end" fill="#666">In what order and under what conditions?</text>
+  <rect x="20" y="81" width="580" height="34" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="30" y="103" font-weight="bold" fill="#856404">Layer 4</text>
+  <text x="120" y="103" fill="#856404">MEMORY &amp; STATE</text>
+  <text x="590" y="103" text-anchor="end" fill="#666">What does the workflow remember?</text>
+  <rect x="20" y="119" width="580" height="34" rx="4" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="30" y="141" font-weight="bold" fill="#5a2d82">Layer 3</text>
+  <text x="120" y="141" fill="#5a2d82">COMMUNICATION</text>
+  <text x="590" y="141" text-anchor="end" fill="#666">How do agents talk to each other?</text>
+  <rect x="20" y="157" width="580" height="34" rx="4" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="30" y="179" font-weight="bold" fill="#922b21">Layer 2</text>
+  <text x="120" y="179" fill="#922b21">CAPABILITIES</text>
+  <text x="590" y="179" text-anchor="end" fill="#666">What can an agent do? (tools, skills)</text>
+  <rect x="20" y="195" width="580" height="34" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="30" y="217" font-weight="bold" fill="#1a6b3c">Layer 1</text>
+  <text x="120" y="217" fill="#1a6b3c">AGENT IDENTITY</text>
+  <text x="590" y="217" text-anchor="end" fill="#666">Who is this agent?</text>
+  <rect x="20" y="233" width="580" height="34" rx="4" fill="#f0f0f0" stroke="#888" stroke-width="1.5"/>
+  <text x="30" y="255" font-weight="bold" fill="#333">Layer 0</text>
+  <text x="120" y="255" fill="#333">MANIFEST</text>
+  <text x="590" y="255" text-anchor="end" fill="#666">What is this workflow?</text>
+</svg>
 
 You start at the bottom. Layer 0 (manifest) and Layer 1 (agent identity)
 are always required. Everything above is opt-in.
@@ -101,6 +122,7 @@ orchestration:
         - output_contract
         - codemode.enabled
         - codemode.tool_creation
+        - temperature              # Manager sets per-worker LLM temperature
   # NOTE: shell.execute is forbidden — workers MUST use code.execute instead.
   # The manager should include code.execute in tools_allowed for codemode workers.
     termination:
@@ -119,7 +141,7 @@ orchestration:
 ```
 
 Key concepts:
-- **Delegation Envelope**: Manager generates instructions + skills + tools config for each worker
+- **Delegation Envelope**: Manager generates instructions + skills + tools config + temperature for each worker
 - **Budget System**: Hard limits on loops, workers, tokens, wall time. Required at A2+.
 - **Safety Envelope**: Immutable security constraints the manager cannot override. Required at A3+.
 - **Two-Tier Validation**: Deterministic (schema, confidence) + LLM semantic (does result address task?)

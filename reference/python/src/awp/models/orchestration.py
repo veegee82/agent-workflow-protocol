@@ -188,6 +188,7 @@ class WorkerPolicy(BaseModel):
             "output_contract",
             "codemode.enabled",
             "codemode.tool_creation",
+            "temperature",
         ]
     )
 

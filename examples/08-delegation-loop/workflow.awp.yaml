@@ -38,6 +38,7 @@ orchestration:
         - output_contract
         - codemode.enabled
         - codemode.tool_creation
+        - temperature
 
     budget:
       max_loops: 5

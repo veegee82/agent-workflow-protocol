@@ -914,7 +914,8 @@ You MUST respond with a JSON object containing ONE of these decisions:
       "codemode": {{
         "enabled": false,
         "tool_creation": false
-      }}
+      }},
+      "temperature": 0.2
     }}
   ],
   "confidence": 0.0
@@ -953,6 +954,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
 - Workers can only use tools from their tools_allowed list
 - Include relevant domain knowledge in the skills array as Markdown strings
 - Be specific in instructions — the worker only sees what you provide
+- Set `temperature` per worker to control creativity (0.0 = deterministic, 1.0 = creative). Choose based on the task: use low temperature for analysis/validation, higher for brainstorming/writing. If omitted, defaults to 0.2.
 - Respond ONLY with the JSON object, no other text
 """
 
@@ -1113,6 +1115,18 @@ You MUST respond with a JSON object containing ONE of these decisions:
         tools_allowed = envelope.get("tools_allowed", [])
         output_contract = envelope.get("output_contract", {})
         codemode = envelope.get("codemode", {})
+
+        # Dynamic temperature: envelope value (set by manager) takes priority
+        worker_temperature = envelope.get("temperature", 0.2)
+        if not isinstance(worker_temperature, (int, float)):
+            worker_temperature = 0.2
+        worker_temperature = max(0.0, min(float(worker_temperature), 2.0))
+        logger.info(
+            "Worker %s: temperature=%.2f (from %s)",
+            worker_id,
+            worker_temperature,
+            "envelope" if "temperature" in envelope else "default",
+        )
 
         # Enforce codemode from worker policy manager_controlled.
         # The manager LLM frequently ignores prompt instructions and sends
@@ -1341,7 +1355,7 @@ print("Chart saved")
                     tools=tool_defs,
                     tool_executor=_tracking_call,
                     max_rounds=5,
-                    temperature=0.2,
+                    temperature=worker_temperature,
                     max_tokens=4096,
                 )
                 content = ""
@@ -1386,11 +1400,11 @@ print("Chart saved")
 
         # Simple call (no tools)
         try:
-            result = llm.chat_json(messages, temperature=0.2, max_tokens=4096)
+            result = llm.chat_json(messages, temperature=worker_temperature, max_tokens=4096)
             if not isinstance(result, dict):
                 result = {"result": str(result), "confidence": 0.3}
         except Exception:
-            text = llm.chat_text(messages, temperature=0.2, max_tokens=4096)
+            text = llm.chat_text(messages, temperature=worker_temperature, max_tokens=4096)
             result = self._parse_json_response(text)
 
         if "confidence" not in result:

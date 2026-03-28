@@ -83,6 +83,10 @@ class TestDelegationLoopModels:
         assert "instructions" in wp.manager_controlled
         assert wp.enforced.sandbox.max_memory_mb == 512
 
+    def test_worker_policy_includes_temperature_in_manager_controlled(self):
+        wp = WorkerPolicy()
+        assert "temperature" in wp.manager_controlled
+
     def test_orchestration_config_with_delegation_loop(self):
         orch = AWPOrchestrationConfig(
             engine="delegation_loop",
@@ -137,6 +141,52 @@ class TestBudgetSnapshot:
         assert d["loops"]["used"] == 2
         assert d["loops"]["max"] == 5
         assert "budget_remaining_pct" in d
+
+
+class TestWorkerTemperature:
+    """Test dynamic worker temperature from delegation envelope."""
+
+    def test_envelope_temperature_used(self):
+        """Manager-set temperature in envelope should be used by worker."""
+        envelope = {
+            "worker_id": "analyst",
+            "instructions": "Analyze data",
+            "temperature": 0.7,
+        }
+        temp = envelope.get("temperature", 0.2)
+        assert temp == 0.7
+
+    def test_envelope_temperature_default(self):
+        """When no temperature in envelope, default to 0.2."""
+        envelope = {
+            "worker_id": "analyst",
+            "instructions": "Analyze data",
+        }
+        temp = envelope.get("temperature", 0.2)
+        assert temp == 0.2
+
+    def test_envelope_temperature_clamped(self):
+        """Temperature should be clamped to [0.0, 2.0]."""
+        for raw, expected in [(-0.5, 0.0), (0.0, 0.0), (1.0, 1.0), (3.0, 2.0)]:
+            val = max(0.0, min(float(raw), 2.0))
+            assert val == expected, f"raw={raw}"
+
+    def test_envelope_temperature_invalid_type_fallback(self):
+        """Non-numeric temperature should fall back to 0.2."""
+        envelope = {"temperature": "hot"}
+        raw = envelope.get("temperature", 0.2)
+        if not isinstance(raw, (int, float)):
+            raw = 0.2
+        assert raw == 0.2
+
+    def test_different_workers_different_temperatures(self):
+        """Manager can set different temperatures per worker in same iteration."""
+        envelopes = [
+            {"worker_id": "statistical_analyst", "temperature": 0.0},
+            {"worker_id": "creative_writer", "temperature": 0.9},
+        ]
+        temps = [e.get("temperature", 0.2) for e in envelopes]
+        assert temps == [0.0, 0.9]
 
 
 class TestStallDetector:

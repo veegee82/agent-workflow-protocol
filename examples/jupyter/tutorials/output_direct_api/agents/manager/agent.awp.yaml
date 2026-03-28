@@ -1,0 +1,17 @@
+awp_agent: 1.0.0
+identity:
+  description: Manager agent for direct API demo
+  id: manager
+  role: Data Analysis Manager
+  version: 1.0.0
+model:
+  max_tokens: 4096
+  name: openrouter/google/gemini-2.5-flash
+  temperature: 0.2
+output:
+  format: json
+prompt:
+  system: system_prompt.md
+runtime:
+  class_name: Agent
+  strategy_folder: workflow

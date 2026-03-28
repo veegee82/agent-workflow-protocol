@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-03-28T03:20:31.364465+00:00",
+  "state": {
+    "task": "Research the latest trends in renewable energy storage technology",
+    "planner": {
+      "error": "Client error '401 Unauthorized' for url 'https://openrouter.ai/api/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "confidence": 0.0
+    },
+    "researcher": {
+      "error": "Client error '401 Unauthorized' for url 'https://openrouter.ai/api/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "confidence": 0.0
+    },
+    "writer": {
+      "error": "Client error '401 Unauthorized' for url 'https://openrouter.ai/api/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "confidence": 0.0
+    }
+  }
+}

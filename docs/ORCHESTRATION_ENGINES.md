@@ -4,20 +4,22 @@ AWP Layer 5 (Orchestration) supports two execution engines. Each engine answers
 the same question -- *"In what order and under what conditions do agents run?"* --
 but with fundamentally different philosophies.
 
-```
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                    AWP Layer 5: Orchestration                    │
-  │                                                                 │
-  │  ┌──────────────────────┐    ┌───────────────────────────────┐  │
-  │  │    DAG Engine         │    │   Delegation Loop Engine      │  │
-  │  │                      │    │                               │  │
-  │  │  Static graph         │    │  Dynamic orchestration        │  │
-  │  │  Defined before run   │    │  Decided at runtime by LLM   │  │
-  │  │  Predictable          │    │  Adaptive                     │  │
-  │  │  Topological order    │    │  Manager-worker loop          │  │
-  │  └──────────────────────┘    └───────────────────────────────┘  │
-  └─────────────────────────────────────────────────────────────────┘
-```
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="14">
+  <rect x="10" y="10" width="660" height="180" rx="8" fill="#f0f4ff" stroke="#4a6fa5" stroke-width="2"/>
+  <text x="340" y="38" text-anchor="middle" font-weight="bold" font-size="16" fill="#2a3f5f">AWP Layer 5: Orchestration</text>
+  <rect x="30" y="55" width="290" height="120" rx="6" fill="#fff" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="175" y="80" text-anchor="middle" font-weight="bold" fill="#2a3f5f">DAG Engine</text>
+  <text x="175" y="102" text-anchor="middle" fill="#555">Static graph</text>
+  <text x="175" y="122" text-anchor="middle" fill="#555">Defined before run</text>
+  <text x="175" y="142" text-anchor="middle" fill="#555">Predictable</text>
+  <text x="175" y="162" text-anchor="middle" fill="#555">Topological order</text>
+  <rect x="360" y="55" width="290" height="120" rx="6" fill="#fff" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="505" y="80" text-anchor="middle" font-weight="bold" fill="#2a3f5f">Delegation Loop Engine</text>
+  <text x="505" y="102" text-anchor="middle" fill="#555">Dynamic orchestration</text>
+  <text x="505" y="122" text-anchor="middle" fill="#555">Decided at runtime by LLM</text>
+  <text x="505" y="142" text-anchor="middle" fill="#555">Adaptive</text>
+  <text x="505" y="162" text-anchor="middle" fill="#555">Manager-worker loop</text>
+</svg>
 
 ---
 
@@ -126,42 +128,58 @@ The manager creates them at runtime by generating a **Delegation Envelope**
 containing everything the worker needs: instructions, domain knowledge (skills),
 allowed tools, and output contract.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DELEGATION LOOP                        │
-│                                                          │
-│  ┌──────────────────────────────────────┐                │
-│  │           MANAGER AGENT              │                │
-│  │                                      │                │
-│  │  Receives: Task + Rolling Summary    │                │
-│  │  Decides:  DELEGATE | COMPLETE | FAIL│                │
-│  └──────────────┬───────────────────────┘                │
-│                 │                                        │
-│        ┌────────┴────────┐                               │
-│        │    DELEGATE      │                               │
-│        └────────┬────────┘                               │
-│                 │                                        │
-│    ┌────────────┼────────────┐   Fan-Out                 │
-│    ▼            ▼            ▼                            │
-│  ┌─────┐    ┌─────┐    ┌─────┐                           │
-│  │Wkr A│    │Wkr B│    │Wkr C│  Ephemeral workers       │
-│  └──┬──┘    └──┬──┘    └──┬──┘                           │
-│     └──────────┴──────────┘                              │
-│                │                                         │
-│    ┌───────────┴───────────┐                             │
-│    │    2-TIER VALIDATION   │                             │
-│    │  S1: Deterministic     │  Schema, confidence, budget │
-│    │  S2: LLM Semantic      │  "Does this make sense?"    │
-│    └───────────┬───────────┘                             │
-│                │                                         │
-│    ┌───────────┴───────────┐                             │
-│    │  TERMINATION CHECK     │                             │
-│    │  Budget? Stall? Loops? │                             │
-│    └───────────┬───────────┘                             │
-│                │                                         │
-│                └──────────→ Next Iteration               │
-└─────────────────────────────────────────────────────────┘
-```
+<svg viewBox="0 0 560 520" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <rect x="5" y="5" width="550" height="510" rx="10" fill="#f8f9fc" stroke="#4a6fa5" stroke-width="2"/>
+  <text x="280" y="30" text-anchor="middle" font-weight="bold" font-size="16" fill="#2a3f5f">DELEGATION LOOP</text>
+  <!-- Manager Agent -->
+  <rect x="130" y="45" width="300" height="80" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="280" y="68" text-anchor="middle" font-weight="bold" fill="#2a3f5f">MANAGER AGENT</text>
+  <text x="280" y="88" text-anchor="middle" fill="#555">Receives: Task + Rolling Summary</text>
+  <text x="280" y="108" text-anchor="middle" fill="#555">Decides: DELEGATE | COMPLETE | FAIL</text>
+  <!-- Arrow down -->
+  <line x1="280" y1="125" x2="280" y2="150" stroke="#4a6fa5" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- DELEGATE box -->
+  <rect x="220" y="150" width="120" height="30" rx="4" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="280" y="170" text-anchor="middle" font-weight="bold" fill="#5a2d82">DELEGATE</text>
+  <!-- Fan-out arrows -->
+  <line x1="280" y1="180" x2="120" y2="220" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="280" y1="180" x2="280" y2="220" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="280" y1="180" x2="440" y2="220" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="490" y="210" fill="#888" font-size="12">Fan-Out</text>
+  <!-- Workers -->
+  <rect x="80" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="120" y="242" text-anchor="middle" fill="#1a6b3c">Wkr A</text>
+  <rect x="240" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="280" y="242" text-anchor="middle" fill="#1a6b3c">Wkr B</text>
+  <rect x="400" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="440" y="242" text-anchor="middle" fill="#1a6b3c">Wkr C</text>
+  <text x="490" y="248" fill="#888" font-size="11">Ephemeral workers</text>
+  <!-- Converge arrows -->
+  <line x1="120" y1="255" x2="280" y2="290" stroke="#4a6fa5" stroke-width="1.5"/>
+  <line x1="280" y1="255" x2="280" y2="290" stroke="#4a6fa5" stroke-width="1.5"/>
+  <line x1="440" y1="255" x2="280" y2="290" stroke="#4a6fa5" stroke-width="1.5"/>
+  <!-- 2-Tier Validation -->
+  <rect x="130" y="290" width="300" height="65" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="280" y="312" text-anchor="middle" font-weight="bold" fill="#856404">2-TIER VALIDATION</text>
+  <text x="280" y="330" text-anchor="middle" fill="#666">S1: Deterministic — Schema, confidence, budget</text>
+  <text x="280" y="346" text-anchor="middle" fill="#666">S2: LLM Semantic — "Does this make sense?"</text>
+  <!-- Arrow down -->
+  <line x1="280" y1="355" x2="280" y2="380" stroke="#4a6fa5" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- Termination Check -->
+  <rect x="150" y="380" width="260" height="50" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="280" y="402" text-anchor="middle" font-weight="bold" fill="#922b21">TERMINATION CHECK</text>
+  <text x="280" y="420" text-anchor="middle" fill="#666">Budget? Stall? Loops?</text>
+  <!-- Arrow to Next Iteration -->
+  <line x1="280" y1="430" x2="280" y2="460" stroke="#4a6fa5" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="210" y="460" width="140" height="30" rx="15" fill="#4a6fa5" stroke="none"/>
+  <text x="280" y="480" text-anchor="middle" fill="#fff" font-weight="bold">Next Iteration</text>
+  <!-- Arrow marker -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4a6fa5"/>
+    </marker>
+  </defs>
+</svg>
 
 ### The Delegation Envelope
 
@@ -241,10 +259,13 @@ worker_policy:
     - output_contract
     - codemode.enabled
     - codemode.tool_creation
+    - temperature                    # Per-worker LLM temperature
 ```
 
 The model selection is also outside the manager's control — it's set by the user
-via `--manager-model` and `--worker-model` CLI flags.
+via `--manager-model` and `--worker-model` CLI flags. However, the manager **can**
+set `temperature` per worker in the delegation envelope to control creativity
+(e.g., low for analysis, high for brainstorming). If omitted, defaults to 0.2.
 
 ### Two-Tier Validation
 
@@ -401,6 +422,7 @@ orchestration:
         - output_contract
         - codemode.enabled
         - codemode.tool_creation
+        - temperature
 
     budget:
       max_loops: 20
@@ -605,6 +627,7 @@ orchestration:
         - tools_allowed
         - codemode.enabled
         - codemode.tool_creation
+        - temperature
 ```
 
 **Autonomy level:** A3 Self-Tooling

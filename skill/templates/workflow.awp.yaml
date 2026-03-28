@@ -82,6 +82,7 @@ orchestration:
 #         - output_contract
 #         - codemode.enabled
 #         - codemode.tool_creation
+#         - temperature                        # Per-worker LLM temperature (0.0-2.0)
 #   # NOTE: shell.execute is forbidden — manager must use code.execute in tools_allowed.
 #   # Workers with codemode need: tools_allowed: [code.execute, file.read, file.write]
 #

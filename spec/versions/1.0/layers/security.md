@@ -43,18 +43,37 @@ security:
 
 ### 2.3 State Machine
 
-```
-     success          failure_threshold reached
-  ┌───────────┐      ┌───────────────────────┐
-  │           ▼      ▼                       │
-  │        CLOSED ──────────▶ OPEN           │
-  │           ▲                 │             │
-  │           │                 │ reset_timeout
-  │           │                 ▼             │
-  │           └──── HALF-OPEN ───────────────┘
-  │                success       failure
-  └────────────────────┘
-```
+<svg viewBox="0 0 520 220" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <defs>
+    <marker id="cbArrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4a6fa5"/>
+    </marker>
+  </defs>
+  <!-- CLOSED -->
+  <rect x="40" y="70" width="120" height="50" rx="25" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+  <text x="100" y="100" text-anchor="middle" font-weight="bold" fill="#1a6b3c">CLOSED</text>
+  <!-- OPEN -->
+  <rect x="320" y="70" width="120" height="50" rx="25" fill="#fde2e2" stroke="#c0392b" stroke-width="2"/>
+  <text x="380" y="100" text-anchor="middle" font-weight="bold" fill="#922b21">OPEN</text>
+  <!-- HALF-OPEN -->
+  <rect x="180" y="160" width="140" height="50" rx="25" fill="#fef3cd" stroke="#d4a017" stroke-width="2"/>
+  <text x="250" y="190" text-anchor="middle" font-weight="bold" fill="#856404">HALF-OPEN</text>
+  <!-- CLOSED -> OPEN -->
+  <line x1="160" y1="90" x2="318" y2="90" stroke="#c0392b" stroke-width="2" marker-end="url(#cbArrow)"/>
+  <text x="240" y="82" text-anchor="middle" fill="#c0392b" font-size="11">failure_threshold reached</text>
+  <!-- OPEN -> HALF-OPEN -->
+  <line x1="380" y1="120" x2="310" y2="160" stroke="#d4a017" stroke-width="2" marker-end="url(#cbArrow)"/>
+  <text x="380" y="148" text-anchor="start" fill="#d4a017" font-size="11">reset_timeout</text>
+  <!-- HALF-OPEN -> CLOSED (success) -->
+  <line x1="185" y1="175" x2="120" y2="120" stroke="#27ae60" stroke-width="2" marker-end="url(#cbArrow)"/>
+  <text x="110" y="158" text-anchor="end" fill="#27ae60" font-size="11">success</text>
+  <!-- HALF-OPEN -> OPEN (failure) -->
+  <line x1="315" y1="175" x2="380" y2="120" stroke="#c0392b" stroke-width="2" marker-end="url(#cbArrow)"/>
+  <text x="385" y="158" text-anchor="start" fill="#c0392b" font-size="11">failure</text>
+  <!-- CLOSED self-loop label -->
+  <path d="M 60 70 C 40 30, 140 30, 120 70" fill="none" stroke="#27ae60" stroke-width="1.5" marker-end="url(#cbArrow)"/>
+  <text x="100" y="30" text-anchor="middle" fill="#27ae60" font-size="11">success</text>
+</svg>
 
 - **CLOSED:** Normal operation. Failures are counted.
 - **OPEN:** All requests are immediately rejected. No execution occurs.

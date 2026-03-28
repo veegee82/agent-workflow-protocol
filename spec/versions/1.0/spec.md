@@ -50,37 +50,83 @@ awp: "1.0.0"
 
 AWP is organized into seven layers, each addressing a distinct concern. Layers are additive: higher layers depend on lower layers but not vice versa.
 
-```
-┌─────────────────────────────────────────────┐
-│  Layer 6: Observability                     │  metrics, tracing, logging, audit
-├─────────────────────────────────────────────┤
-│  Layer 5: Orchestration                     │  DAG, execution modes, control flow
-├─────────────────────────────────────────────┤
-│  Layer 4: Memory & State                    │  state model, memory tiers, sharing
-├─────────────────────────────────────────────┤
-│  Layer 3: Communication                     │  message bus, channels, envelopes
-├─────────────────────────────────────────────┤
-│  Layer 2: Capabilities                      │  tools, skills, data sources, sandbox
-├─────────────────────────────────────────────┤
-│  Layer 1: Agent Identity                    │  identity, model, prompt, output
-├─────────────────────────────────────────────┤
-│  Layer 0: Manifest                          │  workflow metadata, dependencies, env
-└─────────────────────────────────────────────┘
-
-Cross-cutting: Security (circuit breaker, rate limiting, access control, secrets, audit)
-```
+<svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="14">
+  <defs>
+    <linearGradient id="layerGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8edf5"/>
+      <stop offset="100%" stop-color="#f5f7fc"/>
+    </linearGradient>
+  </defs>
+  <!-- Layer 6 -->
+  <rect x="20" y="10" width="660" height="38" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="30" y="34" font-weight="bold" fill="#2a3f5f">Layer 6: Observability</text>
+  <text x="680" y="34" text-anchor="end" fill="#666">metrics, tracing, logging, audit</text>
+  <!-- Layer 5 -->
+  <rect x="20" y="52" width="660" height="38" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
+  <text x="30" y="76" font-weight="bold" fill="#2d5a2d">Layer 5: Orchestration</text>
+  <text x="680" y="76" text-anchor="end" fill="#666">DAG, execution modes, control flow</text>
+  <!-- Layer 4 -->
+  <rect x="20" y="94" width="660" height="38" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="30" y="118" font-weight="bold" fill="#856404">Layer 4: Memory &amp; State</text>
+  <text x="680" y="118" text-anchor="end" fill="#666">state model, memory tiers, sharing</text>
+  <!-- Layer 3 -->
+  <rect x="20" y="136" width="660" height="38" rx="4" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="30" y="160" font-weight="bold" fill="#5a2d82">Layer 3: Communication</text>
+  <text x="680" y="160" text-anchor="end" fill="#666">message bus, channels, envelopes</text>
+  <!-- Layer 2 -->
+  <rect x="20" y="178" width="660" height="38" rx="4" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="30" y="202" font-weight="bold" fill="#922b21">Layer 2: Capabilities</text>
+  <text x="680" y="202" text-anchor="end" fill="#666">tools, skills, data sources, sandbox</text>
+  <!-- Layer 1 -->
+  <rect x="20" y="220" width="660" height="38" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="30" y="244" font-weight="bold" fill="#1a6b3c">Layer 1: Agent Identity</text>
+  <text x="680" y="244" text-anchor="end" fill="#666">identity, model, prompt, output</text>
+  <!-- Layer 0 -->
+  <rect x="20" y="262" width="660" height="38" rx="4" fill="#f0f0f0" stroke="#888" stroke-width="1.5"/>
+  <text x="30" y="286" font-weight="bold" fill="#333">Layer 0: Manifest</text>
+  <text x="680" y="286" text-anchor="end" fill="#666">workflow metadata, dependencies, env</text>
+  <!-- Cross-cutting -->
+  <rect x="20" y="310" width="660" height="24" rx="12" fill="#4a6fa5" stroke="none"/>
+  <text x="350" y="327" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Cross-cutting: Security (circuit breaker, rate limiting, access control, secrets, audit)</text>
+</svg>
 
 ### Dependency Diagram
 
-```
-Layer 6 (Observability) ──depends──▶ Layer 5 (Orchestration)
-Layer 5 (Orchestration) ──depends──▶ Layer 1 (Agent Identity)
-Layer 4 (Memory & State) ──depends──▶ Layer 1 (Agent Identity)
-Layer 3 (Communication) ──depends──▶ Layer 1 (Agent Identity)
-Layer 2 (Capabilities)  ──depends──▶ Layer 1 (Agent Identity)
-Layer 1 (Agent Identity) ──depends──▶ Layer 0 (Manifest)
-Security ──cross-cuts──▶ All Layers
-```
+<svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <defs>
+    <marker id="depArrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4a6fa5"/>
+    </marker>
+    <marker id="secArrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b"/>
+    </marker>
+  </defs>
+  <!-- Nodes -->
+  <rect x="180" y="5" width="180" height="28" rx="14" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="270" y="24" text-anchor="middle" fill="#2a3f5f" font-weight="bold">Layer 6: Observability</text>
+  <rect x="180" y="50" width="180" height="28" rx="14" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
+  <text x="270" y="69" text-anchor="middle" fill="#2d5a2d" font-weight="bold">Layer 5: Orchestration</text>
+  <rect x="10" y="110" width="170" height="28" rx="14" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="95" y="129" text-anchor="middle" fill="#856404" font-weight="bold">Layer 4: Memory</text>
+  <rect x="190" y="110" width="170" height="28" rx="14" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="275" y="129" text-anchor="middle" fill="#5a2d82" font-weight="bold">Layer 3: Comm</text>
+  <rect x="370" y="110" width="170" height="28" rx="14" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="455" y="129" text-anchor="middle" fill="#922b21" font-weight="bold">Layer 2: Capabilities</text>
+  <rect x="180" y="165" width="180" height="28" rx="14" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="270" y="184" text-anchor="middle" fill="#1a6b3c" font-weight="bold">Layer 1: Agent Identity</text>
+  <rect x="180" y="215" width="180" height="28" rx="14" fill="#f0f0f0" stroke="#888" stroke-width="1.5"/>
+  <text x="270" y="234" text-anchor="middle" fill="#333" font-weight="bold">Layer 0: Manifest</text>
+  <!-- Dependency arrows -->
+  <line x1="270" y1="33" x2="270" y2="50" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <line x1="270" y1="78" x2="270" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <line x1="95" y1="138" x2="220" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <line x1="275" y1="138" x2="270" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <line x1="455" y1="138" x2="320" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <line x1="270" y1="193" x2="270" y2="215" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <!-- Security cross-cut -->
+  <rect x="170" y="258" width="200" height="22" rx="11" fill="#c0392b" stroke="none"/>
+  <text x="270" y="274" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">Security — cross-cuts all layers</text>
+</svg>
 
 ---
 
