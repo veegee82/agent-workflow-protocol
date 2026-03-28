@@ -926,6 +926,56 @@ agent-workflow-protocol/
 | [Jupyter Notebook](examples/jupyter/) | want to try the programmatic API |
 | [Skill](skill/SKILL.md) | want to generate workflows with Claude |
 
+### Built With
+
+#### Language & Core
+
+| Technology | Purpose |
+|------------|---------|
+| ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) | Runtime language |
+| ![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white) | Data validation & models for all 7 layers |
+| ![YAML](https://img.shields.io/badge/YAML-Workflow%20Definitions-CB171E?logo=yaml&logoColor=white) | Workflow & agent manifest format |
+| ![JSON Schema](https://img.shields.io/badge/JSON%20Schema-Validation-000000?logo=json&logoColor=white) | Schema validation for manifests |
+
+#### LLM Providers
+
+| Provider | Status |
+|----------|--------|
+| ![OpenRouter](https://img.shields.io/badge/OpenRouter-150%2B%20Models-6366F1?logo=data:image/svg+xml;base64,&logoColor=white) | Recommended — universal gateway |
+| ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o%2C%20o1-412991?logo=openai&logoColor=white) | Direct API support |
+| ![Anthropic](https://img.shields.io/badge/Anthropic-Claude-D97706?logo=anthropic&logoColor=white) | Via OpenRouter or proxy |
+| ![Ollama](https://img.shields.io/badge/Ollama-Local%20LLMs-000000?logo=ollama&logoColor=white) | Free, local inference |
+| ![Groq](https://img.shields.io/badge/Groq-Fast%20Inference-F55036) | Ultra-low latency |
+| ![DeepSeek](https://img.shields.io/badge/DeepSeek-R1%2C%20V3-4D6BFF) | Reasoning models |
+| ![Mistral](https://img.shields.io/badge/Mistral-AI-FF7000?logo=mistral&logoColor=white) | European provider |
+| Any OpenAI-compatible API | Fully supported |
+
+#### Execution & Sandboxing
+
+| Technology | Purpose |
+|------------|---------|
+| ![Docker](https://img.shields.io/badge/Docker-Sandbox-2496ED?logo=docker&logoColor=white) | Isolated code execution (pre-built image with numpy, pandas, matplotlib, scikit-learn) |
+| ![venv](https://img.shields.io/badge/venv-Lightweight%20Sandbox-3776AB?logo=python&logoColor=white) | Virtual environment isolation with runtime pip install |
+| Subprocess | Default executor with timeout and output limits |
+
+#### Networking & Data
+
+| Technology | Purpose |
+|------------|---------|
+| ![httpx](https://img.shields.io/badge/httpx-HTTP%20Client-2D3748) | Async-ready HTTP for LLM API calls |
+| ![pandas](https://img.shields.io/badge/pandas-DataFrames-150458?logo=pandas&logoColor=white) | Data science input/output (optional) |
+| ![NumPy](https://img.shields.io/badge/NumPy-Arrays-013243?logo=numpy&logoColor=white) | Numerical computing (optional) |
+| ![Pillow](https://img.shields.io/badge/Pillow-Images-3776AB) | Image processing (optional) |
+
+#### Testing & Quality
+
+| Technology | Purpose |
+|------------|---------|
+| ![pytest](https://img.shields.io/badge/pytest-Testing-0A9EDC?logo=pytest&logoColor=white) | 295+ tests (unit, integration, E2E) |
+| ![Ruff](https://img.shields.io/badge/Ruff-Linting%20%26%20Formatting-D7FF64?logo=ruff&logoColor=black) | Fast Python linter and formatter |
+| ![mypy](https://img.shields.io/badge/mypy-Type%20Checking-1674B1) | Static type analysis |
+| ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF?logo=github-actions&logoColor=white) | Lint, test (Python 3.10-3.13 matrix), build, publish |
+
 ### License
 
 MIT License. See [LICENSE](LICENSE).
