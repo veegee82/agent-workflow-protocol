@@ -5,18 +5,30 @@
 <h1 align="center">AWP -- Agent Workflow Protocol</h1>
 
 <p align="center">
-  <strong>The handbook: Multi-agent workflows for Data Science, Enterprise, and Infrastructure Benchmarking.</strong><br/>
-  From the first line of code to the theoretical foundation.
+  <strong>The open standard for orchestrating multi-agent AI workflows.</strong><br/>
+  Define in YAML. Run in Python. Scale from a single agent to recursive delegation loops.
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/v/awp-agents?color=blue&label=PyPI" alt="PyPI version"/></a>
+  <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/pyversions/awp-agents" alt="Python versions"/></a>
+  <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/dm/awp-agents?color=green&label=Downloads" alt="Downloads"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+  <a href="https://github.com/veegee82/agent-workflow-protocol/stargazers"><img src="https://img.shields.io/github/stars/veegee82/agent-workflow-protocol?style=flat&color=orange" alt="GitHub stars"/></a>
+</p>
+
+<p align="center">
+  <code>pip install awp-agents</code>
 </p>
 
 <p align="center">
   <a href="docs/">Docs</a> &middot;
   <a href="examples/">Examples</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
+  <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
   <a href="README_GENERATION.md">Workflow Generation</a> &middot;
-  <a href="README_NERD.md">Theory Reference</a> &middot;
-  <a href="README_SUPER_NERD.md">Deep Theory</a>
+  <a href="README_NERD.md">Theory</a>
 </p>
 
 ---
@@ -44,9 +56,6 @@
 </p>
 
 ### Installation
-
-[![PyPI version](https://img.shields.io/pypi/v/awp-agents.svg)](https://pypi.org/project/awp-agents/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
 ```bash
 pip install awp-agents
