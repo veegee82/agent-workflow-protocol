@@ -40,6 +40,7 @@ All AWP tools must return a response conforming to this structure:
 | `file.write` | Write content to a file. |
 | `file.list` | List files in a directory. |
 | `shell.execute` | Execute a shell command in a sandbox. |
+| `terminal.execute` | Execute a shell command (sudo and privilege escalation forbidden). |
 | `agent.send_message` | Send a message to another agent via the message bus. |
 | `agent.list_messages` | List messages received from other agents. |
 | `memory.write` | Write to daily log or MEMORY.md. |
@@ -101,6 +102,23 @@ capabilities:
         rate_limit:
           max_per_minute: 10
 ```
+
+## shell.execute vs terminal.execute
+
+Both tools execute shell commands with the same parameters (`command`, `timeout`, `cwd`) and the same 120-second hard cap. The difference is a single security constraint:
+
+| | `shell.execute` | `terminal.execute` |
+|---|---|---|
+| Full shell access | Yes | Yes |
+| `sudo` / `pkexec` / `doas` | Allowed | **Blocked (403)** |
+| Security system impact | None | None — uses the same access control, rate limiting, and circuit breaker |
+
+`terminal.execute` rejects commands that invoke `sudo`, `/usr/bin/sudo`, `pkexec`, `doas`, or privilege escalation via `env sudo` / `command sudo`, including chained commands (`echo hi && sudo rm -rf /`).
+
+**When to use which:**
+- Use `terminal.execute` for agents that need shell access without privilege escalation (the common case).
+- Use `shell.execute` only when an agent genuinely needs elevated privileges.
+- In delegation loop workflows, both are typically in `forbidden_tools` — workers use `code.execute` instead.
 
 ## Tool Secrets
 

@@ -54,6 +54,7 @@ RESERVED_TOOL_NAMESPACES = frozenset(
         "http",
         "file",
         "shell",
+        "terminal",
         "agent",
         "memory",
         "arithmetic",

@@ -139,6 +139,7 @@ def validate_rules(
             "file.write",
             "file.list",
             "shell.execute",
+            "terminal.execute",
             "memory.read",
             "memory.write",
             "memory.search",

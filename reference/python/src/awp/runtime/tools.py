@@ -1,7 +1,7 @@
 """AWP Tool Registry -- Built-in and custom MCP tool execution.
 
 Provides built-in tools (web.search, http.request, file.read, file.write,
-file.list, shell.execute, arithmetic.*, memory.*) and discovers custom
+file.list, shell.execute, terminal.execute, arithmetic.*, memory.*) and discovers custom
 tools from the workflow's mcp/ directory.
 
 Custom tools in mcp/ may override built-in tools by using the same FQN
@@ -278,6 +278,28 @@ class ToolRegistry:
             "Execute a shell command",
         )
 
+        self._register(
+            "terminal.execute",
+            self._terminal_execute,
+            {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute (sudo is forbidden)",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "default": 30,
+                    },
+                    "cwd": {"type": "string", "description": "Working directory"},
+                },
+                "required": ["command"],
+            },
+            "Execute a shell command with full terminal access (sudo forbidden)",
+        )
+
         for op in ("add", "subtract", "multiply", "divide"):
             self._register(
                 f"arithmetic.{op}",
@@ -498,6 +520,72 @@ class ToolRegistry:
     def _shell_execute(
         self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
     ) -> dict[str, Any]:
+        timeout = min(timeout, 120)  # hard cap
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=cwd,
+            )
+            return _ok(
+                {
+                    "stdout": result.stdout[:50000],
+                    "stderr": result.stderr[:10000],
+                    "returncode": result.returncode,
+                }
+            )
+        except subprocess.TimeoutExpired:
+            return _err(f"Timeout after {timeout}s", 408)
+        except Exception as e:
+            return _err(str(e))
+
+    # -- Terminal tools (sudo-free shell) --------------------------------
+
+    # Patterns that indicate sudo usage.  We check the raw command string
+    # after splitting on shell meta-characters so that constructs like
+    # ``echo hi && sudo rm -rf /`` are caught.
+    _SUDO_PATTERN = re.compile(
+        r"""
+        (?:^|[;&|`\n]\s*)   # start of string or after shell separator
+        sudo\b               # the word "sudo"
+        """,
+        re.VERBOSE,
+    )
+
+    @staticmethod
+    def _contains_sudo(command: str) -> bool:
+        """Return True if *command* attempts to use sudo in any form."""
+        # Also catch common evasion attempts:
+        #   sudo, /usr/bin/sudo, env sudo, command sudo, pkexec, doas
+        for token in re.split(r"[;&|`\n]+", command):
+            stripped = token.strip()
+            # Direct sudo invocation
+            if re.match(r"^sudo\b", stripped):
+                return True
+            # Absolute path to sudo
+            if re.match(r"^(/usr/bin/|/bin/)?sudo\b", stripped):
+                return True
+            # Via env or command builtins
+            if re.match(r"^(env|command)\s+sudo\b", stripped):
+                return True
+            # pkexec and doas are sudo-equivalents
+            if re.match(r"^(pkexec|doas)\b", stripped):
+                return True
+        return False
+
+    def _terminal_execute(
+        self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Execute a shell command, rejecting any command that uses sudo."""
+        if self._contains_sudo(command):
+            return _err(
+                "terminal.execute forbids sudo and privilege escalation commands. "
+                "Use shell.execute if elevated privileges are required.",
+                403,
+            )
         timeout = min(timeout, 120)  # hard cap
         try:
             result = subprocess.run(

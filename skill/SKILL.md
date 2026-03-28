@@ -124,6 +124,7 @@ orchestration:
         - codemode.tool_creation
         - temperature              # Manager sets per-worker LLM temperature
   # NOTE: shell.execute is forbidden — workers MUST use code.execute instead.
+  # For non-codemode terminal access, use terminal.execute (sudo-free shell).
   # The manager should include code.execute in tools_allowed for codemode workers.
     termination:
       enabled: true
@@ -891,6 +892,7 @@ self-contained and can run without a full AWP runtime providing built-in tool st
 | `http.request` | Use `httpx` to make arbitrary HTTP requests with timeout and error handling. |
 | `file.read` / `file.write` / `file.list` | Use Python `pathlib` with sandboxed path validation. |
 | `shell.execute` | Use `subprocess.run` with timeout and cwd support. |
+| `terminal.execute` | Like `shell.execute` but rejects any command containing `sudo`, `pkexec`, or `doas`. Use this for agents that need terminal access without privilege escalation. |
 | `memory.write` / `memory.read` / `memory.search` / `memory.curate` | Use file-based storage in a `{workflow_dir}/.memory/` directory. |
 | `agent.send_message` / `agent.list_messages` | Use file-based message queue in `{workflow_dir}/.messages/`. |
 | `arithmetic.*` | Direct Python arithmetic operations. |
