@@ -28,7 +28,8 @@
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
   <a href="README_GENERATION.md">Workflow Generation</a> &middot;
-  <a href="README_NERD.md">Theory</a>
+  <a href="README_NERD.md">Theory</a> &middot;
+  <a href="README_SUPER_NERD.md">Deep Theory</a>
 </p>
 
 ---
