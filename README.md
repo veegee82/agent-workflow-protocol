@@ -491,6 +491,63 @@ result = AgentWorkflow(
 ).run()
 ```
 
+#### Runtime Adaptation: Skills and Tools (A3+)
+
+The real power emerges when you combine all three — secrets, skills, and tool creation —
+into a single workflow. At autonomy level A3+, agents don't just execute predefined steps:
+they **analyze the problem, build the tools they need, and wire them together at runtime**.
+
+**Why this matters:** Every domain has unique data formats, APIs, and analysis patterns.
+Instead of pre-building a tool for every possible scenario, you give agents the *capability*
+to construct domain-specific tools on the fly — each one validated, sandboxed, and governed
+by the same AWP security envelope.
+
+```python
+result = AgentWorkflow(
+    inputs={"portfolio": portfolio_df, "market_data_api": "https://api.example.com/v2"},
+    task="Analyze portfolio risk exposure and generate a hedging strategy.",
+    model="openrouter/anthropic/claude-sonnet-4",
+
+    # Domain knowledge: agents learn HOW to solve the problem
+    skills=[
+        "skills/risk_methodology.md",       # Internal risk framework
+        "skills/derivatives_pricing/",       # Black-Scholes, Greeks, etc.
+    ],
+
+    # Secrets: agents get ACCESS to external systems (without seeing keys)
+    secrets={
+        "MARKET_DATA_KEY": os.getenv("MARKET_DATA_KEY", ""),
+        "BLOOMBERG_TOKEN": os.getenv("BLOOMBERG_TOKEN", ""),
+    },
+
+    # External tools: pre-built integrations for common operations
+    external_tools=[pricing_engine, bloomberg_search],
+
+    # The agents CREATE additional tools at runtime for problem-specific logic
+    code_mode=True,        # Workers can execute Python
+    tool_creation=True,    # Workers can register new tools mid-workflow
+).run()
+```
+
+What happens at runtime:
+
+1. **Problem analysis** — The manager reads the skill files to understand the risk methodology, then decomposes the task into sub-problems (e.g., "calculate VaR", "price hedging options", "stress-test correlations").
+
+2. **Tool construction** — Workers build tools they need but that don't exist yet: a `risk.var_calculator` that implements the specific VaR model from the skill docs, a `portfolio.correlation_matrix` that fetches live data through secrets-backed APIs, a `hedge.optimizer` that uses scipy to find optimal hedge ratios.
+
+3. **Tool composition** — Later workers call tools created by earlier workers. The correlation matrix tool feeds into the VaR calculator, which feeds into the hedge optimizer. Each tool is AST-validated, namespace-restricted, and runs in the sandbox.
+
+4. **Iterative refinement** — If stress-test results reveal edge cases, the manager spawns new workers that create specialized tools for those scenarios — without any human intervention or pre-configured tooling.
+
+The key insight: **skills teach the agents *what* to build, secrets give them *access* to build it,
+and tool creation gives them the *ability* to build it.** This triad turns a generic agent framework
+into one that adapts to arbitrary domains — financial risk, genomics pipelines, supply chain optimization —
+without domain-specific code in the framework itself.
+
+All of this stays within the AWP safety envelope: budgets enforce termination, forbidden tools
+block dangerous operations, namespace capabilities restrict imports, and every dynamic tool is
+validated against rules DT1-DT8 before registration.
+
 ---
 
 ## 3. Enterprise Architecture
