@@ -27,6 +27,7 @@
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
+  <a href="examples/jupyter/playground.ipynb">Playground</a> &middot;
   <a href="README_GENERATION.md">Workflow Generation</a> &middot;
   <a href="README_NERD.md">Theory</a> &middot;
   <a href="README_SUPER_NERD.md">Deep Theory</a>
@@ -110,6 +111,24 @@ os.environ["LLM_API_KEY"] = "sk-..."
 os.environ["LLM_BASE_URL"] = "https://api.openai.com/v1"
 ```
 
+### Temperature Configuration
+
+Temperature controls how deterministic or creative agent responses are (`0.0` = deterministic, `1.0` = creative).
+
+**In Python (AgentWorkflow):** The delegation loop defaults to `temperature=0.2` for the manager. In A2+ workflows, the manager can set temperature per worker via the delegation envelope — use low values for analysis/validation tasks, higher for brainstorming/writing.
+
+**In YAML (`agent.awp.yaml`):** Set it under `model.parameters`:
+
+```yaml
+model:
+  name: "openrouter/anthropic/claude-sonnet-4"
+  parameters:
+    temperature: 0.2    # 0.0 = deterministic, 1.0 = creative
+    max_tokens: 4096
+```
+
+**Defaults:** Manager = `0.2`, YAML agent definition = `0.0`, delegation workers = `0.2` (overridable by manager). Validation gates always use `0.1` for consistency.
+
 ### First Workflow
 
 ```python
@@ -173,9 +192,49 @@ AWP classifies inputs automatically:
 | `dict` / `list` | `dict` / `list` | `.json` | JSON export, dicts inlined in manager prompt |
 | `str` / `int` / `float` | `string` / `numeric` | inline | Directly in manager prompt |
 | `bytes` | `bytes` | `.bin` | Binary file in workspace |
+| `Source` | `source` | resolved → auto | Fetched at runtime (see Data Sources below) |
 
 **numpy arrays** are stored losslessly as `.npy`. Workers load them via `np.load()`.
 **Images** are detected by file extension (not MIME type). If PIL/Pillow is available, dimensions, color mode, and format are extracted and reported to the manager.
+
+### Data Sources — Fetch Data at Runtime
+
+The `Source` class lets you declare external data sources as inputs. AWP resolves them before the workflow starts — fetching URLs, running SQL queries, reading S3 objects, or matching local files.
+
+```python
+from awp.data import AgentWorkflow, Source
+
+result = AgentWorkflow(
+    inputs={
+        "api_data": Source.url("https://api.example.com/data.json",
+                               headers={"Authorization": "Bearer $API_TOKEN"}),
+        "db_query": Source.sql("SELECT * FROM sales WHERE year=2025",
+                               dsn="sqlite:///data.db"),
+        "s3_file":  Source.s3("s3://my-bucket/reports/q4.csv", region="eu-west-1"),
+        "logs":     Source.glob("logs/**/*.json", root="/var/log/app"),
+        "rest_api": Source.api("https://api.github.com/repos/user/repo",
+                               jq=".stargazers_count"),
+        "local_df": df,  # Regular DataFrame — mixed with Sources
+    },
+    task="Cross-reference all data sources and produce a unified report.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    secrets={"API_TOKEN": os.getenv("API_TOKEN", "")},
+).run()
+```
+
+| Factory | Description | Extras |
+|---------|-------------|--------|
+| `Source.url(url)` | HTTP/HTTPS fetch | `headers`, auto-detect format |
+| `Source.sql(query, dsn=)` | SQL query (SQLite/SQLAlchemy) | `params`, `format` ("dataframe" or "list_of_dicts") |
+| `Source.s3(uri)` | AWS S3 object | `region` |
+| `Source.glob(pattern)` | Local file matching | `root`, `merge` ("directory" or "file") |
+| `Source.api(url)` | REST API call | `method`, `headers`, `body`, `jq` (JSONPath) |
+| `Source.base64(data)` | Inline base64 | `format` |
+| `Source.clipboard()` | System clipboard | — |
+
+All sources support `cache` (default: True), `retries` (default: 2), and `timeout` (default: 30s). Secret references use `$SECRET_NAME` syntax in headers, DSNs, and body fields — values are substituted from the `secrets` dict without exposing them to agents.
+
+Install extras for SQL and S3: `pip install awp-agents[sources-sql]`, `pip install awp-agents[sources-s3]`, or `pip install awp-agents[sources-all]`.
 
 ### Workflow Examples
 
@@ -326,18 +385,111 @@ result = AgentWorkflow(
 |-----------|---------|-------------|
 | `model` | *(required)* | LLM model (e.g. `openrouter/anthropic/claude-sonnet-4`) |
 | `worker_model` | = `model` | Separate model for workers |
-| `max_loops` | 10 | Max delegation iterations |
-| `max_total_tokens` | 500,000 | Total token limit |
-| `max_wall_time` | 300 | Time limit in seconds |
+| `max_loops` | 100 | Max delegation iterations |
+| `max_total_tokens` | 1,000,000 | Total token limit |
+| `max_wall_time` | 3000 | Time limit in seconds |
 | `max_tool_calls` | 100 | Max tool invocations |
-| `max_total_workers` | 30 | Max worker agents |
-| `max_depth` | 5 | Recursion depth (A4) |
+| `max_total_workers` | 100 | Max worker agents |
+| `max_depth` | 10 | Recursion depth (A4) |
 | `sandbox` | `"subprocess"` | subprocess / docker / venv / none |
 | `packages` | `[]` | Extra pip packages for sandbox |
 | `output_dir` | *(temp)* | Artifact directory |
 | `verbose` | `False` | Enable debug logging |
 | `tools` | code.execute + file.* | Available worker tools |
 | `forbidden_tools` | shell.execute, file.write_outside_workspace | Blocked tools |
+| `secrets` | `None` | API keys injected into tool registry (e.g. `{"YFINANCE_API_KEY": "..."}`) |
+| `skills` | `None` | External skills: paths to `.md` files, directories, or `.zip`/`.skill` archives |
+| `external_tools` | `None` | Custom tools: callables, dicts, or MCP server URLs |
+
+### Secrets, Skills & External Tools
+
+Three new parameters give you full control over what your agents can access:
+
+#### Secrets — API Keys for Tools
+
+Secrets are injected into the tool registry and transparently passed to tools that declare
+`required_secrets`. The manager and workers never see secret values.
+
+```python
+result = AgentWorkflow(
+    inputs={"ticker": "AAPL"},
+    task="Fetch stock data for the ticker and analyze YTD performance.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    secrets={
+        "YFINANCE_API_KEY": os.getenv("YFINANCE_API_KEY", ""),
+        "SERP_API_KEY": os.getenv("SERP_API_KEY", ""),
+    },
+    packages=["yfinance"],
+).run()
+```
+
+#### Skills — Domain Knowledge for the Manager
+
+The manager sees all skills and selectively forwards only relevant ones to each worker,
+saving tokens. Skills can be Markdown files, directories, or ZIP archives.
+
+```python
+result = AgentWorkflow(
+    inputs={"data": df},
+    task="Analyze according to our internal methodology.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    skills=[
+        "skills/financial_analysis.md",           # Single Markdown file
+        "skills/data_science/",                    # Directory with SKILL.md + references/
+        "skills/domain_knowledge.skill",           # ZIP archive (.skill or .zip)
+    ],
+).run()
+```
+
+Skill directory structure:
+```
+my_skill/
+├── SKILL.md              # Main content (required)
+├── references/           # Optional reference documents
+│   └── api_spec.md
+└── examples/             # Optional examples
+    └── example_query.py
+```
+
+#### External Tools — Custom Functions for All Agents
+
+Register your own tools so workers can call them like built-in AWP tools.
+
+```python
+from awp.data import AgentWorkflow, ExternalTool, ExternalToolSpec
+
+# Decorated callable — schema auto-generated from type hints
+@ExternalTool(name="finance.stock_price", secrets=["YFINANCE_API_KEY"])
+def get_stock_price(*, ticker: str, period: str = "1mo") -> dict:
+    """Get stock price data for a ticker."""
+    import yfinance as yf
+    data = yf.download(ticker, period=period)
+    return {"prices": data.to_dict(), "ticker": ticker}
+
+# Dict with handler (OpenAI function calling format)
+search_tool = {
+    "name": "custom.search",
+    "description": "Search internal knowledge base",
+    "parameters": {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    },
+    "handler": my_search_function,
+    "secrets": ["SEARCH_API_KEY"],
+}
+
+# MCP server (discovers tools automatically via JSON-RPC)
+mcp_tools = ExternalTool.from_mcp("http://localhost:8080/mcp")
+
+result = AgentWorkflow(
+    inputs={"tickers": ["AAPL", "MSFT", "GOOGL"]},
+    task="Compare stock performance and create a report.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    external_tools=[get_stock_price, search_tool, *mcp_tools],
+    secrets={"YFINANCE_API_KEY": os.getenv("YFINANCE_API_KEY", "")},
+).run()
+```
 
 ---
 
@@ -701,6 +853,23 @@ history:
   persist_to_disk: true       # Older ones to disk
 ```
 
+### Execution Graph — Interactive Post-Run Visualization
+
+After a workflow completes, generate a self-contained interactive HTML graph showing the full execution hierarchy:
+
+```python
+from awp.runtime.execution_graph import generate_execution_graph
+
+# Point to the run directory (logged during execution)
+graph_path = generate_execution_graph(
+    run_dir=Path("./analysis/workspace/runs/run_abc123"),
+    output_path=Path("./analysis/execution_graph.html"),
+)
+# Open graph_path in a browser — no server needed
+```
+
+The graph visualizes managers, iterations, workers, tool calls, confidence levels (color-coded), timing, and recursive sub-delegations (A4). Nodes are clickable for detailed tooltips. Built with vis.js — zero Python dependencies for viewing.
+
 ---
 
 ## 7. Budget, Safety, Validation
@@ -806,6 +975,34 @@ awp validate ./my-workflow/    # Checks all 26 rules
 | **A3** | Self-Tooling | + dynamic tool creation, skill generation | + **safety envelope (required)** |
 | **A4** | Self-Organizing | + recursive delegation, sub-managers | + **full observability (required)** |
 
+### Runtime Adaptation: Skills and Tools (A3+)
+
+At autonomy level A3 and above, agents can generate **new tools and skills at runtime** — adapting to problems that were not anticipated at workflow design time. The manager creates domain-specific knowledge (skills as Markdown) and delegates tool creation to workers, who produce Python functions validated via AST and executed in sandboxed subprocesses. This enables dynamic data-processing pipelines, custom scorers, converters, and analyzers without pre-registration.
+
+**Namespace Capabilities:** By default, generated tools run in a restricted sandbox (pure computation only). The workflow author can selectively grant additional capabilities **per namespace** — without giving agents blanket access:
+
+```yaml
+dynamic_tools:
+  enabled: true
+  allowed_namespaces:
+    - "scoring"                           # compute only (default)
+    - name: "api_client"                  # can make HTTP requests
+      capabilities: [compute, network]
+      network_allowlist: ["api.weatherapi.com", "api.github.com"]
+    - name: "data_proc"                   # can use pathlib, shutil, glob
+      capabilities: [compute, filesystem]
+```
+
+| Capability | Unlocks | Always denied |
+|------------|---------|---------------|
+| `compute` | pandas, numpy, math, json, csv, ... (default) | `os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, `multiprocessing` |
+| `network` | `requests`, `httpx`, `urllib`, `http`, `socket` | (same as above) |
+| `filesystem` | `pathlib`, `glob`, `shutil`, `tempfile` | (same as above) |
+
+**Security invariant:** The "always denied" imports (`os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, `multiprocessing`) cannot be unlocked by any capability or sandbox type. Capabilities are declared by the **workflow author** in YAML — agents cannot grant themselves additional permissions at runtime.
+
+See [Example 10](examples/workflows/10-skill-and-tool-generation/) (skill generation) and [Example 11](examples/workflows/11-tool-creation-loop/) (tool creation loop) for working demonstrations.
+
 ### Safety Scales with Autonomy
 
 <p align="center">
@@ -873,18 +1070,19 @@ agent-workflow-protocol/
   schemas/                    JSON Schemas
   docs/                       Complete protocol reference (16 files)
   examples/                   12 workflows (A0-A4) + Jupyter
-    01-hello-world/           A0: Minimal workflow
-    02-research-pipeline/     A1: 3-agent DAG with state sharing
-    03-chat-team/             A1 + Message Bus
-    04-memory-workflow/       A1 + 4-tier memory
-    05-observable-analytics/  A1 + Tracing & Metrics
-    06-enterprise/            A1 + All features
-    07-dynamic-tools/         A3: Dynamic Tool Creation
-    08-delegation-loop/       A2: Manager-Worker Loop
-    09-recursive-delegation/  A4: Recursive Sub-Managers
-    10-skill-and-tool-gen/    A3: Skill Generation
-    11-tool-creation-loop/    A3: Iterative Tool Creation
-    12-full-autonomy-test/    A4: Full A4 Test
+    workflows/
+      01-hello-world/         A0: Minimal workflow
+      02-research-pipeline/   A1: 3-agent DAG with state sharing
+      03-chat-team/           A1 + Message Bus
+      04-memory-workflow/     A1 + 4-tier memory
+      05-observable-analytics/ A1 + Tracing & Metrics
+      06-enterprise/          A1 + All features
+      07-dynamic-tools/       A3: Dynamic Tool Creation
+      08-delegation-loop/     A2: Manager-Worker Loop
+      09-recursive-delegation/ A4: Recursive Sub-Managers
+      10-skill-and-tool-gen/  A3: Skill Generation
+      11-tool-creation-loop/  A3: Iterative Tool Creation
+      12-full-autonomy-test/  A4: Full A4 Test
     jupyter/                  Programmatic API (Notebook)
   skill/                      AWP Skill for Claude
   conformance/                Conformance tests
@@ -924,6 +1122,7 @@ agent-workflow-protocol/
 | [Specification](spec/versions/1.0/spec.md) | want to read the normative specification |
 | [Examples](examples/) | want to see runnable workflows |
 | [Jupyter Notebook](examples/jupyter/) | want to try the programmatic API |
+| [Playground](examples/jupyter/playground.ipynb) | want to test all AgentWorkflow parameters interactively |
 | [Skill](skill/SKILL.md) | want to generate workflows with Claude |
 
 ### Built With

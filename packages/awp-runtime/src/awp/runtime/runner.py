@@ -316,6 +316,11 @@ class WorkflowRunner:
 
         # Generate run ID
         run_id = uuid.uuid4().hex[:12]
+        self._current_run_id = run_id
+
+        # Isolate output and state under this run ID
+        self._tools.set_run_id(run_id)
+        self._state_persistence.set_run_id(run_id)
 
         # Validate tool secrets (warns but does not block)
         self._tools.validate_secrets()
@@ -527,6 +532,21 @@ class WorkflowRunner:
             self._state_persistence.save_final(state)
         except Exception as exc:
             logger.warning("Failed to save final state: %s", exc)
+
+        # Generate execution graph
+        try:
+            from .execution_graph import generate_execution_graph
+
+            rid = getattr(self, "_current_run_id", "")
+            graph_dir = self._dir / "data" / rid if rid else self._dir / "data"
+            graph_dir.mkdir(parents=True, exist_ok=True)
+            generate_execution_graph(
+                run_dir=self._dir,
+                output_path=graph_dir / "execution_graph.html",
+                workflow_dir=self._dir,
+            )
+        except Exception as exc:
+            logger.debug("Execution graph generation skipped: %s", exc)
 
         return state
 

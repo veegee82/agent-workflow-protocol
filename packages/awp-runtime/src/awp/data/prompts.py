@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from awp.runtime.skill_loader import SkillBundle
 
 
 def build_manager_system_prompt(
@@ -12,6 +15,8 @@ def build_manager_system_prompt(
     max_tools_per_worker: int,
     code_mode: bool = True,
     tool_creation: bool = True,
+    skill_bundles: list[SkillBundle] | None = None,
+    external_tool_names: list[str] | None = None,
 ) -> str:
     """Build the system prompt for the delegation loop manager.
 
@@ -84,6 +89,33 @@ def build_manager_system_prompt(
 
     code_mode_str = "true" if code_mode else "false"
     tool_creation_str = "true" if tool_creation else "false"
+
+    # Build optional skills section
+    skills_section = ""
+    if skill_bundles:
+        skills_parts = ["## Available Skills\n"]
+        skills_parts.append(
+            "You have access to the following external skills. "
+            "Use them to inform your delegation strategy. "
+            "To give a worker access to a skill, include the skill content "
+            "in the worker's `skills` array. Only forward skills that are "
+            "relevant to the worker's task — this saves tokens.\n"
+        )
+        for bundle in skill_bundles:
+            skills_parts.append(f"### Skill: {bundle.name}\n")
+            skills_parts.append(f"{bundle.content}\n")
+        skills_section = "\n".join(skills_parts)
+
+    # Build optional external tools section
+    ext_tools_section = ""
+    if external_tool_names:
+        tools_list = ", ".join(f"`{n}`" for n in external_tool_names)
+        ext_tools_section = (
+            f"\n## External Tools\n\n"
+            f"The following external tools are registered and available to all workers: "
+            f"{tools_list}\n"
+            f"Include them in a worker's `tools_allowed` list to grant access.\n"
+        )
 
     return f"""You are a Universal Data Agent Manager in an AWP Delegation Loop.
 
@@ -203,4 +235,4 @@ Respond with a JSON object containing ONE of these decisions:
 - Be specific in instructions — workers only see what you provide
 - Tell workers to save output files to `_output_dir`
 - Respond ONLY with the JSON object, no other text
-"""
+{skills_section}{ext_tools_section}"""

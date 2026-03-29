@@ -15,7 +15,7 @@ keywords = [
     "delegation", "dag", "protocol", "awp", "ai", "runtime",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -29,10 +29,14 @@ classifiers = [
 dependencies = [
     "awp-core>=1.0.0",
     "httpx>=0.25",
+    "pyvis>=0.3.2",
 ]
 
 [project.optional-dependencies]
 data = ["pandas>=2.0", "numpy>=1.24", "Pillow>=10.0"]
+sources-sql = ["sqlalchemy>=2.0"]
+sources-s3 = ["boto3>=1.28"]
+sources-all = ["sqlalchemy>=2.0", "boto3>=1.28"]
 docker = ["docker>=7.0"]
 dev = ["pytest>=7.0", "ruff>=0.4"]
 
@@ -45,4 +49,4 @@ Changelog = "https://github.com/veegee82/agent-workflow-protocol/blob/main/CHANG
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["awp.runtime", "awp.runtime.*", "awp.data", "awp.data.*"]
+include = ["awp.runtime", "awp.runtime.*", "awp.data", "awp.data.*", "awp.data.resolvers", "awp.data.resolvers.*"]

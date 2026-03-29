@@ -394,8 +394,45 @@ The `dynamic_tools` section in `workflow.awp.yaml` controls global settings:
 | `enabled` | boolean | REQUIRED | `false` | Whether any agent MAY create tools at runtime. |
 | `persist` | boolean | OPTIONAL | `false` | If `true`, tool definitions are written to `workspace/dynamic_tools/` as JSON manifests. |
 | `max_total` | integer | OPTIONAL | `50` | Maximum dynamic tools across all agents in the workflow. |
-| `allowed_namespaces` | list of strings | OPTIONAL | `["dynamic"]` | Namespace prefixes agents MAY use for dynamic tools. |
+| `allowed_namespaces` | list of string or NamespaceCapability | OPTIONAL | `["dynamic"]` | Namespace prefixes agents MAY use for dynamic tools. Each entry is either a plain string (compute-only) or a NamespaceCapability object with per-namespace capabilities. |
 | `code_review` | boolean | OPTIONAL | `false` | If `true`, tool code is logged to the audit trail before registration. |
+
+#### 9.2.1 Namespace Capabilities (NC1-NC3)
+
+Each entry in `allowed_namespaces` MAY be a `NamespaceCapability` object granting additional permissions:
+
+| Field | Type | Status | Default | Description |
+|-------|------|--------|---------|-------------|
+| `name` | string | REQUIRED | — | Namespace name (e.g. `"api_client"`). |
+| `capabilities` | list of strings | OPTIONAL | `["compute"]` | Granted capabilities: `compute`, `network`, `filesystem`. |
+| `network_allowlist` | list of strings | OPTIONAL | `[]` | Host allowlist when `network` is granted. Empty = unrestricted. |
+
+**Capability definitions:**
+
+| Capability | Unlocked imports | Description |
+|------------|-----------------|-------------|
+| `compute` | (implicit — all non-denied imports) | Pure Python computation. Always granted. |
+| `network` | `requests`, `httpx`, `urllib`, `http`, `socket`, `asyncio` | HTTP and socket network access. |
+| `filesystem` | `pathlib`, `glob`, `shutil`, `tempfile` | Filesystem manipulation beyond `open()`. |
+
+**NC1** (Workflow Author Control): Capabilities MUST be declared by the workflow author in YAML. Agents MUST NOT grant themselves additional capabilities at runtime.
+
+**NC2** (Per-Namespace Enforcement): Import validation MUST use the namespace-specific denied-import set computed from declared capabilities.
+
+**NC3** (Always Denied): The following imports MUST be denied regardless of capabilities or sandbox type: `os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, `multiprocessing`.
+
+**Example:**
+```yaml
+dynamic_tools:
+  enabled: true
+  allowed_namespaces:
+    - "scoring"                                  # compute only
+    - name: "api_client"
+      capabilities: [compute, network]
+      network_allowlist: ["api.weatherapi.com"]
+    - name: "data_proc"
+      capabilities: [compute, filesystem]
+```
 
 ### 9.3 Agent Configuration
 

@@ -10,23 +10,25 @@ from typing import Any
 
 from awp.data.inputs import prepare_workspace
 from awp.data.prompts import build_manager_system_prompt
+from awp.models.capabilities import SandboxConfig
 from awp.models.orchestration import (
+    CodeModeEnforcement,
     DelegationBudget,
     DelegationLoggingConfig,
     DelegationLoopConfig,
     DelegationLoopModels,
     HistoryConfig,
+    RateLimitEnforcement,
+    SandboxEnforcement,
     StallDetectionConfig,
     ValidationConfig,
     WorkerPolicy,
     WorkerPolicyEnforced,
-    SandboxEnforcement,
-    CodeModeEnforcement,
-    RateLimitEnforcement,
 )
-from awp.models.capabilities import SandboxConfig
 from awp.runtime.delegation_loop_runner import DelegationLoopRunner
 from awp.runtime.executor_factory import create_executor
+from awp.runtime.external_tools import ExternalToolSpec, normalize_external_tools
+from awp.runtime.skill_loader import SkillBundle, load_external_skills
 from awp.runtime.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,22 @@ class AgentWorkflow:
         Tools available to workers. Defaults to code.execute + file tools.
     forbidden_tools : list[str], optional
         Tools workers may not use.
+    secrets : dict[str, str], optional
+        API keys and secrets injected into the tool registry. Merged with
+        secrets from secrets.yaml / .env / environment variables. Tools
+        declare which secrets they need — the manager never sees secret values.
+    skills : list[str | Path], optional
+        External skills for the manager agent. Each entry can be:
+        - A path to a .md file (single skill)
+        - A path to a directory with SKILL.md + optional references/ and examples/
+        - A path to a .zip or .skill archive containing the same structure
+        The manager sees all skills and selectively forwards them to workers.
+    external_tools : list, optional
+        External tools available to all agents. Each entry can be:
+        - An ExternalToolSpec instance
+        - A dict with name, handler, and optional description/parameters/secrets
+        - A decorated callable (@ExternalTool)
+        - A list of ExternalToolSpec from ExternalTool.from_mcp()
     """
 
     def __init__(
@@ -92,12 +110,12 @@ class AgentWorkflow:
         *,
         api_key: str | None = None,
         worker_model: str | None = None,
-        max_loops: int = 10,
-        max_total_tokens: int = 500_000,
-        max_wall_time: int = 300,
+        max_loops: int = 100,
+        max_total_tokens: int = 1_000_000,
+        max_wall_time: int = 3000,
         max_tool_calls: int = 100,
-        max_total_workers: int = 30,
-        max_depth: int = 5,
+        max_total_workers: int = 100,
+        max_depth: int = 10,
         sandbox: str = "subprocess",
         packages: list[str] | None = None,
         output_dir: str | None = None,
@@ -106,6 +124,9 @@ class AgentWorkflow:
         tool_creation: bool = True,
         tools: list[str] | None = None,
         forbidden_tools: list[str] | None = None,
+        secrets: dict[str, str] | None = None,
+        skills: list[str | Path] | None = None,
+        external_tools: list[Any] | None = None,
     ) -> None:
         if not model:
             raise ValueError(
@@ -131,7 +152,7 @@ class AgentWorkflow:
         self.verbose = verbose
         self.code_mode = code_mode
         self.tool_creation = tool_creation
-        self.tools = tools or [
+        self.tools = tools if tools is not None else [
             "code.execute",
             "file.read",
             "file.write",
@@ -142,10 +163,13 @@ class AgentWorkflow:
             "arithmetic.multiply",
             "arithmetic.divide",
         ]
-        self.forbidden_tools = forbidden_tools or [
+        self.forbidden_tools = forbidden_tools if forbidden_tools is not None else [
             "shell.execute",
             "file.write_outside_workspace",
         ]
+        self.secrets = secrets or {}
+        self.skills = skills or []
+        self.external_tools = external_tools or []
 
     def run(self) -> dict[str, Any]:
         """Execute the workflow and return results as a dict.
@@ -197,14 +221,44 @@ class AgentWorkflow:
         (workspace_dir / "workspace").mkdir(exist_ok=True)
         (workspace_dir / "output").mkdir(exist_ok=True)
 
+        # 0. Resolve Source objects in inputs (fetch remote data)
+        from awp.data.sources import Source
+
+        has_sources = any(isinstance(v, Source) for v in self.inputs.values())
+        if has_sources:
+            from awp.data.resolver import InputResolver
+
+            resolver = InputResolver(
+                secrets=self.secrets,
+                cache_dir=workspace_dir / ".source_cache",
+            )
+            resolved_inputs = resolver.resolve_all(self.inputs)
+            logger.info("Resolved %d Source inputs", sum(
+                1 for v in self.inputs.values() if isinstance(v, Source)
+            ))
+        else:
+            resolved_inputs = self.inputs
+
         # 1. Prepare inputs
         logger.info("Preparing inputs in workspace: %s", workspace_dir)
-        input_manifest = prepare_workspace(self.inputs, workspace_dir / "workspace")
+        input_manifest = prepare_workspace(resolved_inputs, workspace_dir / "workspace")
 
         # 2. Build delegation loop config
         config = self._build_config()
 
-        # 3. Build custom manager system prompt
+        # 2b. Load external skills
+        skill_bundles: list[SkillBundle] = []
+        if self.skills:
+            skill_bundles = load_external_skills(self.skills)
+            logger.info("Loaded %d external skills", len(skill_bundles))
+
+        # 2c. Normalize external tools
+        ext_tool_specs: list[ExternalToolSpec] = []
+        if self.external_tools:
+            ext_tool_specs = normalize_external_tools(self.external_tools)
+            logger.info("Normalized %d external tools", len(ext_tool_specs))
+
+        # 3. Build custom manager system prompt (with skills)
         manager_prompt = build_manager_system_prompt(
             input_manifest=input_manifest,
             sandbox_type=self.sandbox,
@@ -212,6 +266,8 @@ class AgentWorkflow:
             max_tools_per_worker=config.worker_policy.enforced.codemode.max_tools_per_worker,
             code_mode=self.code_mode,
             tool_creation=self.tool_creation,
+            skill_bundles=skill_bundles,
+            external_tool_names=[s.name for s in ext_tool_specs],
         )
 
         # Write manager prompt to workspace for the DelegationLoopRunner
@@ -232,6 +288,22 @@ class AgentWorkflow:
         )
         tool_registry.set_code_executor(code_executor)
 
+        # 4b. Inject secrets
+        if self.secrets:
+            tool_registry.inject_secrets(self.secrets)
+            logger.info("Injected %d secrets into tool registry", len(self.secrets))
+
+        # 4c. Register external tools
+        for spec in ext_tool_specs:
+            tool_registry._register(
+                spec.name,
+                spec.handler,
+                spec.parameters,
+                spec.description,
+                secrets_keys=spec.secrets if spec.secrets else None,
+            )
+            logger.info("Registered external tool: %s", spec.name)
+
         # 5. Run the delegation loop
         logger.info("Starting delegation loop: task=%s", self.task[:80])
         runner = DelegationLoopRunner(
@@ -243,13 +315,18 @@ class AgentWorkflow:
         )
 
         raw_result = runner.run(self.task)
+        run_id = runner._run_id
 
         # 5b. Print debug report (same as `awp run --debug`)
         if self.verbose:
             self._print_debug_report(workspace_dir, runner)
 
-        # 6. Collect artifacts
-        artifacts = self._collect_artifacts(workspace_dir / "output")
+        # 6. Collect artifacts (run_id-isolated output directory)
+        output_dir = workspace_dir / "output" / run_id
+        if not output_dir.exists():
+            # Fallback to flat output/ for backwards compatibility
+            output_dir = workspace_dir / "output"
+        artifacts = self._collect_artifacts(output_dir)
 
         # 7. Build response
         loop_result = raw_result.get("delegation_loop", {})
@@ -262,12 +339,14 @@ class AgentWorkflow:
             "result": loop_result,
             "artifacts": artifacts,
             "metadata": {
+                "run_id": run_id,
                 "loops": budget.loops_used,
                 "tokens_used": budget.tokens_consumed,
                 "wall_time": round(budget.wall_time_elapsed, 2),
                 "workers_spawned": budget.workers_spawned,
                 "tool_calls": budget.tool_calls_used,
                 "workspace": str(workspace_dir),
+                "output_dir": str(output_dir),
             },
         }
 

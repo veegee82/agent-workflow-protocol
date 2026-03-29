@@ -1,6 +1,6 @@
 # AWP — Agent Workflow Protocol
 
-**An open standard for orchestrating multi-agent AI workflows.**
+**The open standard for orchestrating multi-agent AI workflows.**
 
 Define workflows in YAML. Run them in Python. Scale from a single agent to recursive delegation loops — with built-in budgets, validation, and safety controls.
 
@@ -9,33 +9,26 @@ Define workflows in YAML. Run them in Python. Scale from a single agent to recur
 
 ---
 
-## Why AWP?
-
-Most agent frameworks couple workflow logic to a specific runtime. AWP separates **what** your agents do (YAML definitions) from **how** they run (Python runtime), giving you:
-
-- **Declarative workflows** — Define agents, dependencies, and data flow in YAML
-- **Two execution engines** — DAG engine (topological order) or delegation loop (manager-worker)
-- **5 autonomy levels** — From prescribed pipelines (A0) to self-organizing recursive delegation (A4)
-- **Built-in safety** — Token budgets, loop limits, wall-time caps, confidence thresholds
-- **Any LLM provider** — OpenRouter, OpenAI, Anthropic, Ollama, Azure, or any OpenAI-compatible API
-- **Code execution** — Sandboxed Python execution with venv or Docker isolation
-
-## Quick Start
-
-### Installation
+## Installation
 
 ```bash
 pip install awp-agents
 
 # With data science extras (pandas, numpy, Pillow)
 pip install awp-agents[data]
+
+# With data source extras (SQL, S3)
+pip install awp-agents[sources-all]
+
+# Everything
+pip install awp-agents[all]
 ```
 
-### 3 Lines to a Running Workflow
+## 3 Lines to a Running Workflow
 
 ```python
 import os
-os.environ["LLM_API_KEY"] = "sk-..."          # OpenRouter, OpenAI, etc.
+os.environ["LLM_API_KEY"] = "sk-or-v1-..."
 os.environ["LLM_BASE_URL"] = "https://openrouter.ai/api/v1"
 
 from awp.data import AgentWorkflow
@@ -46,165 +39,232 @@ result = AgentWorkflow(
     model="openrouter/anthropic/claude-sonnet-4",
 ).run()
 
-print(result["status"])   # "complete"
-print(result["result"])   # Analysis with insights
+print(result["status"])     # "complete"
+print(result["artifacts"])  # ["./output/chart.png", ...]
 ```
 
-### Data Science with DataFrames
+Works with **any OpenAI-compatible API**: OpenRouter (50+ models), OpenAI, Anthropic, Ollama (local, free), Azure, Bedrock.
+
+## What Happens Under the Hood
+
+`AgentWorkflow` creates a **delegation loop**: a manager agent breaks your task into subtasks and spawns specialized worker agents. Workers execute Python code in sandboxes (pandas, matplotlib, sklearn, etc.), create files, and report results. The manager validates outputs, iterates until done, and returns everything in a single call.
+
+## Data Science Integration
+
+Pass DataFrames, numpy arrays, images, and files directly — AWP handles serialization:
 
 ```python
 import pandas as pd
+import numpy as np
 from awp.data import AgentWorkflow
 
-df = pd.DataFrame({
-    "date": pd.date_range("2024-01-01", periods=90, freq="D"),
-    "revenue": [100 + i * 2.5 + (i % 7) * 10 for i in range(90)],
-    "region": ["EU", "US", "APAC"] * 30,
-})
-
 result = AgentWorkflow(
-    inputs={"data": df, "config": {"threshold": 0.8}},
-    task="Analyze revenue trends by region. Create visualizations and a summary report.",
+    inputs={
+        "sales": pd.DataFrame({"date": [...], "revenue": [...], "region": [...]}),
+        "embeddings": np.random.rand(1000, 768),
+        "logo": "/path/to/logo.png",
+        "config": {"target": "churn", "metric": "f1"},
+    },
+    task="EDA, feature engineering, train 3 models, select best, create report.",
     model="openrouter/anthropic/claude-sonnet-4",
-    packages=["matplotlib", "scikit-learn"],
+    packages=["scikit-learn", "matplotlib", "seaborn"],
+    output_dir="./results",
 ).run()
 ```
 
-## YAML Workflow Definition
+### Supported Input Types
 
-AWP separates workflow definition from execution. Define your agents in YAML:
+| Python Type | Processing |
+|-------------|-----------|
+| `pd.DataFrame` | CSV + schema (shape, dtypes, describe) |
+| `np.ndarray` | .npy + schema (shape, dtype, statistics) |
+| Image path (.png, .jpg, ...) | Copy + PIL metadata (dimensions, mode) |
+| File/directory path | Copy to workspace |
+| `dict` / `list` | JSON export |
+| `str` / `int` / `float` | Inline in prompt |
+| `Source` | Resolved at runtime (see Data Sources) |
+
+## Data Sources — Fetch External Data
+
+Declare external data as inputs. AWP resolves them before the workflow starts:
+
+```python
+from awp.data import AgentWorkflow, Source
+
+result = AgentWorkflow(
+    inputs={
+        "api": Source.url("https://api.example.com/data.json",
+                          headers={"Authorization": "Bearer $API_TOKEN"}),
+        "db":  Source.sql("SELECT * FROM sales", dsn="sqlite:///data.db"),
+        "s3":  Source.s3("s3://bucket/reports/q4.csv"),
+        "logs": Source.glob("logs/**/*.json", root="/var/log/app"),
+        "rest": Source.api("https://api.github.com/repos/user/repo",
+                           jq=".stargazers_count"),
+    },
+    task="Cross-reference all data sources and produce a report.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    secrets={"API_TOKEN": os.getenv("API_TOKEN", "")},
+).run()
+```
+
+Sources: `url`, `sql`, `s3`, `glob`, `api`, `base64`, `clipboard`. All support caching, retries, and timeouts. Secret references (`$SECRET_NAME`) are substituted without exposing values to agents.
+
+## Custom Tools, Skills & Secrets
+
+### External Tools
+
+Register your own Python functions, dict-based tools, or MCP servers:
+
+```python
+from awp.data import AgentWorkflow, ExternalTool
+
+@ExternalTool(name="finance.stock_price", secrets=["API_KEY"])
+def get_stock_price(*, ticker: str, period: str = "1mo") -> dict:
+    """Get stock price data."""
+    import yfinance as yf
+    return {"prices": yf.download(ticker, period=period).to_dict()}
+
+# MCP server (auto-discovers tools via JSON-RPC)
+mcp_tools = ExternalTool.from_mcp("http://localhost:8080/mcp")
+
+result = AgentWorkflow(
+    inputs={"tickers": ["AAPL", "MSFT"]},
+    task="Compare stock performance.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    external_tools=[get_stock_price, *mcp_tools],
+    secrets={"API_KEY": os.getenv("API_KEY", "")},
+).run()
+```
+
+### Skills — Domain Knowledge
+
+Inject Markdown-based domain knowledge. The manager selectively forwards relevant skills to workers:
+
+```python
+result = AgentWorkflow(
+    inputs={"data": df},
+    task="Analyze according to internal methodology.",
+    model="openrouter/anthropic/claude-sonnet-4",
+    skills=["skills/methodology.md", "skills/domain/"],
+).run()
+```
+
+### Secrets
+
+API keys injected into the tool registry. Agents never see the values:
+
+```python
+secrets={"YFINANCE_API_KEY": "...", "SERP_API_KEY": "..."}
+```
+
+## Runtime Tool & Skill Generation (A3+)
+
+At autonomy level A3+, agents generate **new tools and skills at runtime**. The workflow author controls what's allowed via **namespace capabilities**:
 
 ```yaml
-# workflow.awp.yaml
+dynamic_tools:
+  enabled: true
+  allowed_namespaces:
+    - "scoring"                               # compute only (default)
+    - name: "api_client"                      # grant network access
+      capabilities: [compute, network]
+      network_allowlist: ["api.example.com"]
+    - name: "data_proc"                       # grant filesystem access
+      capabilities: [compute, filesystem]
+```
+
+| Capability | Unlocks | Always Denied |
+|------------|---------|---------------|
+| `compute` | pandas, numpy, math, json, ... | `os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, `multiprocessing` |
+| `network` | `requests`, `httpx`, `urllib` | (same) |
+| `filesystem` | `pathlib`, `glob`, `shutil` | (same) |
+
+Agents cannot grant themselves additional permissions. The "always denied" set is enforced regardless of capabilities or sandbox type.
+
+## YAML Workflows & CLI
+
+Define agents in YAML, run with the CLI:
+
+```yaml
 awp: "1.0"
-name: research-pipeline
-version: "1.0.0"
+workflow:
+  name: research-pipeline
+  version: "1.0.0"
+  description: "3-agent research pipeline"
 
-agents:
-  - name: planner
-    role: "Research planner"
-    model: "openrouter/anthropic/claude-sonnet-4"
-    share_output: [research_plan]
-
-  - name: researcher
-    role: "Deep researcher"
-    model: "openrouter/anthropic/claude-sonnet-4"
-    depends_on: [planner]
-    share_output: [findings]
-
-  - name: writer
-    role: "Report writer"
-    model: "openrouter/anthropic/claude-sonnet-4"
-    depends_on: [researcher]
+orchestration:
+  graph:
+    - id: planner
+      agent: agents/planner
+      share_output: [research_plan]
+    - id: researcher
+      agent: agents/researcher
+      depends_on: [planner]
+      share_output: [findings]
+    - id: writer
+      agent: agents/writer
+      depends_on: [researcher]
 ```
-
-Run it:
 
 ```bash
-awp run research-pipeline/ --task "Research quantum computing advances in 2024"
+awp validate my-workflow/                      # Validate (R1-R26)
+awp compliance my-workflow/ --level A2         # Check autonomy level
+awp visualize my-workflow/ --format mermaid    # Render DAG
+awp run my-workflow/ --task "..."              # Execute
 ```
 
-Or from Python:
+## The Autonomy Spectrum (A0-A4)
 
-```python
-from awp.runtime import WorkflowRunner
-
-runner = WorkflowRunner("research-pipeline/")
-result = runner.run("Research quantum computing advances in 2024")
-```
-
-## The Autonomy Spectrum
-
-| Level | Name | Engine | Description |
-|-------|------|--------|-------------|
+| Level | Name | Engine | What's New |
+|-------|------|--------|------------|
 | **A0** | Prescribed | DAG | Fixed pipeline, no LLM decisions |
-| **A1** | Guided | DAG | Agents use LLMs within fixed graph |
-| **A2** | Delegating | Delegation Loop | Manager dispatches tasks to workers |
-| **A3** | Creative | Delegation Loop | Workers can create tools and skills |
-| **A4** | Autonomous | Recursive Delegation | Sub-managers spawn their own workers |
+| **A1** | Adaptive | DAG | Conditional execution, state sharing |
+| **A2** | Delegating | Delegation Loop | Manager-worker with budget |
+| **A3** | Self-Tooling | Delegation Loop | Runtime tool/skill creation + safety envelope |
+| **A4** | Self-Organizing | Recursive Delegation | Sub-managers, full observability |
 
-## Delegation Loop (A2-A4)
+**Safety scales with autonomy**: A2 requires budgets, A3 requires a safety envelope, A4 requires full observability. This is enforced by the validator.
 
-For complex tasks, AWP's delegation loop lets a manager agent dynamically create and assign tasks to worker agents:
-
-```python
-from awp.data import AgentWorkflow
-
-result = AgentWorkflow(
-    inputs={"dataset": my_data},
-    task="Build a complete ML pipeline: EDA, feature engineering, model selection, and reporting",
-    model="openrouter/anthropic/claude-sonnet-4",
-    max_loops=10,
-    max_workers=5,
-    code_mode=True,        # Workers can execute Python
-    tool_creation=True,    # Workers can create new tools
-).run()
-```
-
-The manager:
-1. Analyzes the task and creates a plan
-2. Spawns specialized workers (EDA agent, modeling agent, reporting agent)
-3. Validates each worker's output against confidence thresholds
-4. Iterates until the task is complete or budget is exhausted
-
-## CLI Tools
-
-```bash
-awp validate my-workflow/          # Validate against rules R1-R26
-awp compliance my-workflow/ --level A2  # Check autonomy level compliance
-awp visualize my-workflow/ --format mermaid  # Render workflow DAG
-awp pack my-workflow/              # Package as .awp.zip archive
-awp run my-workflow/ --task "..."  # Execute the workflow
-```
-
-## LLM Provider Configuration
-
-AWP works with any OpenAI-compatible API:
-
-```bash
-# OpenRouter (50+ models, one key)
-export LLM_API_KEY="sk-or-v1-..."
-export LLM_BASE_URL="https://openrouter.ai/api/v1"
-
-# OpenAI direct
-export LLM_API_KEY="sk-..."
-export LLM_BASE_URL="https://api.openai.com/v1"
-
-# Ollama (local, free)
-export LLM_API_KEY="ollama"
-export LLM_BASE_URL="http://localhost:11434/v1"
-
-# Azure OpenAI
-export LLM_API_KEY="your-azure-key"
-export LLM_BASE_URL="https://your-resource.openai.azure.com/openai/deployments/your-deployment/v1"
-```
-
-## Safety & Budget Controls
+## Budget & Safety
 
 Every delegation loop runs within a hard safety envelope:
 
 ```yaml
-delegation:
-  budget:
-    max_loops: 15          # Maximum manager iterations
-    max_total_workers: 20  # Maximum worker spawns
-    max_total_tokens: 500000  # Token budget across all agents
-    max_wall_time: 300     # Wall-time limit in seconds
-    max_depth: 3           # Recursive delegation depth (A4)
+budget:
+  max_loops: 15
+  max_total_workers: 20
+  max_total_tokens: 500000
+  max_wall_time: 300
+  max_depth: 3
 ```
 
 The manager cannot override these limits — they are enforced by the runtime.
+
+## Execution Graph Visualization
+
+After a run, generate an interactive HTML graph of the full execution:
+
+```python
+from awp.runtime.execution_graph import generate_execution_graph
+
+generate_execution_graph(
+    run_dir=Path("./output/workspace/runs/run_abc"),
+    output_path=Path("./execution_graph.html"),
+)
+```
+
+Shows managers, workers, tool calls, confidence levels, timing, and recursive sub-delegations. Self-contained HTML — open in any browser.
 
 ## The 7-Layer Model
 
 AWP organizes agent configuration into 7 semantic layers:
 
-1. **Manifest** — Workflow metadata, version, agent list
-2. **Identity** — Agent name, role, model selection
-3. **Capabilities** — Tools, skills, data sources
-4. **Communication** — Message bus, channels, protocols
+1. **Manifest** — Metadata, version, dependencies
+2. **Identity** — Agent name, role, model parameters
+3. **Capabilities** — Tools, skills, data sources, sandbox
+4. **Communication** — Message bus, channels
 5. **Memory** — 4-tier memory (working, episodic, semantic, procedural)
-6. **Orchestration** — Graph structure, delegation config, budget
+6. **Orchestration** — DAG graph, delegation loop, budget
 7. **Observability** — Tracing, metrics, audit trail
 
 ## Architecture
@@ -214,11 +274,11 @@ awp-agents
 ├── awp.models      — Pydantic models for all 7 layers
 ├── awp.parser      — YAML → typed Python objects
 ├── awp.validator   — Rule engine (R1-R26)
-├── awp.runtime     — DAG engine + delegation loop engine
-├── awp.data        — Programmatic API (AgentWorkflow)
+├── awp.runtime     — DAG engine + delegation loop + code executors
+├── awp.data        — Programmatic API (AgentWorkflow, Source, ExternalTool)
+├── awp.cli         — Command-line interface
 ├── awp.packager    — .awp.zip archive support
-├── awp.visualizer  — Mermaid DAG rendering
-└── awp.cli         — Command-line interface
+└── awp.visualizer  — Mermaid DAG rendering
 ```
 
 ## Links
@@ -227,6 +287,7 @@ awp-agents
 - **Documentation**: [docs/](https://github.com/veegee82/agent-workflow-protocol/tree/main/docs)
 - **Specification**: [spec/versions/1.0/spec.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/spec/versions/1.0/spec.md)
 - **Examples**: [examples/](https://github.com/veegee82/agent-workflow-protocol/tree/main/examples) — 12 runnable workflows (A0-A4)
+- **Playground**: [Jupyter Notebook](https://github.com/veegee82/agent-workflow-protocol/blob/main/examples/jupyter/playground.ipynb)
 
 ## License
 

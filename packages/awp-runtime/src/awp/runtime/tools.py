@@ -62,6 +62,7 @@ class ToolRegistry:
         self._dynamic_tool_factory: Any = None
         self._security_context: Any = None
         self._current_agent_id: str = ""
+        self._run_id: str = ""
 
         if workflow_dir:
             ws = workflow_dir / "workspace"
@@ -1018,6 +1019,10 @@ class ToolRegistry:
             "List messages received by this agent",
         )
 
+    def set_run_id(self, run_id: str) -> None:
+        """Set the current run ID for output isolation."""
+        self._run_id = run_id
+
     def set_code_executor(self, executor: Any) -> None:
         """Wire code execution tool into the registry."""
         self._code_executor = executor
@@ -1038,6 +1043,23 @@ class ToolRegistry:
                 "required": ["code"],
             },
             "Execute Python code in a sandboxed subprocess",
+        )
+
+        self._register(
+            "pip.install",
+            self._pip_install,
+            {
+                "type": "object",
+                "properties": {
+                    "packages": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of pip package specifiers (e.g. ['pandas>=1.0', 'numpy'])",
+                    },
+                },
+                "required": ["packages"],
+            },
+            "Install Python packages via pip at runtime",
         )
 
     def set_security_context(self, security_ctx: Any) -> None:
@@ -1140,20 +1162,38 @@ class ToolRegistry:
 
     # -- Code execution tool ----------------------------------------------
 
-    def _code_execute(self, *, code: str, timeout: int = 30) -> dict[str, Any]:
+    def _code_execute(self, *, code: str, timeout: int = 120) -> dict[str, Any]:
         if not self._code_executor:
             return _err("Code executor not configured", 503)
 
-        # Inject _workspace_dir and _output_dir so executed code can save files
+        # Inject _workspace_dir and _output_dir so executed code can save files.
+        # Also inject an _ensure_dir helper so LLM code can create subdirectories
+        # without needing to import os.makedirs explicitly.
         preamble = ""
         if self._workflow_dir:
             ws = self._workflow_dir / "workspace"
             ws.mkdir(parents=True, exist_ok=True)
-            out = self._workflow_dir / "output"
+            if self._run_id:
+                out = self._workflow_dir / "output" / self._run_id
+            else:
+                out = self._workflow_dir / "output"
             out.mkdir(parents=True, exist_ok=True)
-            preamble = f"_workspace_dir = {str(ws)!r}\n_output_dir = {str(out)!r}\n"
+            preamble = (
+                f"import os as _os\n"
+                f"_workspace_dir = {str(ws)!r}\n"
+                f"_output_dir = {str(out)!r}\n"
+                f"def _ensure_dir(path):\n"
+                f"    d = _os.path.dirname(path) if not _os.path.isdir(path) else path\n"
+                f"    _os.makedirs(d, exist_ok=True)\n"
+                f"    return path\n"
+            )
 
         return self._code_executor.execute(preamble + code, timeout=timeout)
+
+    def _pip_install(self, *, packages: list[str]) -> dict[str, Any]:
+        if not self._code_executor:
+            return _err("Code executor not configured", 503)
+        return self._code_executor.install_runtime_packages(packages)
 
     # -- Memory curate tool -----------------------------------------------
 

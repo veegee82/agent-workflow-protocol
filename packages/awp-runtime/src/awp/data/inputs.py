@@ -42,10 +42,20 @@ class InputType(str, Enum):
     NUMERIC = "numeric"
     BOOLEAN = "boolean"
     NONE = "none"
+    SOURCE = "source"
 
 
 def classify_input(key: str, value: Any) -> InputType:
     """Classify a single input value by its Python type."""
+    # Check for Source objects (should be resolved before prepare_workspace)
+    try:
+        from awp.data.sources import Source
+
+        if isinstance(value, Source):
+            return InputType.SOURCE
+    except ImportError:
+        pass
+
     # Check DataFrame first (optional pandas import)
     try:
         import pandas as pd

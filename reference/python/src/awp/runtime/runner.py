@@ -316,6 +316,11 @@ class WorkflowRunner:
 
         # Generate run ID
         run_id = uuid.uuid4().hex[:12]
+        self._current_run_id = run_id
+
+        # Isolate output and state under this run ID
+        self._tools.set_run_id(run_id)
+        self._state_persistence.set_run_id(run_id)
 
         # Validate tool secrets (warns but does not block)
         self._tools.validate_secrets()

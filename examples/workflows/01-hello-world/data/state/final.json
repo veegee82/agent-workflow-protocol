@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-03-28T14:20:20.782328+00:00",
+  "state": {
+    "task": "Say hello to the AWP integration test",
+    "greeter": {
+      "greeting": "Hello, AWP integration test!",
+      "tone": "casual",
+      "confidence": 0.95
+    }
+  }
+}

@@ -46,7 +46,7 @@ class DockerExecutor(BaseExecutor):
         network_access: bool = False,
         max_memory_mb: int = 256,
         packages: Optional[list[str]] = None,
-        pip_install: bool = False,
+        pip_install: bool = True,
     ) -> None:
         self._image = image
         self._max_timeout = max_timeout
@@ -205,6 +205,31 @@ class DockerExecutor(BaseExecutor):
                 logger.warning("Failed to read output file %s: %s", fpath.name, exc)
 
         return files
+
+    def install_runtime_packages(self, packages: list[str]) -> dict[str, Any]:
+        """Install additional packages by running pip inside a Docker container.
+
+        Args:
+            packages: List of pip package specifiers to install.
+
+        Returns:
+            Standard AWP result format.
+        """
+        if not packages:
+            return {
+                "ok": True,
+                "status": 200,
+                "data": {"installed": []},
+                "error": None,
+            }
+        # Add to the pre-install list so subsequent execute() calls include them
+        self._packages.extend(packages)
+        return {
+            "ok": True,
+            "status": 200,
+            "data": {"installed": packages},
+            "error": None,
+        }
 
     def cleanup(self) -> None:
         """No persistent state to clean up for Docker executor."""

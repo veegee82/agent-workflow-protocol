@@ -1,6 +1,6 @@
 """AWP Pydantic data models."""
 
-from .manifest import AWPManifest
+from .manifest import AWPManifest, DynamicToolsConfig, NamespaceCapability
 from .agent import AWPAgent
 from .capabilities import ToolsCapability, SkillsCapability, DataSourceConfig
 from .communication import CommunicationConfig, BusConfig, Channel, MessageEnvelope
@@ -55,4 +55,6 @@ __all__ = [
     "SemVer",
     "AgentId",
     "ToolFQN",
+    "DynamicToolsConfig",
+    "NamespaceCapability",
 ]

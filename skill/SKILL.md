@@ -172,9 +172,23 @@ dynamic_tools:
   enabled: true           # MUST be true for tool creation to work
   persist: true            # Save tools as JSON in workspace/dynamic_tools/
   max_total: 20
-  allowed_namespaces: [scoring, analysis, dynamic]
+  allowed_namespaces:
+    - scoring                                  # compute only (default)
+    - analysis                                 # compute only (default)
+    - name: api_client                         # grant network access
+      capabilities: [compute, network]
+      network_allowlist: [api.example.com]     # optional host restriction
+    - name: data_proc                          # grant filesystem access
+      capabilities: [compute, filesystem]
   code_review: true        # Log all generated code for debugging
 ```
+
+**Namespace Capabilities** (NC1-NC3): Each namespace can be granted additional capabilities beyond pure computation. Plain string entries default to `compute` only. Capability objects can grant:
+- `compute`: Pure Python (always implicit)
+- `network`: Unlocks `requests`, `httpx`, `urllib`, `http`, `socket`
+- `filesystem`: Unlocks `pathlib`, `glob`, `shutil`, `tempfile`
+
+**Always denied** (cannot be unlocked): `os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, `multiprocessing`.
 
 In agent.awp.yaml:
 ```yaml

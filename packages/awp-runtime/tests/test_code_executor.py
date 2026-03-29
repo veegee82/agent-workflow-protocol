@@ -1,5 +1,7 @@
 """Tests for the subprocess-based code executor."""
 
+from unittest.mock import patch
+
 from awp.runtime.code_executor import CodeExecutor
 
 
@@ -69,3 +71,26 @@ print("stderr line", file=sys.stderr)
         assert result["ok"] is True
         assert "stdout line" in result["data"]["stdout"]
         assert "stderr line" in result["data"]["stderr"]
+
+    def test_install_runtime_packages_empty(self):
+        executor = CodeExecutor()
+        result = executor.install_runtime_packages([])
+        assert result["ok"] is True
+        assert result["data"]["installed"] == []
+
+    def test_install_runtime_packages_success(self):
+        executor = CodeExecutor()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = None
+            result = executor.install_runtime_packages(["some-pkg"])
+        assert result["ok"] is True
+        assert result["data"]["installed"] == ["some-pkg"]
+
+    def test_install_runtime_packages_failure(self):
+        import subprocess
+
+        executor = CodeExecutor()
+        with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "pip", stderr="not found")):
+            result = executor.install_runtime_packages(["nonexistent-pkg-xyz"])
+        assert result["ok"] is False
+        assert result["status"] == 500

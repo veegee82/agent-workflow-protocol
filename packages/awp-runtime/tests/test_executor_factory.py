@@ -1,4 +1,4 @@
-"""Tests for the executor factory and sandbox type routing."""
+"""Tests for the executor factory, sandbox type routing, and pip.install tool."""
 
 import pytest
 
@@ -6,6 +6,7 @@ from awp.models.capabilities import SandboxConfig
 from awp.runtime.base_executor import BaseExecutor
 from awp.runtime.code_executor import CodeExecutor
 from awp.runtime.executor_factory import create_executor
+from awp.runtime.tools import ToolRegistry
 
 
 class TestExecutorFactory:
@@ -62,3 +63,42 @@ class TestExecutorFactory:
         executor = create_executor(config)
         assert executor._max_timeout == 15
         assert executor._max_output == 512
+
+    def test_pip_install_default_true(self):
+        config = SandboxConfig()
+        assert config.pip_install is True
+
+
+class TestPipInstallTool:
+    def test_pip_install_registered_after_set_code_executor(self):
+        registry = ToolRegistry()
+        assert "pip.install" not in registry.tool_names
+        executor = CodeExecutor()
+        registry.set_code_executor(executor)
+        assert "pip.install" in registry.tool_names
+
+    def test_pip_install_without_executor(self):
+        registry = ToolRegistry()
+        # Force-register to test the handler without an executor
+        registry.set_code_executor(None)
+        result = registry.call("pip.install", {"packages": ["numpy"]})
+        assert result["ok"] is False
+        assert result["status"] == 503
+
+    def test_pip_install_calls_executor(self, tmp_path):
+        registry = ToolRegistry()
+        executor = CodeExecutor()
+        registry.set_code_executor(executor)
+        # Install an empty list — fast, no network needed
+        result = registry.call("pip.install", {"packages": []})
+        assert result["ok"] is True
+        assert result["data"]["installed"] == []
+
+    def test_pip_install_definition_schema(self):
+        registry = ToolRegistry()
+        registry.set_code_executor(CodeExecutor())
+        defs = registry.get_definitions(allowed=["pip.install"])
+        assert len(defs) == 1
+        func_def = defs[0]["function"]
+        assert func_def["name"] == "pip.install"
+        assert "packages" in func_def["parameters"]["properties"]

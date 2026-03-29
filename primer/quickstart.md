@@ -221,7 +221,7 @@ Expected output:
 
 ## Complete Example
 
-For a fully worked version of this workflow with additional comments and variations, see `examples/01-hello-world/` in this repository.
+For a fully worked version of this workflow with additional comments and variations, see `examples/workflows/01-hello-world/` in this repository.
 
 ## Next Steps
 

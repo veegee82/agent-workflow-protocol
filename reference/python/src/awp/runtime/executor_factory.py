@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ..models.capabilities import SandboxConfig
+from awp.models.capabilities import SandboxConfig
 from .base_executor import BaseExecutor
 
 logger = logging.getLogger(__name__)
@@ -79,8 +79,15 @@ def create_executor(
                 "Sandbox type '%s' is not implemented, falling back to subprocess",
                 sandbox_type,
             )
+        if config.packages:
+            logger.info(
+                "Creating subprocess executor (packages=%s)",
+                config.packages,
+            )
         return CodeExecutor(
             max_timeout=config.timeout,
             max_output_bytes=config.max_output_bytes,
             working_dir=working_dir,
+            packages=config.packages,
+            pip_install=config.pip_install,
         )

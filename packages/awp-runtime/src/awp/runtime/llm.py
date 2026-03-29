@@ -265,7 +265,13 @@ class LLMClient:
         Returns:
             Raw API response dict.
         """
-        use_model = _strip_provider_prefix(model or self.model)
+        # Only strip prefix from explicit overrides; self.model is already
+        # stripped during __init__, so stripping again would mangle model
+        # names like "openai/gpt-5-nano" into just "gpt-5-nano".
+        if model:
+            use_model = _strip_provider_prefix(model)
+        else:
+            use_model = self.model
         if not use_model:
             raise RuntimeError(
                 "No model configured. Set LLM_MODEL env var or pass model=."
@@ -448,10 +454,17 @@ class LLMClient:
         _, name_map = _sanitize_tool_names(tools)
 
         for round_num in range(max_rounds):
+            # On the first round, force tool usage when caller didn't specify
+            # a preference. This prevents weaker models from skipping tools
+            # entirely and returning empty text responses.
+            effective_choice = tool_choice
+            if effective_choice is None and round_num == 0 and tools:
+                effective_choice = "required"
+
             data = self.chat(
                 current_messages,
                 tools=tools,
-                tool_choice=tool_choice,
+                tool_choice=effective_choice,
                 parallel_tool_calls=parallel_tool_calls,
                 **kwargs,
             )

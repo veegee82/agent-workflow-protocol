@@ -15,11 +15,17 @@ logger = logging.getLogger(__name__)
 
 
 class StatePersistence:
-    """JSON-based state persistence to ``data/state/``."""
+    """JSON-based state persistence to ``data/state/{run_id}/``."""
 
     def __init__(self, output_dir: Path, config: Any = None) -> None:
+        self._base_dir = output_dir
         self._dir = output_dir
         self._config = config
+
+    def set_run_id(self, run_id: str) -> None:
+        """Isolate state files under a run-specific subdirectory."""
+        if run_id:
+            self._dir = self._base_dir / run_id
 
     def save_checkpoint(self, agent_id: str, state: dict[str, Any]) -> Path:
         """Save a per-agent state checkpoint."""

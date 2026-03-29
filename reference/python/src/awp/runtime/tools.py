@@ -62,6 +62,7 @@ class ToolRegistry:
         self._dynamic_tool_factory: Any = None
         self._security_context: Any = None
         self._current_agent_id: str = ""
+        self._run_id: str = ""
 
         if workflow_dir:
             ws = workflow_dir / "workspace"
@@ -1018,6 +1019,10 @@ class ToolRegistry:
             "List messages received by this agent",
         )
 
+    def set_run_id(self, run_id: str) -> None:
+        """Set the current run ID for output isolation."""
+        self._run_id = run_id
+
     def set_code_executor(self, executor: Any) -> None:
         """Wire code execution tool into the registry."""
         self._code_executor = executor
@@ -1149,7 +1154,10 @@ class ToolRegistry:
         if self._workflow_dir:
             ws = self._workflow_dir / "workspace"
             ws.mkdir(parents=True, exist_ok=True)
-            out = self._workflow_dir / "output"
+            if self._run_id:
+                out = self._workflow_dir / "output" / self._run_id
+            else:
+                out = self._workflow_dir / "output"
             out.mkdir(parents=True, exist_ok=True)
             preamble = f"_workspace_dir = {str(ws)!r}\n_output_dir = {str(out)!r}\n"
 

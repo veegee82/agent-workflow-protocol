@@ -47,7 +47,7 @@ class SandboxConfig(BaseModel):
     enabled: bool = False
     type: str = "subprocess"  # subprocess | docker | venv | wasm | isolate | none
     runtime: str = "python"
-    timeout: int = 30
+    timeout: int = 120
     max_memory_mb: int = 256
     max_cpu_seconds: int = 30
     max_output_bytes: int = 1_048_576
@@ -55,7 +55,7 @@ class SandboxConfig(BaseModel):
     network_access: bool = False
     packages: list[str] = Field(default_factory=list)  # pip packages to pre-install
     image: str = "awp-sandbox-python"  # Docker image name (docker type only)
-    pip_install: bool = False  # Allow runtime pip install for missing packages
+    pip_install: bool = True  # Allow runtime pip install for missing packages
 
     model_config = {"extra": "allow"}
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from awp.parser import parse_manifest, parse_agent, resolve_templates
 from awp.parser.template import _resolve_dotted
 
-EXAMPLES = Path(__file__).parents[3] / "examples"
+EXAMPLES = Path(__file__).parents[3] / "examples" / "workflows"
 CONFORMANCE = Path(__file__).parents[3] / "conformance" / "fixtures"
 
 

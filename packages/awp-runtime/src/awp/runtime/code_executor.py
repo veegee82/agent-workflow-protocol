@@ -27,6 +27,8 @@ class CodeExecutor(BaseExecutor):
         max_timeout: Maximum allowed timeout in seconds.
         max_output_bytes: Maximum stdout/stderr size in bytes.
         working_dir: Working directory for code execution.
+        packages: Pip packages to install before first execution.
+        pip_install: Whether to install packages (default True if packages given).
     """
 
     def __init__(
@@ -34,10 +36,16 @@ class CodeExecutor(BaseExecutor):
         max_timeout: int = 30,
         max_output_bytes: int = 1_048_576,
         working_dir: Optional[Path] = None,
+        packages: list[str] | None = None,
+        pip_install: bool = False,
     ) -> None:
         self._max_timeout = max_timeout
         self._max_output = max_output_bytes
         self._cwd = working_dir
+
+        # Pre-install requested packages into the current Python environment
+        if packages and (pip_install or packages):
+            self.install_runtime_packages(packages)
 
     def execute(
         self,

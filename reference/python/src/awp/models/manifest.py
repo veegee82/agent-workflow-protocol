@@ -97,14 +97,58 @@ class WorkflowMetadata(BaseModel):
     settings: WorkflowSettings = Field(default_factory=WorkflowSettings)
 
 
+class NamespaceCapability(BaseModel):
+    """Per-namespace capability grant for dynamic tool creation.
+
+    Controls what a namespace is allowed to do beyond pure computation.
+    The workflow author declares these — agents cannot grant themselves
+    additional capabilities at runtime.
+
+    Capabilities:
+        compute: Pure Python computation (always granted, implicit).
+        network: HTTP/socket access (optionally restricted to allowlist).
+        filesystem: Read/write via pathlib, glob, shutil, tempfile.
+
+    Imports that are NEVER allowed regardless of capabilities:
+        os, subprocess, sys, ctypes, importlib, signal, multiprocessing.
+    """
+
+    name: str
+    capabilities: list[str] = Field(default_factory=lambda: ["compute"])
+    network_allowlist: list[str] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
+
+
 class DynamicToolsConfig(BaseModel):
     """Configuration for runtime dynamic tool creation."""
 
     enabled: bool = False
     persist: bool = False
     max_total: int = 50
-    allowed_namespaces: list[str] = Field(default_factory=lambda: ["dynamic"])
+    allowed_namespaces: list[str | NamespaceCapability] = Field(
+        default_factory=lambda: ["dynamic"]
+    )
     code_review: bool = False
+
+    def get_namespace_config(self, namespace: str) -> NamespaceCapability:
+        """Resolve a namespace name to its NamespaceCapability.
+
+        Plain string entries are treated as compute-only namespaces.
+        """
+        for ns in self.allowed_namespaces:
+            if isinstance(ns, NamespaceCapability) and ns.name == namespace:
+                return ns
+            if isinstance(ns, str) and ns == namespace:
+                return NamespaceCapability(name=ns)
+        return NamespaceCapability(name=namespace)
+
+    def get_namespace_names(self) -> list[str]:
+        """Return flat list of namespace name strings."""
+        return [
+            ns.name if isinstance(ns, NamespaceCapability) else ns
+            for ns in self.allowed_namespaces
+        ]
 
 
 class AWPManifest(BaseModel):

@@ -40,7 +40,7 @@ class VenvExecutor(BaseExecutor):
         max_output_bytes: int = 1_048_576,
         working_dir: Optional[Path] = None,
         packages: Optional[list[str]] = None,
-        pip_install: bool = False,
+        pip_install: bool = True,
         venv_dir: Optional[Path] = None,
     ) -> None:
         self._max_timeout = max_timeout

@@ -227,6 +227,91 @@ class TestStallDetector:
         result = sd.record(0.9)  # delta=0.2 — progress!
         assert result == "ok"
 
+    def test_output_similarity_triggers_stall(self):
+        """Even if confidence changes, identical outputs should trigger stall."""
+        sd = StallDetector(window=3, min_delta=0.05)
+        same_output = "The analysis shows X, Y, Z findings."
+        sd.record(0.3, same_output)
+        sd.record(0.4, same_output)
+        result = sd.record(0.5, same_output)  # confidence improves but output identical
+        assert result == "warn"
+
+    def test_different_outputs_no_stall(self):
+        """Different outputs should not trigger output-based stall."""
+        sd = StallDetector(window=3, min_delta=0.05)
+        sd.record(0.5, "First analysis: found trend A")
+        sd.record(0.51, "Second analysis: found correlation B and new pattern C")
+        result = sd.record(0.52, "Third analysis: completely different result with D, E, F")
+        # Confidence stalled but outputs are different — still warns on confidence channel
+        assert result == "warn"
+
+    def test_output_similarity_static_method(self):
+        assert StallDetector._output_similarity("", "") == 1.0
+        assert StallDetector._output_similarity("abc", "") == 0.0
+        assert StallDetector._output_similarity("hello world", "hello world") == 1.0
+        assert StallDetector._output_similarity("abc", "xyz") < 0.5
+
+
+class TestParseJsonResponse:
+    """Test the improved JSON parser that extracts JSON from freetext."""
+
+    def _parse(self, text):
+        return DelegationLoopRunner._parse_json_response(text)
+
+    def test_direct_json(self):
+        result = self._parse('{"confidence": 0.9, "result": "ok"}')
+        assert result["confidence"] == 0.9
+
+    def test_markdown_fenced_json(self):
+        text = '```json\n{"confidence": 0.8, "result": "done"}\n```'
+        result = self._parse(text)
+        assert result["confidence"] == 0.8
+
+    def test_json_embedded_in_freetext(self):
+        text = 'Here is my analysis:\n\n{"confidence": 0.85, "result": "found trends"}\n\nHope this helps!'
+        result = self._parse(text)
+        assert result["confidence"] == 0.85
+
+    def test_pure_freetext_fallback(self):
+        text = "I analyzed the data and found interesting patterns."
+        result = self._parse(text)
+        assert result["confidence"] == 0.3
+        assert result["result"] == text
+
+    def test_empty_input(self):
+        assert self._parse("")["confidence"] == 0.3
+        assert self._parse(None)["confidence"] == 0.3
+
+
+class TestDeriveToolConfidence:
+    """Test confidence derivation from tool call outcomes."""
+
+    def _derive(self, log):
+        return DelegationLoopRunner._derive_tool_confidence(log)
+
+    def test_empty_log(self):
+        assert self._derive([]) == 0.3
+
+    def test_all_success(self):
+        log = [
+            {"tool": "code.execute", "result": {"ok": True, "status": 200}},
+            {"tool": "file.read", "result": {"ok": True, "status": 200}},
+        ]
+        assert self._derive(log) == pytest.approx(0.7)
+
+    def test_all_failure(self):
+        log = [
+            {"tool": "code.execute", "result": {"ok": False, "status": 500}},
+        ]
+        assert self._derive(log) == pytest.approx(0.3)
+
+    def test_mixed(self):
+        log = [
+            {"tool": "code.execute", "result": {"ok": True, "status": 200}},
+            {"tool": "code.execute", "result": {"ok": False, "status": 500}},
+        ]
+        assert self._derive(log) == pytest.approx(0.5)
+
 
 class TestRunLogger:
     """Test dual-layer logging to disk."""

@@ -6,6 +6,11 @@ sandboxed executors, and registered in the shared ToolRegistry.
 
 All dynamic tools follow the standard AWP tool contract (CT1-CT9)
 plus additional dynamic tool rules (DT1-DT8).
+
+Namespace Capabilities (NC1-NC3):
+    NC1: Capabilities are declared by the workflow author in YAML, not by agents.
+    NC2: Per-namespace import policies are derived from declared capabilities.
+    NC3: ALWAYS_DENIED imports cannot be unlocked by any capability.
 """
 
 from __future__ import annotations
@@ -19,7 +24,40 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Per-sandbox-type import policies.
+# ---------------------------------------------------------------------------
+# Imports that are NEVER allowed, regardless of namespace capabilities.
+# These provide arbitrary code execution, privilege escalation, or process
+# control that cannot be safely sandboxed.
+# ---------------------------------------------------------------------------
+ALWAYS_DENIED: frozenset[str] = frozenset(
+    {
+        "os",
+        "subprocess",
+        "sys",
+        "ctypes",
+        "importlib",
+        "signal",
+        "multiprocessing",
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Capability-gated import groups.
+# Each capability unlocks a set of imports that would otherwise be denied.
+# ---------------------------------------------------------------------------
+NETWORK_IMPORTS: frozenset[str] = frozenset(
+    {"socket", "http", "urllib", "requests", "httpx", "asyncio"}
+)
+
+FILESYSTEM_IMPORTS: frozenset[str] = frozenset(
+    {"pathlib", "glob", "shutil", "tempfile"}
+)
+
+THREADING_IMPORTS: frozenset[str] = frozenset(
+    {"threading", "asyncio"}
+)
+
+# Per-sandbox-type import policies (backward-compatible).
 # Docker allows most imports since code runs in a disposable container.
 # Venv is intermediate -- allows filesystem but blocks system/network.
 # Subprocess is the most restrictive (original default).
@@ -70,6 +108,36 @@ IMPORT_POLICIES: dict[str, frozenset[str]] = {
 
 # Backward-compatible alias
 DENIED_IMPORTS = IMPORT_POLICIES["subprocess"]
+
+
+def _denied_for_capabilities(
+    capabilities: list[str],
+    sandbox_type: str = "subprocess",
+) -> frozenset[str]:
+    """Compute the denied-import set for a given list of capabilities.
+
+    Starts from the sandbox-type baseline, then removes imports that are
+    unlocked by the declared capabilities.  ALWAYS_DENIED imports can
+    never be removed.
+
+    Args:
+        capabilities: List of capability names (e.g. ["compute", "network"]).
+        sandbox_type: Sandbox type for the baseline policy.
+
+    Returns:
+        Frozenset of denied module names.
+    """
+    baseline = set(IMPORT_POLICIES.get(sandbox_type, IMPORT_POLICIES["subprocess"]))
+
+    if "network" in capabilities:
+        baseline -= NETWORK_IMPORTS
+    if "filesystem" in capabilities:
+        baseline -= FILESYSTEM_IMPORTS
+
+    # Re-add ALWAYS_DENIED — these can never be unlocked.
+    baseline |= ALWAYS_DENIED
+
+    return frozenset(baseline)
 
 # Reserved namespaces (from Layer 2, Section 4.2)
 RESERVED_NAMESPACES = frozenset(
@@ -174,7 +242,12 @@ class DynamicToolFactory:
         self._records: dict[str, DynamicToolRecord] = {}
         self._agent_counts: dict[str, int] = {}
         self._sandbox_type = sandbox_type
+        # Backward-compatible global denied imports (used when no namespace
+        # capabilities are configured).
         self._denied_imports = IMPORT_POLICIES.get(sandbox_type, DENIED_IMPORTS)
+
+        # Per-namespace capability configs: name -> {"capabilities": [...], ...}
+        self._namespace_configs: dict[str, dict[str, Any]] = {}
 
         # Extract config values
         if config is None:
@@ -204,7 +277,30 @@ class DynamicToolFactory:
                 if hasattr(config, "allowed_namespaces")
                 else config.get("allowed_namespaces", None)
             )
-            self._allowed_namespaces = ns if ns else ["dynamic"]
+            raw_namespaces = ns if ns else ["dynamic"]
+
+            # Parse allowed_namespaces: supports both plain strings and
+            # NamespaceCapability objects/dicts with per-namespace capabilities.
+            self._allowed_namespaces = []
+            for entry in raw_namespaces:
+                if isinstance(entry, str):
+                    self._allowed_namespaces.append(entry)
+                elif isinstance(entry, dict):
+                    name = entry.get("name", "")
+                    if name:
+                        self._allowed_namespaces.append(name)
+                        self._namespace_configs[name] = entry
+                elif hasattr(entry, "name"):
+                    # Pydantic NamespaceCapability model
+                    self._allowed_namespaces.append(entry.name)
+                    self._namespace_configs[entry.name] = {
+                        "name": entry.name,
+                        "capabilities": getattr(entry, "capabilities", ["compute"]),
+                        "network_allowlist": getattr(
+                            entry, "network_allowlist", []
+                        ),
+                    }
+
             self._code_review = (
                 getattr(config, "code_review", False)
                 if hasattr(config, "code_review")
@@ -275,8 +371,8 @@ class DynamicToolFactory:
         # Check agent's declared namespace
         if namespace != allowed_namespace and allowed_namespace != "*":
             return _err(
-                f"Agent '{creator_agent}' can only create tools in namespace '{allowed_namespace}', "
-                f"not '{namespace}'",
+                f"Agent '{creator_agent}' can only create tools in "
+                f"namespace '{allowed_namespace}', not '{namespace}'",
                 403,
             )
 
@@ -299,8 +395,8 @@ class DynamicToolFactory:
                 429,
             )
 
-        # DT4: Validate code via AST
-        validation = self.validate_code(code)
+        # DT4: Validate code via AST (namespace-aware policy)
+        validation = self.validate_code(code, namespace=namespace)
         if not validation["ok"]:
             return validation
 
@@ -433,16 +529,40 @@ class DynamicToolFactory:
         self._agent_counts.clear()
         logger.info("Dynamic tools cleaned up")
 
-    def validate_code(self, code: str) -> dict[str, Any]:
+    def _get_denied_for_namespace(self, namespace: Optional[str] = None) -> frozenset[str]:
+        """Return the denied-import set for a namespace.
+
+        If the namespace has declared capabilities, compute a custom policy.
+        Otherwise fall back to the global sandbox-type policy.
+        """
+        if namespace and namespace in self._namespace_configs:
+            caps = self._namespace_configs[namespace].get("capabilities", ["compute"])
+            return _denied_for_capabilities(caps, self._sandbox_type)
+        return self._denied_imports
+
+    def get_namespace_capabilities(self, namespace: str) -> list[str]:
+        """Return the declared capabilities for a namespace."""
+        if namespace in self._namespace_configs:
+            return list(self._namespace_configs[namespace].get("capabilities", ["compute"]))
+        return ["compute"]
+
+    def get_network_allowlist(self, namespace: str) -> list[str]:
+        """Return the network allowlist for a namespace (empty = unrestricted)."""
+        if namespace in self._namespace_configs:
+            return list(self._namespace_configs[namespace].get("network_allowlist", []))
+        return []
+
+    def validate_code(self, code: str, namespace: Optional[str] = None) -> dict[str, Any]:
         """Validate Python code via AST without executing it.
 
         Checks:
         1. Syntax validity
-        2. No denied imports
+        2. No denied imports (namespace-capability-aware)
         3. Contains exactly one ``def handler(*, ...)`` function
 
         Args:
             code: Python source code string.
+            namespace: Optional namespace for per-namespace capability policy.
 
         Returns:
             Standard AWP result format.
@@ -453,8 +573,12 @@ class DynamicToolFactory:
         except SyntaxError as e:
             return _err(f"Syntax error in tool code: {e}", 400)
 
-        # Check for denied imports (policy depends on sandbox type)
-        denied = self._denied_imports
+        # Check for denied imports (namespace-capability-aware policy)
+        denied = self._get_denied_for_namespace(namespace)
+        caps_info = ""
+        if namespace and namespace in self._namespace_configs:
+            caps = self._namespace_configs[namespace].get("capabilities", ["compute"])
+            caps_info = f", capabilities: {caps}"
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -462,7 +586,7 @@ class DynamicToolFactory:
                     if root_module in denied:
                         return _err(
                             f"Import of '{alias.name}' is not allowed in dynamic tool code "
-                            f"(sandbox type: {self._sandbox_type})",
+                            f"(sandbox type: {self._sandbox_type}{caps_info})",
                             403,
                         )
             elif isinstance(node, ast.ImportFrom):
@@ -471,7 +595,7 @@ class DynamicToolFactory:
                     if root_module in denied:
                         return _err(
                             f"Import from '{node.module}' is not allowed in dynamic tool code "
-                            f"(sandbox type: {self._sandbox_type})",
+                            f"(sandbox type: {self._sandbox_type}{caps_info})",
                             403,
                         )
 
@@ -516,6 +640,7 @@ class DynamicToolFactory:
         executor = self._executor
         _required = required_secrets or []
         _workflow_dir = self._workflow_dir
+        _registry = self._registry
 
         def tool_fn(**kwargs: Any) -> dict[str, Any]:
             # Extract _secrets injected by ToolRegistry.call() and remove
@@ -539,7 +664,11 @@ class DynamicToolFactory:
                 ws = _workflow_dir / "workspace"
                 ws.mkdir(parents=True, exist_ok=True)
                 workspace_dir = str(ws)
-                out = _workflow_dir / "output"
+                _run_id = getattr(_registry, "_run_id", "") if _registry else ""
+                if _run_id:
+                    out = _workflow_dir / "output" / _run_id
+                else:
+                    out = _workflow_dir / "output"
                 out.mkdir(parents=True, exist_ok=True)
                 output_dir = str(out)
 

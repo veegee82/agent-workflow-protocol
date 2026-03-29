@@ -127,24 +127,59 @@ class BudgetSnapshot:
 
 
 class StallDetector:
-    """Detects when the delegation loop makes no meaningful progress."""
+    """Detects when the delegation loop makes no meaningful progress.
+
+    Uses two independent signals:
+    1. Confidence delta — are confidence scores improving?
+    2. Output similarity — are worker results actually changing?
+
+    Both channels must agree before stopping; a single channel triggers a
+    warning first.
+    """
 
     def __init__(self, window: int = 3, min_delta: float = 0.05) -> None:
         self.window = window
         self.min_delta = min_delta
         self._history: list[float] = []
+        self._output_history: list[str] = []
         self._warnings = 0
 
-    def record(self, confidence: float) -> str:
-        """Record a confidence value. Returns 'ok', 'warn', or 'stop'."""
+    @staticmethod
+    def _output_similarity(a: str, b: str) -> float:
+        """Compute a cheap similarity ratio between two output strings."""
+        if not a and not b:
+            return 1.0
+        if not a or not b:
+            return 0.0
+        from difflib import SequenceMatcher
+
+        return SequenceMatcher(None, a[:2000], b[:2000]).ratio()
+
+    def record(self, confidence: float, output_snapshot: str = "") -> str:
+        """Record a confidence value and output snapshot.
+
+        Returns 'ok', 'warn', or 'stop'.
+        """
         self._history.append(confidence)
+        self._output_history.append(output_snapshot)
+
         if len(self._history) < self.window:
             return "ok"
 
+        # Channel 1: confidence delta
         recent = self._history[-self.window :]
         delta = recent[-1] - recent[0]
+        confidence_stalled = abs(delta) < self.min_delta
 
-        if abs(delta) < self.min_delta:
+        # Channel 2: output similarity (compare latest to window-start)
+        output_stalled = False
+        if len(self._output_history) >= self.window:
+            old_out = self._output_history[-self.window]
+            new_out = self._output_history[-1]
+            if old_out or new_out:
+                output_stalled = self._output_similarity(old_out, new_out) > 0.85
+
+        if confidence_stalled or output_stalled:
             self._warnings += 1
             if self._warnings >= 2:
                 return "stop"
@@ -662,6 +697,10 @@ class DelegationLoopRunner:
         state = dict(state or {})
         state["task"] = task
 
+        # Isolate output under this run ID
+        if self._tools and hasattr(self._tools, "set_run_id"):
+            self._tools.set_run_id(self._run_id)
+
         logger.info(
             "DelegationLoop [%s] depth=%d starting: %s",
             self._run_id,
@@ -694,6 +733,17 @@ class DelegationLoopRunner:
             self._budget.loops_used,
             status,
         )
+
+        # Generate execution graph
+        try:
+            from .execution_graph import generate_execution_graph
+
+            generate_execution_graph(
+                run_dir=self._logger.run_dir,
+                output_path=self._logger.run_dir / "execution_graph.html",
+            )
+        except Exception as exc:
+            logger.debug("Execution graph generation skipped: %s", exc)
 
         return {"delegation_loop": final_result}
 
@@ -808,7 +858,7 @@ class DelegationLoopRunner:
 
             # 9. Stall detection
             if self._stall:
-                stall_status = self._stall.record(agg_confidence)
+                stall_status = self._stall.record(agg_confidence, key_findings)
                 if stall_status == "stop":
                     logger.warning("Stall detected — stopping loop")
                     return self._build_partial_result(
@@ -888,6 +938,48 @@ class DelegationLoopRunner:
             logger.error("Inline manager failed: %s", exc)
             return {"decision": "fail", "reason": str(exc)}
 
+    def _build_namespace_capabilities_section(self) -> str:
+        """Build a section describing per-namespace capabilities for the manager prompt."""
+        factory = getattr(self._tools, "_dynamic_tool_factory", None) if self._tools else None
+        if not factory or not getattr(factory, "_namespace_configs", None):
+            return ""
+
+        lines = ["\n## Namespace Capabilities"]
+        for ns_name, ns_cfg in factory._namespace_configs.items():
+            caps = ns_cfg.get("capabilities", ["compute"])
+            allowlist = ns_cfg.get("network_allowlist", [])
+            line = f"- **{ns_name}**: {', '.join(caps)}"
+            if allowlist:
+                line += f" (network restricted to: {', '.join(allowlist)})"
+            lines.append(line)
+        lines.append("")
+        return "\n".join(lines)
+
+    def _build_namespace_import_rules(self, namespace: str) -> str:
+        """Build import rules for a namespace, reflecting its capabilities."""
+        factory = getattr(self._tools, "_dynamic_tool_factory", None) if self._tools else None
+        if factory and namespace in getattr(factory, "_namespace_configs", {}):
+            caps = factory.get_namespace_capabilities(namespace)
+            allowlist = factory.get_network_allowlist(namespace)
+            lines = ["- NEVER import os, subprocess, sys, ctypes, importlib, signal, or multiprocessing\n"]
+            if "network" in caps:
+                if allowlist:
+                    lines.append(f"- Network access ALLOWED (restricted to: {', '.join(allowlist)}). You may import requests, httpx, urllib, http.\n")
+                else:
+                    lines.append("- Network access ALLOWED. You may import requests, httpx, urllib, http.\n")
+            else:
+                lines.append("- No imports of socket, http, urllib, requests, or httpx (no network access)\n")
+            if "filesystem" in caps:
+                lines.append("- Filesystem access ALLOWED. You may import pathlib, glob, shutil, tempfile.\n")
+            else:
+                lines.append("- Use `open()` (builtin) to write files — do NOT import `os` or `pathlib`\n")
+            return "".join(lines)
+        # Default: no special capabilities
+        return (
+            "- No imports of os, subprocess, sys, socket, or network modules\n"
+            "- Use `open()` (builtin) to write files — do NOT import `os` or `pathlib`\n"
+        )
+
     def _build_manager_system_prompt(self) -> str:
         """System prompt for the manager agent."""
         enforced = self._config.worker_policy.enforced
@@ -952,7 +1044,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
 - Sandbox: {enforced.sandbox.type}, max {enforced.sandbox.max_memory_mb}MB RAM, {enforced.sandbox.max_cpu_seconds}s CPU
 - Max tools per worker: {enforced.codemode.max_tools_per_worker}
 - Forbidden tools: {", ".join(enforced.forbidden_tools)}
-
+{self._build_namespace_capabilities_section()}
 ## Rules
 - Give each worker a unique, descriptive worker_id (snake_case)
 - Workers can only use tools from their tools_allowed list
@@ -1230,6 +1322,14 @@ Do NOT use relative paths like `open("data.csv")` — they will fail.
 
 Use string concatenation for paths: `_output_dir + "/chart.png"`
 
+**Subdirectories:** If you save files to a subdirectory (e.g. `_output_dir + "/plots/chart.png"`),
+call `_ensure_dir(path)` first to create parent directories automatically:
+```python
+path = _output_dir + "/plots/chart.png"
+_ensure_dir(path)  # creates _output_dir/plots/ if needed
+plt.savefig(path, dpi=150, bbox_inches="tight")
+```
+
 Example (reading CSV and saving a chart):
 ```python
 import pandas as pd
@@ -1278,10 +1378,16 @@ print("Chart saved")
                         # Bare field name or scalar
                         system_parts.append(f"- `{field_name}`\n")
 
-            # Always ensure confidence is mentioned
+            # Always ensure confidence is mentioned with clear guidance
             if "confidence" not in output_contract:
                 system_parts.append(
-                    "- `confidence` (float 0.0-1.0): How confident you are\n"
+                    "- `confidence` (float 0.0-1.0, **REQUIRED**): "
+                    "Your honest assessment of result quality. "
+                    "0.9-1.0 = fully verified, all checks pass. "
+                    "0.7-0.8 = high quality, minor uncertainties. "
+                    "0.5-0.6 = partial result, some issues. "
+                    "0.1-0.4 = low quality, significant gaps. "
+                    "Do NOT default to a generic value — assess your actual output.\n"
                 )
             if tool_creation:
                 system_parts.append(
@@ -1361,7 +1467,7 @@ print("Chart saved")
                     tool_executor=_tracking_call,
                     max_rounds=5,
                     temperature=worker_temperature,
-                    max_tokens=4096,
+                    max_tokens=16384,
                 )
                 content = ""
                 if isinstance(final_msg, dict):
@@ -1369,8 +1475,13 @@ print("Chart saved")
                 elif isinstance(final_msg, str):
                     content = final_msg
                 result = self._parse_json_response(content)
-                if "confidence" not in result:
-                    result["confidence"] = 0.5
+                if not self._has_real_confidence(result):
+                    # LLM didn't provide a usable confidence — derive from
+                    # tool call outcomes instead of using a meaningless default.
+                    result["confidence"] = self._derive_tool_confidence(
+                        _tool_call_log
+                    )
+                    result["_confidence_source"] = "derived_from_tools"
 
                 # Attach tool call log to result for artifact persistence
                 if _tool_call_log:
@@ -1407,13 +1518,14 @@ print("Chart saved")
         try:
             result = llm.chat_json(messages, temperature=worker_temperature, max_tokens=4096)
             if not isinstance(result, dict):
-                result = {"result": str(result), "confidence": 0.3}
+                result = {"result": str(result), "confidence": 0.0, "_confidence_source": "parse_failure"}
         except Exception:
             text = llm.chat_text(messages, temperature=worker_temperature, max_tokens=4096)
             result = self._parse_json_response(text)
 
-        if "confidence" not in result:
-            result["confidence"] = 0.5
+        if not self._has_real_confidence(result):
+            result["confidence"] = 0.0
+            result["_confidence_source"] = "missing_from_llm"
 
         logger.debug(
             "Worker %s raw result (simple call):\n%s",
@@ -1567,9 +1679,8 @@ def handler(*, rows, filename):
 Rules:
 - Tools MUST have a `def handler(*, ...)` function (keyword-only arguments)
 - Tools MUST return the standard AWP format: `{{"ok": bool, "status": int, "data": {{}}, "error": str|None}}`
-- No imports of os, subprocess, sys, socket, or network modules
-- Use `open()` (builtin) to write files — do NOT import `os` or `pathlib`
-- Use `_output_dir + "/" + filename` for file paths (string concatenation)
+{self._build_namespace_import_rules(namespace)}- Use `_output_dir + "/" + filename` for file paths (string concatenation)
+- Use `_ensure_dir(path)` before writing to subdirectories (creates parent dirs automatically)
 - Keep tool code concise and focused
 - If your tool needs an API key, declare it in `required_secrets` and access it via `_secrets.get("KEY_NAME", "")`
 - The `_secrets`, `_workspace_dir`, `_output_dir` variables are pre-defined — do NOT add them as handler parameters
@@ -1745,7 +1856,7 @@ Rules:
 
         # Must have confidence
         if "confidence" not in result:
-            errors.append("Missing 'confidence' field")
+            errors.append("Missing 'confidence' field — worker did not self-assess")
 
         # Confidence must be valid
         conf = result.get("confidence", 0)
@@ -1753,6 +1864,13 @@ Rules:
             errors.append(f"Confidence is not a number: {type(conf)}")
         elif not (0.0 <= conf <= 1.0):
             errors.append(f"Confidence out of range: {conf}")
+
+        # Flag derived/fallback confidence so manager knows
+        source = result.get("_confidence_source")
+        if source:
+            errors.append(
+                f"Confidence was not provided by worker (source: {source})"
+            )
 
         # Must not be only an error
         if "error" in result and len(result) <= 2:  # just error + confidence
@@ -1799,22 +1917,107 @@ Rules:
 
     @staticmethod
     def _parse_json_response(text: str) -> dict:
-        """Robustly parse an LLM response as JSON."""
+        """Robustly parse an LLM response as JSON.
+
+        Tries multiple strategies:
+        1. Direct JSON parse
+        2. Strip markdown code fences and parse
+        3. Extract the first {...} block from freetext via brace-matching
+        """
         if not text or not isinstance(text, str):
-            return {"result": str(text), "confidence": 0.3}
+            return {"result": str(text), "_confidence_source": "parse_failure"}
         cleaned = text.strip()
-        # Strip markdown code fences
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            lines = [line for line in lines if not line.strip().startswith("```")]
-            cleaned = "\n".join(lines).strip()
+
+        # Strategy 1: direct parse
         try:
             parsed = json.loads(cleaned)
             if isinstance(parsed, dict):
                 return parsed
-            return {"result": parsed, "confidence": 0.3}
         except (json.JSONDecodeError, ValueError):
-            return {"result": text, "confidence": 0.3}
+            pass
+
+        # Strategy 2: strip markdown code fences
+        if "```" in cleaned:
+            lines = cleaned.split("\n")
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            fenced = "\n".join(lines).strip()
+            try:
+                parsed = json.loads(fenced)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Strategy 3: find the first top-level {...} block via brace matching
+        start = cleaned.find("{")
+        if start != -1:
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(cleaned)):
+                ch = cleaned[i]
+                if escape:
+                    escape = False
+                    continue
+                if ch == "\\":
+                    escape = True
+                    continue
+                if ch == '"' and not escape:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = cleaned[start : i + 1]
+                        try:
+                            parsed = json.loads(candidate)
+                            if isinstance(parsed, dict):
+                                return parsed
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                        break
+
+        return {"result": text, "_confidence_source": "parse_failure"}
+
+    @staticmethod
+    def _has_real_confidence(result: dict) -> bool:
+        """Check if a result contains a real LLM-provided confidence value.
+
+        Returns False if confidence is missing or was set by a parse-failure fallback.
+        """
+        if "confidence" not in result:
+            return False
+        if result.get("_confidence_source") in ("parse_failure", "missing_from_llm", "derived_from_tools"):
+            return False
+        conf = result["confidence"]
+        if not isinstance(conf, (int, float)):
+            return False
+        return True
+
+    @staticmethod
+    def _derive_tool_confidence(tool_call_log: list[dict]) -> float:
+        """Derive a confidence score from tool execution outcomes.
+
+        When the LLM does not return a parseable confidence value, we
+        estimate one from the tool calls that actually ran:
+        - No tool calls → 0.1 (almost no evidence)
+        - All succeeded → 0.7 (tools worked, but LLM didn't self-assess)
+        - Mixed → proportional between 0.1 and 0.7
+        """
+        if not tool_call_log:
+            return 0.1
+        total = len(tool_call_log)
+        ok_count = sum(
+            1
+            for tc in tool_call_log
+            if isinstance(tc.get("result"), dict) and tc["result"].get("ok")
+        )
+        # Scale: 0 ok → 0.1, all ok → 0.7
+        return round(0.1 + 0.6 * (ok_count / total), 2)
 
     def _aggregate_confidence(self, delegation_results: list[dict]) -> float:
         """Aggregate confidence from multiple workers (weighted average)."""

@@ -18,7 +18,7 @@ from awp.models.orchestration import (
     ConditionalDependency,
 )
 
-EXAMPLES = Path(__file__).parents[3] / "examples"
+EXAMPLES = Path(__file__).parents[3] / "examples" / "workflows"
 
 
 # -- Graph validator -------------------------------------------------
