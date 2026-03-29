@@ -1,6 +1,6 @@
 """AWP — Agent Workflow Protocol reference implementation."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from .agent import AWPAgent
 
