@@ -575,6 +575,9 @@ c) Hybrid — DAG with embedded Delegation Loop
 
 If Delegation Loop:
 - Budget: Max Loops? [10]  Max Workers? [20]  Max Wall Time? [300s]
+- Context Budget: Total chars? [64000]  Min per entry? [4000]  Preview chars? [2000]
+  (Auto-detect divides total budget equally among workers. Large results spill to
+  workspace/context/ files with inline preview. Tune up for data-heavy workflows.)
 - Safety Envelope active? [Yes, required from A3]
 - LLM Validation? [Yes / No]
 - Stall Detection? [Yes, recommended]
@@ -1637,9 +1640,11 @@ orchestration:
   delegation_loop:
     manager: agents/manager
     budget: {max_loops: 5, max_total_workers: 10, max_wall_time: 300}
+    context_budget: {total_chars: 64000, min_per_entry: 4000, preview_chars: 2000}
     validation: {deterministic: {always: true}, llm: {enabled: false}}
 ```
 Manager analyzes task, spawns specialist workers with generated skills, iterates until confident.
+Context sharing: small results inline, large results spill to `workspace/context/` with preview.
 
 **A3 Self-Tooling — Configurable Scoring**
 ```yaml

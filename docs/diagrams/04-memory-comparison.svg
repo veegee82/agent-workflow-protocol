@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="520" viewBox="0 0 1100 520">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <text x="550" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#212121">Memory System Comparison</text>
+
+  <!-- AWP Side -->
+  <rect x="30" y="55" width="510" height="450" rx="14" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="285" y="82" text-anchor="middle" font-size="17" font-weight="bold" fill="#1b5e20">AWP: 4-Tier Memory</text>
+
+  <rect x="55" y="100" width="220" height="75" rx="8" fill="#ffffff" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="165" y="122" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b5e20">Tier 1: Long-Term</text>
+  <text x="165" y="140" text-anchor="middle" font-size="10" fill="#33691e">MEMORY.md</text>
+  <text x="165" y="155" text-anchor="middle" font-size="10" fill="#33691e">Curated facts, policies</text>
+  <text x="165" y="168" text-anchor="middle" font-size="9" fill="#558b2f" font-style="italic">Injected into prompts</text>
+
+  <rect x="295" y="100" width="220" height="75" rx="8" fill="#ffffff" stroke="#388e3c" stroke-width="1.5"/>
+  <text x="405" y="122" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b5e20">Tier 2: Working</text>
+  <text x="405" y="140" text-anchor="middle" font-size="10" fill="#33691e">memory/YYYY-MM-DD.md</text>
+  <text x="405" y="155" text-anchor="middle" font-size="10" fill="#33691e">Daily append-only logs</text>
+  <text x="405" y="168" text-anchor="middle" font-size="9" fill="#558b2f" font-style="italic">Context window access</text>
+
+  <rect x="55" y="195" width="220" height="75" rx="8" fill="#ffffff" stroke="#4caf50" stroke-width="1.5"/>
+  <text x="165" y="217" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d32">Tier 3: Episodic</text>
+  <text x="165" y="235" text-anchor="middle" font-size="10" fill="#33691e">State persistence files</text>
+  <text x="165" y="250" text-anchor="middle" font-size="10" fill="#33691e">Run artifacts, history</text>
+  <text x="165" y="263" text-anchor="middle" font-size="9" fill="#558b2f" font-style="italic">Read-only access</text>
+
+  <rect x="295" y="195" width="220" height="75" rx="8" fill="#ffffff" stroke="#66bb6a" stroke-width="1.5"/>
+  <text x="405" y="217" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d32">Tier 4: Semantic</text>
+  <text x="405" y="235" text-anchor="middle" font-size="10" fill="#33691e">Vector index (optional)</text>
+  <text x="405" y="250" text-anchor="middle" font-size="10" fill="#33691e">FAISS / Chroma / Qdrant</text>
+  <text x="405" y="263" text-anchor="middle" font-size="9" fill="#558b2f" font-style="italic">Embedding-based search</text>
+
+  <rect x="55" y="295" width="460" height="80" rx="8" fill="#c8e6c9" stroke="#1b5e20" stroke-width="2"/>
+  <text x="285" y="318" text-anchor="middle" font-size="13" font-weight="bold" fill="#1b5e20">Cross-Agent State Sharing</text>
+  <text x="285" y="338" text-anchor="middle" font-size="11" fill="#33691e">Strategies: full | selective | isolated</text>
+  <text x="285" y="355" text-anchor="middle" font-size="11" fill="#33691e">Explicit share_output rules with field-level control</text>
+  <text x="285" y="370" text-anchor="middle" font-size="10" fill="#558b2f">Limits: 10MB total, 1MB/field, 1000 fields</text>
+
+  <rect x="55" y="390" width="460" height="48" rx="6" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"/>
+  <text x="285" y="413" text-anchor="middle" font-size="12" fill="#2e7d32" font-weight="600">Per-Agent Access Control: none | read | read_write per tier</text>
+  <text x="285" y="430" text-anchor="middle" font-size="10" fill="#558b2f">LLM curation bridge: daily to long-term promotion</text>
+
+  <!-- OpenClaw Side -->
+  <rect x="570" y="55" width="500" height="450" rx="14" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+  <text x="820" y="82" text-anchor="middle" font-size="17" font-weight="bold" fill="#e65100">OpenClaw: File-Based + Search</text>
+
+  <rect x="595" y="100" width="220" height="75" rx="8" fill="#ffffff" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="705" y="122" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">MEMORY.md</text>
+  <text x="705" y="140" text-anchor="middle" font-size="10" fill="#bf360c">Primary workspace memory</text>
+  <text x="705" y="155" text-anchor="middle" font-size="10" fill="#bf360c">Plain Markdown, trusted</text>
+  <text x="705" y="168" text-anchor="middle" font-size="9" fill="#e65100" font-style="italic">Loaded every DM session</text>
+
+  <rect x="835" y="100" width="220" height="75" rx="8" fill="#ffffff" stroke="#ff8f00" stroke-width="1.5"/>
+  <text x="945" y="122" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">memory/*.md</text>
+  <text x="945" y="140" text-anchor="middle" font-size="10" fill="#bf360c">Daily notes, topics</text>
+  <text x="945" y="155" text-anchor="middle" font-size="10" fill="#bf360c">Today + yesterday auto-loaded</text>
+  <text x="945" y="168" text-anchor="middle" font-size="9" fill="#e65100" font-style="italic">File system watched</text>
+
+  <rect x="595" y="195" width="220" height="75" rx="8" fill="#ffffff" stroke="#ffab00" stroke-width="1.5"/>
+  <text x="705" y="217" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">Session Transcripts</text>
+  <text x="705" y="235" text-anchor="middle" font-size="10" fill="#bf360c">sessions/*.jsonl</text>
+  <text x="705" y="250" text-anchor="middle" font-size="10" fill="#bf360c">Per-session JSONL files</text>
+  <text x="705" y="263" text-anchor="middle" font-size="9" fill="#e65100" font-style="italic">Delta sync: 100KB / 50 msgs</text>
+
+  <rect x="835" y="195" width="220" height="75" rx="8" fill="#ffffff" stroke="#ffc107" stroke-width="1.5"/>
+  <text x="945" y="217" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">Semantic Search</text>
+  <text x="945" y="235" text-anchor="middle" font-size="10" fill="#bf360c">SQLite + optional vectors</text>
+  <text x="945" y="250" text-anchor="middle" font-size="10" fill="#bf360c">Hybrid: 70% vector + 30% FTS</text>
+  <text x="945" y="263" text-anchor="middle" font-size="9" fill="#e65100" font-style="italic">400 tok chunks, 80 overlap</text>
+
+  <rect x="595" y="295" width="460" height="80" rx="8" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="825" y="318" text-anchor="middle" font-size="13" font-weight="bold" fill="#c62828">No Cross-Agent State Sharing</text>
+  <text x="825" y="338" text-anchor="middle" font-size="11" fill="#c62828">Agents have isolated workspaces and sessions</text>
+  <text x="825" y="355" text-anchor="middle" font-size="11" fill="#c62828">Inter-agent: sessions_send (opt-in, off by default)</text>
+  <text x="825" y="370" text-anchor="middle" font-size="10" fill="#b71c1c">No shared state dict, no field-level sharing</text>
+
+  <rect x="595" y="390" width="460" height="48" rx="6" fill="#fff3e0" stroke="#ff8f00" stroke-width="1"/>
+  <text x="825" y="413" text-anchor="middle" font-size="12" fill="#e65100" font-weight="600">Search: max 6 results, min score 0.35, optional MMR + temporal decay</text>
+  <text x="825" y="430" text-anchor="middle" font-size="10" fill="#bf360c">Auto-flush before compaction to prevent memory loss</text>
+
+  <!-- VS -->
+  <circle cx="550" cy="280" r="20" fill="#ffffff" stroke="#546e7a" stroke-width="2"/>
+  <text x="550" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#546e7a">VS</text>
+</svg>

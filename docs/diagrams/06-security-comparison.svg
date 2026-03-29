@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="480" viewBox="0 0 1100 480">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <text x="550" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#212121">Security Model Comparison</text>
+
+  <!-- AWP Side -->
+  <rect x="30" y="55" width="510" height="410" rx="14" fill="#ffebee" stroke="#c62828" stroke-width="2"/>
+  <text x="285" y="82" text-anchor="middle" font-size="17" font-weight="bold" fill="#b71c1c">AWP: Defense-in-Depth</text>
+
+  <rect x="55" y="100" width="220" height="55" rx="8" fill="#ffffff" stroke="#c62828" stroke-width="1.5"/>
+  <text x="165" y="120" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Tool ACL</text>
+  <text x="165" y="137" text-anchor="middle" font-size="10" fill="#c62828">allowed/denied per agent</text>
+  <text x="165" y="150" text-anchor="middle" font-size="10" fill="#c62828">forbidden_tools (enforced)</text>
+
+  <rect x="295" y="100" width="220" height="55" rx="8" fill="#ffffff" stroke="#c62828" stroke-width="1.5"/>
+  <text x="405" y="120" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Circuit Breaker</text>
+  <text x="405" y="137" text-anchor="middle" font-size="10" fill="#c62828">CLOSED - OPEN - HALF_OPEN</text>
+  <text x="405" y="150" text-anchor="middle" font-size="10" fill="#c62828">Threshold: 5 failures</text>
+
+  <rect x="55" y="170" width="220" height="55" rx="8" fill="#ffffff" stroke="#d32f2f" stroke-width="1.5"/>
+  <text x="165" y="190" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Rate Limiting</text>
+  <text x="165" y="207" text-anchor="middle" font-size="10" fill="#c62828">60 calls/min per agent</text>
+  <text x="165" y="220" text-anchor="middle" font-size="10" fill="#c62828">100K tokens/min, per-tool overrides</text>
+
+  <rect x="295" y="170" width="220" height="55" rx="8" fill="#fff9c4" stroke="#f9a825" stroke-width="2"/>
+  <text x="405" y="190" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">5D Budget Enforcement</text>
+  <text x="405" y="207" text-anchor="middle" font-size="10" fill="#bf360c">Tokens, time, workers, loops, tools</text>
+  <text x="405" y="220" text-anchor="middle" font-size="10" fill="#bf360c">Hard stop on ANY exhaustion</text>
+
+  <rect x="55" y="240" width="220" height="55" rx="8" fill="#ffffff" stroke="#e53935" stroke-width="1.5"/>
+  <text x="165" y="260" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Sandbox Isolation</text>
+  <text x="165" y="277" text-anchor="middle" font-size="10" fill="#c62828">Docker/venv per execution</text>
+  <text x="165" y="290" text-anchor="middle" font-size="10" fill="#c62828">Memory + CPU limits</text>
+
+  <rect x="295" y="240" width="220" height="55" rx="8" fill="#ffffff" stroke="#ef5350" stroke-width="1.5"/>
+  <text x="405" y="260" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Hash-Chain Audit</text>
+  <text x="405" y="277" text-anchor="middle" font-size="10" fill="#c62828">Tamper-proof event log</text>
+  <text x="405" y="290" text-anchor="middle" font-size="10" fill="#c62828">20+ security event types</text>
+
+  <rect x="55" y="310" width="220" height="55" rx="8" fill="#ffffff" stroke="#ef5350" stroke-width="1.5"/>
+  <text x="165" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Secrets Management</text>
+  <text x="165" y="347" text-anchor="middle" font-size="10" fill="#c62828">env/vault/aws backends</text>
+  <text x="165" y="360" text-anchor="middle" font-size="10" fill="#c62828">Auto-redaction in logs</text>
+
+  <rect x="295" y="310" width="220" height="55" rx="8" fill="#ffffff" stroke="#ef5350" stroke-width="1.5"/>
+  <text x="405" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#b71c1c">Worker Policy (Enforced)</text>
+  <text x="405" y="347" text-anchor="middle" font-size="10" fill="#c62828">Manager CANNOT override:</text>
+  <text x="405" y="360" text-anchor="middle" font-size="10" fill="#c62828">sandbox, rate limits, forbidden tools</text>
+
+  <text x="285" y="395" text-anchor="middle" font-size="11" fill="#b71c1c" font-weight="600">Trust model: Least privilege, explicit permissions</text>
+  <text x="285" y="412" text-anchor="middle" font-size="11" fill="#b71c1c" font-weight="600">Agents are untrusted - outputs validated</text>
+
+  <!-- OpenClaw Side -->
+  <rect x="570" y="55" width="500" height="410" rx="14" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+  <text x="820" y="82" text-anchor="middle" font-size="17" font-weight="bold" fill="#e65100">OpenClaw: Single-Operator Trust</text>
+
+  <rect x="595" y="100" width="220" height="55" rx="8" fill="#ffffff" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="705" y="120" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">5-Layer Tool Policy</text>
+  <text x="705" y="137" text-anchor="middle" font-size="10" fill="#bf360c">Global - Provider - Agent</text>
+  <text x="705" y="150" text-anchor="middle" font-size="10" fill="#bf360c">Sandbox - Subagent depth</text>
+
+  <rect x="835" y="100" width="220" height="55" rx="8" fill="#ffffff" stroke="#ff8f00" stroke-width="1.5"/>
+  <text x="945" y="120" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">DM Pairing</text>
+  <text x="945" y="137" text-anchor="middle" font-size="10" fill="#bf360c">Unknown senders blocked</text>
+  <text x="945" y="150" text-anchor="middle" font-size="10" fill="#bf360c">Approval via CLI required</text>
+
+  <rect x="595" y="170" width="220" height="55" rx="8" fill="#ffffff" stroke="#ffab00" stroke-width="1.5"/>
+  <text x="705" y="190" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Sandbox Modes</text>
+  <text x="705" y="207" text-anchor="middle" font-size="10" fill="#bf360c">off | non-main | all</text>
+  <text x="705" y="220" text-anchor="middle" font-size="10" fill="#bf360c">Docker/SSH/remote backends</text>
+
+  <rect x="835" y="170" width="220" height="55" rx="8" fill="#ffffff" stroke="#ffc107" stroke-width="1.5"/>
+  <text x="945" y="190" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Exec Approvals</text>
+  <text x="945" y="207" text-anchor="middle" font-size="10" fill="#bf360c">Operator guardrails (UI allow)</text>
+  <text x="945" y="220" text-anchor="middle" font-size="10" fill="#bf360c">Command + cwd + env binding</text>
+
+  <rect x="595" y="240" width="220" height="55" rx="8" fill="#ffffff" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="705" y="260" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Auth Modes</text>
+  <text x="705" y="277" text-anchor="middle" font-size="10" fill="#bf360c">Token / Password / Device</text>
+  <text x="705" y="290" text-anchor="middle" font-size="10" fill="#bf360c">Bootstrap + Tailscale identity</text>
+
+  <rect x="835" y="240" width="220" height="55" rx="8" fill="#ffffff" stroke="#ff8f00" stroke-width="1.5"/>
+  <text x="945" y="260" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Subagent Depth Limits</text>
+  <text x="945" y="277" text-anchor="middle" font-size="10" fill="#bf360c">main - orchestrator - leaf</text>
+  <text x="945" y="290" text-anchor="middle" font-size="10" fill="#bf360c">Progressive capability deny</text>
+
+  <rect x="595" y="310" width="220" height="55" rx="8" fill="#ffffff" stroke="#ffab00" stroke-width="1.5"/>
+  <text x="705" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Workspace Isolation</text>
+  <text x="705" y="347" text-anchor="middle" font-size="10" fill="#bf360c">Per-agent workspace dir</text>
+  <text x="705" y="360" text-anchor="middle" font-size="10" fill="#bf360c">workspaceOnly file guards</text>
+
+  <rect x="835" y="310" width="220" height="55" rx="8" fill="#ffffff" stroke="#ffc107" stroke-width="1.5"/>
+  <text x="945" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Credential Store</text>
+  <text x="945" y="347" text-anchor="middle" font-size="10" fill="#bf360c">~/.openclaw/credentials/</text>
+  <text x="945" y="360" text-anchor="middle" font-size="10" fill="#bf360c">Multi-profile rotation</text>
+
+  <text x="820" y="395" text-anchor="middle" font-size="11" fill="#e65100" font-weight="600">Trust model: One trusted operator per gateway</text>
+  <text x="820" y="412" text-anchor="middle" font-size="11" fill="#e65100" font-weight="600">Prompt injection assumed - agent is NOT trusted</text>
+
+  <!-- Missing features -->
+  <rect x="595" y="430" width="145" height="22" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="667" y="446" text-anchor="middle" font-size="9" fill="#c62828">No circuit breaker</text>
+  <rect x="750" y="430" width="130" height="22" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="815" y="446" text-anchor="middle" font-size="9" fill="#c62828">No rate limiting</text>
+  <rect x="890" y="430" width="145" height="22" rx="4" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="962" y="446" text-anchor="middle" font-size="9" fill="#c62828">No budget system</text>
+
+  <!-- VS -->
+  <circle cx="550" cy="260" r="20" fill="#ffffff" stroke="#546e7a" stroke-width="2"/>
+  <text x="550" y="266" text-anchor="middle" font-size="14" font-weight="bold" fill="#546e7a">VS</text>
+</svg>

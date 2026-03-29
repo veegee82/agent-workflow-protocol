@@ -31,7 +31,8 @@
   <a href="examples/jupyter/playground.ipynb">Playground</a> &middot;
   <a href="README_GENERATION.md">Workflow Generation</a> &middot;
   <a href="README_NERD.md">Theory</a> &middot;
-  <a href="README_SUPER_NERD.md">Deep Theory</a>
+  <a href="README_SUPER_NERD.md">Deep Theory</a> &middot;
+  <a href="docs/comparison-openclaw-vs-awp.md">AWP vs OpenClaw</a>
 </p>
 
 ---
@@ -1180,6 +1181,7 @@ agent-workflow-protocol/
 | [Workflow Generation](README_GENERATION.md) | want to understand how skills generate workflows |
 | [Theory Reference](README_NERD.md) | want to understand the conceptual foundations |
 | [Orchestration Engines](docs/ORCHESTRATION_ENGINES.md) | want to compare DAG vs. Delegation Loop |
+| [AWP vs OpenClaw](docs/comparison-openclaw-vs-awp.md) | want a deep technical comparison with OpenClaw |
 | [Specification](spec/versions/1.0/spec.md) | want to read the normative specification |
 | [Examples](examples/) | want to see runnable workflows |
 | [Jupyter Notebook](examples/jupyter/) | want to try the programmatic API |

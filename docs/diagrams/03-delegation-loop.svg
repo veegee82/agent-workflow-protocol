@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="650" viewBox="0 0 900 650">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <defs>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#1565c0"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#e65100"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2e7d32"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#c62828"/>
+    </marker>
+    <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#546e7a"/>
+    </marker>
+  </defs>
+
+  <text x="450" y="32" text-anchor="middle" font-size="20" font-weight="bold" fill="#212121">AWP Delegation Loop Engine (A2-A4)</text>
+
+  <!-- Manager -->
+  <rect x="310" y="55" width="280" height="50" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+  <text x="450" y="85" text-anchor="middle" font-size="15" font-weight="bold" fill="#1565c0">Manager Agent</text>
+
+  <!-- Arrow down -->
+  <line x1="450" y1="105" x2="450" y2="135" stroke="#1565c0" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="530" y="125" font-size="11" fill="#546e7a">Analyze task</text>
+
+  <!-- Build Envelope -->
+  <rect x="320" y="140" width="260" height="44" rx="8" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="450" y="167" text-anchor="middle" font-size="13" fill="#e65100" font-weight="600">Build Delegation Envelope</text>
+
+  <!-- Arrow down -->
+  <line x1="450" y1="184" x2="450" y2="214" stroke="#e65100" stroke-width="2" marker-end="url(#arrowOrange)"/>
+  <text x="540" y="204" font-size="11" fill="#546e7a">Spawn workers</text>
+
+  <!-- Workers -->
+  <rect x="140" y="220" width="150" height="44" rx="8" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="215" y="247" text-anchor="middle" font-size="12" fill="#bf360c">Worker a (LLM+Tools)</text>
+
+  <rect x="375" y="220" width="150" height="44" rx="8" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="450" y="247" text-anchor="middle" font-size="12" fill="#bf360c">Worker b (LLM+Tools)</text>
+
+  <rect x="610" y="220" width="150" height="44" rx="8" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="685" y="247" text-anchor="middle" font-size="12" fill="#bf360c">Worker c (LLM+Tools)</text>
+
+  <!-- Workers return results -->
+  <line x1="215" y1="264" x2="350" y2="305" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <line x1="450" y1="264" x2="450" y2="305" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <line x1="685" y1="264" x2="550" y2="305" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="760" y="290" font-size="11" fill="#2e7d32">{confidence, results}</text>
+
+  <!-- Tier 1 Validation -->
+  <rect x="310" y="310" width="280" height="44" rx="8" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="450" y="332" text-anchor="middle" font-size="13" font-weight="600" fill="#1b5e20">Tier 1: Deterministic Validation</text>
+  <text x="450" y="347" text-anchor="middle" font-size="10" fill="#33691e">Is dict? Has confidence? In [0,1]? Not error?</text>
+
+  <line x1="450" y1="354" x2="450" y2="380" stroke="#2e7d32" stroke-width="2" marker-end="url(#arrowGreen)"/>
+
+  <!-- Tier 2 -->
+  <rect x="290" y="385" width="320" height="50" rx="8" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="450" y="407" text-anchor="middle" font-size="13" font-weight="600" fill="#4a148c">Tier 2: LLM Semantic Validation</text>
+  <text x="450" y="424" text-anchor="middle" font-size="10" fill="#6a1b9a">Skip if confidence &gt;= 0.95 OR budget &lt;= 10%</text>
+
+  <line x1="450" y1="435" x2="450" y2="460" stroke="#7b1fa2" stroke-width="2"/>
+
+  <!-- Stall Detection + Rolling Summary -->
+  <rect x="180" y="465" width="220" height="44" rx="8" fill="#e0f2f1" stroke="#00695c" stroke-width="1.5"/>
+  <text x="290" y="487" text-anchor="middle" font-size="12" fill="#004d40" font-weight="600">Stall Detection</text>
+  <text x="290" y="502" text-anchor="middle" font-size="10" fill="#00695c">Conf. delta + output similarity</text>
+
+  <rect x="500" y="465" width="220" height="44" rx="8" fill="#e8eaf6" stroke="#283593" stroke-width="1.5"/>
+  <text x="610" y="487" text-anchor="middle" font-size="12" fill="#1a237e" font-weight="600">Rolling Summary Update</text>
+  <text x="610" y="502" text-anchor="middle" font-size="10" fill="#283593">Recent=full, older=compressed</text>
+
+  <line x1="420" y1="460" x2="290" y2="465" stroke="#546e7a" stroke-width="1.2"/>
+  <line x1="480" y1="460" x2="610" y2="465" stroke="#546e7a" stroke-width="1.2"/>
+
+  <!-- Decision Diamond -->
+  <polygon points="450,535 530,565 450,595 370,565" fill="#fff9c4" stroke="#f9a825" stroke-width="2"/>
+  <text x="450" y="562" text-anchor="middle" font-size="11" fill="#e65100" font-weight="600">Budget left?</text>
+  <text x="450" y="576" text-anchor="middle" font-size="11" fill="#e65100" font-weight="600">Not stalled?</text>
+
+  <line x1="290" y1="509" x2="420" y2="535" stroke="#546e7a" stroke-width="1.2"/>
+
+  <!-- Loop back (YES) -->
+  <line x1="370" y1="565" x2="80" y2="565" stroke="#1565c0" stroke-width="2"/>
+  <line x1="80" y1="565" x2="80" y2="80" stroke="#1565c0" stroke-width="2"/>
+  <line x1="80" y1="80" x2="305" y2="80" stroke="#1565c0" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="330" y="558" font-size="11" fill="#1565c0" font-weight="600">YES</text>
+
+  <!-- Exit (NO) -->
+  <line x1="530" y1="565" x2="620" y2="565" stroke="#c62828" stroke-width="2" marker-end="url(#arrowRed)"/>
+  <rect x="625" y="545" width="180" height="40" rx="8" fill="#ffcdd2" stroke="#c62828" stroke-width="2"/>
+  <text x="715" y="570" text-anchor="middle" font-size="13" fill="#b71c1c" font-weight="bold">Final Result</text>
+  <text x="570" y="558" font-size="11" fill="#c62828" font-weight="600">NO</text>
+
+  <!-- Budget Box -->
+  <rect x="650" y="60" width="220" height="145" rx="8" fill="#fafafa" stroke="#bdbdbd" stroke-width="1"/>
+  <text x="760" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#37474f">5D Budget Tracking</text>
+  <text x="670" y="102" font-size="11" fill="#546e7a">max_loops: 20</text>
+  <text x="670" y="118" font-size="11" fill="#546e7a">max_total_workers: 30</text>
+  <text x="670" y="134" font-size="11" fill="#546e7a">max_total_tokens: 1,000,000</text>
+  <text x="670" y="150" font-size="11" fill="#546e7a">max_wall_time: 600s</text>
+  <text x="670" y="166" font-size="11" fill="#546e7a">max_tool_calls: 200</text>
+  <text x="670" y="182" font-size="11" fill="#546e7a">max_depth: 5</text>
+</svg>

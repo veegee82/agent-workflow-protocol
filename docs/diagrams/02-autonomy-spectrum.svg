@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="500" viewBox="0 0 1100 500">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <text x="550" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#212121">Autonomy Spectrum: AWP (A0-A4) vs OpenClaw (Tier 1-3)</text>
+
+  <!-- AWP Spectrum -->
+  <text x="100" y="75" font-size="16" font-weight="bold" fill="#1565c0">AWP Autonomy Levels</text>
+
+  <!-- A0 -->
+  <rect x="50" y="90" width="190" height="110" rx="10" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="145" y="115" text-anchor="middle" font-size="15" font-weight="bold" fill="#1b5e20">A0: Prescribed</text>
+  <text x="145" y="135" text-anchor="middle" font-size="11" fill="#33691e">Single agent</text>
+  <text x="145" y="150" text-anchor="middle" font-size="11" fill="#33691e">Static DAG</text>
+  <text x="145" y="165" text-anchor="middle" font-size="11" fill="#33691e">Fixed tools</text>
+  <text x="145" y="185" text-anchor="middle" font-size="10" fill="#558b2f" font-style="italic">Req: Valid manifest</text>
+
+  <polygon points="245,145 260,140 260,150" fill="#78909c"/>
+
+  <!-- A1 -->
+  <rect x="265" y="90" width="190" height="110" rx="10" fill="#a5d6a7" stroke="#2e7d32" stroke-width="2"/>
+  <text x="360" y="115" text-anchor="middle" font-size="15" font-weight="bold" fill="#1b5e20">A1: Adaptive</text>
+  <text x="360" y="135" text-anchor="middle" font-size="11" fill="#33691e">Multi-agent DAG</text>
+  <text x="360" y="150" text-anchor="middle" font-size="11" fill="#33691e">Conditionals, loops</text>
+  <text x="360" y="165" text-anchor="middle" font-size="11" fill="#33691e">State sharing</text>
+  <text x="360" y="185" text-anchor="middle" font-size="10" fill="#558b2f" font-style="italic">Req: Graph acyclicity</text>
+
+  <polygon points="460,145 475,140 475,150" fill="#78909c"/>
+
+  <!-- A2 -->
+  <rect x="480" y="90" width="190" height="110" rx="10" fill="#fff9c4" stroke="#f9a825" stroke-width="2"/>
+  <text x="575" y="115" text-anchor="middle" font-size="15" font-weight="bold" fill="#e65100">A2: Delegating</text>
+  <text x="575" y="135" text-anchor="middle" font-size="11" fill="#bf360c">Manager to Workers</text>
+  <text x="575" y="150" text-anchor="middle" font-size="11" fill="#bf360c">Dynamic spawning</text>
+  <text x="575" y="165" text-anchor="middle" font-size="11" fill="#bf360c">Delegation envelope</text>
+  <text x="575" y="185" text-anchor="middle" font-size="10" fill="#e65100" font-style="italic">Req: Budget enforcement</text>
+
+  <polygon points="675,145 690,140 690,150" fill="#78909c"/>
+
+  <!-- A3 -->
+  <rect x="695" y="90" width="190" height="110" rx="10" fill="#ffcc80" stroke="#ef6c00" stroke-width="2"/>
+  <text x="790" y="115" text-anchor="middle" font-size="15" font-weight="bold" fill="#bf360c">A3: Self-Tooling</text>
+  <text x="790" y="135" text-anchor="middle" font-size="11" fill="#bf360c">Dynamic tool creation</text>
+  <text x="790" y="150" text-anchor="middle" font-size="11" fill="#bf360c">Runtime skill gen</text>
+  <text x="790" y="165" text-anchor="middle" font-size="11" fill="#bf360c">Namespace isolation</text>
+  <text x="790" y="185" text-anchor="middle" font-size="10" fill="#e65100" font-style="italic">Req: Safety envelope</text>
+
+  <polygon points="890,145 905,140 905,150" fill="#78909c"/>
+
+  <!-- A4 -->
+  <rect x="910" y="90" width="180" height="110" rx="10" fill="#ef9a9a" stroke="#c62828" stroke-width="2"/>
+  <text x="1000" y="115" text-anchor="middle" font-size="15" font-weight="bold" fill="#b71c1c">A4: Self-Organizing</text>
+  <text x="1000" y="135" text-anchor="middle" font-size="11" fill="#c62828">Recursive delegation</text>
+  <text x="1000" y="150" text-anchor="middle" font-size="11" fill="#c62828">Workers as sub-managers</text>
+  <text x="1000" y="165" text-anchor="middle" font-size="11" fill="#c62828">Budget hierarchy</text>
+  <text x="1000" y="185" text-anchor="middle" font-size="10" fill="#b71c1c" font-style="italic">Req: Observability</text>
+
+  <!-- OpenClaw Tiers -->
+  <text x="100" y="250" font-size="16" font-weight="bold" fill="#e65100">OpenClaw Capability Tiers</text>
+
+  <rect x="50" y="265" width="300" height="100" rx="10" fill="#fff3e0" stroke="#ff8f00" stroke-width="2"/>
+  <text x="200" y="290" text-anchor="middle" font-size="15" font-weight="bold" fill="#e65100">Tier 1: Read-Only + Draft</text>
+  <text x="200" y="312" text-anchor="middle" font-size="11" fill="#bf360c">Read data, create drafts</text>
+  <text x="200" y="328" text-anchor="middle" font-size="11" fill="#bf360c">Nothing sent without approval</text>
+  <text x="200" y="350" text-anchor="middle" font-size="10" fill="#e65100" font-style="italic">Permission: Observe only</text>
+
+  <polygon points="355,315 370,310 370,320" fill="#ef6c00"/>
+
+  <rect x="380" y="265" width="300" height="100" rx="10" fill="#ffe0b2" stroke="#ef6c00" stroke-width="2"/>
+  <text x="530" y="290" text-anchor="middle" font-size="15" font-weight="bold" fill="#e65100">Tier 2: Send on Behalf</text>
+  <text x="530" y="312" text-anchor="middle" font-size="11" fill="#bf360c">Send messages, create events</text>
+  <text x="530" y="328" text-anchor="middle" font-size="11" fill="#bf360c">Agents own identity</text>
+  <text x="530" y="350" text-anchor="middle" font-size="10" fill="#e65100" font-style="italic">Permission: Act as delegate</text>
+
+  <polygon points="685,315 700,310 700,320" fill="#ef6c00"/>
+
+  <rect x="710" y="265" width="300" height="100" rx="10" fill="#ffcc80" stroke="#e65100" stroke-width="2"/>
+  <text x="860" y="290" text-anchor="middle" font-size="15" font-weight="bold" fill="#bf360c">Tier 3: Proactive</text>
+  <text x="860" y="312" text-anchor="middle" font-size="11" fill="#bf360c">Autonomous cron jobs</text>
+  <text x="860" y="328" text-anchor="middle" font-size="11" fill="#bf360c">Standing orders, no per-action approval</text>
+  <text x="860" y="350" text-anchor="middle" font-size="10" fill="#e65100" font-style="italic">Permission: Autonomous</text>
+
+  <!-- Mapping Lines (dashed) -->
+  <line x1="145" y1="200" x2="200" y2="265" stroke="#78909c" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <line x1="575" y1="200" x2="530" y2="265" stroke="#78909c" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <line x1="1000" y1="200" x2="860" y2="265" stroke="#78909c" stroke-width="1.5" stroke-dasharray="6,4"/>
+
+  <!-- Legend -->
+  <rect x="50" y="400" width="1010" height="85" rx="8" fill="#fafafa" stroke="#bdbdbd" stroke-width="1"/>
+  <text x="70" y="425" font-size="13" fill="#37474f" font-weight="600">Key Insight:</text>
+  <text x="70" y="448" font-size="12" fill="#546e7a">AWP measures task decomposition complexity (how sophisticated is the multi-agent coordination?).</text>
+  <text x="70" y="468" font-size="12" fill="#546e7a">OpenClaw measures permission delegation (what is the agent allowed to do?). These are orthogonal dimensions.</text>
+</svg>

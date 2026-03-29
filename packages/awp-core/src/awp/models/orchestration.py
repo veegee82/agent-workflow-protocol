@@ -133,6 +133,25 @@ class RunBudgetLimits(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class ContextBudget(BaseModel):
+    """Controls how much worker/agent context is inlined vs spilled to files.
+
+    When a worker result exceeds its share of ``total_chars``, the full JSON
+    is written to ``workspace/context/<worker_id>.json`` and only a preview
+    is shown in the prompt.  This prevents context-window overflow while
+    ensuring no data is lost — workers can read the spilled file via
+    ``code.execute``.
+
+    Auto-detect (default): ``total_chars`` is divided equally among the
+    number of context entries.  Each entry gets at least ``min_per_entry``
+    characters.
+    """
+
+    total_chars: int = 64_000   # ~16K tokens total context budget
+    min_per_entry: int = 4_000  # floor per entry even with many workers
+    preview_chars: int = 2_000  # preview length for spilled results
+
+
 class DelegationBudget(BaseModel):
     """Resource budget for the delegation loop and recursive sub-delegations."""
 
@@ -266,6 +285,7 @@ class DelegationLoopConfig(BaseModel):
     models: DelegationLoopModels = Field(default_factory=DelegationLoopModels)
     worker_policy: WorkerPolicy = Field(default_factory=WorkerPolicy)
     budget: DelegationBudget = Field(default_factory=DelegationBudget)
+    context_budget: ContextBudget = Field(default_factory=ContextBudget)
     termination: Optional[StallDetectionConfig] = Field(
         default_factory=StallDetectionConfig
     )
@@ -287,6 +307,8 @@ class AWPOrchestrationConfig(BaseModel):
     delegation_loop: Optional[DelegationLoopConfig] = None
     # Global run budget — applies to any engine (DAG or delegation loop)
     run_budget: Optional[RunBudgetLimits] = None
+    # Context budget — controls inline vs file spillover for agent results
+    context_budget: ContextBudget = Field(default_factory=ContextBudget)
 
     model_config = {"extra": "allow"}
 

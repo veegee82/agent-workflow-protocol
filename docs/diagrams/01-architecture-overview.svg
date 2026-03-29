@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <!-- Title -->
+  <text x="600" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#212121">Architecture Overview: AWP vs OpenClaw</text>
+
+  <!-- AWP Side Background -->
+  <rect x="30" y="55" width="550" height="520" rx="16" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+  <text x="305" y="85" text-anchor="middle" font-size="18" font-weight="bold" fill="#1565c0">AWP — Orchestration Protocol</text>
+
+  <!-- AWP: YAML Manifest -->
+  <rect x="180" y="105" width="250" height="44" rx="8" fill="#ffffff" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="305" y="132" text-anchor="middle" font-size="14" fill="#1565c0" font-weight="600">YAML Manifest</text>
+
+  <!-- AWP: Two Engines -->
+  <rect x="60" y="180" width="220" height="44" rx="8" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="170" y="207" text-anchor="middle" font-size="13" fill="#1b5e20" font-weight="600">DAG Engine (A0-A1)</text>
+
+  <rect x="320" y="180" width="220" height="44" rx="8" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="430" y="207" text-anchor="middle" font-size="13" fill="#e65100" font-weight="600">Delegation Loop (A2-A4)</text>
+
+  <!-- Lines from manifest to engines -->
+  <line x1="260" y1="149" x2="170" y2="180" stroke="#546e7a" stroke-width="1.5"/>
+  <line x1="350" y1="149" x2="430" y2="180" stroke="#546e7a" stroke-width="1.5"/>
+
+  <!-- DAG Agents -->
+  <rect x="55" y="260" width="100" height="36" rx="6" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"/>
+  <text x="105" y="283" text-anchor="middle" font-size="11" fill="#2e7d32">Agent 1</text>
+  <rect x="175" y="260" width="100" height="36" rx="6" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"/>
+  <text x="225" y="283" text-anchor="middle" font-size="11" fill="#2e7d32">Agent 2</text>
+  <line x1="105" y1="224" x2="105" y2="260" stroke="#546e7a" stroke-width="1.2"/>
+  <line x1="225" y1="224" x2="225" y2="260" stroke="#546e7a" stroke-width="1.2"/>
+  <line x1="155" y1="278" x2="175" y2="278" stroke="#388e3c" stroke-width="1.2"/>
+
+  <!-- Delegation: Manager + Workers -->
+  <rect x="365" y="255" width="130" height="36" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+  <text x="430" y="278" text-anchor="middle" font-size="11" fill="#e65100" font-weight="600">Manager</text>
+
+  <rect x="320" y="320" width="70" height="32" rx="5" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="355" y="341" text-anchor="middle" font-size="10" fill="#bf360c">Worker a</text>
+  <rect x="396" y="320" width="70" height="32" rx="5" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="431" y="341" text-anchor="middle" font-size="10" fill="#bf360c">Worker b</text>
+  <rect x="472" y="320" width="70" height="32" rx="5" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="507" y="341" text-anchor="middle" font-size="10" fill="#bf360c">Worker c</text>
+  <line x1="393" y1="291" x2="355" y2="320" stroke="#ef6c00" stroke-width="1.2"/>
+  <line x1="430" y1="291" x2="431" y2="320" stroke="#ef6c00" stroke-width="1.2"/>
+  <line x1="467" y1="291" x2="507" y2="320" stroke="#ef6c00" stroke-width="1.2"/>
+
+  <!-- AWP Features -->
+  <rect x="55" y="380" width="170" height="32" rx="6" fill="#e1f5fe" stroke="#0288d1" stroke-width="1"/>
+  <text x="140" y="400" text-anchor="middle" font-size="11" fill="#01579b">5D Budget Enforcement</text>
+  <rect x="240" y="380" width="150" height="32" rx="6" fill="#e1f5fe" stroke="#0288d1" stroke-width="1"/>
+  <text x="315" y="400" text-anchor="middle" font-size="11" fill="#01579b">2-Tier Validation</text>
+  <rect x="405" y="380" width="150" height="32" rx="6" fill="#e1f5fe" stroke="#0288d1" stroke-width="1"/>
+  <text x="480" y="400" text-anchor="middle" font-size="11" fill="#01579b">Stall Detection</text>
+  <rect x="55" y="425" width="150" height="32" rx="6" fill="#e1f5fe" stroke="#0288d1" stroke-width="1"/>
+  <text x="130" y="445" text-anchor="middle" font-size="11" fill="#01579b">State Sharing</text>
+  <rect x="220" y="425" width="165" height="32" rx="6" fill="#e1f5fe" stroke="#0288d1" stroke-width="1"/>
+  <text x="302" y="445" text-anchor="middle" font-size="11" fill="#01579b">Rolling Summary</text>
+  <rect x="400" y="425" width="155" height="32" rx="6" fill="#e1f5fe" stroke="#0288d1" stroke-width="1"/>
+  <text x="477" y="445" text-anchor="middle" font-size="11" fill="#01579b">Context Spillover</text>
+
+  <text x="305" y="495" text-anchor="middle" font-size="12" fill="#37474f" font-style="italic">Python - Declarative YAML - .awp.zip Portable</text>
+
+  <!-- OpenClaw Side Background -->
+  <rect x="620" y="55" width="550" height="520" rx="16" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+  <text x="895" y="85" text-anchor="middle" font-size="18" font-weight="bold" fill="#e65100">OpenClaw — Assistant Gateway</text>
+
+  <!-- Channels -->
+  <rect x="645" y="108" width="75" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="682" y="127" text-anchor="middle" font-size="10" fill="#e65100">WhatsApp</text>
+  <rect x="728" y="108" width="75" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="765" y="127" text-anchor="middle" font-size="10" fill="#e65100">Telegram</text>
+  <rect x="811" y="108" width="60" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="841" y="127" text-anchor="middle" font-size="10" fill="#e65100">Slack</text>
+  <rect x="879" y="108" width="70" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="914" y="127" text-anchor="middle" font-size="10" fill="#e65100">Discord</text>
+  <rect x="957" y="108" width="60" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="987" y="127" text-anchor="middle" font-size="10" fill="#e65100">Signal</text>
+  <rect x="1025" y="108" width="75" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="1062" y="127" text-anchor="middle" font-size="10" fill="#e65100">iMessage</text>
+  <rect x="1108" y="108" width="48" height="28" rx="5" fill="#ffffff" stroke="#ef6c00" stroke-width="1"/>
+  <text x="1132" y="127" text-anchor="middle" font-size="10" fill="#e65100">+19</text>
+
+  <!-- Gateway Box -->
+  <rect x="740" y="165" width="310" height="50" rx="10" fill="#ffe0b2" stroke="#e65100" stroke-width="2"/>
+  <text x="895" y="195" text-anchor="middle" font-size="15" fill="#bf360c" font-weight="bold">Gateway Daemon (WebSocket)</text>
+
+  <!-- Lines from channels to gateway -->
+  <line x1="682" y1="136" x2="830" y2="165" stroke="#ef6c00" stroke-width="1"/>
+  <line x1="765" y1="136" x2="860" y2="165" stroke="#ef6c00" stroke-width="1"/>
+  <line x1="841" y1="136" x2="890" y2="165" stroke="#ef6c00" stroke-width="1"/>
+  <line x1="914" y1="136" x2="920" y2="165" stroke="#ef6c00" stroke-width="1"/>
+  <line x1="987" y1="136" x2="950" y2="165" stroke="#ef6c00" stroke-width="1"/>
+  <line x1="1062" y1="136" x2="1000" y2="165" stroke="#ef6c00" stroke-width="1"/>
+
+  <!-- Router -->
+  <rect x="820" y="240" width="150" height="38" rx="7" fill="#ffcc80" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="895" y="264" text-anchor="middle" font-size="12" fill="#bf360c" font-weight="600">7-Level Router</text>
+  <line x1="895" y1="215" x2="895" y2="240" stroke="#ef6c00" stroke-width="1.5"/>
+
+  <!-- Agent Personas -->
+  <rect x="710" y="305" width="150" height="38" rx="7" fill="#ffffff" stroke="#e65100" stroke-width="1.5"/>
+  <text x="785" y="329" text-anchor="middle" font-size="12" fill="#bf360c">Agent Persona A</text>
+  <rect x="930" y="305" width="150" height="38" rx="7" fill="#ffffff" stroke="#e65100" stroke-width="1.5"/>
+  <text x="1005" y="329" text-anchor="middle" font-size="12" fill="#bf360c">Agent Persona B</text>
+  <line x1="858" y1="278" x2="785" y2="305" stroke="#546e7a" stroke-width="1.2"/>
+  <line x1="932" y1="278" x2="1005" y2="305" stroke="#546e7a" stroke-width="1.2"/>
+
+  <!-- OC Features -->
+  <rect x="645" y="380" width="140" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
+  <text x="715" y="400" text-anchor="middle" font-size="11" fill="#e65100">Model Failover</text>
+  <rect x="795" y="380" width="155" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
+  <text x="872" y="400" text-anchor="middle" font-size="11" fill="#e65100">Context Engine</text>
+  <rect x="960" y="380" width="170" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
+  <text x="1045" y="400" text-anchor="middle" font-size="11" fill="#e65100">Memory Search</text>
+  <rect x="645" y="425" width="150" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
+  <text x="720" y="445" text-anchor="middle" font-size="11" fill="#e65100">Sandbox (Docker)</text>
+  <rect x="805" y="425" width="145" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
+  <text x="877" y="445" text-anchor="middle" font-size="11" fill="#e65100">35+ LLM Providers</text>
+  <rect x="960" y="425" width="170" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
+  <text x="1045" y="445" text-anchor="middle" font-size="11" fill="#e65100">Device Integration</text>
+
+  <text x="895" y="495" text-anchor="middle" font-size="12" fill="#37474f" font-style="italic">TypeScript - JSON5 Config - Gateway Daemon</text>
+
+  <!-- VS divider -->
+  <circle cx="600" cy="315" r="24" fill="#ffffff" stroke="#546e7a" stroke-width="2"/>
+  <text x="600" y="321" text-anchor="middle" font-size="16" font-weight="bold" fill="#546e7a">VS</text>
+</svg>

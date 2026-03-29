@@ -301,6 +301,38 @@ If confidence doesn't improve over `window` iterations, the system:
 1. First occurrence: warns the manager ("confidence is stagnating")
 2. Second occurrence: terminates the loop with partial results
 
+### Context Budget & Smart Spillover
+
+Worker results can be large (DataFrames, analysis outputs, etc.). The context budget
+controls how much data is inlined into worker prompts vs spilled to files:
+
+```yaml
+context_budget:
+  total_chars: 64000    # Total character budget for all context (~16K tokens)
+  min_per_entry: 4000   # Floor per entry even with many workers
+  preview_chars: 2000   # Preview length for spilled results
+```
+
+**Auto-detect** (default): The `total_chars` budget is divided equally among the
+number of context entries. Each entry gets at least `min_per_entry` characters.
+
+**Spillover behavior**:
+- Results **under** budget: inlined fully as JSON in the worker prompt
+- Results **over** budget: written to `workspace/context/<worker_id>.json`,
+  with a truncated preview and file path shown in the prompt
+- Workers can read the full spilled file via `code.execute`:
+  `json.load(open(_workspace_dir + "/context/worker_1.json"))`
+
+**Input Registry**: Workers automatically receive a listing of all available
+data files in `workspace/inputs/` and `workspace/context/`, including:
+- File name, size, and access path
+- Schema preview for CSV files (column names, first 3 rows, row count)
+- Structure preview for JSON files (top-level keys, array sizes)
+- Read hints for binary formats (Parquet, Feather, etc.)
+
+This is configured at the orchestration level (`context_budget` field) and
+applies to both DAG and delegation loop engines.
+
 ### Rolling Summary
 
 To prevent context window overflow, the loop maintains a **rolling summary**:
@@ -430,6 +462,11 @@ orchestration:
       max_total_tokens: 1000000
       max_wall_time: 600
       max_tool_calls: 200
+
+    context_budget:
+      total_chars: 64000   # auto-divided among workers
+      min_per_entry: 4000  # floor per entry
+      preview_chars: 2000  # preview for spilled results
       max_depth: 5
 
     termination:

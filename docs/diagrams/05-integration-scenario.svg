@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="600" viewBox="0 0 1100 600">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <defs>
+    <marker id="arr5" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#546e7a"/>
+    </marker>
+    <marker id="arr5b" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#1565c0"/>
+    </marker>
+    <marker id="arr5o" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#e65100"/>
+    </marker>
+    <marker id="arr5g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2e7d32"/>
+    </marker>
+  </defs>
+
+  <text x="550" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#212121">Complementary Integration: OpenClaw + AWP</text>
+  <text x="550" y="56" text-anchor="middle" font-size="13" fill="#546e7a">OpenClaw as user-facing gateway, AWP as orchestration backend</text>
+
+  <!-- User Layer -->
+  <rect x="30" y="80" width="1040" height="80" rx="12" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1.5"/>
+  <text x="550" y="100" text-anchor="middle" font-size="14" font-weight="bold" fill="#424242">User Devices</text>
+
+  <rect x="80" y="112" width="100" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="130" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">WhatsApp</text>
+  <rect x="200" y="112" width="100" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="250" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Telegram</text>
+  <rect x="320" y="112" width="80" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="360" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Slack</text>
+  <rect x="420" y="112" width="90" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="465" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Discord</text>
+  <rect x="530" y="112" width="80" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="570" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Signal</text>
+  <rect x="630" y="112" width="90" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="675" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">iMessage</text>
+  <rect x="740" y="112" width="80" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="780" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Teams</text>
+  <rect x="840" y="112" width="80" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="880" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Voice</text>
+  <rect x="940" y="112" width="100" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="990" y="133" text-anchor="middle" font-size="11" fill="#1b5e20">Camera</text>
+
+  <line x1="550" y1="160" x2="550" y2="188" stroke="#546e7a" stroke-width="2" marker-end="url(#arr5)"/>
+
+  <!-- OpenClaw Layer -->
+  <rect x="200" y="192" width="700" height="95" rx="12" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+  <text x="550" y="215" text-anchor="middle" font-size="16" font-weight="bold" fill="#e65100">OpenClaw Gateway</text>
+
+  <rect x="230" y="228" width="140" height="32" rx="6" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="300" y="249" text-anchor="middle" font-size="11" fill="#bf360c">Channel Plugins</text>
+  <rect x="390" y="228" width="120" height="32" rx="6" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="450" y="249" text-anchor="middle" font-size="11" fill="#bf360c">Router</text>
+  <rect x="530" y="228" width="140" height="32" rx="6" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="600" y="249" text-anchor="middle" font-size="11" fill="#bf360c">Model Failover</text>
+  <rect x="690" y="228" width="180" height="32" rx="6" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="780" y="249" text-anchor="middle" font-size="11" fill="#bf360c">Device Integration</text>
+
+  <line x1="550" y1="287" x2="550" y2="310" stroke="#e65100" stroke-width="2" marker-end="url(#arr5o)"/>
+
+  <!-- Routing Agent -->
+  <rect x="370" y="315" width="360" height="50" rx="10" fill="#ffcc80" stroke="#e65100" stroke-width="2"/>
+  <text x="550" y="340" text-anchor="middle" font-size="14" font-weight="bold" fill="#bf360c">Routing Agent - Task Classifier</text>
+  <text x="550" y="357" text-anchor="middle" font-size="11" fill="#e65100">Simple query? Direct reply | Complex task? AWP</text>
+
+  <!-- Decision Split -->
+  <line x1="430" y1="365" x2="250" y2="410" stroke="#2e7d32" stroke-width="2" marker-end="url(#arr5g)"/>
+  <line x1="670" y1="365" x2="750" y2="410" stroke="#1565c0" stroke-width="2" marker-end="url(#arr5b)"/>
+
+  <text x="310" y="385" font-size="12" fill="#2e7d32" font-weight="600">Simple</text>
+  <text x="730" y="385" font-size="12" fill="#1565c0" font-weight="600">Complex</text>
+
+  <!-- Simple Path -->
+  <rect x="130" y="415" width="240" height="45" rx="8" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="250" y="438" text-anchor="middle" font-size="13" fill="#1b5e20" font-weight="600">Direct LLM Response</text>
+  <text x="250" y="453" text-anchor="middle" font-size="10" fill="#33691e">Via OpenClaw Pi agent</text>
+
+  <!-- AWP Backend -->
+  <rect x="550" y="415" width="480" height="160" rx="12" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+  <text x="790" y="438" text-anchor="middle" font-size="16" font-weight="bold" fill="#1565c0">AWP Runtime</text>
+
+  <rect x="575" y="450" width="200" height="40" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="1"/>
+  <text x="675" y="475" text-anchor="middle" font-size="12" fill="#0d47a1" font-weight="600">DAG Engine</text>
+  <rect x="590" y="500" width="70" height="26" rx="4" fill="#e3f2fd" stroke="#42a5f5" stroke-width="1"/>
+  <text x="625" y="517" text-anchor="middle" font-size="9" fill="#1565c0">Agent 1</text>
+  <rect x="670" y="500" width="70" height="26" rx="4" fill="#e3f2fd" stroke="#42a5f5" stroke-width="1"/>
+  <text x="705" y="517" text-anchor="middle" font-size="9" fill="#1565c0">Agent 2</text>
+
+  <rect x="805" y="450" width="200" height="40" rx="6" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+  <text x="905" y="475" text-anchor="middle" font-size="12" fill="#e65100" font-weight="600">Delegation Loop</text>
+  <rect x="815" y="500" width="65" height="26" rx="4" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="847" y="517" text-anchor="middle" font-size="9" fill="#bf360c">Mgr</text>
+  <rect x="888" y="500" width="50" height="26" rx="4" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="913" y="517" text-anchor="middle" font-size="9" fill="#bf360c">W-a</text>
+  <rect x="946" y="500" width="50" height="26" rx="4" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1"/>
+  <text x="971" y="517" text-anchor="middle" font-size="9" fill="#bf360c">W-b</text>
+
+  <rect x="575" y="540" width="130" height="24" rx="4" fill="#e8f5e9" stroke="#4caf50" stroke-width="1"/>
+  <text x="640" y="556" text-anchor="middle" font-size="9" fill="#2e7d32">Budget Control</text>
+  <rect x="715" y="540" width="120" height="24" rx="4" fill="#e8f5e9" stroke="#4caf50" stroke-width="1"/>
+  <text x="775" y="556" text-anchor="middle" font-size="9" fill="#2e7d32">Validation</text>
+  <rect x="845" y="540" width="160" height="24" rx="4" fill="#e8f5e9" stroke="#4caf50" stroke-width="1"/>
+  <text x="925" y="556" text-anchor="middle" font-size="9" fill="#2e7d32">Stall Detection</text>
+
+  <!-- Result back -->
+  <line x1="550" y1="495" x2="370" y2="460" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+  <!-- Merge to reply -->
+  <line x1="250" y1="460" x2="250" y2="480" stroke="#546e7a" stroke-width="1.5"/>
+  <line x1="370" y1="460" x2="370" y2="480" stroke="#546e7a" stroke-width="1.5"/>
+
+  <rect x="170" y="485" width="260" height="35" rx="6" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="300" y="507" text-anchor="middle" font-size="12" fill="#4a148c" font-weight="600">Reply via original channel</text>
+
+  <line x1="300" y1="520" x2="300" y2="545" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arr5)"/>
+
+  <rect x="210" y="550" width="180" height="35" rx="8" fill="#c8e6c9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="300" y="572" text-anchor="middle" font-size="13" fill="#1b5e20" font-weight="bold">User receives reply</text>
+</svg>

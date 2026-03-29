@@ -44,6 +44,11 @@ from typing import Any, Dict, Optional
 
 from awp.models.orchestration import DelegationLoopConfig, DelegationBudget
 from .agent import StandaloneAgent
+from .context_sharing import (
+    ContextBudgetConfig,
+    build_input_registry,
+    prepare_context,
+)
 from .llm import LLMClient
 from .tools import ToolRegistry
 
@@ -1288,29 +1293,11 @@ You MUST respond with a JSON object containing ONE of these decisions:
             workspace_path = str(self._dir / "workspace")
             output_path = str(self._dir / "output")
 
-            # List available input files so the worker knows exact paths
-            inputs_dir = self._dir / "workspace" / "inputs"
-            input_files_list = ""
-            if inputs_dir.exists():
-                files = sorted(f.name for f in inputs_dir.iterdir() if f.is_file())
-                if files:
-                    file_lines = "\n".join(
-                        f'- `_workspace_dir + "/inputs/{f}"`' for f in files
-                    )
-                    input_files_list = f"""
-## Available Input Files
+            # Build input registry with schema previews for data files
+            workspace_path_obj = self._dir / "workspace"
+            input_registry_block = build_input_registry(workspace_path_obj)
 
-The following files are available in the workspace inputs directory:
-{file_lines}
-
-To read a file in `code.execute`, use the `_workspace_dir` variable:
-```python
-import pandas as pd
-df = pd.read_csv(_workspace_dir + "/inputs/FILENAME.csv")
-```
-"""
-
-            system_parts.append(f"""{input_files_list}
+            system_parts.append(f"""{input_registry_block}
 ## File I/O
 
 In `code.execute` calls, these paths are available as pre-defined variables:
@@ -1397,18 +1384,19 @@ print("Chart saved")
 
         system_prompt = "\n".join(system_parts)
 
-        # Build user message with context
+        # Build user message with context (smart spillover for large results)
         user_parts = [f"## Task\n{task}\n"]
 
-        # Include relevant state
-        for k, v in state.items():
-            if k == "task" or k.startswith("_"):
-                continue
-            if isinstance(v, dict):
-                summary = json.dumps(v, indent=2, default=str)
-                if len(summary) > 300:
-                    summary = summary[:300] + "..."
-                user_parts.append(f"### Context: {k}\n```json\n{summary}\n```\n")
+        cb_cfg = self._config.context_budget
+        ctx_budget = ContextBudgetConfig(
+            total_chars=cb_cfg.total_chars,
+            min_per_entry=cb_cfg.min_per_entry,
+            preview_chars=cb_cfg.preview_chars,
+        )
+        workspace_dir = self._dir / "workspace"
+        context_block = prepare_context(state, workspace_dir, ctx_budget)
+        if context_block:
+            user_parts.append(context_block)
 
         user_message = "\n".join(user_parts)
 

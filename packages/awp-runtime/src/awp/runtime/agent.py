@@ -29,6 +29,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .context_sharing import (
+    ContextBudgetConfig,
+    build_input_registry,
+    prepare_context,
+)
+
 from awp.agent import AWPAgent
 from awp.parser import parse_agent
 from awp.parser.manifest_parser import parse_manifest
@@ -398,15 +404,35 @@ class StandaloneAgent(AWPAgent):
         return ""
 
     def _extract_context(self, state: Dict[str, Any]) -> str:
-        """Extract context from previous agent outputs respecting share_input."""
-        context_parts: list[str] = []
+        """Extract context from previous agent outputs with smart spillover.
 
-        for key, value in state.items():
-            if key.startswith("_") or key == "task":
-                continue
-            if isinstance(value, dict):
-                context_parts.append(f"### {key}\n```json")
-                context_parts.append(json.dumps(value, indent=2, default=str))
-                context_parts.append("```\n")
+        Uses :func:`prepare_context` to inline small results and spill large
+        ones to ``workspace/context/<agent>.json``.  Also appends the input
+        registry so the agent knows which data files are available.
+        """
+        # Resolve context budget from manifest config
+        budget: ContextBudgetConfig | None = None
+        if self._manifest and hasattr(self._manifest, "orchestration"):
+            orch = self._manifest.orchestration
+            if orch and hasattr(orch, "context_budget"):
+                cb = orch.context_budget
+                budget = ContextBudgetConfig(
+                    total_chars=cb.total_chars,
+                    min_per_entry=cb.min_per_entry,
+                    preview_chars=cb.preview_chars,
+                )
 
-        return "\n".join(context_parts)
+        workspace_dir = self._workflow_dir / "workspace"
+        parts: list[str] = []
+
+        # Smart context with spillover
+        ctx = prepare_context(state, workspace_dir, budget)
+        if ctx:
+            parts.append(ctx)
+
+        # Input registry — automatic file discovery with schema previews
+        registry = build_input_registry(workspace_dir)
+        if registry:
+            parts.append(registry)
+
+        return "\n".join(parts)
