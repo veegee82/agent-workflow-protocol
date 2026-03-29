@@ -6,6 +6,7 @@
 
 <p align="center">
   <strong>The open standard for orchestrating multi-agent AI workflows.</strong><br/>
+  Agents that adapt to the problem at runtime — building their own tools, skills, and strategies as they go.<br/>
   Define in YAML. Run in Python. Scale from a single agent to recursive delegation loops.
 </p>
 
@@ -160,7 +161,7 @@ print(result["artifacts"])   # ["./analysis/output/chart.png", ...]
 print(result["metadata"])    # {"loops": 3, "tokens_used": 45000, "wall_time": 42.5, ...}
 ```
 
-**What happens**: AWP creates a manager agent that breaks the task into subtasks. Worker agents execute Python code in sandboxes (pandas, matplotlib, sklearn). Results are validated and aggregated. All in a single call.
+**What happens**: AWP creates a manager agent that analyzes the problem and decomposes it into subtasks. Worker agents adapt at runtime — they write Python code, create domain-specific tools, and build on each other's results, all inside sandboxes. The manager validates, iterates, and aggregates. No pre-built tooling needed: agents construct what they need to solve *your specific problem*.
 
 ---
 
@@ -177,6 +178,7 @@ print(result["metadata"])    # {"loops": 3, "tokens_used": 45000, "wall_time": 4
 | Monolithic notebooks without structure | Agent-based decomposition into subtasks |
 | "It worked on my machine" | Sandbox execution, complete artifact documentation |
 | One analysis, many datasets | Delegation loop with dynamic worker creation |
+| Every domain needs custom tooling | Agents build domain-specific tools at runtime (A3+) |
 | Results lost in Slack | Persistent workspace artifacts with Markdown reports |
 
 ### Supported Input Types
@@ -1029,12 +1031,14 @@ awp validate ./my-workflow/    # Checks all 26 rules
 | **A0** | Prescribed | Static DAG, fixed agents | Schema validation |
 | **A1** | Adaptive | DAG + conditions (`when`) | + state sharing validation |
 | **A2** | Delegating | Manager-worker loop, dynamic workers | + **budget (required)** |
-| **A3** | Self-Tooling | + dynamic tool creation, skill generation | + **safety envelope (required)** |
-| **A4** | Self-Organizing | + recursive delegation, sub-managers | + **full observability (required)** |
+| **A3** | Self-Tooling | + agents adapt to the problem at runtime: build tools, generate skills | + **safety envelope (required)** |
+| **A4** | Self-Organizing | + recursive delegation, sub-managers spawn sub-managers | + **full observability (required)** |
 
 ### Runtime Adaptation: Skills and Tools (A3+)
 
-At autonomy level A3 and above, agents can generate **new tools and skills at runtime** — adapting to problems that were not anticipated at workflow design time. The manager creates domain-specific knowledge (skills as Markdown) and delegates tool creation to workers, who produce Python functions validated via AST and executed in sandboxed subprocesses. This enables dynamic data-processing pipelines, custom scorers, converters, and analyzers without pre-registration.
+**This is AWP's key differentiator.** At autonomy level A3 and above, agents don't just execute — they **adapt to the problem at runtime**. The manager analyzes the task, identifies what tools and knowledge are missing, and has workers build them on the fly. A financial analysis creates a custom VaR calculator. A genomics pipeline builds a sequence aligner. A supply chain workflow constructs demand forecasters. None of these tools existed before the workflow started — agents created exactly what the problem required.
+
+The mechanism: the manager creates domain-specific knowledge (skills as Markdown) and delegates tool creation to workers, who produce Python functions validated via AST and executed in sandboxed subprocesses. Each tool is validated against rules DT1-DT8, namespace-restricted, and reusable by subsequent workers. This enables dynamic data-processing pipelines, custom scorers, converters, and analyzers without pre-registration.
 
 **Namespace Capabilities:** By default, generated tools run in a restricted sandbox (pure computation only). The workflow author can selectively grant additional capabilities **per namespace** — without giving agents blanket access:
 
