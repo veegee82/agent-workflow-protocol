@@ -6,7 +6,7 @@
 
 But a nervous system without a brain can only do one thing: **relay signals.** Every message goes in, one LLM call happens, one response comes back. That is not thinking. That is a reflex.
 
-AWP gives OpenClaw the ability to actually **think** — to decompose problems, coordinate specialists, validate results, control costs, and iterate until the answer is good enough. Here is why that matters, and what it makes possible.
+AWP gives OpenClaw the ability to actually **think** — to decompose problems, coordinate specialists, validate results, control costs, and most critically: **to build its own tools at runtime.** A brain that can only use pre-installed tools is limited to what its creators anticipated. A brain that can create new tools on the fly can adapt to any task it encounters. That is the real differentiator.
 
 ---
 
@@ -68,7 +68,81 @@ The 5-dimensional budget system ensures the brain never overthinks — hard limi
 
 The synthesized result flows back to OpenClaw, which delivers it through the original channel. The user sees one polished reply. They do not know — and do not need to know — that a team of 5 specialists collaborated behind the scenes.
 
-### 2.3 What a Brain Makes Possible — Five Real Scenarios
+### 2.3 The Real Brain: Runtime Tool and Skill Generation
+
+Task decomposition and budget control are important. But the feature that truly makes AWP a **brain** — not just a scheduler — is **runtime tool creation**. This is the A3 capability, and it changes what is fundamentally possible.
+
+#### The Problem With Fixed Tools
+
+Every AI assistant — OpenClaw included — ships with a fixed set of tools: file read/write, web search, code execution, browser automation. When a user asks for something that does not fit these tools, the assistant is stuck. It can try to hack together an answer with what it has, but it cannot create the tool it actually needs.
+
+This is like a brain that can only use its hands. Useful, but limited. A real brain also builds hammers, telescopes, and calculators — tools that extend what it can do.
+
+#### How AWP Workers Create Tools at Runtime
+
+When a manager delegates with `codemode.tool_creation: true`, the worker can do something no OpenClaw agent can: **write a Python function, register it as a new tool, and make it available to itself and other workers** — all within the same workflow run.
+
+**How it works in practice:**
+
+1. The manager dispatches a worker with tool creation enabled
+2. The worker analyzes the task, realizes it needs a custom scoring function (or API client, or data transformer, or anything)
+3. The worker writes the tool as a Python `handler()` function and returns it in `tools_created`
+4. AWP's `DynamicToolFactory` validates the code via AST analysis — checking for banned imports, namespace compliance, and structural correctness
+5. The tool is registered in the `ToolRegistry` and becomes callable by any worker in the workflow
+6. Subsequent workers use the tool as if it were built-in — they call it by name, pass parameters, get results
+
+**What makes this safe:**
+
+Every dynamically created tool runs in a **subprocess sandbox** with strict guardrails:
+
+- **Import restrictions by sandbox type**: `os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, and `multiprocessing` are ALWAYS denied — they cannot be unlocked by any capability or configuration
+- **Namespace isolation**: Workers can only create tools in their declared namespace (e.g., `scoring.*`, `api_client.*`). Reserved namespaces like `web`, `file`, `shell` are blocked
+- **Capability-based import policies**: A namespace declared with `capabilities: ["network"]` unlocks `requests` and `httpx`. A namespace with `capabilities: ["compute"]` only gets standard library math. Each namespace has its own import allowlist
+- **Secret injection without exposure**: If a tool needs an API key, it declares `required_secrets: ["API_KEY"]`. The factory injects only the declared keys into the sandbox as `_secrets` — the LLM never sees the actual values, and the tool only gets keys it explicitly requested
+- **Per-worker limits**: Max 10 tools per worker, max 50 globally. Tools cannot exceed these limits
+- **AST validation before execution**: Code is parsed, not executed, during validation. Denied imports are caught before the tool ever runs
+- **Fresh subprocess per call**: Each tool invocation runs in a new subprocess — no persistent state, no cross-tool memory leaks, 10-second timeout
+
+#### Why This Is the Real Differentiator
+
+Consider what this means for an OpenClaw + AWP integration:
+
+**User sends via Slack**: *"Calculate the Sharpe ratio for these 5 ETFs over the last 3 years and rank them."*
+
+OpenClaw alone has no "calculate Sharpe ratio" tool. The agent would try to compute it in a single LLM response — probably getting the math wrong, and definitely not pulling real data.
+
+With AWP:
+
+1. The manager identifies that no built-in tool can calculate Sharpe ratios
+2. It dispatches a **tool builder** worker with `codemode.tool_creation: true` and `capabilities: ["compute", "network"]`
+3. The tool builder creates two tools:
+   - `finance.fetch_prices` — uses `requests` to pull historical price data from a financial API (with the API key injected via `_secrets`)
+   - `finance.sharpe_ratio` — calculates the Sharpe ratio from a price series using standard library `math`
+4. AWP validates both tools (AST check, import policy check, namespace check) and registers them
+5. The manager dispatches a **data analyst** worker that calls `finance.fetch_prices` for each ETF, then `finance.sharpe_ratio` on each result
+6. A **report writer** worker formats the rankings into a clean comparison table
+
+The system **adapted to the task**. It did not have a Sharpe ratio tool before this request. Now it does. And those tools ran in sandboxed subprocesses with only the imports and secrets they needed — no more.
+
+**This is what a brain does that a nervous system cannot**: it encounters an unfamiliar problem and builds the cognitive tools to solve it.
+
+#### What OpenClaw Has vs. What AWP Adds
+
+| Capability | OpenClaw | AWP (A3+) |
+|-----------|----------|-----------|
+| **Built-in tools** | 30+ categories (bash, files, browser, messaging, media) | code.execute, web.search, file.* |
+| **Tool customization** | Skills (pre-configured, JSON5) | Dynamic tool creation at runtime |
+| **Runtime adaptation** | Fixed tool set — agent must work with what exists | Workers create Python tools on the fly |
+| **Tool safety** | 5-layer allow/deny policy | AST validation + import policies + namespace isolation + subprocess sandbox |
+| **Secret handling in tools** | Credential store + env vars | Declarative `required_secrets` — only requested keys injected, LLM never sees values |
+| **Tool reuse across agents** | Each agent has its own tool access | Created tools available to all workers in the workflow |
+| **Tool persistence** | Skills persist across sessions | Optional persistence to workspace (tools can outlive the worker that created them) |
+
+OpenClaw has more built-in tools. But its tools are **static** — they are what they are. AWP has fewer built-in tools, but it can **create new ones at runtime**. This is the difference between a toolbox and a workshop.
+
+---
+
+### 2.4 What a Brain Makes Possible — Five Real Scenarios
 
 #### Scenario A: Enterprise Research Pipeline via Slack
 
@@ -150,6 +224,30 @@ A marketing lead sends from iMessage: *"Create social media content about our ne
 
 Five pieces of content, each optimized for its platform, all brand-consistent, all reviewed. The marketing lead gets them all in one iMessage reply, ready to schedule.
 
+#### Scenario F: Runtime Tool Creation for Custom Data Analysis via Slack
+
+A data scientist messages Slack: *"Calculate the Value at Risk (95% confidence) for our portfolio using the last 2 years of daily returns. Compare parametric vs. historical VaR."*
+
+No AI assistant has a "Value at Risk" tool built in. This is a specialized financial computation that requires fetching market data, running statistical calculations, and comparing two methodologies.
+
+**Without AWP**: OpenClaw's agent attempts the calculation in a single LLM response. It either hallucinates numbers or produces a generic explanation without real data.
+
+**With AWP** (A3 runtime tool creation):
+
+1. The manager identifies that no built-in tool can calculate VaR and dispatches a **tool builder** worker with `codemode.tool_creation: true` and `capabilities: ["compute", "network"]`
+2. The tool builder creates three tools:
+   - `risk.fetch_returns` — uses `requests` to pull historical daily returns from a financial data API (API key injected via `_secrets`, never visible to the LLM)
+   - `risk.parametric_var` — calculates parametric VaR using normal distribution assumption with standard library `math` and `statistics`
+   - `risk.historical_var` — calculates historical VaR by sorting actual returns and finding the percentile cutoff
+3. AWP's `DynamicToolFactory` validates all three tools: AST analysis confirms no banned imports (`os`, `subprocess`, `sys` are always denied), the `risk.*` namespace is in the allowed list, and each tool has a valid `handler()` function
+4. The tools are registered in the `ToolRegistry` and become available to other workers
+5. A **data analyst** worker calls `risk.fetch_returns` for each portfolio position, then runs both `risk.parametric_var` and `risk.historical_var` on the aggregated returns — confidence 0.93
+6. A **report writer** worker formats the comparison: parametric VaR = $47,200, historical VaR = $52,800, with an explanation of why historical VaR is higher (fat tails in the actual distribution) — confidence 0.95
+
+The data scientist gets a real analysis with real numbers, computed from actual market data, using mathematically correct implementations that were created, validated, and sandboxed during this single workflow run. The tools ran in isolated subprocesses with 10-second timeouts, and the API key never appeared in any LLM prompt.
+
+**This is the scenario that separates a brain from a scheduler.** Any orchestration system can dispatch workers. Only AWP lets those workers **build the tools they need** — safely, within namespace boundaries, with secret injection and import restrictions enforced by AST validation.
+
 ---
 
 ## 3. Reflex vs. Brain: The Complexity Gap
@@ -164,6 +262,8 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 | **State flow** | Isolated sessions (announce-back, opt-in sessions_send) | Explicit field-level `share_output` rules | Structured pipelines with declared data flow |
 | **Execution patterns** | Request → Response (+ subagent orchestrator pattern) | DAG (sequential, parallel, conditional, fan-out/in) + Delegation Loop | From ad-hoc to declarative orchestration |
 | **Failure recovery** | Retry the entire task or subagent | Re-dispatch individual workers with refined instructions | Surgical recovery with validation feedback |
+| **Runtime adaptation** | Fixed tool set — 30+ built-in, but static | Workers create new Python tools at runtime (A3+) | The system adapts to tasks it was never designed for |
+| **Tool safety** | 5-layer allow/deny on existing tools | AST validation + import policies + namespace isolation + subprocess sandbox | Created tools are as safe as built-in tools |
 | **Context capacity** | Single context window (overflow → compaction) | Rolling summary + file spillover per worker | Handle tasks larger than any context window |
 | **Workflow reuse** | Skills (JSON5 config) | `.awp.zip` bundles — portable, versioned, shareable | Complex workflows become distributable artifacts |
 
@@ -188,7 +288,7 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 | 2-tier output validation | AWP | Deterministic structural checks (free) + LLM semantic review (conditional) |
 | Stall detection and recovery | AWP | Confidence delta monitoring + output similarity tracking across iterations |
 | Cross-agent state sharing | AWP | Explicit `share_output` rules with field-level control and sensitivity annotations |
-| Dynamic tool creation at runtime | AWP | A3+ workers generate Python tools on the fly within a safety envelope |
+| Dynamic tool creation at runtime | AWP | A3+ workers create Python tools on the fly — AST-validated, namespace-isolated, subprocess-sandboxed, with declarative secret injection |
 | Workflow portability and versioning | AWP | Declarative YAML manifests packaged as `.awp.zip` bundles |
 | Iterative refinement with re-dispatch | AWP | Manager re-dispatches workers on low confidence with refined instructions |
 | Hash-chain audit trail | AWP | Tamper-proof event logging with 20+ security event types |
