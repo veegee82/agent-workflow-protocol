@@ -65,17 +65,20 @@ async def store(temp_dir: Path) -> StoreService:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def app(temp_dir: Path):
-    """Create a test FastAPI app with a temp DB path."""
+@pytest_asyncio.fixture
+async def app(temp_dir: Path):
+    """Create a test FastAPI app with a temp DB and initialised store."""
     os.environ["AWP_UI_DB_PATH"] = str(temp_dir / "test.db")
-    # Re-import to pick up the env var change
-    from server.app import create_app, store as app_store
+    from server.app import create_app, store as app_store, event_bus
 
     application = create_app()
-    # Override the global store's db path
+    # Override the global store's db path and initialise it
     app_store._db_path = str(temp_dir / "test.db")
-    return application
+    await app_store.init_db()
+    # Bind event bus to the current loop
+    event_bus.bind_loop(asyncio.get_running_loop())
+    yield application
+    await app_store.close()
 
 
 @pytest_asyncio.fixture

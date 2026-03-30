@@ -44,7 +44,7 @@ async def test_health(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_create_run(client: AsyncClient) -> None:
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         resp = await client.post("/api/runs", json=_run_config())
     assert resp.status_code == 200
     data = resp.json()
@@ -55,7 +55,7 @@ async def test_create_run(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_list_runs(client: AsyncClient) -> None:
     # Create a run first
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         await client.post("/api/runs", json=_run_config("List test"))
     resp = await client.get("/api/runs")
     assert resp.status_code == 200
@@ -66,7 +66,7 @@ async def test_list_runs(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_list_runs_pagination(client: AsyncClient) -> None:
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         for i in range(3):
             await client.post("/api/runs", json=_run_config(f"Paginated {i}"))
     resp = await client.get("/api/runs", params={"limit": 2, "offset": 0})
@@ -76,7 +76,7 @@ async def test_list_runs_pagination(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_get_run(client: AsyncClient) -> None:
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         create_resp = await client.post("/api/runs", json=_run_config("Get test"))
     run_id = create_resp.json()["run_id"]
 
@@ -95,7 +95,7 @@ async def test_get_run_not_found(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_run(client: AsyncClient) -> None:
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         create_resp = await client.post("/api/runs", json=_run_config("Delete me"))
     run_id = create_resp.json()["run_id"]
 
@@ -116,7 +116,7 @@ async def test_delete_run_not_found(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_get_run_events(client: AsyncClient) -> None:
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         create_resp = await client.post("/api/runs", json=_run_config("Events test"))
     run_id = create_resp.json()["run_id"]
 
@@ -128,7 +128,7 @@ async def test_get_run_events(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_get_run_graph_empty(client: AsyncClient) -> None:
     """Run without a workspace returns an empty graph."""
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         create_resp = await client.post("/api/runs", json=_run_config("Graph test"))
     run_id = create_resp.json()["run_id"]
 
@@ -141,7 +141,7 @@ async def test_get_run_graph_empty(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_stop_run_not_found(client: AsyncClient) -> None:
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         resp = await client.post("/api/runs/nonexistent/stop")
     assert resp.status_code == 404
 
@@ -343,7 +343,7 @@ async def test_create_run_with_session(client: AsyncClient) -> None:
     sess_resp = await client.post("/api/sessions", json={"title": "Run Session"})
     sid = sess_resp.json()["id"]
 
-    with patch("server.api.routes.runner_service", _MOCK_RUNNER):
+    with patch("server.services.runner_service.runner_service", _MOCK_RUNNER):
         run_resp = await client.post(
             "/api/runs",
             json=_run_config("Session run"),
