@@ -1,8 +1,8 @@
 # How to Give OpenClaw a Real Brain
 
-> **OpenClaw has the best nervous system in open source — 25+ channels, 35+ providers, device integration. But it's missing a brain. AWP is that brain.**
+> **OpenClaw has the best nervous system in open source — 25+ channels, 25+ providers, device integration. But it's missing a brain. AWP is that brain.**
 
-[OpenClaw](https://github.com/openclaw/openclaw) is the most connected AI assistant gateway out there. It reaches users on WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more platforms. It manages 35+ LLM providers with failover. It integrates cameras, voice, screens, and location. It is, without question, the best open-source **nervous system** for AI assistants.
+[OpenClaw](https://github.com/openclaw/openclaw) is the most connected AI assistant gateway out there. It reaches users on WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more platforms. It manages 25+ LLM providers with failover. It integrates cameras, voice, screens, and location. It is, without question, the best open-source **nervous system** for AI assistants.
 
 But a nervous system without a brain can only do one thing: **relay signals.** Every message goes in, one LLM call happens, one response comes back. That is not thinking. That is a reflex.
 
@@ -12,19 +12,19 @@ AWP gives OpenClaw the ability to actually **think** — to decompose problems, 
 
 ## 1. The Problem: OpenClaw Hits a Ceiling on Complex Tasks
 
-OpenClaw routes each message to one agent. That agent makes one LLM call and returns the result. For simple tasks — answering questions, drafting messages, quick lookups — this is perfect.
+OpenClaw routes each message to one agent. That agent makes one LLM call and returns the result. For simple tasks — answering questions, drafting messages, quick lookups — this is perfect. OpenClaw can also spawn subagents (up to depth 5) with an orchestrator pattern, and it has tool-loop detection to catch repetitive tool calls. These are real capabilities.
 
-But the moment a task gets complex, that single-agent architecture breaks down:
+But for genuinely complex tasks — multi-step pipelines, parallel research, iterative refinement — OpenClaw's ad-hoc subagent spawning hits its limits. There is no declarative workflow definition, no structured state sharing between agents, no output validation with confidence scoring, and no multi-dimensional budget enforcement:
 
 | Task | What It Actually Requires | OpenClaw Alone | OpenClaw + AWP |
 |------|--------------------------|----------------|----------------|
-| "Analyze our competitors and write a strategy report" | Web research, data analysis, chart generation, report writing — 4 distinct skill sets | One agent attempts all in one LLM call. No specialization, no validation, no budget limits. | Manager decomposes into 4 specialized workers. Each validated. Budget-capped at 500K tokens. |
-| "Review this PR for security issues, code quality, and performance" | Security auditing, style analysis, performance profiling — 3 independent evaluations | One agent gives a single-pass review. Misses what a specialist would catch. | DAG fans out to 3 parallel reviewers, fans in with merge strategy. Each produces confidence scores. |
-| "Build a daily sales dashboard from our API data" | Data fetching, cleaning, statistical analysis, visualization, summary writing — 5-step pipeline | One agent tries to do everything sequentially in one context window. Context overflows. | DAG pipeline: fetcher → cleaner → analyst → visualizer → writer. Each step's output flows to the next. |
-| "Research 20 companies and rank them by growth potential" | 20 parallel research tasks, then aggregation and ranking | One agent researches all 20 sequentially. Takes forever. Forgets early results. | Fan-out to 20 parallel research workers. Fan-in with reduce strategy. Budget prevents runaway costs. |
-| "Investigate why our API latency spiked, check logs, metrics, and recent deploys" | Log analysis, metrics correlation, deploy diff review, root cause synthesis | One agent tries to juggle all data sources. No structured handoff between analysis phases. | A4 recursive delegation: manager spawns investigators, investigators spawn sub-investigators for specific services. Budget hierarchy prevents explosion. |
+| "Analyze our competitors and write a strategy report" | Web research, data analysis, chart generation, report writing — 4 distinct skill sets | One agent (or ad-hoc subagents) attempts all without structured state flow between steps. No output validation, no token budget. | Manager decomposes into 4 specialized workers with explicit state sharing. Each validated. Budget-capped at 500K tokens. |
+| "Review this PR for security issues, code quality, and performance" | Security auditing, style analysis, performance profiling — 3 independent evaluations | Agent can spawn subagents, but results flow back via announce — no structured merge, no confidence scoring. | DAG fans out to 3 parallel reviewers, fans in with merge strategy. Each produces confidence scores. |
+| "Build a daily sales dashboard from our API data" | Data fetching, cleaning, statistical analysis, visualization, summary writing — 5-step pipeline | No pipeline concept. Subagents work in isolated sessions — each step cannot build on the previous step's structured output. | DAG pipeline: fetcher → cleaner → analyst → visualizer → writer. Each step's output flows to the next via `share_output`. |
+| "Research 20 companies and rank them by growth potential" | 20 parallel research tasks, then aggregation and ranking | Can spawn subagents (maxChildrenPerAgent: 5-20) but no declarative fan-out/fan-in, no merge strategies, no token budget. | Declarative fan-out to 20 parallel workers. Fan-in with reduce strategy. Budget prevents runaway costs. |
+| "Investigate why our API latency spiked, check logs, metrics, and recent deploys" | Log analysis, metrics correlation, deploy diff review, root cause synthesis | Subagent orchestrator pattern can handle this to some extent — but without structured state sharing, budget hierarchy, or formal validation. | Delegation loop with parallel investigators. Manager validates findings, re-dispatches on low confidence. Budget-bounded. |
 
-**The pattern is clear**: as task complexity grows, a single-agent architecture hits a wall. It cannot specialize, parallelize, validate, or control costs. AWP's orchestration engines exist specifically to solve this.
+**The pattern**: OpenClaw has the building blocks for multi-agent work (subagent spawn, tool-loop detection, timeouts). But it lacks the **formal orchestration layer** — declarative workflows, structured state sharing, output validation, and multi-dimensional budget enforcement — that makes complex tasks reliable and predictable. AWP provides exactly this layer.
 
 ---
 
@@ -62,7 +62,7 @@ Every worker result passes through the brain's quality filters:
 - LLM semantic checks (does this actually answer the question?) catch subtle failures
 - Stall detection (is the worker going in circles?) prevents wasted compute
 
-The 5-dimensional budget system ensures the brain never overthinks — hard limits on tokens, time, workers, loops, and tool calls. OpenClaw has no equivalent.
+The 5-dimensional budget system ensures the brain never overthinks — hard limits on tokens, time, workers, loops, and tool calls. OpenClaw has timeouts and concurrency caps, but no token-level cost control or multi-dimensional budget enforcement.
 
 **Step 4: One Clean Result**
 
@@ -116,23 +116,21 @@ An executive's OpenClaw cron job fires every morning at 7:00 AM, triggering an A
 
 Every morning, a crisp intelligence brief appears in the executive's Telegram. The pipeline runs within a budget of 200K tokens and 120 seconds. If the news scanner finds nothing relevant, the workflow short-circuits via conditional execution — no wasted compute.
 
-#### Scenario D: Recursive Investigation via Discord
+#### Scenario D: Parallel Investigation via Discord
 
 A DevOps engineer messages Discord: *"Our API latency spiked 3x in the last hour. Figure out why."*
 
-This is an A4 (recursive delegation) task — the investigation itself is unpredictable:
+This is a delegation loop task — the investigation requires multiple parallel lines of inquiry:
 
-1. **Investigation manager** spawns three parallel investigators:
-   - **Log analyst** searches recent application logs for errors and anomalies
-   - **Metrics analyst** queries Prometheus/Grafana for correlated metric changes
-   - **Deploy analyst** checks recent deployments and config changes
-2. The **log analyst** discovers unusual database connection timeouts, but needs more detail. As an A4 worker-turned-sub-manager, it spawns two sub-investigators:
-   - **DB connection profiler** analyzes connection pool metrics
-   - **Query pattern analyzer** looks for new slow queries
-3. The **deploy analyst** finds a config change that reduced the connection pool size — confidence 0.97
-4. The investigation manager synthesizes: *"Root cause: connection pool size was reduced from 50 to 10 in deployment #1842 at 14:23 UTC. This caused connection starvation under normal load, resulting in database timeouts that cascaded into API latency."*
+1. **Investigation manager** dispatches three parallel workers:
+   - **Log analyst** searches recent application logs for errors and anomalies — confidence 0.78
+   - **Metrics analyst** queries Prometheus/Grafana for correlated metric changes — confidence 0.82
+   - **Deploy analyst** checks recent deployments and config changes — confidence 0.97
+2. The manager sees the log analyst's low confidence and re-dispatches with refined instructions: "Focus specifically on database connection timeouts." Second attempt: confidence 0.91
+3. The manager synthesizes all three findings: *"Root cause: connection pool size was reduced from 50 to 10 in deployment #1842 at 14:23 UTC. This caused connection starvation under normal load, resulting in database timeouts that cascaded into API latency."*
+4. Stall detection ensured the investigation didn't loop indefinitely. Total cost: 280K tokens (budget was 500K). 5 workers spawned across 3 iterations.
 
-Budget hierarchy ensures the recursive investigation stays bounded: the top-level manager has 1M tokens, each investigator gets a fraction, and sub-investigators get a fraction of that. The total cost is predictable even though the investigation depth was emergent.
+The key difference to OpenClaw's subagent approach: the manager **validates** each investigator's output (is it structured? does it actually address the question?), can **re-dispatch** on low confidence, and the entire investigation is **budget-bounded**.
 
 #### Scenario E: Creative Multi-Media Production via iMessage
 
@@ -156,18 +154,18 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 
 ## 3. Reflex vs. Brain: The Complexity Gap
 
-| Dimension | Reflex (OpenClaw Alone) | Brain (OpenClaw + AWP) | What Changes |
-|-----------|------------------------|----------------------|--------------|
-| **Agents per task** | 1 (+ depth-limited subagents) | Unlimited (budget-bounded) | From single-threaded to parallel teams |
-| **Task decomposition** | Manual — user must break down tasks | Automatic — manager agent plans it | User describes the goal, not the steps |
-| **Specialization** | One agent, one system prompt | N workers, each a domain expert | Specialists instead of a generalist |
-| **Quality assurance** | None — output returned as-is | 2-tier validation + stall detection | Failures caught before the user sees them |
-| **Cost control** | None — unbounded token consumption | 5D budget system with hard stops | Predictable costs, even for complex tasks |
-| **State flow** | Isolated sessions — no sharing | Explicit field-level sharing rules | Pipelines become possible |
-| **Execution patterns** | Request → Response | DAG, Delegation Loop, Recursive (A4) | From chat to orchestration |
-| **Failure recovery** | Retry the entire task | Re-dispatch individual workers | Surgical recovery, not full restart |
+| Dimension | OpenClaw Alone | OpenClaw + AWP | What Changes |
+|-----------|---------------|----------------|--------------|
+| **Agents per task** | 1 + ad-hoc subagents (depth-limited, max 5-20 children) | Declaratively orchestrated workers (budget-bounded) | From ad-hoc spawn to planned coordination |
+| **Task decomposition** | Manual subagent spawn or single-agent attempt | Automatic — manager agent plans the decomposition | Declarative vs. imperative |
+| **Specialization** | Subagents inherit parent config | N workers, each with own model, tools, instructions, contract | True specialization per subtask |
+| **Quality assurance** | Tool-loop detection (disabled by default) | 2-tier validation (structural + semantic) + stall detection | Structured output contracts with confidence scoring |
+| **Cost control** | Timeouts + concurrency limits, no token budgets | 5D budget system: tokens, time, workers, loops, tool calls | Token-level cost control, hard stops |
+| **State flow** | Isolated sessions (announce-back, opt-in sessions_send) | Explicit field-level `share_output` rules | Structured pipelines with declared data flow |
+| **Execution patterns** | Request → Response (+ subagent orchestrator pattern) | DAG (sequential, parallel, conditional, fan-out/in) + Delegation Loop | From ad-hoc to declarative orchestration |
+| **Failure recovery** | Retry the entire task or subagent | Re-dispatch individual workers with refined instructions | Surgical recovery with validation feedback |
 | **Context capacity** | Single context window (overflow → compaction) | Rolling summary + file spillover per worker | Handle tasks larger than any context window |
-| **Workflow reuse** | Skills (JSON5 config) | `.awp.zip` bundles — portable, versioned | Complex workflows become shareable artifacts |
+| **Workflow reuse** | Skills (JSON5 config) | `.awp.zip` bundles — portable, versioned, shareable | Complex workflows become distributable artifacts |
 
 ---
 
@@ -181,7 +179,7 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 |---------------|-----------|-----------------|
 | User interaction across 25+ channels | OpenClaw | Purpose-built gateway with channel plugins for WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, IRC, and more |
 | Device integration (voice, camera, screen, location) | OpenClaw | Native mobile node architecture with device-local action execution |
-| Model failover with 35+ providers | OpenClaw | Auth profile rotation, cooldown tracking, context overflow detection |
+| Model failover with 25+ provider plugins | OpenClaw | Auth profile rotation, cooldown tracking, context overflow detection |
 | Browser automation | OpenClaw | CDP-based full browser control with sandbox isolation |
 | DM pairing and sender authentication | OpenClaw | Approval flow for unknown senders, per-device pairing |
 | Cron scheduling and webhooks | OpenClaw | Built-in job scheduler triggers both simple and complex tasks |
@@ -192,7 +190,7 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 | Cross-agent state sharing | AWP | Explicit `share_output` rules with field-level control and sensitivity annotations |
 | Dynamic tool creation at runtime | AWP | A3+ workers generate Python tools on the fly within a safety envelope |
 | Workflow portability and versioning | AWP | Declarative YAML manifests packaged as `.awp.zip` bundles |
-| Recursive delegation with budget hierarchy | AWP | A4 workers become sub-managers, each inheriting a fraction of the parent budget |
+| Iterative refinement with re-dispatch | AWP | Manager re-dispatches workers on low confidence with refined instructions |
 | Hash-chain audit trail | AWP | Tamper-proof event logging with 20+ security event types |
 
 ---
@@ -207,7 +205,7 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 | **Architecture** | Two orchestration engines (DAG + Delegation Loop) | WebSocket Gateway daemon + embedded Pi agent |
 | **Agent model** | Ephemeral workers spawned by managers | Persistent agent personas with isolated workspaces |
 | **Workflow format** | Declarative YAML manifests | Imperative JSON5 configuration |
-| **Autonomy model** | Formal 5-tier spectrum (A0-A4) | Informal 3-tier capability model |
+| **Autonomy model** | Formal 5-tier spectrum (A0-A4, A0-A3 implemented) | Informal 3-tier capability model |
 | **Packaging** | Self-contained `.awp.zip` bundles | Gateway daemon + client apps |
 | **Channel support** | None (runtime-agnostic) | 25+ messaging platforms |
 | **Stars** | Growing | ~340k |
@@ -224,12 +222,12 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 |-----------|--------|--------|
 | **Multi-agent orchestration** | AWP | Large — fundamentally different capability |
 | **Messaging integration** | OpenClaw | Large — AWP has none |
-| **Budget/safety controls** | AWP | Large — 5D enforcement vs. none |
-| **Model management** | OpenClaw | Medium — 35+ providers with failover |
+| **Budget/safety controls** | AWP | Medium — 5D enforcement vs. timeouts + concurrency limits |
+| **Model management** | OpenClaw | Medium — 25+ providers with failover |
 | **Memory system** | Tie | Different strengths (sharing vs. search) |
 | **Security model** | Tie | Different threat models |
 | **Developer experience** | OpenClaw | Medium — production-ready daily driver |
-| **Protocol formalism** | AWP | Large — versioned spec with 26 rules |
+| **Protocol formalism** | AWP | Large — versioned spec with 26 rules (13 implemented) |
 | **Portability** | AWP | Large — `.awp.zip` vs. single runtime |
 | **Device/hardware** | OpenClaw | Large — AWP has no device concept |
 | **Context management** | Tie | Different approaches, both effective |
@@ -339,7 +337,7 @@ OpenClaw's "autonomy" refers to **permission scope**, not orchestration complexi
 
 **Key insight**: AWP's autonomy spectrum measures **task decomposition complexity** (how sophisticated is the multi-agent coordination?). OpenClaw's tiers measure **permission delegation** (what is the agent allowed to do?). These are orthogonal dimensions.
 
-OpenClaw effectively operates at **AWP A0-A1 level** in orchestration terms: agents receive messages and respond independently, with optional subagent spawning (comparable to simple delegation). There is no DAG-based task decomposition, no multi-agent state sharing, no budget-bounded delegation loops, and no recursive self-organization.
+OpenClaw effectively operates at **AWP A1-A2 level** in orchestration terms: agents can spawn subagents in an orchestrator pattern (comparable to informal delegation), with depth limits and concurrency caps. However, there is no declarative DAG definition, no field-level state sharing between agents, no output validation with confidence scoring, and no multi-dimensional budget enforcement. The decomposition is imperative (the agent decides at runtime) rather than declarative (defined in a workflow manifest).
 
 ---
 
@@ -407,11 +405,11 @@ output_stalled = similarity(old_output, new_output) > 0.85
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
-| **Agent spawning** | Dynamic (manager spawns workers at runtime) | Subagent spawn with depth limits |
+| **Agent spawning** | Dynamic (manager spawns workers at runtime) | Subagent spawn with orchestrator pattern (depth up to 5) |
 | **Agent lifespan** | Ephemeral (per-task) | Persistent (long-running) |
-| **Budget tracking** | 5-dimensional (tokens, time, workers, loops, tools) | None |
-| **Validation** | 2-tier (deterministic + LLM) | None (no output validation) |
-| **Stall detection** | Confidence delta + output similarity | None |
+| **Budget tracking** | 5-dimensional (tokens, time, workers, loops, tools) | Timeouts + concurrency limits (maxChildrenPerAgent, maxSpawnDepth) |
+| **Validation** | 2-tier (deterministic + LLM semantic) | Announce normalization + exec-approvals (no confidence scoring) |
+| **Stall detection** | Confidence delta + output similarity | Tool-loop detection (3 detectors, disabled by default) |
 | **Output contract** | Required fields + confidence [0,1] | Free-form text |
 | **Streaming** | Not primary focus | Native block streaming |
 | **Tool call hooks** | Policy-based enforcement | before/after hooks with gating |
@@ -516,13 +514,13 @@ OpenClaw uses JSON5 config files for agent setup and routing (not workflow defin
 
 | Capability | AWP | OpenClaw |
 |-----------|-----|----------|
-| **Task decomposition** | Native (manager → workers) | Manual (subagent spawn) |
+| **Task decomposition** | Declarative (manager → workers via manifest) | Imperative (ad-hoc subagent orchestrator pattern) |
 | **Pipeline execution** | DAG with topological sort | Not supported |
-| **Dynamic worker creation** | Budget-bounded delegation loop | Depth-limited subagent spawn |
-| **State passing between agents** | `share_output` + state dict | None (isolated sessions) |
+| **Dynamic worker creation** | Budget-bounded delegation loop | Depth-limited subagent spawn (maxSpawnDepth 5, maxChildrenPerAgent 5-20) |
+| **State passing between agents** | `share_output` + state dict | Announce-back + sessions_send (no field-level control) |
 | **Conditional branching** | DAG expressions | Not supported |
 | **Fan-out/fan-in** | Native with merge strategies | Not supported |
-| **Recursive delegation** | A4 with budget cascade | Max spawn depth limit |
+| **Recursive delegation** | A4 specified (not yet implemented) | Max spawn depth limit (up to 5) |
 | **Workflow portability** | `.awp.zip` runs anywhere | Tied to OpenClaw Gateway |
 
 ---
@@ -584,7 +582,7 @@ state:
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
 | **Architecture** | 4-tier (long-term → semantic) | File-based + SQLite search |
-| **Cross-agent sharing** | Explicit `share_output` rules | None (agent-isolated) |
+| **Cross-agent sharing** | Explicit `share_output` rules | Announce-back + shared workspaces (no field-level control) |
 | **Access control** | Per-agent per-tier permissions | Per-agent workspace isolation |
 | **Persistence** | JSON/msgpack checkpoints | JSONL transcripts + Markdown |
 | **Semantic search** | Optional vector index | Hybrid (vector + FTS) |
@@ -625,7 +623,7 @@ security.circuit_breaker:
 - `"non-main"`: Sandbox non-main sessions only
 - `"all"`: Sandbox everything
 
-**Sandbox backends:** Docker, SSH, remote shell
+**Sandbox backends:** Docker, SSH, OpenShell
 
 **Tool policy pipeline** (5 layers, evaluated in order):
 1. Global `tools.allow/deny`
@@ -641,10 +639,10 @@ security.circuit_breaker:
 | **Trust model** | Least privilege, explicit permissions | Single trusted operator |
 | **Agent trust** | Untrusted (output validated) | Untrusted (prompt injection assumed) |
 | **Tool control** | `allowed`/`denied` per agent + `forbidden_tools` | 5-layer allow/deny pipeline |
-| **Sandboxing** | Docker/venv per execution | Docker/SSH per session or agent |
-| **Budget limits** | 5-dimensional hard enforcement | None |
-| **Circuit breaker** | Native (failure threshold + recovery) | Not present |
-| **Rate limiting** | Per-agent + per-tool | Not present |
+| **Sandboxing** | Docker/venv per execution | Docker/SSH/OpenShell per session or agent |
+| **Budget limits** | 5-dimensional hard enforcement | Timeouts + concurrency limits (no token budgets) |
+| **Circuit breaker** | Native (failure threshold + recovery) | Tool-loop detection (3 detectors, tiered thresholds) + provider failover cooldowns |
+| **Rate limiting** | Per-agent + per-tool (proactive) | Reactive only (429 retry, auth profile cooldowns with exponential backoff) |
 | **Secrets** | `security.secrets` with redaction | `secrets.resolve` + credential store |
 | **Audit trail** | Hash-chain integrity, 20+ event types | Session transcripts + logs |
 | **Multi-tenant** | Runtime-dependent | Explicitly single-tenant |
@@ -750,7 +748,7 @@ OpenClaw routes messages through a **precedence hierarchy**:
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
 | **Primary model** | State sharing + message bus | Binding-based routing |
-| **Cross-agent data flow** | Explicit `share_output` fields | Isolated (opt-in `sessions_send`) |
+| **Cross-agent data flow** | Explicit `share_output` fields | Announce-back chain + opt-in `sessions_send` + shared workspaces |
 | **Routing** | DAG dependency order | 7-level binding precedence |
 | **External channels** | None (protocol-level) | 25+ messaging platforms |
 | **Threading** | N/A | Native thread binding for subagents |
@@ -863,7 +861,7 @@ observability:
 | **Distributed tracing** | OpenTelemetry-compatible | Not supported |
 | **Metrics export** | Prometheus, OTLP | Usage tracking only |
 | **Audit trail** | Hash-chain integrity | Session transcripts |
-| **Budget visibility** | Real-time 5D snapshots | None |
+| **Budget visibility** | Real-time 5D snapshots | Usage tracking + cost summary (no real-time enforcement) |
 | **Security events** | 20+ typed events | Log messages |
 | **Live debugging** | Structured logging | `logs.tail` method |
 
@@ -889,7 +887,7 @@ agents:
 ### 17.2 OpenClaw: Sophisticated Model Failover
 
 
-**35+ LLM providers:** Anthropic (+ Vertex), OpenAI (+ Codex), Google Gemini, DeepSeek, Ollama, Together, Venice, X.AI, Perplexity, HuggingFace, and more.
+**25+ provider plugins:** Anthropic (+ Vertex), OpenAI (+ Codex), Google Gemini, DeepSeek, Ollama, Together, Venice, X.AI, Perplexity, HuggingFace, and more.
 
 **Failover features:**
 - Candidate chain: primary → fallbacks → allowlist
@@ -902,7 +900,7 @@ agents:
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
-| **Provider count** | Runtime-dependent (OpenRouter typical) | 35+ built-in |
+| **Provider count** | Runtime-dependent (OpenRouter typical) | 25+ built-in |
 | **Failover** | Not in protocol (runtime feature) | Sophisticated chain + cooldown |
 | **Per-agent model** | Yes (YAML manifest) | Yes (config + session override) |
 | **Auth management** | Environment variables | Multi-profile rotation + cooldown |

@@ -42,16 +42,16 @@
 
   <!-- Limitations -->
   <rect x="60" y="180" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
-  <text x="280" y="200" text-anchor="middle" font-size="11" fill="#c62828">No task decomposition — complex tasks handled by a single LLM call</text>
+  <text x="280" y="200" text-anchor="middle" font-size="11" fill="#c62828">Ad-hoc subagent spawn only — no declarative task decomposition</text>
 
   <rect x="60" y="218" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
-  <text x="280" y="238" text-anchor="middle" font-size="11" fill="#c62828">No budget enforcement — no limits on tokens, time, or cost</text>
+  <text x="280" y="238" text-anchor="middle" font-size="11" fill="#c62828">No token budget enforcement — timeouts and concurrency limits only</text>
 
   <rect x="60" y="256" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
-  <text x="280" y="276" text-anchor="middle" font-size="11" fill="#c62828">No quality validation — output returned as-is, no confidence checks</text>
+  <text x="280" y="276" text-anchor="middle" font-size="11" fill="#c62828">No structured output validation — no confidence scoring or contracts</text>
 
   <rect x="60" y="294" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
-  <text x="280" y="314" text-anchor="middle" font-size="11" fill="#c62828">No cross-agent state sharing — agents work in isolated silos</text>
+  <text x="280" y="314" text-anchor="middle" font-size="11" fill="#c62828">No field-level state sharing — announce-back only, no pipelines</text>
 
   <!-- AFTER: OpenClaw + AWP -->
   <rect x="570" y="80" width="500" height="270" rx="14" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>

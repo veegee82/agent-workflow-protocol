@@ -120,7 +120,7 @@
   <rect x="645" y="425" width="150" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
   <text x="720" y="445" text-anchor="middle" font-size="11" fill="#e65100">Sandbox (Docker)</text>
   <rect x="805" y="425" width="145" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
-  <text x="877" y="445" text-anchor="middle" font-size="11" fill="#e65100">35+ LLM Providers</text>
+  <text x="877" y="445" text-anchor="middle" font-size="11" fill="#e65100">25+ LLM Providers</text>
   <rect x="960" y="425" width="170" height="32" rx="6" fill="#fff8e1" stroke="#ff8f00" stroke-width="1"/>
   <text x="1045" y="445" text-anchor="middle" font-size="11" fill="#e65100">Device Integration</text>
 

@@ -101,6 +101,8 @@ class BudgetSnapshot:
             1 - (self.workers_spawned / max(self.max_total_workers, 1)),
             1 - (self.wall_time_elapsed / max(self.max_wall_time, 1)),
         ]
+        if self.max_total_tokens:
+            fractions.append(1 - (self.tokens_consumed / self.max_total_tokens))
         if self.max_tool_calls:
             fractions.append(1 - (self.tool_calls_used / self.max_tool_calls))
         return max(0.0, min(fractions))
@@ -113,6 +115,8 @@ class BudgetSnapshot:
             return False, "max_total_workers reached"
         if self.wall_time_elapsed >= self.max_wall_time:
             return False, "max_wall_time exceeded"
+        if self.max_total_tokens and self.tokens_consumed >= self.max_total_tokens:
+            return False, "max_total_tokens reached"
         if self.max_tool_calls and self.tool_calls_used >= self.max_tool_calls:
             return False, "max_tool_calls reached"
         return True, "ok"
