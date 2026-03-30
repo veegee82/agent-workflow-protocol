@@ -550,6 +550,190 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       attachedFiles: s.attachedFiles.filter((_, i) => i !== index),
     })),
 
+  // -- Sessions -------------------------------------------------------------
+  currentSessionId: null,
+  sessions: [],
+  sessionHistory: [],
+
+  createSession: async (title) => {
+    try {
+      const sessionTitle =
+        title ?? `Session ${new Date().toLocaleString()}`;
+      const session = await api.createSession(sessionTitle);
+      set((s) => ({
+        currentSessionId: session.id,
+        sessions: [session, ...s.sessions],
+        sessionHistory: [],
+        outputBlocks: [],
+        events: [],
+        graphNodes: [],
+        graphEdges: [],
+      }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  loadSessions: async () => {
+    try {
+      const sessions = await api.listSessions();
+      set({ sessions });
+    } catch {
+      // silently ignore -- backend may be down
+    }
+  },
+
+  selectSession: async (sessionId) => {
+    try {
+      const [detail, history] = await Promise.all([
+        api.getSession(sessionId),
+        api.getSessionHistory(sessionId),
+      ]);
+
+      // Build output blocks from session history
+      const outputBlocks: OutputBlock[] = history.map((item) => ({
+        type: item.role === 'user' ? ('markdown' as const) : ('markdown' as const),
+        content:
+          item.role === 'user'
+            ? `**Task:** ${item.content}`
+            : item.content,
+        title:
+          item.role === 'user'
+            ? 'Task'
+            : item.status === 'error'
+              ? 'Error'
+              : 'Result',
+      }));
+
+      // Restore session settings if available
+      const settingsUpdate: Partial<WorkflowConfig> = {};
+      if (detail.settings && Object.keys(detail.settings).length > 0) {
+        Object.assign(settingsUpdate, detail.settings);
+      }
+
+      set((s) => ({
+        currentSessionId: sessionId,
+        sessionHistory: history,
+        outputBlocks,
+        events: [],
+        graphNodes: [],
+        graphEdges: [],
+        currentRunId: null,
+        runStatus: 'idle',
+        config: Object.keys(settingsUpdate).length > 0
+          ? { ...s.config, ...settingsUpdate }
+          : s.config,
+      }));
+    } catch {
+      // If we can't load detail, at least select it
+      set({
+        currentSessionId: sessionId,
+        sessionHistory: [],
+      });
+    }
+  },
+
+  deleteSession: async (sessionId) => {
+    try {
+      await api.deleteSession(sessionId);
+      set((s) => {
+        const sessions = s.sessions.filter((sess) => sess.id !== sessionId);
+        const isCurrentDeleted = s.currentSessionId === sessionId;
+        return {
+          sessions,
+          ...(isCurrentDeleted
+            ? {
+                currentSessionId: null,
+                sessionHistory: [],
+                outputBlocks: [],
+                events: [],
+                graphNodes: [],
+                graphEdges: [],
+              }
+            : {}),
+        };
+      });
+    } catch {
+      // silently ignore
+    }
+  },
+
+  renameSession: async (sessionId, title) => {
+    try {
+      await api.updateSession(sessionId, title);
+      set((s) => ({
+        sessions: s.sessions.map((sess) =>
+          sess.id === sessionId ? { ...sess, title } : sess,
+        ),
+      }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  // -- Secrets --------------------------------------------------------------
+  secrets: [],
+
+  loadSecrets: async () => {
+    try {
+      const secrets = await api.listSecrets();
+      set({ secrets });
+    } catch {
+      // silently ignore
+    }
+  },
+
+  addSecret: async (key, value) => {
+    try {
+      await api.createSecret(key, value);
+      const secrets = await api.listSecrets();
+      set({ secrets });
+    } catch {
+      // silently ignore
+    }
+  },
+
+  removeSecret: async (key) => {
+    try {
+      await api.deleteSecret(key);
+      set((s) => ({
+        secrets: s.secrets.filter((sec) => sec.key !== key),
+      }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  // -- Persistent settings --------------------------------------------------
+  settingsLoaded: false,
+
+  loadPersistedSettings: async () => {
+    try {
+      const saved = await api.loadSettings();
+      if (saved) {
+        set((s) => ({
+          config: { ...s.config, ...saved },
+          settingsLoaded: true,
+        }));
+      } else {
+        set({ settingsLoaded: true });
+      }
+    } catch {
+      set({ settingsLoaded: true });
+    }
+  },
+
+  saveCurrentSettings: async () => {
+    try {
+      const { config } = get();
+      // Save everything except the task (which is session-specific)
+      const { task: _task, ...settings } = config;
+      await api.saveSettings(settings);
+    } catch {
+      // silently ignore
+    }
+  },
+
   // -- Internal WebSocket ---------------------------------------------------
   _wsConnection: null,
   _wsStatus: 'closed',

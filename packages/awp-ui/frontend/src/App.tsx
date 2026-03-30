@@ -26,6 +26,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  Key,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -39,6 +40,8 @@ import {
   ProgressBar,
   IconButton,
 } from '@/components/Layout';
+import { SessionSidebar } from '@/components/SessionSidebar/SessionSidebar';
+import { SecretsPanel } from '@/components/SecretsPanel/SecretsPanel';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -88,7 +91,11 @@ function TopBar() {
     inspectorOpen,
     toggleInspector,
     config,
+    currentSessionId,
+    sessions,
   } = useWorkflowStore();
+
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
 
   const isRunning = runStatus === 'running';
   const canStart = config.task.trim().length > 0 && !isRunning;
@@ -112,6 +119,13 @@ function TopBar() {
           <PanelLeftOpen className="h-4 w-4" />
         )}
       </IconButton>
+
+      {/* Session title */}
+      {currentSession && (
+        <span className="text-xs font-medium text-awp-muted truncate max-w-[160px]" title={currentSession.title}>
+          {currentSession.title}
+        </span>
+      )}
 
       {/* Run controls */}
       <div className="flex items-center gap-1.5">
@@ -208,6 +222,9 @@ function LeftSidebar() {
     addFiles,
     removeFile,
     runStatus,
+    secrets,
+    addSecret,
+    removeSecret,
   } = useWorkflowStore();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -443,6 +460,19 @@ function LeftSidebar() {
             </label>
           </div>
         </div>
+      </Panel>
+
+      {/* Secrets */}
+      <Panel
+        title="Secrets"
+        icon={<Key className="h-4 w-4 text-awp-yellow" />}
+        defaultOpen={false}
+      >
+        <SecretsPanel
+          secrets={secrets}
+          onAdd={addSecret}
+          onDelete={removeSecret}
+        />
       </Panel>
     </aside>
   );
@@ -823,13 +853,85 @@ function BottomBar() {
 // ---------------------------------------------------------------------------
 
 export function App() {
-  const { sidebarOpen, inspectorOpen, activePanel } = useWorkflowStore();
+  const {
+    sidebarOpen,
+    inspectorOpen,
+    activePanel,
+    sessions,
+    currentSessionId,
+    selectSession,
+    createSession,
+    deleteSession,
+    renameSession,
+    loadSessions,
+    loadSecrets,
+    loadPersistedSettings,
+    saveCurrentSettings,
+    config,
+  } = useWorkflowStore();
+
+  // Load sessions, secrets, and persisted settings on mount
+  useEffect(() => {
+    loadSessions();
+    loadSecrets();
+    loadPersistedSettings();
+  }, [loadSessions, loadSecrets, loadPersistedSettings]);
+
+  // Auto-save settings with debounce when config changes (excluding task)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    // Skip saving on initial render
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveCurrentSettings();
+    }, 1500);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [
+    config.model,
+    config.worker_model,
+    config.max_loops,
+    config.max_total_tokens,
+    config.max_wall_time,
+    config.max_tool_calls,
+    config.max_total_workers,
+    config.max_depth,
+    config.sandbox,
+    config.code_mode,
+    config.tool_creation,
+    config.verbose,
+    saveCurrentSettings,
+  ]);
+
+  const handleNewSession = useCallback(() => {
+    createSession();
+  }, [createSession]);
 
   return (
     <div className="flex flex-col h-screen bg-awp-bg text-awp-text">
       <TopBar />
       <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar */}
+        {/* Session sidebar */}
+        <div className="w-60 shrink-0 border-r border-awp-border bg-awp-panel overflow-hidden">
+          <SessionSidebar
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            onSelectSession={selectSession}
+            onNewSession={handleNewSession}
+            onDeleteSession={deleteSession}
+            onRenameSession={renameSession}
+          />
+        </div>
+
+        {/* Left config sidebar */}
         {sidebarOpen && (
           <div className="w-80 shrink-0 border-r border-awp-border bg-awp-panel overflow-hidden animate-slide-in-left">
             <LeftSidebar />
