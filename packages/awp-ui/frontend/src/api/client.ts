@@ -12,31 +12,28 @@ import type {
 
 /**
  * Resolve the API base URL.
- * In development the Vite proxy forwards /api to the backend,
- * so we can use a relative path.  In production the frontend is
- * served by the same FastAPI process, so window.location.origin works.
+ * In development Vite proxies /api to localhost:8420.
+ * In production the frontend is served from the same origin as the API.
  */
-function baseUrl(): string {
+function getBaseUrl(): string {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL as string;
   }
-  return '';
+  return window.location.origin;
 }
 
-/** Thin wrapper around fetch that throws on non-2xx responses. */
+const BASE = getBaseUrl();
+
+/** Typed wrapper around fetch that throws on non-2xx responses. */
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const url = `${baseUrl()}${path}`;
+  const url = `${BASE}${path}`;
   const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   };
-
-  // Only set Content-Type for non-FormData bodies
-  if (options.body && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
-  }
 
   const res = await fetch(url, { ...options, headers });
 
@@ -51,7 +48,7 @@ async function request<T>(
     throw new Error(`API ${res.status}: ${detail}`);
   }
 
-  // 204 No Content
+  // Handle 204 No Content
   if (res.status === 204) {
     return undefined as unknown as T;
   }
@@ -60,10 +57,10 @@ async function request<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Run lifecycle
+// Runs
 // ---------------------------------------------------------------------------
 
-/** Start a new workflow run and return the generated run ID. */
+/** Start a new workflow run. Returns the assigned run ID. */
 export async function startRun(
   config: WorkflowConfig,
 ): Promise<{ run_id: string }> {
@@ -73,22 +70,22 @@ export async function startRun(
   });
 }
 
-/** List all past and current runs. */
+/** List all runs (most recent first). */
 export async function listRuns(): Promise<RunHistoryEntry[]> {
   return request<RunHistoryEntry[]>('/api/runs');
 }
 
-/** Get detailed information for a single run. */
+/** Get full details for a single run. */
 export async function getRun(runId: string): Promise<RunDetail> {
   return request<RunDetail>(`/api/runs/${runId}`);
 }
 
-/** Get all events emitted during a run. */
+/** Get the event stream for a completed or in-progress run. */
 export async function getRunEvents(runId: string): Promise<RunEvent[]> {
   return request<RunEvent[]>(`/api/runs/${runId}/events`);
 }
 
-/** Get the current agent graph (nodes + edges) for a run. */
+/** Get the agent graph (nodes + edges) for a run. */
 export async function getRunGraph(
   runId: string,
 ): Promise<{ nodes: AgentNode[]; edges: AgentEdge[] }> {
@@ -102,34 +99,41 @@ export async function stopRun(runId: string): Promise<void> {
   return request<void>(`/api/runs/${runId}/stop`, { method: 'POST' });
 }
 
-/** Delete a run and its associated data. */
+/** Delete a run and its artifacts. */
 export async function deleteRun(runId: string): Promise<void> {
   return request<void>(`/api/runs/${runId}`, { method: 'DELETE' });
 }
 
 // ---------------------------------------------------------------------------
-// File uploads
+// Files
 // ---------------------------------------------------------------------------
 
-/** Upload one or more files and return their server-side paths. */
+/** Upload files to be attached to a run. Returns server-side paths. */
 export async function uploadFiles(
   files: File[],
 ): Promise<{ paths: string[] }> {
   const form = new FormData();
-  for (const file of files) {
-    form.append('files', file);
+  for (const f of files) {
+    form.append('files', f);
   }
-  return request<{ paths: string[] }>('/api/files', {
+
+  const res = await fetch(`${BASE}/api/files`, {
     method: 'POST',
     body: form,
   });
+
+  if (!res.ok) {
+    throw new Error(`Upload failed: ${res.statusText}`);
+  }
+
+  return res.json() as Promise<{ paths: string[] }>;
 }
 
 // ---------------------------------------------------------------------------
 // Skills & MCP
 // ---------------------------------------------------------------------------
 
-/** Load an AWP skill from a given path. */
+/** Load a skill from a local path. */
 export async function loadSkill(path: string): Promise<Skill> {
   return request<Skill>('/api/skills', {
     method: 'POST',
@@ -141,13 +145,13 @@ export async function loadSkill(path: string): Promise<Skill> {
 export async function connectMCP(
   config: MCPServerConfig,
 ): Promise<MCPServer> {
-  return request<MCPServer>('/api/mcp', {
+  return request<MCPServer>('/api/mcp/connect', {
     method: 'POST',
     body: JSON.stringify(config),
   });
 }
 
-/** Retrieve the list of tools currently available to the runtime. */
+/** List all tools available for the current configuration. */
 export async function getAvailableTools(): Promise<string[]> {
   return request<string[]>('/api/tools');
 }
@@ -156,7 +160,7 @@ export async function getAvailableTools(): Promise<string[]> {
 // Settings
 // ---------------------------------------------------------------------------
 
-/** Fetch the current default workflow config from the server. */
+/** Retrieve the current default workflow configuration. */
 export async function getSettings(): Promise<WorkflowConfig> {
   return request<WorkflowConfig>('/api/settings');
 }

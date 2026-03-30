@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+.env
+awp_ui.db

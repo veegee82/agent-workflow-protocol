@@ -1,139 +1,102 @@
 import type { RunEvent, WebSocketConnection } from '@/types';
 
-/** Maximum number of reconnection attempts before giving up. */
-const MAX_RECONNECT_ATTEMPTS = 8;
-
-/** Initial delay in ms between reconnection attempts (doubles each time). */
-const INITIAL_RECONNECT_DELAY_MS = 500;
+/** Options for the WebSocket connection. */
+interface ConnectOptions {
+  /** Maximum number of reconnection attempts (default 8). */
+  maxRetries?: number;
+  /** Base delay in ms for exponential backoff (default 500). */
+  baseDelay?: number;
+  /** Called when the underlying connection state changes. */
+  onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'error') => void;
+}
 
 /**
- * Resolve the WebSocket URL for a given run.
- * In dev the Vite proxy handles /ws, in prod we derive from the page origin.
+ * Build the WebSocket URL for a given run.
+ * Respects current protocol (ws / wss) and host.
  */
-function wsUrl(runId: string): string {
-  if (import.meta.env.VITE_WS_BASE_URL) {
-    return `${import.meta.env.VITE_WS_BASE_URL}/ws/runs/${runId}`;
-  }
+function buildWsUrl(runId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/ws/runs/${runId}`;
-}
-
-export type ConnectionState = 'connecting' | 'open' | 'closing' | 'closed';
-
-export interface WebSocketOptions {
-  /** Called whenever the connection state changes. */
-  onStateChange?: (state: ConnectionState) => void;
-  /** Called when the connection is permanently lost after all retries. */
-  onFatalError?: (error: Event | CloseEvent) => void;
-  /** Whether to automatically reconnect on unexpected closure. */
-  autoReconnect?: boolean;
+  const host = import.meta.env.VITE_API_BASE_URL
+    ? new URL(import.meta.env.VITE_API_BASE_URL as string).host
+    : window.location.host;
+  return `${proto}//${host}/ws/runs/${runId}`;
 }
 
 /**
- * Open a WebSocket connection that streams {@link RunEvent}s for the
- * specified run.  Returns a handle to close the connection or send messages.
+ * Open a WebSocket connection to stream events for a workflow run.
+ *
+ * Returns a `WebSocketConnection` handle with `close()`, `send()`,
+ * and `readyState()` helpers. The connection will auto-reconnect on
+ * unexpected closure using exponential backoff.
  */
 export function connectToRun(
   runId: string,
   onEvent: (event: RunEvent) => void,
-  options: WebSocketOptions = {},
+  options: ConnectOptions = {},
 ): WebSocketConnection {
   const {
+    maxRetries = 8,
+    baseDelay = 500,
     onStateChange,
-    onFatalError,
-    autoReconnect = true,
   } = options;
 
   let ws: WebSocket | null = null;
-  let reconnectAttempts = 0;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let retries = 0;
   let intentionallyClosed = false;
-
-  function setState(state: ConnectionState) {
-    onStateChange?.(state);
-  }
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   function connect() {
-    const url = wsUrl(runId);
-    setState('connecting');
-
+    const url = buildWsUrl(runId);
     ws = new WebSocket(url);
+    onStateChange?.('connecting');
 
     ws.onopen = () => {
-      reconnectAttempts = 0;
-      setState('open');
+      retries = 0;
+      onStateChange?.('open');
     };
 
-    ws.onmessage = (messageEvent: MessageEvent) => {
+    ws.onmessage = (ev: MessageEvent) => {
       try {
-        const parsed: unknown = JSON.parse(messageEvent.data as string);
-        if (
-          parsed &&
-          typeof parsed === 'object' &&
-          'type' in parsed &&
-          'timestamp' in parsed
-        ) {
-          onEvent(parsed as RunEvent);
-        }
+        const parsed = JSON.parse(ev.data as string) as RunEvent;
+        onEvent(parsed);
       } catch {
-        // Silently discard malformed messages
+        // Non-JSON message -- ignore gracefully.
       }
     };
 
     ws.onerror = () => {
-      // The browser will follow up with an onclose, so we handle reconnection there.
+      onStateChange?.('error');
     };
 
-    ws.onclose = (closeEvent: CloseEvent) => {
-      setState('closed');
+    ws.onclose = () => {
+      onStateChange?.('closed');
 
       if (intentionallyClosed) {
         return;
       }
 
-      // Normal closure (1000) or run-complete closure (4000) -- do not reconnect.
-      if (closeEvent.code === 1000 || closeEvent.code === 4000) {
-        return;
+      if (retries < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retries);
+        retries += 1;
+        reconnectTimer = setTimeout(connect, delay);
       }
-
-      if (!autoReconnect) {
-        onFatalError?.(closeEvent);
-        return;
-      }
-
-      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        onFatalError?.(closeEvent);
-        return;
-      }
-
-      const delay =
-        INITIAL_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts);
-      reconnectAttempts += 1;
-
-      reconnectTimer = setTimeout(() => {
-        connect();
-      }, delay);
     };
   }
 
-  // Kick off initial connection.
   connect();
 
   return {
     close() {
       intentionallyClosed = true;
-      if (reconnectTimer !== null) {
+      if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      if (ws) {
-        setState('closing');
-        ws.close(1000, 'client disconnect');
-      }
+      ws?.close();
     },
 
     send(data: unknown) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(typeof data === 'string' ? data : JSON.stringify(data));
       }
     },

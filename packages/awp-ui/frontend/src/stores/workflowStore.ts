@@ -12,7 +12,7 @@ import type {
   WebSocketConnection,
 } from '@/types';
 import * as api from '@/api/client';
-import { connectToRun, type ConnectionState } from '@/api/websocket';
+import { connectToRun } from '@/api/websocket';
 
 // ---------------------------------------------------------------------------
 // Default values
@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   max_loops: 20,
   max_total_tokens: 2_000_000,
   max_wall_time: 600,
-  max_tool_calls: 200,
+  max_tool_calls: 100,
   max_total_workers: 10,
   max_depth: 3,
   sandbox: 'subprocess',
@@ -48,7 +48,7 @@ const DEFAULT_BUDGET: BudgetState = {
   wall_time_ms: 0,
   wall_time_max_ms: 600_000,
   tool_calls_used: 0,
-  tool_calls_max: 200,
+  tool_calls_max: 100,
 };
 
 // ---------------------------------------------------------------------------
@@ -66,15 +66,12 @@ export interface WorkflowStore {
   events: RunEvent[];
   addEvent: (event: RunEvent) => void;
 
-  // WebSocket
-  wsConnection: WebSocketConnection | null;
-  wsState: ConnectionState;
-
   // Graph
   graphNodes: Node[];
   graphEdges: Edge[];
   addGraphNode: (node: Node) => void;
   addGraphEdge: (edge: Edge) => void;
+  updateGraphNode: (id: string, data: Partial<Node['data']>) => void;
   selectedNodeId: string | null;
   selectNode: (id: string | null) => void;
 
@@ -111,67 +108,205 @@ export interface WorkflowStore {
   attachedFiles: File[];
   addFiles: (files: File[]) => void;
   removeFile: (index: number) => void;
+
+  // WebSocket handle (internal)
+  _wsConnection: WebSocketConnection | null;
+  _wsStatus: 'connecting' | 'open' | 'closed' | 'error';
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for translating events into graph / output / budget updates
+// Event processing helpers
 // ---------------------------------------------------------------------------
 
-function nodeColor(status: string): string {
-  switch (status) {
-    case 'running':
-      return '#40C4FF';
-    case 'complete':
-      return '#00E676';
-    case 'error':
-      return '#FF1744';
-    default:
-      return '#8b949e';
+function nodeIdFromEvent(evt: RunEvent): string {
+  const d = evt.data;
+  return (
+    (d.node_id as string | undefined) ??
+    (d.agent_id as string | undefined) ??
+    (d.worker_id as string | undefined) ??
+    evt.type + '-' + evt.timestamp
+  );
+}
+
+function processEvent(
+  evt: RunEvent,
+  get: () => WorkflowStore,
+  set: (
+    partial:
+      | Partial<WorkflowStore>
+      | ((s: WorkflowStore) => Partial<WorkflowStore>),
+  ) => void,
+) {
+  const store = get();
+
+  switch (evt.type) {
+    case 'agent.start':
+    case 'delegation.start': {
+      const id = nodeIdFromEvent(evt);
+      const node: Node = {
+        id,
+        type: 'default',
+        position: { x: 0, y: store.graphNodes.length * 120 },
+        data: {
+          label: (evt.data.agent_name as string) ?? evt.type,
+          status: 'running',
+          details: evt.data,
+          nodeType: evt.type === 'delegation.start' ? 'manager' : 'task',
+        },
+      };
+      store.addGraphNode(node);
+      break;
+    }
+
+    case 'worker.spawn': {
+      const workerId = nodeIdFromEvent(evt);
+      const parentId = (evt.data.parent_id as string) ?? '';
+      const node: Node = {
+        id: workerId,
+        type: 'default',
+        position: {
+          x: 200,
+          y: store.graphNodes.length * 120,
+        },
+        data: {
+          label: (evt.data.task as string) ?? 'Worker',
+          status: 'running',
+          details: evt.data,
+          nodeType: 'worker',
+        },
+      };
+      store.addGraphNode(node);
+      if (parentId) {
+        store.addGraphEdge({
+          id: `e-${parentId}-${workerId}`,
+          source: parentId,
+          target: workerId,
+          animated: true,
+        });
+      }
+      break;
+    }
+
+    case 'agent.complete':
+    case 'worker.complete': {
+      const id = nodeIdFromEvent(evt);
+      store.updateGraphNode(id, {
+        status: 'complete',
+        confidence: evt.data.confidence as number | undefined,
+        outputs: evt.data.result as Record<string, unknown> | undefined,
+      });
+
+      // Add output block for completed agents
+      if (evt.data.result) {
+        store.addOutputBlock({
+          type: 'json',
+          content: JSON.stringify(evt.data.result, null, 2),
+          title: (evt.data.agent_name as string) ?? 'Result',
+        });
+      }
+      break;
+    }
+
+    case 'tool.call': {
+      const toolId = nodeIdFromEvent(evt);
+      const callerId =
+        (evt.data.agent_id as string) ?? (evt.data.caller_id as string) ?? '';
+      const node: Node = {
+        id: toolId,
+        type: 'default',
+        position: { x: 400, y: store.graphNodes.length * 120 },
+        data: {
+          label: (evt.data.tool_name as string) ?? 'Tool',
+          status: 'running',
+          details: evt.data,
+          nodeType: 'toolCall',
+        },
+      };
+      store.addGraphNode(node);
+      if (callerId) {
+        store.addGraphEdge({
+          id: `e-${callerId}-${toolId}`,
+          source: callerId,
+          target: toolId,
+        });
+      }
+      break;
+    }
+
+    case 'tool.result': {
+      const toolId = nodeIdFromEvent(evt);
+      store.updateGraphNode(toolId, {
+        status: 'complete',
+        outputs: evt.data,
+      });
+      break;
+    }
+
+    case 'iteration.start': {
+      store.addOutputBlock({
+        type: 'markdown',
+        content: `**Iteration ${evt.data.iteration ?? '?'}**`,
+        title: 'Iteration',
+      });
+      break;
+    }
+
+    case 'iteration.decision': {
+      store.addOutputBlock({
+        type: 'markdown',
+        content:
+          (evt.data.reasoning as string) ??
+          JSON.stringify(evt.data, null, 2),
+        title: 'Decision',
+      });
+      break;
+    }
+
+    case 'budget.update': {
+      store.updateBudget(evt.data as Partial<BudgetState>);
+      break;
+    }
+
+    case 'run.complete': {
+      set({
+        runStatus: 'complete',
+      });
+      if (evt.data.result) {
+        store.addOutputBlock({
+          type: 'markdown',
+          content:
+            typeof evt.data.result === 'string'
+              ? (evt.data.result as string)
+              : JSON.stringify(evt.data.result, null, 2),
+          title: 'Final Result',
+        });
+      }
+      break;
+    }
+
+    case 'run.error': {
+      set({ runStatus: 'error' });
+      store.addOutputBlock({
+        type: 'error',
+        content: (evt.data.error as string) ?? 'Unknown error',
+        title: 'Error',
+      });
+      break;
+    }
+
+    case 'log': {
+      store.addOutputBlock({
+        type: 'markdown',
+        content: (evt.data.message as string) ?? '',
+        title: 'Log',
+      });
+      break;
+    }
   }
 }
 
-function buildNode(
-  id: string,
-  label: string,
-  type: string,
-  status: string,
-  extra: Record<string, unknown> = {},
-  position?: { x: number; y: number },
-): Node {
-  return {
-    id,
-    type: 'default',
-    position: position ?? { x: 0, y: 0 },
-    data: {
-      label,
-      nodeType: type,
-      status,
-      ...extra,
-    },
-    style: {
-      background: '#161b22',
-      color: '#c9d1d9',
-      border: `2px solid ${nodeColor(status)}`,
-      borderRadius: 12,
-      padding: 12,
-      fontSize: 13,
-      minWidth: 160,
-    },
-  };
-}
-
-/** Auto-layout: simple grid placement based on current node count. */
-function autoPosition(existingCount: number): { x: number; y: number } {
-  const cols = 3;
-  const xGap = 280;
-  const yGap = 140;
-  const col = existingCount % cols;
-  const row = Math.floor(existingCount / cols);
-  return { x: col * xGap + 40, y: row * yGap + 40 };
-}
-
 // ---------------------------------------------------------------------------
-// Store implementation
+// Store creation
 // ---------------------------------------------------------------------------
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
@@ -184,21 +319,34 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   currentRunId: null,
   runStatus: 'idle',
   events: [],
-  addEvent: (event) => set((s) => ({ events: [...s.events, event] })),
-
-  // -- WebSocket ------------------------------------------------------------
-  wsConnection: null,
-  wsState: 'closed',
+  addEvent: (event) => {
+    set((s) => ({ events: [...s.events, event] }));
+    processEvent(event, get, set);
+  },
 
   // -- Graph ----------------------------------------------------------------
   graphNodes: [],
   graphEdges: [],
   addGraphNode: (node) =>
-    set((s) => ({ graphNodes: [...s.graphNodes, node] })),
+    set((s) => {
+      // Avoid duplicate IDs
+      if (s.graphNodes.some((n) => n.id === node.id)) return s;
+      return { graphNodes: [...s.graphNodes, node] };
+    }),
   addGraphEdge: (edge) =>
-    set((s) => ({ graphEdges: [...s.graphEdges, edge] })),
+    set((s) => {
+      if (s.graphEdges.some((e) => e.id === edge.id)) return s;
+      return { graphEdges: [...s.graphEdges, edge] };
+    }),
+  updateGraphNode: (id, data) =>
+    set((s) => ({
+      graphNodes: s.graphNodes.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, ...data } } : n,
+      ),
+    })),
   selectedNodeId: null,
-  selectNode: (id) => set({ selectedNodeId: id, inspectorOpen: id !== null }),
+  selectNode: (id) =>
+    set({ selectedNodeId: id, inspectorOpen: id !== null }),
 
   // -- Output ---------------------------------------------------------------
   outputBlocks: [],
@@ -210,7 +358,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   updateBudget: (partial) =>
     set((s) => ({ budget: { ...s.budget, ...partial } })),
 
-  // -- UI -------------------------------------------------------------------
+  // -- UI state -------------------------------------------------------------
   activePanel: 'output',
   setActivePanel: (panel) => set({ activePanel: panel }),
   sidebarOpen: true,
@@ -229,26 +377,18 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const history = await api.listRuns();
       set({ runHistory: history });
     } catch {
-      // Silently ignore -- the server may not be up yet
+      // silently ignore -- backend may be down
     }
   },
-
-  // -- Files ----------------------------------------------------------------
-  attachedFiles: [],
-  addFiles: (files) =>
-    set((s) => ({ attachedFiles: [...s.attachedFiles, ...files] })),
-  removeFile: (index) =>
-    set((s) => ({
-      attachedFiles: s.attachedFiles.filter((_, i) => i !== index),
-    })),
 
   // -- Actions --------------------------------------------------------------
   startRun: async () => {
     const state = get();
     if (state.runStatus === 'running') return;
 
-    // Reset transient state
+    // Reset run state
     set({
+      runStatus: 'running',
       events: [],
       graphNodes: [],
       graphEdges: [],
@@ -262,59 +402,60 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         tool_calls_max: state.config.max_tool_calls,
       },
       selectedNodeId: null,
-      inspectorOpen: false,
       activePanel: 'output',
-      runStatus: 'running',
     });
 
     try {
-      // Upload attached files first
+      // Upload attached files if any
       if (state.attachedFiles.length > 0) {
         await api.uploadFiles(state.attachedFiles);
       }
 
+      // Start the run on the backend
       const { run_id } = await api.startRun(state.config);
       set({ currentRunId: run_id });
 
-      // Connect WebSocket
-      const conn = connectToRun(
-        run_id,
-        (event) => {
-          const s = get();
-          s.addEvent(event);
-          handleEvent(event, get, set);
-        },
-        {
-          onStateChange: (wsState) => set({ wsState }),
-          onFatalError: () =>
-            set({ runStatus: 'error', wsState: 'closed' }),
-        },
-      );
-
-      set({ wsConnection: conn });
+      // Open WebSocket
+      const conn = connectToRun(run_id, (event) => get().addEvent(event), {
+        onStateChange: (ws) => set({ _wsStatus: ws }),
+      });
+      set({ _wsConnection: conn });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ runStatus: 'error' });
-      get().addOutputBlock({ type: 'error', content: message });
+      set({
+        runStatus: 'error',
+        outputBlocks: [
+          {
+            type: 'error',
+            content:
+              err instanceof Error ? err.message : 'Failed to start run',
+            title: 'Start Error',
+          },
+        ],
+      });
     }
   },
 
   stopRun: async () => {
-    const { currentRunId, wsConnection } = get();
-    if (currentRunId) {
-      try {
-        await api.stopRun(currentRunId);
-      } catch {
-        // best-effort
-      }
+    const state = get();
+    if (!state.currentRunId) return;
+
+    try {
+      await api.stopRun(state.currentRunId);
+    } catch {
+      // best-effort
     }
-    wsConnection?.close();
-    set({ runStatus: 'complete', wsConnection: null, wsState: 'closed' });
+
+    state._wsConnection?.close();
+    set({
+      runStatus: 'complete',
+      _wsConnection: null,
+      _wsStatus: 'closed',
+    });
   },
 
   reset: () => {
-    const { wsConnection } = get();
-    wsConnection?.close();
+    const state = get();
+    state._wsConnection?.close();
     set({
       currentRunId: null,
       runStatus: 'idle',
@@ -324,254 +465,22 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       outputBlocks: [],
       budget: { ...DEFAULT_BUDGET },
       selectedNodeId: null,
-      inspectorOpen: false,
-      wsConnection: null,
-      wsState: 'closed',
+      _wsConnection: null,
+      _wsStatus: 'closed',
       attachedFiles: [],
     });
   },
+
+  // -- Files ----------------------------------------------------------------
+  attachedFiles: [],
+  addFiles: (files) =>
+    set((s) => ({ attachedFiles: [...s.attachedFiles, ...files] })),
+  removeFile: (index) =>
+    set((s) => ({
+      attachedFiles: s.attachedFiles.filter((_, i) => i !== index),
+    })),
+
+  // -- Internal WebSocket ---------------------------------------------------
+  _wsConnection: null,
+  _wsStatus: 'closed',
 }));
-
-// ---------------------------------------------------------------------------
-// Event handler -- translates RunEvents into store mutations
-// ---------------------------------------------------------------------------
-
-type SetFn = (
-  partial:
-    | Partial<WorkflowStore>
-    | ((state: WorkflowStore) => Partial<WorkflowStore>),
-) => void;
-type GetFn = () => WorkflowStore;
-
-function handleEvent(event: RunEvent, get: GetFn, set: SetFn) {
-  const { data } = event;
-
-  switch (event.type) {
-    case 'agent.start': {
-      const id = (data.agent_id as string) ?? `agent-${Date.now()}`;
-      const label = (data.name as string) ?? id;
-      const nodeType = (data.role as string) === 'manager' ? 'manager' : 'task';
-      const pos = autoPosition(get().graphNodes.length);
-      const node = buildNode(id, label, nodeType, 'running', {
-        timing: { start: event.timestamp },
-      }, pos);
-      get().addGraphNode(node);
-      break;
-    }
-
-    case 'agent.complete': {
-      const id = (data.agent_id as string) ?? '';
-      set((s) => ({
-        graphNodes: s.graphNodes.map((n) =>
-          n.id === id
-            ? {
-                ...n,
-                data: {
-                  ...n.data,
-                  status: 'complete',
-                  confidence: data.confidence as number | undefined,
-                  outputs: data.result as Record<string, unknown> | undefined,
-                  timing: {
-                    ...(n.data.timing as Record<string, unknown>),
-                    end: event.timestamp,
-                    duration_ms: data.duration_ms as number | undefined,
-                  },
-                },
-                style: {
-                  ...n.style,
-                  border: `2px solid ${nodeColor('complete')}`,
-                },
-              }
-            : n,
-        ),
-      }));
-
-      // Add result as output block
-      if (data.result) {
-        get().addOutputBlock({
-          type: 'markdown',
-          content:
-            typeof data.result === 'string'
-              ? data.result
-              : JSON.stringify(data.result, null, 2),
-          title: `Agent: ${data.name ?? id}`,
-        });
-      }
-      break;
-    }
-
-    case 'tool.call': {
-      const toolId = `tool-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const label = (data.tool as string) ?? 'tool';
-      const pos = autoPosition(get().graphNodes.length);
-      const node = buildNode(toolId, label, 'toolCall', 'running', {
-        inputs: data.arguments as Record<string, unknown> | undefined,
-      }, pos);
-      get().addGraphNode(node);
-
-      // Connect to parent agent if available
-      const parentId = data.agent_id as string | undefined;
-      if (parentId) {
-        get().addGraphEdge({
-          id: `e-${parentId}-${toolId}`,
-          source: parentId,
-          target: toolId,
-          animated: true,
-          style: { stroke: '#40C4FF', strokeWidth: 2 },
-        });
-      }
-      break;
-    }
-
-    case 'tool.result': {
-      // Find the most recent running toolCall node
-      set((s) => {
-        const idx = [...s.graphNodes]
-          .reverse()
-          .findIndex(
-            (n) =>
-              n.data.nodeType === 'toolCall' && n.data.status === 'running',
-          );
-        if (idx === -1) return {};
-        const realIdx = s.graphNodes.length - 1 - idx;
-        const updated = [...s.graphNodes];
-        updated[realIdx] = {
-          ...updated[realIdx],
-          data: {
-            ...updated[realIdx].data,
-            status: 'complete',
-            outputs: data as Record<string, unknown>,
-          },
-          style: {
-            ...updated[realIdx].style,
-            border: `2px solid ${nodeColor('complete')}`,
-          },
-        };
-        return { graphNodes: updated };
-      });
-      break;
-    }
-
-    case 'iteration.start': {
-      const iterId = `iter-${data.loop ?? Date.now()}`;
-      const pos = autoPosition(get().graphNodes.length);
-      const node = buildNode(
-        iterId,
-        `Iteration ${data.loop ?? '?'}`,
-        'iteration',
-        'running',
-        {},
-        pos,
-      );
-      get().addGraphNode(node);
-      break;
-    }
-
-    case 'iteration.decision': {
-      get().addOutputBlock({
-        type: 'markdown',
-        content: `**Decision (loop ${data.loop ?? '?'}):** ${data.decision ?? 'unknown'}`,
-      });
-      break;
-    }
-
-    case 'budget.update': {
-      get().updateBudget(data as Partial<BudgetState>);
-      break;
-    }
-
-    case 'worker.spawn': {
-      const workerId =
-        (data.worker_id as string) ?? `worker-${Date.now()}`;
-      const label = (data.task as string) ?? workerId;
-      const pos = autoPosition(get().graphNodes.length);
-      const node = buildNode(workerId, label, 'worker', 'running', {}, pos);
-      get().addGraphNode(node);
-
-      const managerId = data.manager_id as string | undefined;
-      if (managerId) {
-        get().addGraphEdge({
-          id: `e-${managerId}-${workerId}`,
-          source: managerId,
-          target: workerId,
-          animated: true,
-          style: { stroke: '#E040FB', strokeWidth: 2 },
-        });
-      }
-      break;
-    }
-
-    case 'worker.complete': {
-      const wId = (data.worker_id as string) ?? '';
-      set((s) => ({
-        graphNodes: s.graphNodes.map((n) =>
-          n.id === wId
-            ? {
-                ...n,
-                data: {
-                  ...n.data,
-                  status: data.error ? 'error' : 'complete',
-                  outputs: data.result as Record<string, unknown> | undefined,
-                  error: data.error as string | undefined,
-                },
-                style: {
-                  ...n.style,
-                  border: `2px solid ${nodeColor(data.error ? 'error' : 'complete')}`,
-                },
-              }
-            : n,
-        ),
-      }));
-      break;
-    }
-
-    case 'delegation.start': {
-      get().addOutputBlock({
-        type: 'markdown',
-        content: `**Delegation started** -- manager dispatching workers`,
-        title: 'Delegation',
-      });
-      break;
-    }
-
-    case 'run.complete': {
-      set({ runStatus: 'complete' });
-      if (data.result) {
-        get().addOutputBlock({
-          type: 'markdown',
-          content:
-            typeof data.result === 'string'
-              ? data.result
-              : JSON.stringify(data.result, null, 2),
-          title: 'Final Result',
-        });
-      }
-      get().wsConnection?.close();
-      set({ wsConnection: null, wsState: 'closed' });
-      break;
-    }
-
-    case 'run.error': {
-      set({ runStatus: 'error' });
-      get().addOutputBlock({
-        type: 'error',
-        content: (data.error as string) ?? 'Unknown error',
-        title: 'Run Error',
-      });
-      get().wsConnection?.close();
-      set({ wsConnection: null, wsState: 'closed' });
-      break;
-    }
-
-    case 'log': {
-      const level = (data.level as string) ?? 'info';
-      const message = (data.message as string) ?? '';
-      if (level === 'error') {
-        get().addOutputBlock({ type: 'error', content: message });
-      } else {
-        get().addOutputBlock({ type: 'markdown', content: message });
-      }
-      break;
-    }
-  }
-}
