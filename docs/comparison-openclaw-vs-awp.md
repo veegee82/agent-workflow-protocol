@@ -1,16 +1,20 @@
-# OpenClaw + AWP Integration: Unlocking Complex Multi-Agent Workflows
+# How to Give OpenClaw a Real Brain
 
-> **OpenClaw reaches your users everywhere. AWP makes them capable of anything.**
+> **OpenClaw has the best nervous system in open source — 25+ channels, 35+ providers, device integration. But it's missing a brain. AWP is that brain.**
 
-[OpenClaw](https://github.com/openclaw/openclaw) is the best open-source AI assistant gateway — 25+ messaging channels, 35+ LLM providers, device integration, local-first privacy. But it has one fundamental limitation: **every task, no matter how complex, is handled by a single agent in a single context window.** AWP removes that ceiling.
+[OpenClaw](https://github.com/openclaw/openclaw) is the most connected AI assistant gateway out there. It reaches users on WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more platforms. It manages 35+ LLM providers with failover. It integrates cameras, voice, screens, and location. It is, without question, the best open-source **nervous system** for AI assistants.
+
+But a nervous system without a brain can only do one thing: **relay signals.** Every message goes in, one LLM call happens, one response comes back. That is not thinking. That is a reflex.
+
+AWP gives OpenClaw the ability to actually **think** — to decompose problems, coordinate specialists, validate results, control costs, and iterate until the answer is good enough. Here is why that matters, and what it makes possible.
 
 ---
 
-## 1. The Complexity Problem OpenClaw Cannot Solve Alone
+## 1. The Problem: OpenClaw Hits a Ceiling on Complex Tasks
 
-OpenClaw's architecture routes each incoming message to one agent persona. That agent calls one LLM, gets one response, and sends it back. This works beautifully for simple tasks — answering questions, drafting messages, quick lookups.
+OpenClaw routes each message to one agent. That agent makes one LLM call and returns the result. For simple tasks — answering questions, drafting messages, quick lookups — this is perfect.
 
-But real-world tasks are rarely simple:
+But the moment a task gets complex, that single-agent architecture breaks down:
 
 | Task | What It Actually Requires | OpenClaw Alone | OpenClaw + AWP |
 |------|--------------------------|----------------|----------------|
@@ -24,49 +28,47 @@ But real-world tasks are rarely simple:
 
 ---
 
-## 2. What AWP Adds to OpenClaw — From Idea to Implementation
+## 2. The Brain: How AWP Turns Reflexes Into Thinking
 
-### 2.1 The Core Idea
+### 2.1 The Architecture
 
-OpenClaw becomes the **user-facing layer** — it handles channels, devices, model failover, and user experience. AWP becomes the **orchestration backend** — it handles task decomposition, multi-agent coordination, quality assurance, and cost control. Simple tasks still go through OpenClaw's Pi agent directly. Complex tasks get dispatched to AWP.
+Think of it like this: OpenClaw is the **nervous system** — it senses (channels), moves (devices), and communicates (messaging). AWP is the **brain** — it plans (task decomposition), delegates (worker agents), evaluates (validation), and learns when to stop (budget + stall detection).
+
+Simple reflexes still go through OpenClaw directly — no overhead for a weather check. But when a task requires actual thinking, AWP takes over.
 
 <p align="center">
   <img src="diagrams/07-integration-benefits.svg" alt="What AWP Brings to OpenClaw" width="100%"/>
 </p>
 
-### 2.2 The Concrete Implementation Path
+### 2.2 How the Brain Works — Step by Step
 
-**Step 1: Task Classification**
+**Step 1: Reflex or Thought?**
 
-When a message arrives, OpenClaw's routing agent classifies it before responding:
+When a message arrives, the first decision is: does this need thinking? A lightweight classification checks whether the task requires multiple skills, intermediate artifacts, or parallel execution. "What's the weather?" is a reflex. "Analyze our competitors and write a strategy" requires a brain.
 
-- **Simple** (weather check, quick answer, message draft) → OpenClaw handles it directly via Pi agent. Fast, streaming, no overhead.
-- **Complex** (multi-step research, analysis pipelines, code review, data processing) → OpenClaw dispatches to AWP runtime.
+**Step 2: The Brain Plans**
 
-The classification itself is a lightweight LLM call — it checks whether the task requires multiple distinct skills, produces intermediate artifacts, or would benefit from parallel execution.
+For tasks that require thinking, AWP's manager agent plans the approach — like a prefrontal cortex deciding how to tackle a problem:
 
-**Step 2: AWP Takes Over Orchestration**
+- **DAG Engine** for tasks with clear structure: "first research, then analyze, then write" — like following a recipe
+- **Delegation Loop** for tasks where the plan itself is unclear: "investigate this problem, see what you find, then dig deeper" — like exploring unknown territory
 
-For complex tasks, AWP receives the user's request and the routing agent's classification. AWP's manager agent decides the execution strategy:
+**Step 3: Specialists Execute**
 
-- **DAG Engine** for tasks with clear sequential or parallel structure (data pipelines, fan-out research, multi-stage analysis)
-- **Delegation Loop** for tasks where the decomposition itself is emergent (open-ended investigation, creative projects, ambiguous problem-solving)
+AWP spawns specialized ephemeral workers — each with its own model, tools, instructions, and output contract. This is the key difference: instead of one generalist agent fumbling through everything, you get a team of specialists.
 
-**Step 3: Workers Execute With Guardrails**
-
-AWP spawns specialized ephemeral workers — each with its own model, tools, instructions, and output contract. Every worker result passes through validation:
-
+Every worker result passes through the brain's quality filters:
 - Deterministic checks (is it structured? does it have a confidence score?) catch garbage instantly
 - LLM semantic checks (does this actually answer the question?) catch subtle failures
 - Stall detection (is the worker going in circles?) prevents wasted compute
 
-The 5-dimensional budget system ensures the entire workflow stays within cost, time, and resource limits — something OpenClaw has no mechanism for.
+The 5-dimensional budget system ensures the brain never overthinks — hard limits on tokens, time, workers, loops, and tool calls. OpenClaw has no equivalent.
 
-**Step 4: Result Returns to OpenClaw**
+**Step 4: One Clean Result**
 
-The synthesized result flows back to the OpenClaw agent, which formats and delivers it through the original messaging channel. The user sees one clean reply — they do not need to know that 5 agents collaborated behind the scenes.
+The synthesized result flows back to OpenClaw, which delivers it through the original channel. The user sees one polished reply. They do not know — and do not need to know — that a team of 5 specialists collaborated behind the scenes.
 
-### 2.3 What This Unlocks — Concrete Scenarios
+### 2.3 What a Brain Makes Possible — Five Real Scenarios
 
 #### Scenario A: Enterprise Research Pipeline via Slack
 
@@ -152,24 +154,24 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 
 ---
 
-## 3. Complexity Comparison: OpenClaw vs. OpenClaw + AWP
+## 3. Reflex vs. Brain: The Complexity Gap
 
-| Complexity Dimension | OpenClaw Alone | OpenClaw + AWP | Improvement |
-|---------------------|---------------|----------------|-------------|
-| **Max concurrent agents per task** | 1 (+ depth-limited subagents) | Unlimited (budget-bounded) | From single-threaded to parallel execution |
-| **Task decomposition** | Manual — user must break down tasks | Automatic — manager agent plans the decomposition | User describes the goal, not the steps |
-| **Specialist knowledge per task** | One agent, one system prompt | N workers, each with specialized instructions and skills | Domain experts instead of generalists |
-| **Quality assurance** | None — output returned as-is | 2-tier validation + stall detection | Catch failures before the user sees them |
-| **Cost control** | None — unbounded token consumption | 5D budget system with hard stops | Predictable costs even for complex tasks |
-| **State flow between agents** | Isolated sessions — no sharing | Explicit field-level sharing rules | Pipeline architectures become possible |
-| **Execution patterns** | Request → Response | DAG (sequential, parallel, conditional, fan-out/in), Delegation Loop (emergent), Recursive (A4) | From chat to workflow orchestration |
-| **Failure recovery** | Retry the entire task | Re-dispatch individual workers with refined instructions | Surgical recovery instead of full restart |
-| **Context management** | Single context window (overflow → compaction) | Rolling summary + spillover to files per worker | Handle tasks larger than any single context window |
-| **Workflow reuse** | Skills (JSON5 config) | `.awp.zip` bundles — portable, versioned, shareable | Complex workflows become distributable artifacts |
+| Dimension | Reflex (OpenClaw Alone) | Brain (OpenClaw + AWP) | What Changes |
+|-----------|------------------------|----------------------|--------------|
+| **Agents per task** | 1 (+ depth-limited subagents) | Unlimited (budget-bounded) | From single-threaded to parallel teams |
+| **Task decomposition** | Manual — user must break down tasks | Automatic — manager agent plans it | User describes the goal, not the steps |
+| **Specialization** | One agent, one system prompt | N workers, each a domain expert | Specialists instead of a generalist |
+| **Quality assurance** | None — output returned as-is | 2-tier validation + stall detection | Failures caught before the user sees them |
+| **Cost control** | None — unbounded token consumption | 5D budget system with hard stops | Predictable costs, even for complex tasks |
+| **State flow** | Isolated sessions — no sharing | Explicit field-level sharing rules | Pipelines become possible |
+| **Execution patterns** | Request → Response | DAG, Delegation Loop, Recursive (A4) | From chat to orchestration |
+| **Failure recovery** | Retry the entire task | Re-dispatch individual workers | Surgical recovery, not full restart |
+| **Context capacity** | Single context window (overflow → compaction) | Rolling summary + file spillover per worker | Handle tasks larger than any context window |
+| **Workflow reuse** | Skills (JSON5 config) | `.awp.zip` bundles — portable, versioned | Complex workflows become shareable artifacts |
 
 ---
 
-## 4. How Each System Plays to Its Strengths
+## 4. Nervous System + Brain: Who Does What
 
 <p align="center">
   <img src="diagrams/05-integration-scenario.svg" alt="Integration Architecture" width="100%"/>
@@ -232,7 +234,7 @@ Five pieces of content, each optimized for its platform, all brand-consistent, a
 | **Device/hardware** | OpenClaw | Large — AWP has no device concept |
 | **Context management** | Tie | Different approaches, both effective |
 
-**The most interesting question is not "which is better?" but "how do they compose?"** — a Gateway that knows how to reach users on every platform, backed by an orchestration engine that can decompose any task into coordinated, budget-bounded, validated agent workflows.
+**OpenClaw without AWP is an incredibly well-connected assistant that can only do one thing at a time. OpenClaw with AWP is a thinking machine** — it plans, delegates, validates, and iterates, all while staying within budget, all delivered through the channel the user already lives in.
 
 ---
 
