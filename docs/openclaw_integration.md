@@ -1,12 +1,12 @@
 # How to Give OpenClaw a Real Brain
 
-> **OpenClaw has the best nervous system in open source — 25+ channels, 25+ providers, device integration. But it's missing a brain. AWP is that brain.**
+> **OpenClaw is the best-connected AI gateway in open source. AWP gives it a brain — declarative orchestration, runtime tool creation, and budget-bounded multi-agent workflows.**
 
-[OpenClaw](https://github.com/openclaw/openclaw) is the most connected AI assistant gateway out there. It reaches users on WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more platforms. It manages 25+ LLM providers with failover. It integrates cameras, voice, screens, and location. It is, without question, the best open-source **nervous system** for AI assistants.
+[OpenClaw](https://github.com/openclaw/openclaw) is the most connected AI assistant gateway out there. It reaches users on WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more platforms. It manages 25+ LLM providers with failover. It integrates cameras, voice, screens, and location.
 
-But a nervous system without a brain can only do one thing: **relay signals.** Every message goes in, one LLM call happens, one response comes back. That is not thinking. That is a reflex.
+What it lacks is an **orchestration layer**. Every message goes to one agent, gets one LLM call, and comes back. OpenClaw can spawn subagents (up to depth 5), but there is no declarative workflow definition, no structured state sharing, no output validation with confidence scoring, and no multi-dimensional budget enforcement. Most critically: the tool set is fixed — the system cannot adapt to tasks it was not built for.
 
-AWP gives OpenClaw the ability to actually **think** — to decompose problems, coordinate specialists, validate results, control costs, and most critically: **to build its own tools at runtime.** A brain that can only use pre-installed tools is limited to what its creators anticipated. A brain that can create new tools on the fly can adapt to any task it encounters. That is the real differentiator.
+AWP provides exactly this orchestration layer — declarative DAG and delegation loop engines, 5-dimensional budget enforcement, 2-tier output validation, and **A3 runtime tool creation** where workers build new Python tools on the fly, validated by AST analysis and executed in sandboxed subprocesses.
 
 ---
 
@@ -28,59 +28,59 @@ But for genuinely complex tasks — multi-step pipelines, parallel research, ite
 
 ---
 
-## 2. The Brain: How AWP Turns Reflexes Into Thinking
+## 2. What AWP Adds: Orchestration, Validation, and Runtime Adaptation
 
 ### 2.1 The Architecture
 
-Think of it like this: OpenClaw is the **nervous system** — it senses (channels), moves (devices), and communicates (messaging). AWP is the **brain** — it plans (task decomposition), delegates (worker agents), evaluates (validation), and learns when to stop (budget + stall detection).
+OpenClaw handles **user-facing concerns**: channels, devices, model failover, messaging UX. AWP handles **orchestration concerns**: task decomposition (DAG + Delegation Loop), budget enforcement (5D), output validation (2-tier), stall detection, state sharing, and runtime tool creation (A3+).
 
-Simple reflexes still go through OpenClaw directly — no overhead for a weather check. But when a task requires actual thinking, AWP takes over.
+Simple tasks still go through OpenClaw directly — no overhead for a weather check. Complex tasks get dispatched to AWP.
 
 <p align="center">
   <img src="diagrams/07-integration-benefits.svg" alt="What AWP Brings to OpenClaw" width="100%"/>
 </p>
 
-### 2.2 How the Brain Works — Step by Step
+### 2.2 How It Works — Step by Step
 
-**Step 1: Reflex or Thought?**
+**Step 1: Task Classification**
 
-When a message arrives, the first decision is: does this need thinking? A lightweight classification checks whether the task requires multiple skills, intermediate artifacts, or parallel execution. "What's the weather?" is a reflex. "Analyze our competitors and write a strategy" requires a brain.
+When a message arrives, OpenClaw's routing agent classifies it. Simple tasks (weather, quick answer) go through OpenClaw's Pi agent directly. Complex multi-step tasks get dispatched to AWP.
 
-**Step 2: The Brain Plans**
+**Step 2: AWP Plans the Execution**
 
-For tasks that require thinking, AWP's manager agent plans the approach — like a prefrontal cortex deciding how to tackle a problem:
+AWP's manager agent selects the execution strategy:
 
-- **DAG Engine** for tasks with clear structure: "first research, then analyze, then write" — like following a recipe
-- **Delegation Loop** for tasks where the plan itself is unclear: "investigate this problem, see what you find, then dig deeper" — like exploring unknown territory
+- **DAG Engine** for tasks with clear structure — sequential steps, parallel branches, conditional execution, fan-out/fan-in
+- **Delegation Loop** for tasks where the decomposition is emergent — the manager dispatches workers, evaluates results, and re-dispatches with refined instructions
 
-**Step 3: Specialists Execute**
+**Step 3: Specialized Workers Execute**
 
-AWP spawns specialized ephemeral workers — each with its own model, tools, instructions, and output contract. This is the key difference: instead of one generalist agent fumbling through everything, you get a team of specialists.
+AWP spawns ephemeral workers — each with its own model, tools, instructions, and output contract. Instead of one generalist agent, you get a team of specialists.
 
-Every worker result passes through the brain's quality filters:
-- Deterministic checks (is it structured? does it have a confidence score?) catch garbage instantly
-- LLM semantic checks (does this actually answer the question?) catch subtle failures
-- Stall detection (is the worker going in circles?) prevents wasted compute
+Every worker result passes through AWP's validation pipeline:
+- **Tier 1 (deterministic, free)**: Is it a dict? Has confidence in [0,1]? Not a pure error?
+- **Tier 2 (LLM semantic, conditional)**: Does the result actually address the task? Skipped when confidence >= 0.95 or budget <= 10%
+- **Stall detection**: Confidence delta + output similarity monitoring — warns once, then stops
 
-The 5-dimensional budget system ensures the brain never overthinks — hard limits on tokens, time, workers, loops, and tool calls. OpenClaw has timeouts and concurrency caps, but no token-level cost control or multi-dimensional budget enforcement.
+The **5-dimensional budget system** enforces hard limits on tokens, time, workers, loops, and tool calls. OpenClaw has timeouts and concurrency caps, but no token-level cost control.
 
-**Step 4: One Clean Result**
+**Step 4: Result Delivery**
 
-The synthesized result flows back to OpenClaw, which delivers it through the original channel. The user sees one polished reply. They do not know — and do not need to know — that a team of 5 specialists collaborated behind the scenes.
+The synthesized result flows back to OpenClaw, which delivers it through the original channel. The user sees one polished reply.
 
-### 2.3 The Real Brain: Runtime Tool and Skill Generation
+### 2.3 A3 Runtime Adaptation: Tool and Skill Generation
 
-Task decomposition and budget control are important. But the feature that truly makes AWP a **brain** — not just a scheduler — is **runtime tool creation**. This is the A3 capability, and it changes what is fundamentally possible.
+Task decomposition and budget control make workflows reliable. But the feature that makes AWP fundamentally different from every other orchestration system is **A3 runtime tool creation** — the ability for workers to build new tools during execution.
 
-#### The Problem With Fixed Tools
+#### Why This Matters
 
-Every AI assistant — OpenClaw included — ships with a fixed set of tools: file read/write, web search, code execution, browser automation. When a user asks for something that does not fit these tools, the assistant is stuck. It can try to hack together an answer with what it has, but it cannot create the tool it actually needs.
+OpenClaw ships with 30+ built-in tools (bash, files, browser, messaging, media). AWP ships with fewer. But OpenClaw's tools are **static** — the system can only do what its developers anticipated. When a user asks for a Sharpe ratio calculation, a custom API integration, or a domain-specific data transformation, no pre-built tool fits.
 
-This is like a brain that can only use its hands. Useful, but limited. A real brain also builds hammers, telescopes, and calculators — tools that extend what it can do.
+AWP's A3 workers solve this by **creating new Python tools at runtime** — validated, sandboxed, and available to other workers in the same workflow.
 
-#### How AWP Workers Create Tools at Runtime
+#### How It Works
 
-When a manager delegates with `codemode.tool_creation: true`, the worker can do something no OpenClaw agent can: **write a Python function, register it as a new tool, and make it available to itself and other workers** — all within the same workflow run.
+When a manager delegates with `codemode.tool_creation: true`, the worker can write a Python function, register it as a new tool, and make it available to itself and other workers — all within the same workflow run.
 
 **How it works in practice:**
 
@@ -103,9 +103,7 @@ Every dynamically created tool runs in a **subprocess sandbox** with strict guar
 - **AST validation before execution**: Code is parsed, not executed, during validation. Denied imports are caught before the tool ever runs
 - **Fresh subprocess per call**: Each tool invocation runs in a new subprocess — no persistent state, no cross-tool memory leaks, 10-second timeout
 
-#### Why This Is the Real Differentiator
-
-Consider what this means for an OpenClaw + AWP integration:
+#### Concrete Example: OpenClaw + AWP Runtime Adaptation
 
 **User sends via Slack**: *"Calculate the Sharpe ratio for these 5 ETFs over the last 3 years and rank them."*
 
@@ -122,11 +120,9 @@ With AWP:
 5. The manager dispatches a **data analyst** worker that calls `finance.fetch_prices` for each ETF, then `finance.sharpe_ratio` on each result
 6. A **report writer** worker formats the rankings into a clean comparison table
 
-The system **adapted to the task**. It did not have a Sharpe ratio tool before this request. Now it does. And those tools ran in sandboxed subprocesses with only the imports and secrets they needed — no more.
+The system **adapted to the task**. It did not have a Sharpe ratio tool before this request. Now it does — and those tools ran in sandboxed subprocesses with only the imports and secrets they needed.
 
-**This is what a brain does that a nervous system cannot**: it encounters an unfamiliar problem and builds the cognitive tools to solve it.
-
-#### What OpenClaw Has vs. What AWP Adds
+#### Tool System Comparison: Static vs. Adaptive
 
 | Capability | OpenClaw | AWP (A3+) |
 |-----------|----------|-----------|
@@ -138,17 +134,17 @@ The system **adapted to the task**. It did not have a Sharpe ratio tool before t
 | **Tool reuse across agents** | Each agent has its own tool access | Created tools available to all workers in the workflow |
 | **Tool persistence** | Skills persist across sessions | Optional persistence to workspace (tools can outlive the worker that created them) |
 
-OpenClaw has more built-in tools. But its tools are **static** — they are what they are. AWP has fewer built-in tools, but it can **create new ones at runtime**. This is the difference between a toolbox and a workshop.
+OpenClaw has more built-in tools. AWP can create new ones at runtime. Together: a system that starts with 30+ tools and can add any tool it needs.
 
 ---
 
-### 2.4 What a Brain Makes Possible — Five Real Scenarios
+### 2.4 Scenarios: From Message to Multi-Agent Workflow
 
 #### Scenario A: Enterprise Research Pipeline via Slack
 
 A product manager types in Slack: *"Compare our pricing against the top 5 competitors in the European market. Include market share data and a recommendation."*
 
-**Without AWP**: OpenClaw's agent produces a surface-level response from a single LLM call. No real data, no structured comparison, no confidence in the numbers.
+**OpenClaw alone**: The agent (or ad-hoc subagents) attempts everything without structured state flow between steps, output validation, or token budget control.
 
 **With AWP**: The message flows through OpenClaw to an AWP delegation loop:
 
@@ -246,11 +242,11 @@ No AI assistant has a "Value at Risk" tool built in. This is a specialized finan
 
 The data scientist gets a real analysis with real numbers, computed from actual market data, using mathematically correct implementations that were created, validated, and sandboxed during this single workflow run. The tools ran in isolated subprocesses with 10-second timeouts, and the API key never appeared in any LLM prompt.
 
-**This is the scenario that separates a brain from a scheduler.** Any orchestration system can dispatch workers. Only AWP lets those workers **build the tools they need** — safely, within namespace boundaries, with secret injection and import restrictions enforced by AST validation.
+**This is what separates A3 runtime adaptation from static orchestration.** Any scheduler can dispatch workers to existing tools. AWP lets workers **build the tools they need** — safely, within namespace boundaries, with secret injection and import restrictions enforced by AST validation.
 
 ---
 
-## 3. Reflex vs. Brain: The Complexity Gap
+## 3. The Orchestration Gap: OpenClaw vs. OpenClaw + AWP
 
 | Dimension | OpenClaw Alone | OpenClaw + AWP | What Changes |
 |-----------|---------------|----------------|--------------|
@@ -269,7 +265,7 @@ The data scientist gets a real analysis with real numbers, computed from actual 
 
 ---
 
-## 4. Nervous System + Brain: Who Does What
+## 4. Responsibility Split: OpenClaw vs. AWP
 
 <p align="center">
   <img src="diagrams/05-integration-scenario.svg" alt="Integration Architecture" width="100%"/>
@@ -332,7 +328,7 @@ The data scientist gets a real analysis with real numbers, computed from actual 
 | **Device/hardware** | OpenClaw | Large — AWP has no device concept |
 | **Context management** | Tie | Different approaches, both effective |
 
-**OpenClaw without AWP is an incredibly well-connected assistant that can only do one thing at a time. OpenClaw with AWP is a thinking machine** — it plans, delegates, validates, and iterates, all while staying within budget, all delivered through the channel the user already lives in.
+**OpenClaw without AWP** is the best-connected AI assistant gateway — but limited to ad-hoc subagent spawn and fixed tools. **OpenClaw with AWP** gains declarative orchestration (DAG + Delegation Loop), 5D budget enforcement, 2-tier validation, and A3 runtime tool creation — all delivered through the channel the user already lives in.
 
 ---
 
