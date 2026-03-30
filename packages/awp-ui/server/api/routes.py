@@ -260,16 +260,37 @@ async def upload_files(files: list[UploadFile] = File(...)) -> dict[str, Any]:
 
 @router.get("/settings")
 async def get_settings() -> dict[str, Any]:
-    """Get current default settings."""
+    """Get current default settings (loaded from SQLite, falling back to defaults)."""
+    from server.app import store
+
+    persisted = await store.get_settings()
+    if persisted:
+        # Merge persisted over defaults so new keys have defaults
+        merged = dict(_default_settings)
+        merged.update(persisted)
+        return merged
     return dict(_default_settings)
 
 
 @router.post("/settings")
 async def update_settings(update: SettingsUpdate) -> dict[str, Any]:
-    """Update default settings. Only non-None fields are applied."""
+    """Update default settings. Persists to SQLite."""
+    from server.app import store
+
+    # Load current persisted settings or start from defaults
+    persisted = await store.get_settings()
+    current = dict(_default_settings)
+    if persisted:
+        current.update(persisted)
+
+    # Apply non-None updates
     for field, value in update.model_dump(exclude_none=True).items():
+        current[field] = value
         _default_settings[field] = value
-    return dict(_default_settings)
+
+    # Persist to DB
+    await store.save_settings(current)
+    return current
 
 
 # ---------------------------------------------------------------------------
@@ -338,3 +359,184 @@ async def list_available_tools() -> dict[str, Any]:
             })
 
     return {"tools": tools}
+
+
+# ---------------------------------------------------------------------------
+# Sessions
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sessions")
+async def create_session(body: dict[str, Any]) -> dict[str, Any]:
+    """Create a new session."""
+    from server.app import store
+
+    session_id = uuid.uuid4().hex[:12]
+    title = body.get("title", "Untitled Session")
+    await store.create_session(session_id, title)
+    session = await store.get_session(session_id)
+    return session or {"id": session_id, "title": title}
+
+
+@router.get("/sessions")
+async def list_sessions(
+    limit: int = Query(50, ge=1, le=500),
+) -> dict[str, Any]:
+    """List all sessions, newest first."""
+    from server.app import store
+
+    rows = await store.list_sessions(limit=limit)
+    entries = [
+        SessionInfo(
+            id=r["id"],
+            title=r["title"],
+            created_at=r["created_at"],
+            updated_at=r["updated_at"],
+            run_count=r["run_count"],
+            last_run_status=r.get("last_run_status"),
+        )
+        for r in rows
+    ]
+    return {"sessions": [e.model_dump() for e in entries]}
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str) -> dict[str, Any]:
+    """Get session detail with runs."""
+    from server.app import store
+
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    runs = await store.get_session_runs(session_id)
+    run_entries = [
+        RunHistoryEntry(
+            run_id=r["run_id"],
+            task=r["task"],
+            model=r["model"],
+            status=r["status"],
+            created_at=r["created_at"],
+            completed_at=r.get("completed_at"),
+        )
+        for r in runs
+    ]
+
+    detail = SessionDetail(
+        id=session["id"],
+        title=session["title"],
+        created_at=session["created_at"],
+        updated_at=session["updated_at"],
+        runs=run_entries,
+        settings=session.get("settings", {}),
+    )
+    return detail.model_dump()
+
+
+@router.put("/sessions/{session_id}")
+async def update_session(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Rename session."""
+    from server.app import store
+
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    title = body.get("title")
+    await store.update_session(session_id, title=title)
+    updated = await store.get_session(session_id)
+    return updated or session
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict[str, str]:
+    """Delete session and all its run links."""
+    from server.app import store
+
+    deleted = await store.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "deleted"}
+
+
+@router.post("/sessions/{session_id}/runs")
+async def add_run_to_session(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Create a run within a session."""
+    from server.app import store
+    from server.services.runner_service import runner_service
+
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Build a WorkflowConfig from the body
+    config = WorkflowConfig(**body)
+    run_id = uuid.uuid4().hex[:12]
+
+    # Inject secrets
+    config_dict = config.model_dump(mode="json")
+    stored_secrets = await _load_secrets_for_run(store)
+    if stored_secrets:
+        merged = dict(stored_secrets)
+        merged.update(config_dict.get("secrets") or {})
+        config_dict["secrets"] = merged
+
+    await store.save_run(
+        run_id=run_id,
+        task=config.task,
+        model=config.model,
+        config=config_dict,
+        status="running",
+    )
+    await store.add_run_to_session(session_id, run_id)
+
+    runner_service.start_run(run_id, config_dict)
+
+    return {"run_id": run_id, "status": "running", "session_id": session_id}
+
+
+@router.get("/sessions/{session_id}/history")
+async def get_session_history(session_id: str) -> dict[str, Any]:
+    """Get chat-like history for session (tasks + results)."""
+    from server.app import store
+
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    history = await store.get_session_history(session_id)
+    return {"session_id": session_id, "history": history}
+
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+
+
+@router.get("/secrets")
+async def list_secrets() -> dict[str, Any]:
+    """List secret keys (values never exposed)."""
+    from server.app import store
+
+    metadata = await store.list_secrets_metadata()
+    return {"secrets": metadata}
+
+
+@router.post("/secrets")
+async def create_secret(body: SecretCreate) -> dict[str, Any]:
+    """Store a secret."""
+    from server.app import store
+
+    await store.save_secret(body.key, body.value)
+    return {"status": "saved", "key": body.key}
+
+
+@router.delete("/secrets/{key}")
+async def delete_secret(key: str) -> dict[str, str]:
+    """Delete a secret."""
+    from server.app import store
+
+    deleted = await store.delete_secret(key)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Secret not found")
+    return {"status": "deleted"}

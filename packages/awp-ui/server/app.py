@@ -38,6 +38,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialise the SQLite database
     await store.init_db()
+
+    # Load persisted settings into the in-memory defaults
+    persisted_settings = await store.get_settings()
+    if persisted_settings:
+        from server.api.routes import _default_settings
+
+        _default_settings.update(persisted_settings)
+        logger.info("Loaded persisted settings from database")
+
     logger.info("AWP UI server started")
     yield
     await store.close()
