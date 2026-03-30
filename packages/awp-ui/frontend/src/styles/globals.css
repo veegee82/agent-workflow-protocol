@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: theme('colors.awp-border');
+  }
+
+  body {
+    @apply bg-awp-bg text-awp-text antialiased;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-awp-bg;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-awp-border rounded-full;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-awp-muted;
+  }
+
+  ::-webkit-scrollbar-corner {
+    @apply bg-awp-bg;
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #30363d #0d1117;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-awp-blue/30 text-awp-text;
+  }
+}
+
+@layer components {
+  /* Code block styling */
+  pre {
+    @apply bg-awp-bg border border-awp-border rounded-lg p-4 overflow-x-auto;
+  }
+
+  pre code {
+    @apply text-sm font-mono leading-relaxed;
+  }
+
+  code:not(pre code) {
+    @apply bg-awp-panel border border-awp-border rounded px-1.5 py-0.5 text-sm font-mono text-awp-cyan;
+  }
+
+  /* Markdown prose overrides */
+  .prose {
+    @apply text-awp-text;
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4,
+  .prose h5,
+  .prose h6 {
+    @apply text-awp-text font-semibold;
+  }
+
+  .prose a {
+    @apply text-awp-blue hover:text-awp-cyan transition-colors no-underline;
+  }
+
+  .prose strong {
+    @apply text-awp-text font-semibold;
+  }
+
+  .prose blockquote {
+    @apply border-l-awp-blue/50 text-awp-muted;
+  }
+
+  .prose table {
+    @apply border-collapse;
+  }
+
+  .prose th {
+    @apply bg-awp-panel border border-awp-border px-3 py-2 text-left text-awp-text font-medium;
+  }
+
+  .prose td {
+    @apply border border-awp-border px-3 py-2 text-awp-text;
+  }
+
+  .prose hr {
+    @apply border-awp-border;
+  }
+
+  .prose ul > li::marker,
+  .prose ol > li::marker {
+    @apply text-awp-muted;
+  }
+
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-awp-panel/80 backdrop-blur-md border border-awp-border/50;
+  }
+
+  /* Glow effects */
+  .glow-blue {
+    box-shadow: 0 0 20px rgba(64, 196, 255, 0.15);
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 230, 118, 0.15);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 20px rgba(255, 23, 68, 0.15);
+  }
+
+  .glow-purple {
+    box-shadow: 0 0 20px rgba(224, 64, 251, 0.15);
+  }
+
+  /* Node status indicators */
+  .node-running {
+    @apply border-awp-blue;
+    animation: nodePulse 2s ease-in-out infinite;
+  }
+
+  .node-complete {
+    @apply border-awp-green;
+  }
+
+  .node-error {
+    @apply border-awp-red;
+  }
+
+  .node-pending {
+    @apply border-awp-muted;
+  }
+
+  @keyframes nodePulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(64, 196, 255, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(64, 196, 255, 0);
+    }
+  }
+}
+
+@layer utilities {
+  .text-gradient-blue {
+    @apply bg-gradient-to-r from-awp-blue to-awp-cyan bg-clip-text text-transparent;
+  }
+
+  .text-gradient-purple {
+    @apply bg-gradient-to-r from-awp-purple to-awp-blue bg-clip-text text-transparent;
+  }
+
+  /* React Flow overrides */
+  .react-flow__background {
+    background-color: #0d1117 !important;
+  }
+
+  .react-flow__minimap {
+    @apply bg-awp-panel border border-awp-border rounded-lg;
+  }
+
+  .react-flow__controls {
+    @apply bg-awp-panel border border-awp-border rounded-lg overflow-hidden;
+  }
+
+  .react-flow__controls-button {
+    @apply bg-awp-panel border-b border-awp-border text-awp-text;
+  }
+
+  .react-flow__controls-button:hover {
+    @apply bg-awp-bg;
+  }
+
+  .react-flow__controls-button svg {
+    fill: #c9d1d9;
+  }
+
+  .react-flow__edge-path {
+    stroke: #30363d;
+    stroke-width: 2;
+  }
+}

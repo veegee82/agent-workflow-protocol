@@ -1,0 +1,10 @@
+{
+  "worker_id": "chart_generator",
+  "instructions": "Using the sales data, create a bar chart of revenue by product and a line chart of monthly revenue trends. Save as PNG files.",
+  "tools_allowed": ["code.execute", "file.read", "file.write"],
+  "model": "openrouter/anthropic/claude-sonnet-4",
+  "budget": {
+    "max_tokens": 50000,
+    "max_tool_calls": 10
+  }
+}

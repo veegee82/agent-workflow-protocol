@@ -7,6 +7,7 @@ Usage:
     awp visualize <path> [--format mermaid|ascii]
     awp identity-card <agent-path>
     awp compliance <path> [--level L0|L1|L2|L3|L4|L5]
+    awp studio [--port 8420] [--dev]
 """
 
 from __future__ import annotations
@@ -64,6 +65,33 @@ def main(argv: list[str] | None = None) -> int:
     p_ic = subparsers.add_parser("identity-card", help="Generate Agent Identity Card")
     p_ic.add_argument("agent_path", help="Path to agent.awp.yaml")
 
+    # studio (GUI)
+    p_studio = subparsers.add_parser(
+        "studio",
+        help="Launch AWP Workflow Studio (browser UI)",
+    )
+    p_studio.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    p_studio.add_argument(
+        "--port",
+        type=int,
+        default=8420,
+        help="Port number (default: 8420)",
+    )
+    p_studio.add_argument(
+        "--dev",
+        action="store_true",
+        help="Development mode: enable auto-reload and Vite dev server",
+    )
+    p_studio.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open browser automatically",
+    )
+
     # run
     p_run = subparsers.add_parser(
         "run", help="Run an AWP workflow (standalone runtime)"
@@ -103,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_compliance(args)
         elif args.command == "identity-card":
             return cmd_identity_card(args)
+        elif args.command == "studio":
+            return cmd_studio(args)
         elif args.command == "run":
             return cmd_run(args)
     except Exception as e:
@@ -321,6 +351,107 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
         )
 
     print(yaml.dump(card, default_flow_style=False, allow_unicode=True))
+    return 0
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    """Launch AWP Workflow Studio (browser-based UI)."""
+    try:
+        from server.app import create_app  # noqa: F401
+    except ImportError:
+        try:
+            import importlib
+
+            importlib.import_module("server.app")
+        except ImportError:
+            print(
+                "Error: awp-ui package is not installed.\n"
+                "Install it with:  pip install -e packages/awp-ui/\n"
+                "Or:               pip install awp-ui",
+                file=sys.stderr,
+            )
+            return 1
+
+    import logging
+    import subprocess
+    import threading
+    import webbrowser
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    )
+
+    host = args.host
+    port = args.port
+    url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
+
+    print(f"\n  AWP Workflow Studio")
+    print(f"  {'─' * 40}")
+    print(f"  URL:   {url}")
+    print(f"  Mode:  {'development' if args.dev else 'production'}")
+    print(f"  {'─' * 40}")
+    print(f"  Press Ctrl+C to stop\n")
+
+    vite_proc: subprocess.Popen[bytes] | None = None
+
+    if args.dev:
+        # Start Vite dev server for hot-reload
+        ui_pkg = Path(__file__).resolve().parent
+        # Walk up to find packages/awp-ui/frontend
+        for candidate in [
+            ui_pkg.parent.parent.parent / "awp-ui" / "frontend",
+            Path.cwd() / "packages" / "awp-ui" / "frontend",
+        ]:
+            if candidate.is_dir() and (candidate / "package.json").exists():
+                print(f"  Starting Vite dev server in {candidate}")
+                try:
+                    vite_proc = subprocess.Popen(
+                        ["npm", "run", "dev"],
+                        cwd=str(candidate),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                    )
+                except FileNotFoundError:
+                    print(
+                        "  Warning: npm not found; skipping Vite dev server.",
+                        file=sys.stderr,
+                    )
+                break
+
+    # Auto-open browser after a short delay
+    if not args.no_open:
+
+        def _open_browser() -> None:
+            import time
+
+            time.sleep(1.5)
+            webbrowser.open(url)
+
+        t = threading.Thread(target=_open_browser, daemon=True)
+        t.start()
+
+    try:
+        import uvicorn
+
+        uvicorn.run(
+            "server.app:create_app",
+            factory=True,
+            host=host,
+            port=port,
+            reload=args.dev,
+            log_level="info",
+        )
+    except KeyboardInterrupt:
+        print("\n  Shutting down AWP Workflow Studio")
+    finally:
+        if vite_proc is not None:
+            vite_proc.terminate()
+            try:
+                vite_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                vite_proc.kill()
+
     return 0
 
 

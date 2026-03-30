@@ -1,0 +1,17 @@
+[
+  {
+    "tool": "file.read",
+    "args": {"path": "sample_data.csv"},
+    "result": {"ok": true, "data": {"stdout": "date,product,region,quantity,revenue,cost,profit\n2025-10-01,Widget A,North,150,4500.00,...", "stderr": ""}}
+  },
+  {
+    "tool": "code.execute",
+    "args": {"code": "import pandas as pd\ndf = pd.read_csv('sample_data.csv')\nprint(df.describe())"},
+    "result": {"ok": true, "data": {"stdout": "       quantity      revenue         cost       profit\ncount      10.0    10.000000    10.000000    10.000000\nmean      206.5  8665.000000  5199.000000  3466.000000", "stderr": ""}}
+  },
+  {
+    "tool": "file.write",
+    "args": {"path": "stats_output.json", "content": "{\"total_revenue\": 86650}"},
+    "result": {"ok": true, "data": {"stdout": "Written 25 bytes to stats_output.json", "stderr": ""}}
+  }
+]

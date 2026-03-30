@@ -1,0 +1,10 @@
+{
+  "worker_id": "report_writer",
+  "instructions": "Write a comprehensive markdown report summarizing the Q4 sales analysis. Include key statistics, product performance, regional breakdown, and trend analysis. Reference the generated charts.",
+  "tools_allowed": ["code.execute", "file.read", "file.write"],
+  "model": "openrouter/anthropic/claude-sonnet-4",
+  "budget": {
+    "max_tokens": 50000,
+    "max_tool_calls": 10
+  }
+}

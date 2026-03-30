@@ -1,0 +1,21 @@
+{
+  "confidence": 0.85,
+  "answer": "Completed analysis of Q4 sales data. Total revenue: $86,650. Top product: Widget C ($46,750). Highest region: South ($33,050). Monthly trend shows 15% growth Oct-Dec.",
+  "data": {
+    "total_revenue": 86650.00,
+    "total_profit": 34660.00,
+    "profit_margin": 0.40,
+    "by_product": {
+      "Widget A": {"revenue": 15900, "quantity": 530},
+      "Widget B": {"revenue": 24000, "quantity": 600},
+      "Widget C": {"revenue": 46750, "quantity": 935}
+    },
+    "by_region": {
+      "North": 16500,
+      "South": 33050,
+      "East": 16600,
+      "West": 23500
+    }
+  },
+  "artifacts": ["stats_output.json"]
+}

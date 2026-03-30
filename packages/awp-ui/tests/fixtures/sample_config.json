@@ -1,0 +1,18 @@
+{
+  "task": "Analyze Q4 sales data, create visualizations, and write a summary report",
+  "model": "openrouter/anthropic/claude-sonnet-4",
+  "worker_model": "openrouter/anthropic/claude-sonnet-4",
+  "max_loops": 10,
+  "max_total_tokens": 500000,
+  "max_wall_time": 600,
+  "max_total_workers": 10,
+  "max_tool_calls": 50,
+  "max_depth": 3,
+  "sandbox": "subprocess",
+  "code_mode": true,
+  "tool_creation": true,
+  "verbose": false,
+  "inputs": {
+    "data_file": "sample_data.csv"
+  }
+}
