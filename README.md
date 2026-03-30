@@ -2,7 +2,7 @@
   <img src="assets/awp_logo.png" alt="AWP Logo" width="200" />
 </p>
 
-<h1 align="center">AWP -- Agent Workflow Protocol</h1>
+<h1 align="center">AWP - Agent Workflow Protocol</h1>
 
 <p align="center">
   <strong>The open standard for orchestrating multi-agent AI workflows.</strong><br/>
