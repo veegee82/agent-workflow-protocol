@@ -179,3 +179,36 @@ export interface WebSocketConnection {
   send: (data: unknown) => void;
   readyState: () => number;
 }
+
+/** A workflow session (like a chat in Claude Desktop). */
+export interface Session {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  run_count: number;
+  last_run_status: string | null;
+}
+
+/** Detailed session info including run history and settings. */
+export interface SessionDetail extends Session {
+  runs: RunHistoryEntry[];
+  settings: Record<string, unknown>;
+}
+
+/** A single history item within a session (task or result). */
+export interface SessionHistoryItem {
+  role: 'user' | 'assistant';
+  content: string;
+  run_id?: string;
+  timestamp: string;
+  status?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** A stored secret key (value is never exposed to the frontend). */
+export interface SecretEntry {
+  key: string;
+  created_at: string;
+  updated_at: string;
+}

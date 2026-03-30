@@ -16,6 +16,9 @@ from server.models import (
     MCPServerConfig,
     RunDetail,
     RunHistoryEntry,
+    SecretCreate,
+    SessionDetail,
+    SessionInfo,
     SettingsUpdate,
     SkillUpload,
     ToolConfig,
@@ -69,26 +72,54 @@ _available_tools: list[dict[str, Any]] = [
 
 
 @router.post("/runs")
-async def create_run(config: WorkflowConfig) -> dict[str, Any]:
-    """Start a new workflow run. Returns the run_id immediately."""
+async def create_run(config: WorkflowConfig, session_id: str | None = Query(None)) -> dict[str, Any]:
+    """Start a new workflow run. Returns the run_id immediately.
+
+    If session_id is provided, the run is automatically added to that session.
+    """
     from server.app import store
     from server.services.runner_service import runner_service
 
     run_id = uuid.uuid4().hex[:12]
+
+    # Inject secrets from the store into the config
+    config_dict = config.model_dump(mode="json")
+    stored_secrets = await _load_secrets_for_run(store)
+    if stored_secrets:
+        merged = dict(stored_secrets)
+        merged.update(config_dict.get("secrets") or {})
+        config_dict["secrets"] = merged
 
     # Persist to DB
     await store.save_run(
         run_id=run_id,
         task=config.task,
         model=config.model,
-        config=config.model_dump(mode="json"),
+        config=config_dict,
         status="running",
     )
 
-    # Start the run in a background thread
-    runner_service.start_run(run_id, config.model_dump(mode="json"))
+    # Auto-add to session if provided
+    if session_id:
+        session = await store.get_session(session_id)
+        if session:
+            await store.add_run_to_session(session_id, run_id)
 
-    return {"run_id": run_id, "status": "running"}
+    # Start the run in a background thread
+    runner_service.start_run(run_id, config_dict)
+
+    return {"run_id": run_id, "status": "running", "session_id": session_id}
+
+
+async def _load_secrets_for_run(store: Any) -> dict[str, str]:
+    """Load all secrets from the store and return as a dict for injection."""
+    secret_keys = await store.list_secrets()
+    secrets: dict[str, str] = {}
+    for key in secret_keys:
+        value = await store.get_secret(key)
+        if value is not None:
+            secrets[key] = value
+    return secrets
 
 
 @router.get("/runs")

@@ -140,6 +140,79 @@ class RunHistoryEntry(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Sessions
+# ---------------------------------------------------------------------------
+
+
+class SessionInfo(BaseModel):
+    """Lightweight session metadata returned in listings."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    run_count: int = 0
+    last_run_status: str | None = None
+
+
+class SessionDetail(BaseModel):
+    """Full session information including runs."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    runs: list[RunHistoryEntry] = []
+    settings: dict[str, Any] = {}
+
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+
+
+class SecretEntry(BaseModel):
+    """Secret metadata (value is NEVER exposed in API responses)."""
+
+    key: str
+    created_at: str
+    updated_at: str
+
+
+class SecretCreate(BaseModel):
+    """Request body for creating/updating a secret."""
+
+    key: str
+    value: str
+
+
+# ---------------------------------------------------------------------------
+# Settings (persistent)
+# ---------------------------------------------------------------------------
+
+
+class SettingsData(BaseModel):
+    """Full settings model for persistence."""
+
+    model: str = ""
+    worker_model: str = ""
+    api_key: str = ""  # stored as secret reference
+    max_loops: int = 20
+    max_total_tokens: int = 500_000
+    max_wall_time: int = 600
+    max_total_workers: int = 30
+    max_tool_calls: int = 200
+    max_depth: int = 5
+    sandbox: str = "subprocess"
+    packages: list[str] = []
+    code_mode: bool = True
+    tool_creation: bool = True
+    tools: list[str] = []
+    forbidden_tools: list[str] = []
+    verbose: bool = False
+
+
+# ---------------------------------------------------------------------------
 # WebSocket event
 # ---------------------------------------------------------------------------
 

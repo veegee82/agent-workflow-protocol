@@ -8,6 +8,10 @@ import type {
   Skill,
   MCPServer,
   MCPServerConfig,
+  Session,
+  SessionDetail,
+  SessionHistoryItem,
+  SecretEntry,
 } from '@/types';
 
 /**
@@ -157,10 +161,117 @@ export async function getAvailableTools(): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+/** Create a new session. */
+export async function createSession(title: string): Promise<Session> {
+  return request<Session>('/api/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ title }),
+  });
+}
+
+/** List all sessions (most recent first). */
+export async function listSessions(): Promise<Session[]> {
+  return request<Session[]>('/api/sessions');
+}
+
+/** Get full details for a single session. */
+export async function getSession(sessionId: string): Promise<SessionDetail> {
+  return request<SessionDetail>(`/api/sessions/${sessionId}`);
+}
+
+/** Update a session title. */
+export async function updateSession(
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  return request<void>(`/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
+/** Delete a session and its runs. */
+export async function deleteSession(sessionId: string): Promise<void> {
+  return request<void>(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+/** Get the conversation history for a session. */
+export async function getSessionHistory(
+  sessionId: string,
+): Promise<SessionHistoryItem[]> {
+  return request<SessionHistoryItem[]>(
+    `/api/sessions/${sessionId}/history`,
+  );
+}
+
+/** Start a run within a session context. */
+export async function startRunInSession(
+  sessionId: string,
+  config: WorkflowConfig,
+): Promise<{ run_id: string }> {
+  return request<{ run_id: string }>(
+    `/api/sessions/${sessionId}/runs`,
+    {
+      method: 'POST',
+      body: JSON.stringify(config),
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Secrets
+// ---------------------------------------------------------------------------
+
+/** List stored secret keys (values are never returned). */
+export async function listSecrets(): Promise<SecretEntry[]> {
+  return request<SecretEntry[]>('/api/secrets');
+}
+
+/** Store a new secret. */
+export async function createSecret(
+  key: string,
+  value: string,
+): Promise<void> {
+  return request<void>('/api/secrets', {
+    method: 'POST',
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+/** Delete a stored secret. */
+export async function deleteSecret(key: string): Promise<void> {
+  return request<void>(`/api/secrets/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
 /** Retrieve the current default workflow configuration. */
 export async function getSettings(): Promise<WorkflowConfig> {
   return request<WorkflowConfig>('/api/settings');
+}
+
+/** Save settings to persistent storage. */
+export async function saveSettings(
+  settings: Partial<WorkflowConfig>,
+): Promise<void> {
+  return request<void>('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+/** Load persisted settings (returns null if none saved). */
+export async function loadSettings(): Promise<Partial<WorkflowConfig> | null> {
+  try {
+    return await request<Partial<WorkflowConfig>>('/api/settings/saved');
+  } catch {
+    return null;
+  }
 }

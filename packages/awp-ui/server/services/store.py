@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,39 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_created ON runs(created_at);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    settings_json TEXT DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS session_runs (
+    session_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (session_id, run_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS secrets (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY DEFAULT 'global',
+    data_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
+CREATE INDEX IF NOT EXISTS idx_session_runs_session ON session_runs(session_id);
 """
 
 
@@ -175,6 +209,236 @@ class StoreService:
         )
         rows = await cursor.fetchall()
         return [self._row_to_event(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Sessions
+    # ------------------------------------------------------------------
+
+    async def create_session(self, session_id: str, title: str) -> None:
+        """Insert a new session record."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        await self.db.execute(
+            "INSERT INTO sessions (id, title, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, title, now, now),
+        )
+        await self.db.commit()
+
+    async def update_session(self, session_id: str, title: str | None = None) -> None:
+        """Update mutable fields on a session."""
+        parts: list[str] = []
+        params: list[Any] = []
+        if title is not None:
+            parts.append("title = ?")
+            params.append(title)
+        if not parts:
+            return
+        parts.append("updated_at = ?")
+        params.append(datetime.now(tz=timezone.utc).isoformat())
+        params.append(session_id)
+        sql = f"UPDATE sessions SET {', '.join(parts)} WHERE id = ?"
+        await self.db.execute(sql, params)
+        await self.db.commit()
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        """Fetch a single session by ID, including run count and last run status."""
+        cursor = await self.db.execute(
+            "SELECT s.*, "
+            "  (SELECT COUNT(*) FROM session_runs sr WHERE sr.session_id = s.id) AS run_count, "
+            "  (SELECT r.status FROM session_runs sr "
+            "   JOIN runs r ON r.id = sr.run_id "
+            "   WHERE sr.session_id = s.id "
+            "   ORDER BY sr.position DESC LIMIT 1) AS last_run_status "
+            "FROM sessions s WHERE s.id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "settings": json.loads(row["settings_json"]) if row["settings_json"] else {},
+            "run_count": row["run_count"],
+            "last_run_status": row["last_run_status"],
+        }
+
+    async def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
+        """List sessions ordered by updated_at descending."""
+        cursor = await self.db.execute(
+            "SELECT s.*, "
+            "  (SELECT COUNT(*) FROM session_runs sr WHERE sr.session_id = s.id) AS run_count, "
+            "  (SELECT r.status FROM session_runs sr "
+            "   JOIN runs r ON r.id = sr.run_id "
+            "   WHERE sr.session_id = s.id "
+            "   ORDER BY sr.position DESC LIMIT 1) AS last_run_status "
+            "FROM sessions s ORDER BY s.updated_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+                "run_count": r["run_count"],
+                "last_run_status": r["last_run_status"],
+            }
+            for r in rows
+        ]
+
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session and its session_runs links. Returns True if deleted."""
+        await self.db.execute(
+            "DELETE FROM session_runs WHERE session_id = ?", (session_id,)
+        )
+        cursor = await self.db.execute(
+            "DELETE FROM sessions WHERE id = ?", (session_id,)
+        )
+        await self.db.commit()
+        return cursor.rowcount > 0
+
+    async def add_run_to_session(self, session_id: str, run_id: str) -> None:
+        """Link a run to a session, appending it at the end."""
+        cursor = await self.db.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM session_runs "
+            "WHERE session_id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        next_pos = row[0] if row else 0
+        await self.db.execute(
+            "INSERT OR IGNORE INTO session_runs (session_id, run_id, position) "
+            "VALUES (?, ?, ?)",
+            (session_id, run_id, next_pos),
+        )
+        # Touch the session updated_at
+        await self.db.execute(
+            "UPDATE sessions SET updated_at = ? WHERE id = ?",
+            (datetime.now(tz=timezone.utc).isoformat(), session_id),
+        )
+        await self.db.commit()
+
+    async def get_session_runs(self, session_id: str) -> list[dict[str, Any]]:
+        """Return runs belonging to a session, ordered by position."""
+        cursor = await self.db.execute(
+            "SELECT r.* FROM runs r "
+            "JOIN session_runs sr ON sr.run_id = r.id "
+            "WHERE sr.session_id = ? ORDER BY sr.position",
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_run(r) for r in rows]
+
+    async def get_session_history(self, session_id: str) -> list[dict[str, Any]]:
+        """Return a chat-like history for a session: tasks and results in order."""
+        runs = await self.get_session_runs(session_id)
+        history: list[dict[str, Any]] = []
+        for run in runs:
+            # User message (the task)
+            history.append({
+                "role": "user",
+                "content": run["task"],
+                "run_id": run["run_id"],
+                "timestamp": run["created_at"],
+            })
+            # Assistant message (the result)
+            result_content = ""
+            if run.get("result"):
+                result_data = run["result"]
+                if isinstance(result_data, dict):
+                    result_content = result_data.get("answer", str(result_data))
+                else:
+                    result_content = str(result_data)
+            history.append({
+                "role": "assistant",
+                "content": result_content,
+                "run_id": run["run_id"],
+                "timestamp": run.get("completed_at") or run["created_at"],
+            })
+        return history
+
+    # ------------------------------------------------------------------
+    # Secrets
+    # ------------------------------------------------------------------
+
+    async def save_secret(self, key: str, value: str) -> None:
+        """Store a secret. Value is base64-obfuscated for local use."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        encoded = base64.b64encode(value.encode("utf-8")).decode("utf-8")
+        await self.db.execute(
+            "INSERT INTO secrets (key, value, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?",
+            (key, encoded, now, now, encoded, now),
+        )
+        await self.db.commit()
+
+    async def get_secret(self, key: str) -> str | None:
+        """Retrieve a secret value (decoded)."""
+        cursor = await self.db.execute(
+            "SELECT value FROM secrets WHERE key = ?", (key,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return base64.b64decode(row["value"].encode("utf-8")).decode("utf-8")
+
+    async def list_secrets(self) -> list[str]:
+        """Return all secret keys (values are never exposed)."""
+        cursor = await self.db.execute(
+            "SELECT key, created_at, updated_at FROM secrets ORDER BY key"
+        )
+        rows = await cursor.fetchall()
+        return [row["key"] for row in rows]
+
+    async def list_secrets_metadata(self) -> list[dict[str, str]]:
+        """Return secret keys with timestamps (values are never exposed)."""
+        cursor = await self.db.execute(
+            "SELECT key, created_at, updated_at FROM secrets ORDER BY key"
+        )
+        rows = await cursor.fetchall()
+        return [
+            {"key": r["key"], "created_at": r["created_at"], "updated_at": r["updated_at"]}
+            for r in rows
+        ]
+
+    async def delete_secret(self, key: str) -> bool:
+        """Delete a secret by key. Returns True if deleted."""
+        cursor = await self.db.execute(
+            "DELETE FROM secrets WHERE key = ?", (key,)
+        )
+        await self.db.commit()
+        return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Settings persistence
+    # ------------------------------------------------------------------
+
+    async def save_settings(self, data: dict[str, Any]) -> None:
+        """Persist global settings to the database."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        data_json = json.dumps(data, default=str)
+        await self.db.execute(
+            "INSERT INTO settings (key, data_json, updated_at) "
+            "VALUES ('global', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET data_json = ?, updated_at = ?",
+            (data_json, now, data_json, now),
+        )
+        await self.db.commit()
+
+    async def get_settings(self) -> dict[str, Any] | None:
+        """Load persisted global settings."""
+        cursor = await self.db.execute(
+            "SELECT data_json FROM settings WHERE key = 'global'"
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return json.loads(row["data_json"])
 
     # ------------------------------------------------------------------
     # Helpers
