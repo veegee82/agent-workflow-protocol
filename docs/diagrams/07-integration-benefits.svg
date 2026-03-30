@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="680" viewBox="0 0 1100 680">
+  <style>
+    text { font-family: Arial, Helvetica, sans-serif; }
+  </style>
+
+  <defs>
+    <marker id="a7b" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#1565c0"/>
+    </marker>
+    <marker id="a7o" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#e65100"/>
+    </marker>
+    <marker id="a7g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2e7d32"/>
+    </marker>
+    <marker id="a7p" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#7b1fa2"/>
+    </marker>
+  </defs>
+
+  <text x="550" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#212121">What AWP Brings to OpenClaw</text>
+  <text x="550" y="56" text-anchor="middle" font-size="13" fill="#546e7a">From single-agent assistant to multi-agent orchestration powerhouse</text>
+
+  <!-- BEFORE: OpenClaw alone -->
+  <rect x="30" y="80" width="500" height="270" rx="14" fill="#fff3e0" stroke="#e65100" stroke-width="2"/>
+  <text x="280" y="105" text-anchor="middle" font-size="17" font-weight="bold" fill="#e65100">Before: OpenClaw Alone</text>
+
+  <!-- Single agent flow -->
+  <rect x="60" y="125" width="120" height="36" rx="6" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="120" y="148" text-anchor="middle" font-size="12" fill="#bf360c">User Message</text>
+
+  <line x1="180" y1="143" x2="220" y2="143" stroke="#ef6c00" stroke-width="1.5" marker-end="url(#a7o)"/>
+
+  <rect x="225" y="125" width="120" height="36" rx="6" fill="#ffcc80" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="285" y="148" text-anchor="middle" font-size="12" fill="#bf360c">Single Agent</text>
+
+  <line x1="345" y1="143" x2="385" y2="143" stroke="#ef6c00" stroke-width="1.5" marker-end="url(#a7o)"/>
+
+  <rect x="390" y="125" width="120" height="36" rx="6" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="450" y="148" text-anchor="middle" font-size="12" fill="#bf360c">Reply</text>
+
+  <!-- Limitations -->
+  <rect x="60" y="180" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="280" y="200" text-anchor="middle" font-size="11" fill="#c62828">No task decomposition — complex tasks handled by a single LLM call</text>
+
+  <rect x="60" y="218" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="280" y="238" text-anchor="middle" font-size="11" fill="#c62828">No budget enforcement — no limits on tokens, time, or cost</text>
+
+  <rect x="60" y="256" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="280" y="276" text-anchor="middle" font-size="11" fill="#c62828">No quality validation — output returned as-is, no confidence checks</text>
+
+  <rect x="60" y="294" width="440" height="30" rx="5" fill="#ffcdd2" stroke="#c62828" stroke-width="1"/>
+  <text x="280" y="314" text-anchor="middle" font-size="11" fill="#c62828">No cross-agent state sharing — agents work in isolated silos</text>
+
+  <!-- AFTER: OpenClaw + AWP -->
+  <rect x="570" y="80" width="500" height="270" rx="14" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="820" y="105" text-anchor="middle" font-size="17" font-weight="bold" fill="#1b5e20">After: OpenClaw + AWP</text>
+
+  <!-- Multi-agent flow -->
+  <rect x="600" y="120" width="90" height="32" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="645" y="141" text-anchor="middle" font-size="10" fill="#1b5e20">Message</text>
+
+  <line x1="690" y1="136" x2="720" y2="136" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#a7g)"/>
+
+  <rect x="725" y="120" width="90" height="32" rx="6" fill="#bbdefb" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="770" y="141" text-anchor="middle" font-size="10" fill="#0d47a1">Classify</text>
+
+  <line x1="815" y1="136" x2="845" y2="136" stroke="#1565c0" stroke-width="1.5" marker-end="url(#a7b)"/>
+
+  <rect x="850" y="120" width="190" height="32" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+  <text x="945" y="141" text-anchor="middle" font-size="10" fill="#0d47a1" font-weight="bold">AWP Orchestration</text>
+
+  <!-- Benefits -->
+  <rect x="600" y="170" width="440" height="30" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="820" y="190" text-anchor="middle" font-size="11" fill="#1b5e20">Manager decomposes complex tasks into specialized worker agents</text>
+
+  <rect x="600" y="208" width="440" height="30" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="820" y="228" text-anchor="middle" font-size="11" fill="#1b5e20">5D budget enforcement: tokens, time, workers, loops, tool calls</text>
+
+  <rect x="600" y="246" width="440" height="30" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="820" y="266" text-anchor="middle" font-size="11" fill="#1b5e20">2-tier validation: deterministic checks + LLM semantic review</text>
+
+  <rect x="600" y="284" width="440" height="30" rx="5" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="820" y="304" text-anchor="middle" font-size="11" fill="#1b5e20">Stall detection prevents infinite loops and wasted compute</text>
+
+  <!-- Arrow between before/after -->
+  <line x1="530" y1="215" x2="565" y2="215" stroke="#7b1fa2" stroke-width="3" marker-end="url(#a7p)"/>
+  <text x="548" y="205" text-anchor="middle" font-size="10" fill="#7b1fa2" font-weight="bold">+AWP</text>
+
+  <!-- Concrete Use Cases -->
+  <rect x="30" y="375" width="1040" height="280" rx="14" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"/>
+  <text x="550" y="402" text-anchor="middle" font-size="17" font-weight="bold" fill="#4a148c">Concrete Use Cases: What Becomes Possible</text>
+
+  <!-- Use Case 1 -->
+  <rect x="55" y="420" width="310" height="100" rx="10" fill="#ffffff" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="210" y="445" text-anchor="middle" font-size="13" font-weight="bold" fill="#4a148c">Research Pipeline via Slack</text>
+  <text x="210" y="465" text-anchor="middle" font-size="10" fill="#6a1b9a">"Analyze our Q4 competitors" in Slack</text>
+  <text x="210" y="482" text-anchor="middle" font-size="10" fill="#6a1b9a">AWP spawns: web researcher, data analyst,</text>
+  <text x="210" y="497" text-anchor="middle" font-size="10" fill="#6a1b9a">report writer — validated, budget-bounded</text>
+  <text x="210" y="514" text-anchor="middle" font-size="9" fill="#9c27b0" font-style="italic">Result delivered back to Slack thread</text>
+
+  <!-- Use Case 2 -->
+  <rect x="395" y="420" width="310" height="100" rx="10" fill="#ffffff" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="550" y="445" text-anchor="middle" font-size="13" font-weight="bold" fill="#4a148c">Code Review via WhatsApp</text>
+  <text x="550" y="465" text-anchor="middle" font-size="10" fill="#6a1b9a">"Review PR #42" from your phone</text>
+  <text x="550" y="482" text-anchor="middle" font-size="10" fill="#6a1b9a">AWP spawns: code reader, security auditor,</text>
+  <text x="550" y="497" text-anchor="middle" font-size="10" fill="#6a1b9a">style checker — each with confidence scores</text>
+  <text x="550" y="514" text-anchor="middle" font-size="9" fill="#9c27b0" font-style="italic">Synthesized review sent to WhatsApp</text>
+
+  <!-- Use Case 3 -->
+  <rect x="735" y="420" width="310" height="100" rx="10" fill="#ffffff" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="890" y="445" text-anchor="middle" font-size="13" font-weight="bold" fill="#4a148c">Data Pipeline via Telegram</text>
+  <text x="890" y="465" text-anchor="middle" font-size="10" fill="#6a1b9a">"Daily sales report" cron trigger</text>
+  <text x="890" y="482" text-anchor="middle" font-size="10" fill="#6a1b9a">AWP DAG: data fetcher → analyst →</text>
+  <text x="890" y="497" text-anchor="middle" font-size="10" fill="#6a1b9a">chart generator → summary writer</text>
+  <text x="890" y="514" text-anchor="middle" font-size="9" fill="#9c27b0" font-style="italic">Formatted report delivered to Telegram</text>
+
+  <!-- Bottom summary -->
+  <rect x="55" y="540" width="480" height="48" rx="8" fill="#ede7f6" stroke="#7b1fa2" stroke-width="1"/>
+  <text x="295" y="562" text-anchor="middle" font-size="12" fill="#4a148c" font-weight="600">OpenClaw handles: channels, devices, model failover, UX</text>
+  <text x="295" y="580" text-anchor="middle" font-size="11" fill="#6a1b9a">25+ messaging platforms, voice, camera, browser</text>
+
+  <rect x="565" y="540" width="480" height="48" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1"/>
+  <text x="805" y="562" text-anchor="middle" font-size="12" fill="#0d47a1" font-weight="600">AWP handles: orchestration, safety, quality, portability</text>
+  <text x="805" y="580" text-anchor="middle" font-size="11" fill="#1565c0">DAG/delegation, budgets, validation, stall detection</text>
+
+  <!-- Key insight -->
+  <rect x="55" y="600" width="990" height="40" rx="8" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="550" y="625" text-anchor="middle" font-size="13" fill="#e65100" font-weight="bold">Together: Any user, on any platform, can trigger sophisticated multi-agent workflows — safely, within budget, with validated results.</text>
+</svg>

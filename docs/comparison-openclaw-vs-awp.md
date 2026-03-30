@@ -1,29 +1,137 @@
-# OpenClaw vs. AWP: A Technical Deep-Dive Comparison
+# OpenClaw + AWP: Better Together
 
-> **Two open-source projects. Two fundamentally different approaches to AI agent systems.**
-> This article provides an exhaustive technical comparison between [OpenClaw](https://github.com/openclaw/openclaw) — a personal AI assistant gateway — and [AWP (Agent Workflow Protocol)](https://github.com/agent-workflow-protocol) — a declarative multi-agent orchestration standard.
+> **What if your personal AI assistant could orchestrate entire multi-agent workflows — safely, within budget, with validated results — triggered from any messaging platform?**
 
-## Table of Contents
-
-1. [Executive Summary](#1-executive-summary)
-2. [Architectural Overview](#2-architectural-overview)
-3. [Autonomy and Orchestration Models](#3-autonomy-and-orchestration-models)
-4. [Agent Runtime Comparison](#4-agent-runtime-comparison)
-5. [Workflow Definition and Execution](#5-workflow-definition-and-execution)
-6. [Memory Systems](#6-memory-systems)
-7. [Security Models](#7-security-models)
-8. [Tool Systems](#8-tool-systems)
-9. [Communication and Routing](#9-communication-and-routing)
-10. [Context Management](#10-context-management)
-11. [Observability and Debugging](#11-observability-and-debugging)
-12. [Multi-Model Support](#12-multi-model-support)
-13. [Strengths and Weaknesses Matrix](#13-strengths-and-weaknesses-matrix)
-14. [Complementary Integration Scenario](#14-complementary-integration-scenario)
-15. [Conclusion](#15-conclusion)
+[OpenClaw](https://github.com/openclaw/openclaw) is a self-hosted AI assistant gateway connecting 25+ messaging platforms. [AWP (Agent Workflow Protocol)](https://github.com/agent-workflow-protocol) is a declarative multi-agent orchestration standard. They solve orthogonal problems — and together, they unlock capabilities neither can achieve alone.
 
 ---
 
-## 1. Executive Summary
+## 1. Why Integrate AWP into OpenClaw?
+
+<p align="center">
+  <img src="diagrams/07-integration-benefits.svg" alt="What AWP Brings to OpenClaw" width="100%"/>
+</p>
+
+OpenClaw excels at **reaching users** — WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more channels. But when a user sends a complex multi-step request, OpenClaw routes it to a single agent that handles everything in one LLM call. There is no task decomposition, no budget control, and no quality validation.
+
+AWP fills exactly this gap. Here is what becomes possible when AWP serves as OpenClaw's orchestration backend:
+
+### 1.1 Multi-Agent Task Decomposition
+
+**Without AWP**: User asks "analyze our competitors and write a report" in Slack. OpenClaw's agent tries to do everything in one shot — research, analysis, and writing — in a single context window.
+
+**With AWP**: OpenClaw classifies the task as complex and dispatches it to an AWP delegation loop. AWP's manager agent decomposes it into specialized workers:
+
+```
+User (Slack) → OpenClaw Gateway → AWP Runtime
+                                    ├── Worker 1: Web Researcher (web.search, confidence: 0.92)
+                                    ├── Worker 2: Data Analyst (code.execute, confidence: 0.88)
+                                    └── Worker 3: Report Writer (file.write, confidence: 0.95)
+                                  → Synthesized report → OpenClaw → Slack thread
+```
+
+Each worker uses the right model for the job (cheap/fast for data collection, expensive/capable for analysis), and the manager only accepts results above confidence thresholds.
+
+### 1.2 Budget Enforcement — No More Runaway Costs
+
+OpenClaw has **no budget system**. A complex task could consume unlimited tokens, run forever, or spawn unbounded subagents. AWP adds 5-dimensional hard limits:
+
+| Budget Dimension | What It Prevents | Example Limit |
+|-----------------|------------------|---------------|
+| `max_total_tokens` | Unbounded LLM costs | 500,000 tokens |
+| `max_wall_time` | Tasks that never finish | 300 seconds |
+| `max_total_workers` | Subagent explosion | 20 workers |
+| `max_loops` | Infinite delegation cycles | 15 iterations |
+| `max_tool_calls` | Runaway tool usage | 200 calls |
+
+The workflow **hard-stops** when any dimension is exhausted. The manager cannot override these limits. This is critical for a personal assistant where unexpected costs hit the user's wallet.
+
+### 1.3 Quality Validation and Stall Detection
+
+OpenClaw returns LLM output as-is. AWP adds two layers of quality control:
+
+- **Tier 1 (Free)**: Every worker result must be a dict with a `confidence` float in [0,1]. Malformed outputs are rejected instantly.
+- **Tier 2 (LLM Semantic)**: A validation LLM checks whether the result actually addresses the task. Skipped when confidence is high (>= 0.95) or budget is low (<= 10%) to save tokens.
+
+**Stall detection** monitors confidence deltas and output similarity across iterations. If a worker keeps producing similar low-confidence results, AWP warns once, then stops — preventing wasted compute on tasks that are going nowhere.
+
+### 1.4 Portable Workflows as OpenClaw Skills
+
+AWP workflows are declarative YAML manifests, packaged as `.awp.zip` bundles. This means:
+
+- **Shareable**: A "competitive analysis" workflow can be shared as a file, not code
+- **Versioned**: Workflows declare `awp: "1.0"` and can be validated against the spec
+- **Runtime-agnostic**: The same `.awp.zip` runs on any conforming AWP runtime
+- **Publishable to ClawHub**: AWP workflows can be published as OpenClaw skills via the [ClawHub adapter](../skill/adapters/clawhub.md)
+
+### 1.5 Cross-Agent State Sharing
+
+OpenClaw agents work in isolated sessions — they cannot share intermediate results. AWP provides explicit, field-level state sharing:
+
+```yaml
+state:
+  sharing:
+    strategy: selective
+    rules:
+      - from: researcher
+        to: analyst
+        fields: [findings, raw_data]
+      - from: analyst
+        to: writer
+        fields: [charts, summary]
+    never_share: [api_keys, raw_api_responses]
+```
+
+This enables multi-step pipelines where each agent builds on the previous agent's work — something impossible with OpenClaw's isolated session model.
+
+---
+
+## 2. Integration Architecture
+
+<p align="center">
+  <img src="diagrams/05-integration-scenario.svg" alt="Integration Scenario" width="100%"/>
+</p>
+
+### 2.1 How It Works
+
+1. **User sends message** via WhatsApp / Telegram / Slack / any channel
+2. **OpenClaw Gateway** routes the message to the appropriate agent persona
+3. **Routing agent classifies** the task complexity:
+   - **Simple query** (weather, quick lookup) → Direct LLM response via OpenClaw's Pi agent
+   - **Complex multi-step task** (research, analysis, code review) → Dispatch to AWP runtime
+4. **AWP decomposes** the task into a DAG or delegation loop with specialized workers
+5. **Workers execute** with budget enforcement, validation, and stall detection
+6. **Synthesized result** flows back to the OpenClaw agent
+7. **Reply delivered** via the original messaging channel
+
+### 2.2 Each System Plays to Its Strengths
+
+| Responsibility | Handled By | Why |
+|---------------|-----------|-----|
+| User interface (25+ channels) | OpenClaw | Purpose-built for multi-platform messaging |
+| Device integration (voice, camera, location) | OpenClaw | Native mobile node support |
+| Model failover and auth rotation | OpenClaw | 35+ providers with cooldown tracking |
+| Browser automation | OpenClaw | CDP-based, full browser control |
+| Task decomposition | AWP | Formal DAG + delegation loop engines |
+| Budget enforcement | AWP | 5D hard limits the manager cannot override |
+| Quality validation | AWP | 2-tier (deterministic + LLM semantic) |
+| Stall detection | AWP | Confidence delta + output similarity |
+| Cross-agent state sharing | AWP | Explicit `share_output` with field-level control |
+| Workflow portability | AWP | Declarative YAML, `.awp.zip` bundles |
+
+### 2.3 Concrete Use Cases
+
+**Research Pipeline via Slack**: "Analyze our Q4 competitors" triggers an AWP delegation loop — web researcher, data analyst, report writer — each validated, budget-bounded. The synthesized report arrives back in the Slack thread.
+
+**Code Review via WhatsApp**: "Review PR #42" from your phone triggers an AWP DAG — code reader, security auditor, style checker — each producing confidence scores. The merged review is delivered to WhatsApp.
+
+**Scheduled Data Pipeline via Telegram**: OpenClaw's cron system triggers a daily AWP workflow — data fetcher → analyst → chart generator → summary writer. Results are posted to a Telegram channel every morning.
+
+**Dynamic Tool Creation via Discord**: A user asks for a custom analysis. AWP's A3+ agents create Python tools at runtime, use them for the analysis, and return validated results — all within the safety envelope.
+
+---
+
+## 3. Quick Comparison
 
 | Dimension | **AWP** | **OpenClaw** |
 |-----------|---------|--------------|
@@ -33,20 +141,60 @@
 | **Architecture** | Two orchestration engines (DAG + Delegation Loop) | WebSocket Gateway daemon + embedded Pi agent |
 | **Agent model** | Ephemeral workers spawned by managers | Persistent agent personas with isolated workspaces |
 | **Workflow format** | Declarative YAML manifests | Imperative JSON5 configuration |
-| **Autonomy model** | Formal 5-tier spectrum (A0–A4) | Informal 3-tier capability model |
+| **Autonomy model** | Formal 5-tier spectrum (A0-A4) | Informal 3-tier capability model |
 | **Packaging** | Self-contained `.awp.zip` bundles | Gateway daemon + client apps |
 | **Channel support** | None (runtime-agnostic) | 25+ messaging platforms |
 | **Stars** | Growing | ~340k |
 
 <p align="center">
-  <img src="diagrams/01-architecture-overview.svg" alt="01 Architecture Overview" width="100%"/>
+  <img src="diagrams/01-architecture-overview.svg" alt="Architecture Overview" width="100%"/>
 </p>
 
 ---
 
-## 2. Architectural Overview
+## 4. Summary Assessment
 
-### 2.1 AWP: Layered Protocol Architecture
+| Dimension | Winner | Margin |
+|-----------|--------|--------|
+| **Multi-agent orchestration** | AWP | Large — fundamentally different capability |
+| **Messaging integration** | OpenClaw | Large — AWP has none |
+| **Budget/safety controls** | AWP | Large — 5D enforcement vs. none |
+| **Model management** | OpenClaw | Medium — 35+ providers with failover |
+| **Memory system** | Tie | Different strengths (sharing vs. search) |
+| **Security model** | Tie | Different threat models |
+| **Developer experience** | OpenClaw | Medium — production-ready daily driver |
+| **Protocol formalism** | AWP | Large — versioned spec with 26 rules |
+| **Portability** | AWP | Large — `.awp.zip` vs. single runtime |
+| **Device/hardware** | OpenClaw | Large — AWP has no device concept |
+| **Context management** | Tie | Different approaches, both effective |
+
+**The most interesting question is not "which is better?" but "how do they compose?"** — a Gateway that knows how to reach users on every platform, backed by an orchestration engine that can decompose any task into coordinated, budget-bounded, validated agent workflows.
+
+---
+
+# Technical Deep-Dive
+
+*The sections below provide an exhaustive technical comparison for readers interested in the architectural details.*
+
+## Table of Contents
+
+5. [Architectural Overview](#5-architectural-overview)
+6. [Autonomy and Orchestration Models](#6-autonomy-and-orchestration-models)
+7. [Agent Runtime Comparison](#7-agent-runtime-comparison)
+8. [Workflow Definition and Execution](#8-workflow-definition-and-execution)
+9. [Memory Systems](#9-memory-systems)
+10. [Security Models](#10-security-models)
+11. [Tool Systems](#11-tool-systems)
+12. [Communication and Routing](#12-communication-and-routing)
+13. [Context Management](#13-context-management)
+14. [Observability and Debugging](#14-observability-and-debugging)
+15. [Multi-Model Support](#15-multi-model-support)
+
+---
+
+## 5. Architectural Overview
+
+### 5.1 AWP: Layered Protocol Architecture
 
 AWP organizes concerns into **7 semantic layers**, each independently composable:
 
@@ -55,7 +203,7 @@ AWP organizes concerns into **7 semantic layers**, each independently composable
 - `awp-core`: Protocol layer (models, parser, validator, CLI)
 - `awp-runtime`: Execution layer (engines, LLM client, tools, data API)
 
-### 2.2 OpenClaw: Gateway-Centric Architecture
+### 5.2 OpenClaw: Gateway-Centric Architecture
 
 OpenClaw follows a **hub-and-spoke model** with the Gateway as the central control plane:
 
@@ -66,7 +214,7 @@ OpenClaw follows a **hub-and-spoke model** with the Gateway as the central contr
 - **Channel plugins**: Platform-specific adapters for 25+ messaging services
 - **Context engine**: Pluggable lifecycle (ingest → assemble → compact → after-turn)
 
-### 2.3 Fundamental Architectural Difference
+### 5.3 Fundamental Architectural Difference
 
 | Aspect | AWP | OpenClaw |
 |--------|-----|----------|
@@ -79,14 +227,14 @@ OpenClaw follows a **hub-and-spoke model** with the Gateway as the central contr
 
 ---
 
-## 3. Autonomy and Orchestration Models
+## 6. Autonomy and Orchestration Models
 
-### 3.1 AWP: Formal A0–A4 Autonomy Spectrum
+### 6.1 AWP: Formal A0-A4 Autonomy Spectrum
 
 AWP defines five progressive autonomy levels with strict safety requirements at each tier:
 
 <p align="center">
-  <img src="diagrams/02-autonomy-spectrum.svg" alt="02 Autonomy Spectrum" width="100%"/>
+  <img src="diagrams/02-autonomy-spectrum.svg" alt="Autonomy Spectrum" width="100%"/>
 </p>
 
 | Level | Agents | Coordination | Tools | Safety Requirement |
@@ -110,7 +258,7 @@ max_depth:          5        # Recursive delegation depth
 
 The `budget_fraction_remaining` metric tracks the minimum remaining fraction across all dimensions — the workflow stops when **any** resource is exhausted.
 
-### 3.2 OpenClaw: Informal 3-Tier Capability Model
+### 6.2 OpenClaw: Informal 3-Tier Capability Model
 
 OpenClaw's "autonomy" refers to **permission scope**, not orchestration complexity:
 
@@ -120,21 +268,21 @@ OpenClaw's "autonomy" refers to **permission scope**, not orchestration complexi
 | **Tier 2** | Send on Behalf | Send messages and create events under agent's own identity. |
 | **Tier 3** | Proactive | Autonomous cron jobs, standing orders, no per-action approval. |
 
-### 3.3 Autonomy Mapping
+### 6.3 Autonomy Mapping
 
 
 **Key insight**: AWP's autonomy spectrum measures **task decomposition complexity** (how sophisticated is the multi-agent coordination?). OpenClaw's tiers measure **permission delegation** (what is the agent allowed to do?). These are orthogonal dimensions.
 
-OpenClaw effectively operates at **AWP A0–A1 level** in orchestration terms: agents receive messages and respond independently, with optional subagent spawning (comparable to simple delegation). There is no DAG-based task decomposition, no multi-agent state sharing, no budget-bounded delegation loops, and no recursive self-organization.
+OpenClaw effectively operates at **AWP A0-A1 level** in orchestration terms: agents receive messages and respond independently, with optional subagent spawning (comparable to simple delegation). There is no DAG-based task decomposition, no multi-agent state sharing, no budget-bounded delegation loops, and no recursive self-organization.
 
 ---
 
-## 4. Agent Runtime Comparison
+## 7. Agent Runtime Comparison
 
-### 4.1 AWP Agent Lifecycle
+### 7.1 AWP Agent Lifecycle
 
 <p align="center">
-  <img src="diagrams/03-delegation-loop.svg" alt="03 Delegation Loop" width="100%"/>
+  <img src="diagrams/03-delegation-loop.svg" alt="Delegation Loop" width="100%"/>
 </p>
 
 **Delegation Envelope** (manager → worker):
@@ -161,7 +309,7 @@ OpenClaw effectively operates at **AWP A0–A1 level** in orchestration terms: a
 | Tier | Cost | Checks | Skip Condition |
 |------|------|--------|----------------|
 | **Tier 1** (Deterministic) | Free | Is dict? Has confidence? In [0,1]? Not pure error? | Never skipped |
-| **Tier 2** (LLM Semantic) | Tokens | Does result address the task? Confidence accurate? | confidence ≥ 0.95 OR budget ≤ 10% |
+| **Tier 2** (LLM Semantic) | Tokens | Does result address the task? Confidence accurate? | confidence >= 0.95 OR budget <= 10% |
 
 **Stall Detection** (two independent channels):
 
@@ -176,7 +324,7 @@ output_stalled = similarity(old_output, new_output) > 0.85
 # Decision: 1st warning → "warn", 2nd warning → "stop"
 ```
 
-### 4.2 OpenClaw Agent Runtime ("Pi Agent")
+### 7.2 OpenClaw Agent Runtime ("Pi Agent")
 
 
 **Pi Agent Loop Stages:**
@@ -189,7 +337,7 @@ output_stalled = similarity(old_output, new_output) > 0.85
 6. **Reply**: Chunked delivery to source channel
 7. **Persist**: `afterTurn()`, JSONL transcript append, auto-compaction trigger
 
-### 4.3 Runtime Feature Matrix
+### 7.3 Runtime Feature Matrix
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -206,9 +354,9 @@ output_stalled = similarity(old_output, new_output) > 0.85
 
 ---
 
-## 5. Workflow Definition and Execution
+## 8. Workflow Definition and Execution
 
-### 5.1 AWP: Declarative YAML Workflows
+### 8.1 AWP: Declarative YAML Workflows
 
 AWP workflows are defined as portable YAML manifests:
 
@@ -252,16 +400,13 @@ state:
         fields: [findings, summary]
 ```
 
-**DAG execution model:**
-
-
 **Advanced DAG features:**
 - **Fan-out**: `source: "state.context.topics"` splits into parallel agents
 - **Fan-in**: `strategy: merge | reduce | first | majority`
 - **Conditional execution**: `expr: "state.analyst.decision == 'proceed'"`
 - **Subworkflows**: DAG node references an entire sub-workflow
 
-### 5.2 OpenClaw: Imperative JSON5 Configuration
+### 8.2 OpenClaw: Imperative JSON5 Configuration
 
 OpenClaw uses JSON5 config files for agent setup and routing (not workflow definition):
 
@@ -300,7 +445,7 @@ OpenClaw uses JSON5 config files for agent setup and routing (not workflow defin
 
 **No workflow graphs**: OpenClaw does not define task pipelines. Each agent operates independently in response to routed messages.
 
-### 5.3 Execution Model Comparison
+### 8.3 Execution Model Comparison
 
 
 | Capability | AWP | OpenClaw |
@@ -316,13 +461,13 @@ OpenClaw uses JSON5 config files for agent setup and routing (not workflow defin
 
 ---
 
-## 6. Memory Systems
-
-### 6.1 AWP: 4-Tier Memory Architecture
+## 9. Memory Systems
 
 <p align="center">
-  <img src="diagrams/04-memory-comparison.svg" alt="04 Memory Comparison" width="100%"/>
+  <img src="diagrams/04-memory-comparison.svg" alt="Memory Comparison" width="100%"/>
 </p>
+
+### 9.1 AWP: 4-Tier Memory Architecture
 
 **Access control per agent per tier:**
 ```yaml
@@ -353,7 +498,7 @@ state:
     max_fields: 1000
 ```
 
-### 6.2 OpenClaw: File-Based Memory with Semantic Search
+### 9.2 OpenClaw: File-Based Memory with Semantic Search
 
 
 **Search configuration:**
@@ -368,7 +513,7 @@ state:
 - Delta triggers: 100KB or 50 messages
 - Force sync post-compaction
 
-### 6.3 Memory Comparison
+### 9.3 Memory Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -383,13 +528,13 @@ state:
 
 ---
 
-## 7. Security Models
-
-### 7.1 AWP: Defense-in-Depth with Cross-Cutting Security
+## 10. Security Models
 
 <p align="center">
-  <img src="diagrams/06-security-comparison.svg" alt="06 Security Comparison" width="100%"/>
+  <img src="diagrams/06-security-comparison.svg" alt="Security Comparison" width="100%"/>
 </p>
+
+### 10.1 AWP: Defense-in-Depth with Cross-Cutting Security
 
 **Circuit breaker state machine:**
 ```yaml
@@ -406,7 +551,7 @@ security.circuit_breaker:
 - `forbidden_tools` list
 - `codemode.max_tools_per_worker`
 
-### 7.2 OpenClaw: Single-Operator Trust Model
+### 10.2 OpenClaw: Single-Operator Trust Model
 
 
 **Sandbox modes:**
@@ -423,7 +568,7 @@ security.circuit_breaker:
 4. Sandbox policy
 5. Subagent depth-based denials
 
-### 7.3 Security Comparison
+### 10.3 Security Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -442,9 +587,9 @@ security.circuit_breaker:
 
 ---
 
-## 8. Tool Systems
+## 11. Tool Systems
 
-### 8.1 AWP Tool Model
+### 11.1 AWP Tool Model
 
 AWP uses **MCP (Model Context Protocol)** for tool definition with namespace enforcement:
 
@@ -469,7 +614,7 @@ capabilities:
 - Pre-defined variables: `_workspace_dir`, `_output_dir`
 - Namespace isolation for generated tools
 
-### 8.2 OpenClaw Tool Ecosystem
+### 11.2 OpenClaw Tool Ecosystem
 
 OpenClaw ships with 30+ built-in tools:
 
@@ -488,7 +633,7 @@ OpenClaw ships with 30+ built-in tools:
 
 **MCP integration** via mcporter bridge (external, decoupled from core).
 
-### 8.3 Tool System Comparison
+### 11.3 Tool System Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -502,9 +647,9 @@ OpenClaw ships with 30+ built-in tools:
 
 ---
 
-## 9. Communication and Routing
+## 12. Communication and Routing
 
-### 9.1 AWP: Agent Communication
+### 12.1 AWP: Agent Communication
 
 AWP agents communicate through **state sharing** and **message bus**:
 
@@ -514,7 +659,7 @@ AWP agents communicate through **state sharing** and **message bus**:
 - `selective`: Only declared `share_output` fields exposed
 - `isolated`: Agents see only their own state + explicit inputs
 
-### 9.2 OpenClaw: Binding-Based Message Routing
+### 12.2 OpenClaw: Binding-Based Message Routing
 
 OpenClaw routes messages through a **precedence hierarchy**:
 
@@ -534,7 +679,7 @@ OpenClaw routes messages through a **precedence hierarchy**:
 - `agentToAgent` tool: Direct agent-to-agent (default off)
 - Subagent announce: Push-based completion events
 
-### 9.3 Communication Comparison
+### 12.3 Communication Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -547,9 +692,9 @@ OpenClaw routes messages through a **precedence hierarchy**:
 
 ---
 
-## 10. Context Management
+## 13. Context Management
 
-### 10.1 AWP: Rolling Summary + Context Spillover
+### 13.1 AWP: Rolling Summary + Context Spillover
 
 AWP manages context growth through two mechanisms:
 
@@ -561,7 +706,7 @@ AWP manages context growth through two mechanisms:
 
 **Context Spillover:**
 ```
-If serialized_length ≤ per_entry_budget:
+If serialized_length <= per_entry_budget:
     → Inline as JSON in worker prompt
 
 If serialized_length > per_entry_budget:
@@ -572,7 +717,7 @@ If serialized_length > per_entry_budget:
 
 Budget allocation: `total_chars / num_entries` (minimum 4,000 chars per entry).
 
-### 10.2 OpenClaw: Pluggable Context Engine
+### 13.2 OpenClaw: Pluggable Context Engine
 
 OpenClaw's context engine has 6 lifecycle methods:
 
@@ -589,7 +734,7 @@ OpenClaw's context engine has 6 lifecycle methods:
 - `onSubagentEnded()`: Cleanup child context
 - Rollback handles for failed spawns
 
-### 10.3 Context Management Comparison
+### 13.3 Context Management Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -603,9 +748,9 @@ OpenClaw's context engine has 6 lifecycle methods:
 
 ---
 
-## 11. Observability and Debugging
+## 14. Observability and Debugging
 
-### 11.1 AWP: Layer 6 Observability
+### 14.1 AWP: Layer 6 Observability
 
 AWP treats observability as a first-class protocol layer:
 
@@ -635,7 +780,7 @@ observability:
 
 **Budget snapshots**: Real-time visibility into all 5 resource dimensions.
 
-### 11.2 OpenClaw: Operational Logging
+### 14.2 OpenClaw: Operational Logging
 
 - Structured logging via `createSubsystemLogger()`
 - Usage tracking and normalization per model
@@ -644,7 +789,7 @@ observability:
 - `logs.tail` Gateway method for live tailing
 - No formal observability layer or distributed tracing standard
 
-### 11.3 Observability Comparison
+### 14.3 Observability Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -658,9 +803,9 @@ observability:
 
 ---
 
-## 12. Multi-Model Support
+## 15. Multi-Model Support
 
-### 12.1 AWP: Model-Agnostic per Agent
+### 15.1 AWP: Model-Agnostic per Agent
 
 ```yaml
 agents:
@@ -675,7 +820,7 @@ agents:
 - Temperature control per worker via delegation envelope
 - No built-in failover (runtime-dependent)
 
-### 12.2 OpenClaw: Sophisticated Model Failover
+### 15.2 OpenClaw: Sophisticated Model Failover
 
 
 **35+ LLM providers:** Anthropic (+ Vertex), OpenAI (+ Codex), Google Gemini, DeepSeek, Ollama, Together, Venice, X.AI, Perplexity, HuggingFace, and more.
@@ -687,7 +832,7 @@ agents:
 - Per-session model override via `sessions.patch`
 - `FallbackSummaryError` with per-attempt details + `soonestCooldownExpiry`
 
-### 12.3 Model Support Comparison
+### 15.3 Model Support Comparison
 
 | Feature | AWP | OpenClaw |
 |---------|-----|----------|
@@ -696,97 +841,6 @@ agents:
 | **Per-agent model** | Yes (YAML manifest) | Yes (config + session override) |
 | **Auth management** | Environment variables | Multi-profile rotation + cooldown |
 | **Context overflow handling** | Context spillover to files | Auto-switch to larger model |
-
----
-
-## 13. Strengths and Weaknesses Matrix
-
-### 13.1 Where OpenClaw Excels
-
-
-| Strength | Detail | AWP Equivalent |
-|----------|--------|----------------|
-| **Channel breadth** | WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, IRC... | None — AWP is channel-agnostic |
-| **Local-first privacy** | All data on user's device, no cloud dependency | Cloud-agnostic but not local-first |
-| **Model failover** | Auth profile rotation, cooldown tracking, context overflow detection | Not in protocol spec |
-| **Device integration** | Voice wake, camera, screen recording, location via mobile nodes | No device concept |
-| **Browser automation** | CDP-based full browser control with sandbox | Not built-in |
-| **Plugin architecture** | Context engines, memory backends, channels, tools, skills | Fixed architecture |
-| **Production UX** | Cron jobs, webhooks, exec approvals, DM pairing | Developer-focused |
-| **Subagent spawning** | Depth-limited spawn with context preparation + announce flow | Different model (delegation envelope) |
-
-### 13.2 Where AWP Excels
-
-
-| Strength | Detail | OpenClaw Equivalent |
-|----------|--------|---------------------|
-| **Formal autonomy spectrum** | 5 levels (A0–A4) with clear safety requirements per level | Informal 3-tier permissions |
-| **Two orchestration engines** | DAG (predictable) + Delegation Loop (emergent) | Single agent loop |
-| **Budget enforcement** | 5D tracking: tokens, time, workers, loops, tools | None |
-| **2-tier validation** | Deterministic (free) + LLM semantic (conditional) | No output validation |
-| **Stall detection** | Confidence delta + output similarity → warn → stop | None |
-| **Explicit state sharing** | `share_output` with selective/full/isolated strategies | Agent-isolated sessions |
-| **Declarative workflows** | Portable YAML manifests with DAG, conditions, fan-out/in | Imperative JSON5 config |
-| **Packaging** | `.awp.zip` bundles run on any conforming runtime | Tied to OpenClaw Gateway |
-| **Validation rules** | 26 deterministic rules (naming, graph, confidence, budgets) | JSON Schema frame validation |
-| **Dynamic tool creation** | A3+ agents generate Python tools at runtime | Not supported |
-| **Recursive delegation** | A4 workers become sub-managers with budget cascade | Max spawn depth |
-| **Rolling summary** | Constant-size manager context despite many iterations | LLM compaction |
-| **Context spillover** | Large results spilled to files with preview + path | Token budget assembly |
-
-### 13.3 Summary Assessment
-
-| Dimension | Winner | Margin |
-|-----------|--------|--------|
-| **Multi-agent orchestration** | AWP | Large — fundamentally different capability |
-| **Messaging integration** | OpenClaw | Large — AWP has none |
-| **Budget/safety controls** | AWP | Large — 5D enforcement vs. none |
-| **Model management** | OpenClaw | Medium — 35+ providers with failover |
-| **Memory system** | Tie | Different strengths (sharing vs. search) |
-| **Security model** | Tie | Different threat models |
-| **Developer experience** | OpenClaw | Medium — production-ready daily driver |
-| **Protocol formalism** | AWP | Large — versioned spec with 26 rules |
-| **Portability** | AWP | Large — `.awp.zip` vs. single runtime |
-| **Device/hardware** | OpenClaw | Large — AWP has no device concept |
-| **Context management** | Tie | Different approaches, both effective |
-
----
-
-## 14. Complementary Integration Scenario
-
-AWP and OpenClaw are not competitors — they solve orthogonal problems. A powerful architecture combines both:
-
-<p align="center">
-  <img src="diagrams/05-integration-scenario.svg" alt="05 Integration Scenario" width="100%"/>
-</p>
-
-**Integration flow:**
-
-1. User sends message via WhatsApp/Telegram/Slack
-2. OpenClaw Gateway routes to appropriate agent
-3. Agent classifies task complexity:
-   - **Simple query** → Direct LLM response via OpenClaw
-   - **Complex multi-step task** → Dispatch to AWP runtime
-4. AWP decomposes task into DAG or delegation loop
-5. Workers execute with budget enforcement and validation
-6. Synthesized result returned to OpenClaw agent
-7. Agent delivers reply via original messaging channel
-
-**Each system plays to its strengths:**
-- OpenClaw handles **user interaction, channel management, device integration, model failover**
-- AWP handles **task decomposition, multi-agent coordination, budget control, quality validation**
-
----
-
-## 15. Conclusion
-
-OpenClaw and AWP represent two distinct evolutionary paths in the AI agent ecosystem:
-
-**OpenClaw** is a **production-grade personal AI assistant** optimized for reach (25+ channels), privacy (local-first), and daily utility (device integration, browser automation, cron jobs). Its multi-agent model is about **persona isolation and message routing**, not task coordination.
-
-**AWP** is a **formal orchestration protocol** optimized for complexity (A0–A4 autonomy), safety (5D budget enforcement), and portability (declarative YAML, runtime-agnostic). Its multi-agent model is about **task decomposition and coordinated execution**.
-
-The most interesting question is not "which is better?" but "how do they compose?" — a Gateway that knows how to reach users on every platform, backed by an orchestration engine that can decompose any task into coordinated, budget-bounded, validated agent workflows.
 
 ---
 
