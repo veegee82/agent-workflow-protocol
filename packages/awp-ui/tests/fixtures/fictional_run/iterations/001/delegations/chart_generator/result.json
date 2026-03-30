@@ -1,0 +1,19 @@
+{
+  "confidence": 0.90,
+  "answer": "Generated 2 charts: revenue_by_product.png (bar chart) and monthly_trend.png (line chart). Both saved to the workspace.",
+  "artifacts": ["revenue_by_product.png", "monthly_trend.png"],
+  "chart_data": {
+    "bar_chart": {
+      "type": "bar",
+      "title": "Revenue by Product",
+      "labels": ["Widget A", "Widget B", "Widget C"],
+      "values": [15900, 24000, 46750]
+    },
+    "line_chart": {
+      "type": "line",
+      "title": "Monthly Revenue Trend",
+      "labels": ["October", "November", "December"],
+      "values": [42600, 26550, 17500]
+    }
+  }
+}

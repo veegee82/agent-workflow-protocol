@@ -1,0 +1,20 @@
+{
+  "status": "complete",
+  "confidence": 0.92,
+  "total_iterations": 2,
+  "total_workers": 3,
+  "total_tool_calls": 3,
+  "answer": "Q4 sales analysis complete. Total revenue: $86,650 with 40% profit margin. Widget C is the top performer. Full report, charts, and data analysis have been generated.",
+  "final_budget": {
+    "loops_used": 2,
+    "tokens_used": 48000,
+    "workers_spawned": 3,
+    "wall_time_elapsed": 180
+  },
+  "artifacts": [
+    "stats_output.json",
+    "revenue_by_product.png",
+    "monthly_trend.png",
+    "q4_report.md"
+  ]
+}

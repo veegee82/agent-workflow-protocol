@@ -1,0 +1,6 @@
+{
+  "confidence": 0.95,
+  "answer": "# Q4 Sales Analysis Report\n\n## Executive Summary\nQ4 2025 generated $86,650 in total revenue with a 40% profit margin.\n\n## Product Performance\n- **Widget C**: Top performer at $46,750 (54% of total revenue)\n- **Widget B**: $24,000 (28%)\n- **Widget A**: $15,900 (18%)\n\n## Regional Breakdown\n- South: $33,050\n- West: $23,500\n- East: $16,600\n- North: $16,500\n\n## Monthly Trends\nOctober was the strongest month at $42,600, followed by November ($26,550) and December ($17,500).\n\n## Recommendations\n1. Increase Widget C inventory for Q1\n2. Investigate declining December sales\n3. Expand South region marketing budget",
+  "artifacts": ["q4_report.md"],
+  "output_type": "markdown"
+}

@@ -1,0 +1,10 @@
+{
+  "loops_used": 2,
+  "loops_remaining": 8,
+  "tokens_used": 35000,
+  "tokens_remaining": 465000,
+  "workers_spawned": 3,
+  "workers_remaining": 7,
+  "wall_time_elapsed": 120,
+  "wall_time_remaining": 480
+}

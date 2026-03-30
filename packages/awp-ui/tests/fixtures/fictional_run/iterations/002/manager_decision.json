@@ -1,0 +1,11 @@
+{
+  "decision": "delegate",
+  "confidence": null,
+  "reasoning": "Data analysis and visualizations are complete. Now need a report writer to synthesize findings into a markdown summary report.",
+  "delegations": [
+    {
+      "worker_id": "report_writer",
+      "instructions": "Write a comprehensive markdown report summarizing the Q4 sales analysis. Include key statistics, product performance, regional breakdown, and trend analysis. Reference the generated charts."
+    }
+  ]
+}
