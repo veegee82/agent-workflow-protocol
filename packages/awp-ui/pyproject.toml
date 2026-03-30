@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awp-ui"
+version = "0.1.0"
+description = "Agent Workflow Protocol — Web UI server with real-time WebSocket streaming"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{name = "AWP Contributors"}]
+keywords = [
+    "agents", "multi-agent", "workflow", "orchestration", "llm",
+    "awp", "ui", "dashboard", "websocket",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+    "websockets>=12.0",
+    "aiosqlite>=0.19",
+    "python-multipart>=0.0.6",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+awp = ["awp-core>=1.0.0", "awp-runtime>=1.0.0"]
+dev = ["pytest>=7.0", "httpx>=0.25", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/veegee82/agent-workflow-protocol"
+Repository = "https://github.com/veegee82/agent-workflow-protocol"
+
+[project.scripts]
+awp-ui = "server.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["server*"]
