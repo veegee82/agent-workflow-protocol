@@ -10,6 +10,9 @@ import type {
   RunHistoryEntry,
   ActivePanel,
   WebSocketConnection,
+  Session,
+  SessionHistoryItem,
+  SecretEntry,
 } from '@/types';
 import * as api from '@/api/client';
 import { connectToRun } from '@/api/websocket';
@@ -108,6 +111,27 @@ export interface WorkflowStore {
   attachedFiles: File[];
   addFiles: (files: File[]) => void;
   removeFile: (index: number) => void;
+
+  // Sessions
+  currentSessionId: string | null;
+  sessions: Session[];
+  sessionHistory: SessionHistoryItem[];
+  createSession: (title?: string) => Promise<void>;
+  loadSessions: () => Promise<void>;
+  selectSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
+  renameSession: (sessionId: string, title: string) => Promise<void>;
+
+  // Secrets
+  secrets: SecretEntry[];
+  loadSecrets: () => Promise<void>;
+  addSecret: (key: string, value: string) => Promise<void>;
+  removeSecret: (key: string) => Promise<void>;
+
+  // Persistent settings
+  settingsLoaded: boolean;
+  loadPersistedSettings: () => Promise<void>;
+  saveCurrentSettings: () => Promise<void>;
 
   // WebSocket handle (internal)
   _wsConnection: WebSocketConnection | null;
@@ -411,12 +435,58 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         await api.uploadFiles(state.attachedFiles);
       }
 
-      // Start the run on the backend
-      const { run_id } = await api.startRun(state.config);
+      // Auto-create session if none exists
+      let sessionId = state.currentSessionId;
+      if (!sessionId) {
+        try {
+          const title =
+            state.config.task.slice(0, 60) ||
+            `Session ${new Date().toLocaleString()}`;
+          const session = await api.createSession(title);
+          sessionId = session.id;
+          set((s) => ({
+            currentSessionId: session.id,
+            sessions: [session, ...s.sessions],
+          }));
+        } catch {
+          // Non-critical: continue without session
+        }
+      }
+
+      // Start the run (in session context if available)
+      let run_id: string;
+      if (sessionId) {
+        const result = await api.startRunInSession(
+          sessionId,
+          state.config,
+        );
+        run_id = result.run_id;
+      } else {
+        const result = await api.startRun(state.config);
+        run_id = result.run_id;
+      }
       set({ currentRunId: run_id });
 
       // Open WebSocket
-      const conn = connectToRun(run_id, (event) => get().addEvent(event), {
+      const conn = connectToRun(run_id, (event) => {
+        get().addEvent(event);
+        // On run complete/error, reload session history
+        if (
+          (event.type === 'run.complete' || event.type === 'run.error') &&
+          get().currentSessionId
+        ) {
+          const sid = get().currentSessionId!;
+          api
+            .getSessionHistory(sid)
+            .then((history) => set({ sessionHistory: history }))
+            .catch(() => {});
+          // Also reload sessions to update run_count and status
+          api
+            .listSessions()
+            .then((sessions) => set({ sessions }))
+            .catch(() => {});
+        }
+      }, {
         onStateChange: (ws) => set({ _wsStatus: ws }),
       });
       set({ _wsConnection: conn });

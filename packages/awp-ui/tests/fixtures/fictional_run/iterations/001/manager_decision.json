@@ -1,0 +1,15 @@
+{
+  "decision": "delegate",
+  "confidence": null,
+  "reasoning": "Need to first analyze the raw sales data to compute aggregate statistics, then generate visualizations based on those statistics.",
+  "delegations": [
+    {
+      "worker_id": "data_analyzer",
+      "instructions": "Read the Q4 sales CSV file. Compute total revenue, profit margins by product, regional breakdowns, and month-over-month trends. Return structured JSON with all statistics."
+    },
+    {
+      "worker_id": "chart_generator",
+      "instructions": "Using the sales data, create a bar chart of revenue by product and a line chart of monthly revenue trends. Save as PNG files."
+    }
+  ]
+}

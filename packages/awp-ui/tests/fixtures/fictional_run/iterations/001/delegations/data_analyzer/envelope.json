@@ -1,0 +1,10 @@
+{
+  "worker_id": "data_analyzer",
+  "instructions": "Read the Q4 sales CSV file. Compute total revenue, profit margins by product, regional breakdowns, and month-over-month trends. Return structured JSON with all statistics.",
+  "tools_allowed": ["code.execute", "file.read", "file.write"],
+  "model": "openrouter/anthropic/claude-sonnet-4",
+  "budget": {
+    "max_tokens": 50000,
+    "max_tool_calls": 10
+  }
+}
