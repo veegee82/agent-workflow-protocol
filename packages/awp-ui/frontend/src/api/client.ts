@@ -76,7 +76,8 @@ export async function startRun(
 
 /** List all runs (most recent first). */
 export async function listRuns(): Promise<RunHistoryEntry[]> {
-  return request<RunHistoryEntry[]>('/api/runs');
+  const data = await request<{ runs: RunHistoryEntry[]; total: number }>('/api/runs');
+  return data.runs;
 }
 
 /** Get full details for a single run. */
@@ -86,7 +87,8 @@ export async function getRun(runId: string): Promise<RunDetail> {
 
 /** Get the event stream for a completed or in-progress run. */
 export async function getRunEvents(runId: string): Promise<RunEvent[]> {
-  return request<RunEvent[]>(`/api/runs/${runId}/events`);
+  const data = await request<{ events: RunEvent[] }>(`/api/runs/${runId}/events`);
+  return data.events;
 }
 
 /** Get the agent graph (nodes + edges) for a run. */
@@ -108,6 +110,27 @@ export async function deleteRun(runId: string): Promise<void> {
   return request<void>(`/api/runs/${runId}`, { method: 'DELETE' });
 }
 
+/** Artifact entry from the backend. */
+export interface Artifact {
+  name: string;
+  path: string;
+  relative: string;
+  kind: 'image' | 'table' | 'html' | 'text' | 'code';
+  size: number;
+  run_id: string;
+}
+
+/** List all output artifacts for a run. */
+export async function getRunArtifacts(runId: string): Promise<Artifact[]> {
+  const data = await request<{ artifacts: Artifact[] }>(`/api/runs/${runId}/artifacts`);
+  return data.artifacts;
+}
+
+/** Get the URL to serve a workspace file. */
+export function fileServeUrl(filePath: string): string {
+  return `${BASE}/api/files/serve?path=${encodeURIComponent(filePath)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
@@ -121,7 +144,7 @@ export async function uploadFiles(
     form.append('files', f);
   }
 
-  const res = await fetch(`${BASE}/api/files`, {
+  const res = await fetch(`${BASE}/api/upload`, {
     method: 'POST',
     body: form,
   });
@@ -139,7 +162,7 @@ export async function uploadFiles(
 
 /** Load a skill from a local path. */
 export async function loadSkill(path: string): Promise<Skill> {
-  return request<Skill>('/api/skills', {
+  return request<Skill>('/api/skills/load', {
     method: 'POST',
     body: JSON.stringify({ path }),
   });
@@ -149,7 +172,7 @@ export async function loadSkill(path: string): Promise<Skill> {
 export async function connectMCP(
   config: MCPServerConfig,
 ): Promise<MCPServer> {
-  return request<MCPServer>('/api/mcp/connect', {
+  return request<MCPServer>('/api/tools/mcp', {
     method: 'POST',
     body: JSON.stringify(config),
   });
@@ -157,7 +180,8 @@ export async function connectMCP(
 
 /** List all tools available for the current configuration. */
 export async function getAvailableTools(): Promise<string[]> {
-  return request<string[]>('/api/tools');
+  const data = await request<{ tools: Array<{ name: string }> }>('/api/tools/available');
+  return data.tools.map((t) => t.name);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +198,8 @@ export async function createSession(title: string): Promise<Session> {
 
 /** List all sessions (most recent first). */
 export async function listSessions(): Promise<Session[]> {
-  return request<Session[]>('/api/sessions');
+  const data = await request<{ sessions: Session[] }>('/api/sessions');
+  return data.sessions;
 }
 
 /** Get full details for a single session. */
@@ -188,7 +213,7 @@ export async function updateSession(
   title: string,
 ): Promise<void> {
   return request<void>(`/api/sessions/${sessionId}`, {
-    method: 'PATCH',
+    method: 'PUT',
     body: JSON.stringify({ title }),
   });
 }
@@ -202,9 +227,38 @@ export async function deleteSession(sessionId: string): Promise<void> {
 export async function getSessionHistory(
   sessionId: string,
 ): Promise<SessionHistoryItem[]> {
-  return request<SessionHistoryItem[]>(
+  const data = await request<{ session_id: string; history: SessionHistoryItem[] }>(
     `/api/sessions/${sessionId}/history`,
   );
+  return data.history;
+}
+
+/** Full session data including all runs, events, and graphs. */
+export interface SessionFull {
+  session: {
+    id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    settings: Record<string, unknown>;
+  };
+  runs: Array<{
+    run_id: string;
+    task: string;
+    model: string;
+    status: string;
+    config: Record<string, unknown>;
+    result: Record<string, unknown> | null;
+    events: Array<{ run_id: string; seq: number; type: string; data: Record<string, unknown>; timestamp: string }>;
+    graph: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> } | null;
+    created_at: string;
+    completed_at: string | null;
+  }>;
+}
+
+/** Load full session data for complete restoration. */
+export async function getSessionFull(sessionId: string): Promise<SessionFull> {
+  return request<SessionFull>(`/api/sessions/${sessionId}/full`);
 }
 
 /** Start a run within a session context. */
@@ -227,7 +281,8 @@ export async function startRunInSession(
 
 /** List stored secret keys (values are never returned). */
 export async function listSecrets(): Promise<SecretEntry[]> {
-  return request<SecretEntry[]>('/api/secrets');
+  const data = await request<{ secrets: SecretEntry[] }>('/api/secrets');
+  return data.secrets;
 }
 
 /** Store a new secret. */
@@ -259,18 +314,18 @@ export async function getSettings(): Promise<WorkflowConfig> {
 
 /** Save settings to persistent storage. */
 export async function saveSettings(
-  settings: Partial<WorkflowConfig>,
+  settings: Record<string, unknown>,
 ): Promise<void> {
   return request<void>('/api/settings', {
-    method: 'PUT',
+    method: 'POST',
     body: JSON.stringify(settings),
   });
 }
 
 /** Load persisted settings (returns null if none saved). */
-export async function loadSettings(): Promise<Partial<WorkflowConfig> | null> {
+export async function loadSettings(): Promise<Record<string, unknown> | null> {
   try {
-    return await request<Partial<WorkflowConfig>>('/api/settings/saved');
+    return await request<Record<string, unknown>>('/api/settings');
   } catch {
     return null;
   }

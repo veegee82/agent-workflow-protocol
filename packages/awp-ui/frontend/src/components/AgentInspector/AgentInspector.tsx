@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   X,
   Diamond,
@@ -12,16 +14,52 @@ import {
   AlertTriangle,
   GitBranch,
   Activity,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Badge } from '@/components/Layout';
 import clsx from 'clsx';
 
 // ---------------------------------------------------------------------------
+// Copy button for code blocks
+// ---------------------------------------------------------------------------
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-awp-muted hover:bg-awp-border/60 hover:text-awp-text transition-colors"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3 w-3 text-awp-green" />
+          <span className="text-awp-green">Copied</span>
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" />
+          <span>Copy</span>
+        </>
+      )}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Collapsible JSON viewer (reused from OutputPanel concept)
 // ---------------------------------------------------------------------------
 
-function JsonValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+function JsonValue({ value, depth = 0, name }: { value: unknown; depth?: number; name?: string }) {
   const [open, setOpen] = useState(depth < 2);
 
   if (value === null || value === undefined) {
@@ -34,6 +72,35 @@ function JsonValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
     return <span className="text-awp-cyan">{value}</span>;
   }
   if (typeof value === 'string') {
+    // Detect code-like strings: key is "code" or "source" and multi-line
+    const isCode =
+      (name === 'code' || name === 'source') && value.includes('\n');
+    if (isCode) {
+      return (
+        <div className="mt-1 w-full">
+          <div className="relative group">
+            <div className="absolute right-2 top-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <span className="text-[10px] uppercase tracking-wider text-awp-muted">python</span>
+              <CopyButton text={value} />
+            </div>
+            <SyntaxHighlighter
+              style={oneDark}
+              language="python"
+              PreTag="div"
+              customStyle={{
+                background: '#0d1117',
+                borderRadius: '0.5rem',
+                fontSize: '0.75rem',
+                border: '1px solid #30363d',
+                margin: 0,
+              }}
+            >
+              {value}
+            </SyntaxHighlighter>
+          </div>
+        </div>
+      );
+    }
     return <span className="text-awp-green break-all">&quot;{value}&quot;</span>;
   }
 
@@ -76,12 +143,15 @@ function JsonValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
         </button>
         {open && (
           <div className="ml-3 border-l border-awp-border/40 pl-2 mt-0.5">
-            {entries.map(([k, v]) => (
-              <div key={k} className="flex items-start gap-1">
-                <span className="text-awp-purple text-[11px] shrink-0">{k}:</span>
-                <JsonValue value={v} depth={depth + 1} />
-              </div>
-            ))}
+            {entries.map(([k, v]) => {
+              const isCodeField = (k === 'code' || k === 'source') && typeof v === 'string' && v.includes('\n');
+              return (
+                <div key={k} className={isCodeField ? '' : 'flex items-start gap-1'}>
+                  <span className="text-awp-purple text-[11px] shrink-0">{k}:</span>
+                  <JsonValue value={v} depth={depth + 1} name={k} />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

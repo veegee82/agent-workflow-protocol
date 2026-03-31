@@ -29,6 +29,7 @@
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
   <a href="examples/jupyter/playground.ipynb">Playground</a> &middot;
+  <a href="docs/ui.md">Workflow Studio</a> &middot;
   <a href="README_GENERATION.md">Workflow Generation</a> &middot;
   <a href="README_NERD.md">Theory</a> &middot;
   <a href="README_SUPER_NERD.md">Deep Theory</a> &middot;
@@ -42,14 +43,15 @@
 **From concrete to abstract:**
 1. [Quickstart: 3 Lines of Code](#1-quickstart-3-lines-of-code)
 2. [Data Science Integration](#2-data-science-integration)
-3. [Enterprise Architecture](#3-enterprise-architecture)
-4. [Infrastructure Benchmarking](#4-infrastructure-benchmarking)
-5. [YAML Workflows & CLI](#5-yaml-workflows--cli)
-6. [The Delegation Loop in Detail](#6-the-delegation-loop-in-detail)
-7. [Budget, Safety, Validation](#7-budget-safety-validation)
-8. [The Autonomy Spectrum (A0-A4)](#8-the-autonomy-spectrum-a0-a4)
-9. [The 7-Layer Model](#9-the-7-layer-model)
-10. [Repository & Links](#10-repository--links)
+3. [Workflow Studio (UI)](#3-workflow-studio-ui)
+4. [Enterprise Architecture](#4-enterprise-architecture)
+5. [Infrastructure Benchmarking](#5-infrastructure-benchmarking)
+6. [YAML Workflows & CLI](#6-yaml-workflows--cli)
+7. [The Delegation Loop in Detail](#7-the-delegation-loop-in-detail)
+8. [Budget, Safety, Validation](#8-budget-safety-validation)
+9. [The Autonomy Spectrum (A0-A4)](#9-the-autonomy-spectrum-a0-a4)
+10. [The 7-Layer Model](#10-the-7-layer-model)
+11. [Repository & Links](#11-repository--links)
 
 ---
 
@@ -553,7 +555,37 @@ validated against rules DT1-DT8 before registration.
 
 ---
 
-## 3. Enterprise Architecture
+## 3. Workflow Studio (UI)
+
+<p align="center">
+  <img src="assets/ui.png" alt="AWP Workflow Studio" width="100%"/>
+</p>
+
+AWP ships with **Workflow Studio**, a browser-based UI for running, monitoring, and inspecting agent workflows in real time. No code required -- configure a task, hit Run, and watch agents solve problems live.
+
+**Key capabilities:**
+
+- **Live execution** -- Start workflows from the browser, see output stream in real time via WebSocket
+- **Agent graph** -- Hierarchical tree view of Manager, Iterations, Workers, and Tool Calls with expandable details (reasoning, confidence, inputs/outputs)
+- **Final outputs** -- Dedicated tab for all generated artifacts: images, CSV tables, HTML visualizations, Markdown documents, Python code with syntax highlighting
+- **Session persistence** -- Every run is fully saved (events, graph, config, results) and can be restored by clicking on a session in the sidebar
+- **Settings management** -- Model, budget, sandbox, code mode, tool creation, secrets -- all persisted across restarts
+- **File attachments** -- Upload files as inputs directly from the task bar
+- **Syntax highlighting** -- Prism-based code rendering for Python, JSON, YAML, SQL, and more
+
+**Quick start:**
+
+```bash
+pip install -e "packages/awp-ui/[awp]"
+cd packages/awp-ui && python start.py
+# Opens http://127.0.0.1:8420
+```
+
+See the full guide: **[docs/ui.md](docs/ui.md)**
+
+---
+
+## 4. Enterprise Architecture
 
 <p align="center">
   <img src="assets/enterprise-architecture.svg" alt="Enterprise Architecture" width="100%"/>
@@ -671,7 +703,7 @@ output_dir/
 
 ---
 
-## 4. Infrastructure Benchmarking
+## 5. Infrastructure Benchmarking
 
 <p align="center">
   <img src="assets/benchmark-framework.svg" alt="AWP as Benchmark Framework" width="100%"/>
@@ -768,7 +800,7 @@ done
 
 ---
 
-## 5. YAML Workflows & CLI
+## 6. YAML Workflows & CLI
 
 ### For Reproducible, Versionable Pipelines
 
@@ -856,7 +888,7 @@ Self-Organizing (A4)     manager -> [sub_mgr_a, sub_mgr_b] -> recursive
 
 ---
 
-## 6. The Delegation Loop in Detail
+## 7. The Delegation Loop in Detail
 
 The delegation loop is the engine behind A2-A4 -- and behind `AgentWorkflow`:
 
@@ -932,7 +964,7 @@ The graph visualizes managers, iterations, workers, tool calls, confidence level
 
 ---
 
-## 7. Budget, Safety, Validation
+## 8. Budget, Safety, Validation
 
 ### Budget System (Required from A2)
 
@@ -1019,7 +1051,7 @@ awp validate ./my-workflow/    # Checks all 26 rules
 
 ---
 
-## 8. The Autonomy Spectrum (A0-A4)
+## 9. The Autonomy Spectrum (A0-A4)
 
 <p align="center">
   <img src="assets/autonomy-spectrum.svg" alt="Autonomy Spectrum" width="100%"/>
@@ -1090,7 +1122,7 @@ Memory, Communication, Observability, and Security are **not** tied to autonomy 
 
 ---
 
-## 9. The 7-Layer Model
+## 10. The 7-Layer Model
 
 <p align="center">
   <img src="assets/7-layer-model.svg" alt="7-Layer Model" width="100%"/>
@@ -1115,7 +1147,7 @@ For the complete theoretical derivation of all concepts (mental models, emergenc
 
 ---
 
-## 10. Repository & Links
+## 11. Repository & Links
 
 ### Directory Structure
 
@@ -1125,9 +1157,10 @@ agent-workflow-protocol/
     src/awp/                    models/, parser/, validator/, runtime/, data/, cli.py
     tests/                      Unit + E2E tests
     pyproject.toml              Build config
-  packages/                   Development split (awp-core + awp-runtime)
+  packages/                   Development split (awp-core + awp-runtime + awp-ui)
     awp-core/                   Protocol layer: models, parser, validator
     awp-runtime/                Execution layer: engines, LLM, tools
+    awp-ui/                     Workflow Studio: FastAPI backend + React frontend
   spec/versions/1.0/          Normative specification (RFC 2119)
   schemas/                    JSON Schemas
   docs/                       Complete protocol reference (16 files)

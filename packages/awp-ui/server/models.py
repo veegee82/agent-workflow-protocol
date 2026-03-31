@@ -235,6 +235,7 @@ class RunEvent(BaseModel):
 class SettingsUpdate(BaseModel):
     """Partial settings update from the UI."""
 
+    # Workflow config
     model: str | None = None
     worker_model: str | None = None
     api_key: str | None = None
@@ -249,6 +250,12 @@ class SettingsUpdate(BaseModel):
     code_mode: bool | None = None
     tool_creation: bool | None = None
     verbose: bool | None = None
+
+    # UI state
+    sidebar_open: bool | None = None
+    inspector_open: bool | None = None
+    active_panel: str | None = None
+    last_session_id: str | None = None
 
 
 # ---------------------------------------------------------------------------

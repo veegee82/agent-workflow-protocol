@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -81,11 +82,19 @@ class _RunDirWatcher:
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return None
 
+    def _read_text(self, path: Path) -> str | None:
+        try:
+            return path.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            return None
+
     def _process_file(self, path: Path, rel: str) -> None:
         """Translate a newly-observed file into one or more events."""
         if rel in self._seen_files:
             return
         self._seen_files.add(rel)
+
+        parts = rel.replace("\\", "/").split("/")
 
         # run_manifest.json -> run.start
         if rel == "run_manifest.json":
@@ -100,14 +109,27 @@ class _RunDirWatcher:
         elif "manager_decision.json" in rel:
             data = self._read_json(path)
             if data:
-                parts = rel.split("/")
                 iteration = parts[1] if len(parts) >= 3 else "?"
+                # Extract delegations info for richer detail
+                delegations = data.get("delegations", [])
+                delegation_summaries = []
+                for d in delegations if isinstance(delegations, list) else []:
+                    if isinstance(d, dict):
+                        delegation_summaries.append({
+                            "worker": d.get("worker_id", d.get("id", "?")),
+                            "task": str(d.get("instructions", d.get("task", "")))[:200],
+                            "tools": d.get("tools_allowed", []),
+                        })
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
                         self._run_id,
                         EventType.ITERATION_DECISION,
-                        {"iteration": iteration, **data},
+                        {
+                            "iteration": iteration,
+                            "delegations": delegation_summaries,
+                            **data,
+                        },
                     ),
                 )
 
@@ -115,9 +137,33 @@ class _RunDirWatcher:
         elif "budget_snapshot.json" in rel:
             data = self._read_json(path)
             if data:
+                iteration = parts[1] if len(parts) >= 3 else "?"
                 event_bus.emit_threadsafe(
                     self._run_id,
-                    _make_event(self._run_id, EventType.BUDGET_UPDATE, data),
+                    _make_event(
+                        self._run_id,
+                        EventType.BUDGET_UPDATE,
+                        {"iteration": iteration, **data},
+                    ),
+                )
+
+        # iterations/NNN/validation.json -> log (validation results)
+        elif "validation.json" in rel:
+            data = self._read_json(path)
+            if data:
+                iteration = parts[1] if len(parts) >= 3 else "?"
+                event_bus.emit_threadsafe(
+                    self._run_id,
+                    _make_event(
+                        self._run_id,
+                        EventType.LOG,
+                        {
+                            "kind": "validation",
+                            "iteration": iteration,
+                            "message": f"Validation results for iteration {iteration}",
+                            "validation": data,
+                        },
+                    ),
                 )
 
         # delegations/<worker>/envelope.json -> worker.spawn
@@ -125,6 +171,7 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if data:
                 worker_id = path.parent.name
+                iteration = parts[1] if len(parts) >= 3 else "?"
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
@@ -132,8 +179,15 @@ class _RunDirWatcher:
                         EventType.WORKER_SPAWN,
                         {
                             "worker_id": worker_id,
-                            "instructions": str(data.get("instructions", ""))[:500],
+                            "iteration": iteration,
+                            "instructions": str(data.get("instructions", "")),
                             "tools_allowed": data.get("tools_allowed", []),
+                            "skills": [
+                                str(s)[:200] for s in data.get("skills", [])
+                            ] if data.get("skills") else [],
+                            "code_mode": data.get("tool_config", {}).get(
+                                "code_mode", data.get("code_mode")
+                            ),
                         },
                     ),
                 )
@@ -143,6 +197,10 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if data:
                 worker_id = path.parent.name
+                iteration = parts[1] if len(parts) >= 3 else "?"
+                # Extract all findings
+                findings = data.get("findings", data.get("result", data))
+                tools_created = data.get("tools_created", [])
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
@@ -150,9 +208,15 @@ class _RunDirWatcher:
                         EventType.WORKER_COMPLETE,
                         {
                             "worker_id": worker_id,
+                            "iteration": iteration,
                             "confidence": data.get("confidence"),
                             "error": data.get("error"),
                             "has_error": bool(data.get("error")),
+                            "result": findings,
+                            "tools_created": [
+                                t if isinstance(t, str) else t.get("name", "?")
+                                for t in tools_created
+                            ] if isinstance(tools_created, list) else [],
                         },
                     ),
                 )
@@ -162,8 +226,10 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if isinstance(data, list):
                 worker_id = path.parent.name
-                for tc in data:
+                for i, tc in enumerate(data):
                     if isinstance(tc, dict):
+                        result = tc.get("result", {})
+                        result_data = result if isinstance(result, dict) else {"value": result}
                         event_bus.emit_threadsafe(
                             self._run_id,
                             _make_event(
@@ -171,11 +237,33 @@ class _RunDirWatcher:
                                 EventType.TOOL_CALL,
                                 {
                                     "worker_id": worker_id,
+                                    "call_index": i,
                                     "tool": tc.get("tool", "unknown"),
-                                    "ok": tc.get("result", {}).get("ok", False),
+                                    "arguments": tc.get("arguments", tc.get("args", {})),
+                                    "ok": result_data.get("ok", True) if isinstance(result_data, dict) else True,
+                                    "output": str(result_data.get("output", result_data.get("stdout", "")))[:1000] if isinstance(result_data, dict) else str(result)[:1000],
+                                    "error": str(result_data.get("error", result_data.get("stderr", "")))[:500] if isinstance(result_data, dict) else None,
                                 },
                             ),
                         )
+
+        # rolling_summary.json -> log (confidence trend)
+        elif rel.endswith("rolling_summary.json"):
+            data = self._read_json(path)
+            if data:
+                event_bus.emit_threadsafe(
+                    self._run_id,
+                    _make_event(
+                        self._run_id,
+                        EventType.LOG,
+                        {
+                            "kind": "rolling_summary",
+                            "message": f"Confidence trend: iteration {data.get('current_iteration', '?')}",
+                            "confidence": data.get("confidence"),
+                            "history": data.get("history", []),
+                        },
+                    ),
+                )
 
         # run_completion.json -> run.complete
         elif rel == "run_completion.json":
@@ -196,17 +284,18 @@ class _RunDirWatcher:
                 if "run_completion.json" in self._seen_files:
                     self._scan_dir(run_dir)
                     break
-            self._stop.wait(timeout=0.5)
+            self._stop.wait(timeout=0.2)
 
     def _scan_dir(self, run_dir: Path) -> None:
-        """Walk the run directory for JSON files."""
+        """Walk the run directory for JSON and markdown files."""
         try:
-            for path in run_dir.rglob("*.json"):
-                try:
-                    rel = str(path.relative_to(run_dir))
-                except ValueError:
-                    continue
-                self._process_file(path, rel)
+            for pattern in ("*.json", "*.md"):
+                for path in run_dir.rglob(pattern):
+                    try:
+                        rel = str(path.relative_to(run_dir))
+                    except ValueError:
+                        continue
+                    self._process_file(path, rel)
         except OSError:
             pass
 
@@ -291,6 +380,14 @@ class RunnerService:
             # Build AgentWorkflow kwargs from config
             wf_kwargs = self._config_to_workflow_kwargs(config)
 
+            # Inject secrets as environment variables so LLMClient can find API keys
+            _injected_env_keys: list[str] = []
+            for key, value in wf_kwargs.get("secrets", {}).items():
+                if key.endswith("_API_KEY") or key.endswith("_KEY"):
+                    if key not in os.environ or not os.environ[key]:
+                        os.environ[key] = value
+                        _injected_env_keys.append(key)
+
             # Create output_dir for watching
             output_dir = wf_kwargs.get("output_dir")
             if not output_dir:
@@ -311,6 +408,12 @@ class RunnerService:
             )
             watcher_thread.start()
 
+            # Emit iteration start
+            event_bus.emit_threadsafe(
+                run_id,
+                _make_event(run_id, EventType.ITERATION_START, {"iteration": 1}),
+            )
+
             # Execute the workflow (blocking)
             wf = AgentWorkflow(**wf_kwargs)
             result = wf.run()
@@ -320,6 +423,23 @@ class RunnerService:
             watcher_thread.join(timeout=3)
 
             status = result.get("status", "complete")
+
+            # Emit agent.complete with the result
+            event_bus.emit_threadsafe(
+                run_id,
+                _make_event(
+                    run_id,
+                    EventType.AGENT_COMPLETE,
+                    {
+                        "agent_name": "Manager",
+                        "node_id": "manager",
+                        "result": result.get("result", result),
+                        "confidence": result.get("result", {}).get("confidence")
+                        if isinstance(result.get("result"), dict)
+                        else None,
+                    },
+                ),
+            )
 
         except ImportError as exc:
             logger.error(
@@ -348,6 +468,10 @@ class RunnerService:
             )
 
         finally:
+            # Clean up injected environment variables
+            for key in _injected_env_keys:
+                os.environ.pop(key, None)
+
             # Emit run.complete
             event_bus.emit_threadsafe(
                 run_id,

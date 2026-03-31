@@ -19,7 +19,7 @@ function buildWsUrl(runId: string): string {
   const host = import.meta.env.VITE_API_BASE_URL
     ? new URL(import.meta.env.VITE_API_BASE_URL as string).host
     : window.location.host;
-  return `${proto}//${host}/ws/runs/${runId}`;
+  return `${proto}//${host}/ws/${runId}`;
 }
 
 /**

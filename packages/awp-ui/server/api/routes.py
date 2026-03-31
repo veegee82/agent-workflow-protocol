@@ -48,6 +48,11 @@ _default_settings: dict[str, Any] = {
     "code_mode": True,
     "tool_creation": True,
     "verbose": False,
+    # UI state
+    "sidebar_open": True,
+    "inspector_open": True,
+    "active_panel": "output",
+    "last_session_id": None,
 }
 
 # Loaded skills / MCP tools state
@@ -154,12 +159,19 @@ async def get_run(run_id: str) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
+    # Redact secrets from config before returning
+    config = dict(row.get("config", {}))
+    if "secrets" in config:
+        config["secrets"] = {k: "***" for k in config["secrets"]}
+    if "api_key" in config and config["api_key"]:
+        config["api_key"] = "***"
+
     detail = RunDetail(
         run_id=row["run_id"],
         task=row["task"],
         model=row["model"],
         status=row["status"],
-        config=row.get("config", {}),
+        config=config,
         result=row.get("result"),
         created_at=row["created_at"],
         completed_at=row.get("completed_at"),
@@ -203,6 +215,87 @@ async def get_run_graph(run_id: str) -> dict[str, Any]:
 
     # Return empty graph if no run directory found
     return GraphData().model_dump(mode="json")
+
+
+@router.get("/runs/{run_id}/artifacts")
+async def list_run_artifacts(run_id: str) -> dict[str, Any]:
+    """List all output artifacts (images, tables, HTML, text) for a run."""
+    from server.app import store
+
+    row = await store.get_run(run_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    result = row.get("result") or {}
+    metadata = result.get("metadata", {})
+    workspace = metadata.get("workspace", "")
+    output_dir = metadata.get("output_dir", "")
+
+    artifacts: list[dict[str, Any]] = []
+    # Scan workspace and output_dir for renderable files
+    scan_dirs = []
+    if output_dir:
+        scan_dirs.append(Path(output_dir))
+    if workspace:
+        scan_dirs.append(Path(workspace))
+
+    IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+    TABLE_EXT = {".csv", ".tsv"}
+    HTML_EXT = {".html", ".htm"}
+    TEXT_EXT = {".txt", ".md", ".log", ".json", ".yaml", ".yml"}
+
+    seen: set[str] = set()
+    for scan_dir in scan_dirs:
+        if not scan_dir.exists():
+            continue
+        for fpath in sorted(scan_dir.rglob("*")):
+            if not fpath.is_file():
+                continue
+            abs_path = str(fpath.resolve())
+            if abs_path in seen:
+                continue
+            seen.add(abs_path)
+            ext = fpath.suffix.lower()
+            rel = str(fpath.relative_to(scan_dir))
+            if ext in IMAGE_EXT:
+                kind = "image"
+            elif ext in TABLE_EXT:
+                kind = "table"
+            elif ext in HTML_EXT:
+                kind = "html"
+            elif ext in TEXT_EXT:
+                kind = "text"
+            elif ext == ".py":
+                kind = "code"
+            else:
+                continue
+            artifacts.append({
+                "name": fpath.name,
+                "path": abs_path,
+                "relative": rel,
+                "kind": kind,
+                "size": fpath.stat().st_size,
+                "run_id": run_id,
+            })
+
+    return {"artifacts": artifacts, "run_id": run_id}
+
+
+@router.get("/files/serve")
+async def serve_file(path: str = Query(...)) -> Any:
+    """Serve a file from the workspace by absolute path."""
+    from fastapi.responses import FileResponse
+
+    file_path = Path(path)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Security: only serve files from /tmp or known workspace dirs
+    abs_str = str(file_path.resolve())
+    if not (abs_str.startswith("/tmp/") or abs_str.startswith("/home/")):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return FileResponse(file_path)
 
 
 @router.delete("/runs/{run_id}")
@@ -490,6 +583,13 @@ async def add_run_to_session(session_id: str, body: dict[str, Any]) -> dict[str,
     )
     await store.add_run_to_session(session_id, run_id)
 
+    # Persist session settings (config without task/secrets for reproducibility)
+    session_settings = {
+        k: v for k, v in config_dict.items()
+        if k not in ("task", "secrets", "api_key", "input_files")
+    }
+    await store.update_session(session_id, settings=session_settings)
+
     runner_service.start_run(run_id, config_dict)
 
     return {"run_id": run_id, "status": "running", "session_id": session_id}
@@ -506,6 +606,64 @@ async def get_session_history(session_id: str) -> dict[str, Any]:
 
     history = await store.get_session_history(session_id)
     return {"session_id": session_id, "history": history}
+
+
+@router.get("/sessions/{session_id}/full")
+async def get_session_full(session_id: str) -> dict[str, Any]:
+    """Load a complete session with all runs, events, and config for full restore."""
+    from server.app import store
+    from server.services.graph_builder import build_graph, find_run_dir
+
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    runs = await store.get_session_runs(session_id)
+    runs_with_events: list[dict[str, Any]] = []
+
+    for run in runs:
+        events = await store.get_events(run["run_id"])
+
+        # Redact secrets
+        config = dict(run.get("config", {}))
+        if "secrets" in config:
+            config["secrets"] = {k: "***" for k in config["secrets"]}
+        if config.get("api_key"):
+            config["api_key"] = "***"
+
+        # Build graph from workspace if available
+        graph_data: dict[str, Any] | None = None
+        result = run.get("result") or {}
+        metadata = result.get("metadata", {})
+        workspace = metadata.get("workspace")
+        if workspace:
+            run_dir = find_run_dir(Path(workspace))
+            if run_dir:
+                graph_data = build_graph(run_dir).model_dump(mode="json")
+
+        runs_with_events.append({
+            "run_id": run["run_id"],
+            "task": run["task"],
+            "model": run["model"],
+            "status": run["status"],
+            "config": config,
+            "result": run.get("result"),
+            "events": events,
+            "graph": graph_data,
+            "created_at": run["created_at"],
+            "completed_at": run.get("completed_at"),
+        })
+
+    return {
+        "session": {
+            "id": session["id"],
+            "title": session["title"],
+            "created_at": session["created_at"],
+            "updated_at": session["updated_at"],
+            "settings": session.get("settings", {}),
+        },
+        "runs": runs_with_events,
+    }
 
 
 # ---------------------------------------------------------------------------

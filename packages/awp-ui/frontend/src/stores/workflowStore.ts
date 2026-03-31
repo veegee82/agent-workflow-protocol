@@ -39,6 +39,8 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   tools: [],
   forbidden_tools: [],
   verbose: false,
+  output_dir: '',
+  input_files: [],
 };
 
 const DEFAULT_BUDGET: BudgetState = {
@@ -77,6 +79,7 @@ export interface WorkflowStore {
   updateGraphNode: (id: string, data: Partial<Node['data']>) => void;
   selectedNodeId: string | null;
   selectNode: (id: string | null) => void;
+  loadRunGraph: (runId?: string) => Promise<void>;
 
   // Output
   outputBlocks: OutputBlock[];
@@ -161,13 +164,69 @@ function processEvent(
       | ((s: WorkflowStore) => Partial<WorkflowStore>),
   ) => void,
 ) {
+  const isVerbose = get().config.verbose;
   const store = get();
 
+  // Track the last iteration/manager node for linking workers
+  const lastManagerId = () => {
+    const nodes = store.graphNodes;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const nt = (nodes[i].data as Record<string, unknown>).nodeType ?? nodes[i].type;
+      if (nt === 'manager' || nt === 'iteration') return nodes[i].id;
+    }
+    return null;
+  };
+
   switch (evt.type) {
+    // ----- Run lifecycle -----
+    case 'run.start': {
+      const model =
+        (evt.data.model as string) ??
+        ((evt.data.models as Record<string, string>)?.manager) ??
+        get().config.model;
+      // Create root task node
+      store.addGraphNode({
+        id: 'task_root',
+        type: 'default',
+        position: { x: 0, y: 0 },
+        data: {
+          label: get().config.task.slice(0, 60) || 'Task',
+          status: 'running',
+          nodeType: 'task',
+          details: { model },
+        },
+      });
+      // Create manager node
+      store.addGraphNode({
+        id: 'manager',
+        type: 'default',
+        position: { x: 0, y: 120 },
+        data: {
+          label: `Manager (${model.split('/').pop()})`,
+          status: 'running',
+          nodeType: 'manager',
+          details: evt.data,
+        },
+      });
+      store.addGraphEdge({
+        id: 'e-task-manager',
+        source: 'task_root',
+        target: 'manager',
+        animated: true,
+      });
+      store.addOutputBlock({
+        type: 'markdown',
+        content: `**Run started** — ${model}`,
+        title: 'Run',
+      });
+      break;
+    }
+
+    // ----- Agent start -----
     case 'agent.start':
     case 'delegation.start': {
       const id = nodeIdFromEvent(evt);
-      const node: Node = {
+      store.addGraphNode({
         id,
         type: 'default',
         position: { x: 0, y: store.graphNodes.length * 120 },
@@ -177,81 +236,228 @@ function processEvent(
           details: evt.data,
           nodeType: evt.type === 'delegation.start' ? 'manager' : 'task',
         },
-      };
-      store.addGraphNode(node);
+      });
       break;
     }
 
+    // ----- Iteration -----
+    case 'iteration.start': {
+      const iterNum = evt.data.iteration ?? '?';
+      const iterId = `iter_${iterNum}`;
+      store.addGraphNode({
+        id: iterId,
+        type: 'default',
+        position: { x: 0, y: store.graphNodes.length * 120 },
+        data: {
+          label: `Iteration ${iterNum}`,
+          status: 'running',
+          nodeType: 'iteration',
+          details: evt.data,
+        },
+      });
+      // Link to manager
+      store.addGraphEdge({
+        id: `e-manager-${iterId}`,
+        source: 'manager',
+        target: iterId,
+        animated: true,
+      });
+      store.addOutputBlock({
+        type: 'markdown',
+        content: `**Iteration ${iterNum}**`,
+        title: 'Iteration',
+      });
+      break;
+    }
+
+    case 'iteration.decision': {
+      const iterNum = evt.data.iteration ?? '?';
+      const iterId = `iter_${iterNum}`;
+      const decision = (evt.data.decision as string) ?? 'unknown';
+      const confidence = evt.data.confidence as number | undefined;
+      const reasoning = (evt.data.reasoning as string) ?? '';
+      const delegations = evt.data.delegations as Array<Record<string, unknown>> | undefined;
+
+      // Update iteration node with decision
+      store.updateGraphNode(iterId, {
+        status: decision === 'complete' ? 'complete' : 'running',
+        label: `Iter ${iterNum}: ${decision.toUpperCase()}`,
+        confidence,
+        decision,
+        reasoning,
+        delegations,
+        details: evt.data,
+      });
+
+      // Build rich output
+      let content = `**Decision: ${decision}** (confidence: ${confidence ?? '?'})\n\n`;
+      if (reasoning) content += `${reasoning}\n\n`;
+      if (delegations && delegations.length > 0) {
+        content += `**Delegations (${delegations.length}):**\n`;
+        for (const d of delegations) {
+          const tools = (d.tools as string[]) ?? [];
+          content += `- \`${d.worker}\`: ${d.task}`;
+          if (tools.length > 0) content += ` [${tools.join(', ')}]`;
+          content += '\n';
+        }
+      }
+
+      store.addOutputBlock({
+        type: 'markdown',
+        content,
+        title: `Iteration ${iterNum}`,
+      });
+      break;
+    }
+
+    // ----- Workers -----
     case 'worker.spawn': {
-      const workerId = nodeIdFromEvent(evt);
-      const parentId = (evt.data.parent_id as string) ?? '';
-      const node: Node = {
+      const workerId = (evt.data.worker_id as string) ?? nodeIdFromEvent(evt);
+      const instructions = (evt.data.instructions as string) ?? (evt.data.task as string) ?? '';
+      const tools = (evt.data.tools_allowed as string[]) ?? [];
+      const iteration = (evt.data.iteration as string) ?? '';
+      const skills = (evt.data.skills as string[]) ?? [];
+      const codeMode = evt.data.code_mode;
+      const parentId = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
+
+      store.addGraphNode({
         id: workerId,
         type: 'default',
-        position: {
-          x: 200,
-          y: store.graphNodes.length * 120,
-        },
+        position: { x: 250, y: store.graphNodes.length * 120 },
         data: {
-          label: (evt.data.task as string) ?? 'Worker',
+          label: instructions.slice(0, 60) || `Worker ${workerId.slice(0, 8)}`,
           status: 'running',
-          details: evt.data,
           nodeType: 'worker',
+          tools_used: tools,
+          instructions,
+          iteration,
+          skills,
+          code_mode: codeMode,
+          details: evt.data,
         },
-      };
-      store.addGraphNode(node);
-      if (parentId) {
-        store.addGraphEdge({
-          id: `e-${parentId}-${workerId}`,
-          source: parentId,
-          target: workerId,
-          animated: true,
+      });
+      store.addGraphEdge({
+        id: `e-${parentId}-${workerId}`,
+        source: parentId,
+        target: workerId,
+        animated: true,
+      });
+      if (isVerbose) {
+        store.addOutputBlock({
+          type: 'markdown',
+          content: `**Worker spawned:** \`${workerId.slice(0, 8)}\`\n\n${instructions.slice(0, 500)}${tools.length ? `\n\nTools: ${tools.join(', ')}` : ''}`,
+          title: 'Worker',
         });
       }
       break;
     }
 
-    case 'agent.complete':
     case 'worker.complete': {
+      const workerId = (evt.data.worker_id as string) ?? nodeIdFromEvent(evt);
+      const hasError = Boolean(evt.data.error || evt.data.has_error);
+      const toolsCreated = (evt.data.tools_created as string[]) ?? [];
+      store.updateGraphNode(workerId, {
+        status: hasError ? 'error' : 'complete',
+        confidence: evt.data.confidence as number | undefined,
+        outputs: evt.data.result as Record<string, unknown> | undefined,
+        error: evt.data.error as string | undefined,
+        tools_created: toolsCreated,
+      });
+      // Always show worker results (errors always, success in verbose or summarized)
+      if (hasError) {
+        store.addOutputBlock({
+          type: 'error',
+          content: `Worker \`${workerId.slice(0, 8)}\` failed: ${evt.data.error}`,
+          title: 'Worker Error',
+        });
+      } else if (isVerbose) {
+        const resultData = evt.data.result ?? evt.data.output ?? evt.data.answer ?? evt.data;
+        store.addOutputBlock({
+          type: 'json',
+          content: JSON.stringify(resultData, null, 2),
+          title: `Worker ${workerId.slice(0, 8)} (confidence: ${evt.data.confidence ?? '?'})`,
+        });
+      }
+      break;
+    }
+
+    // ----- Agent complete -----
+    case 'agent.complete': {
       const id = nodeIdFromEvent(evt);
       store.updateGraphNode(id, {
         status: 'complete',
         confidence: evt.data.confidence as number | undefined,
         outputs: evt.data.result as Record<string, unknown> | undefined,
       });
-
-      // Add output block for completed agents
       if (evt.data.result) {
         store.addOutputBlock({
           type: 'json',
           content: JSON.stringify(evt.data.result, null, 2),
-          title: (evt.data.agent_name as string) ?? 'Result',
+          title: (evt.data.agent_name as string) ?? 'Agent Result',
         });
       }
       break;
     }
 
+    // ----- Tool calls -----
     case 'tool.call': {
-      const toolId = nodeIdFromEvent(evt);
-      const callerId =
-        (evt.data.agent_id as string) ?? (evt.data.caller_id as string) ?? '';
-      const node: Node = {
+      const toolName = (evt.data.tool_name as string) ?? (evt.data.tool as string) ?? 'Tool';
+      const callerId = (evt.data.worker_id as string) ?? (evt.data.agent_id as string) ?? (evt.data.caller_id as string) ?? '';
+      const callIndex = evt.data.call_index as number | undefined;
+      const toolId = `tool-${callerId}-${toolName}-${callIndex ?? store.graphNodes.length}`;
+      const toolOutput = (evt.data.output as string) ?? '';
+      const toolError = (evt.data.error as string) ?? '';
+      const toolArgs = evt.data.arguments as Record<string, unknown> | undefined;
+
+      store.addGraphNode({
         id: toolId,
         type: 'default',
-        position: { x: 400, y: store.graphNodes.length * 120 },
+        position: { x: 450, y: store.graphNodes.length * 120 },
         data: {
-          label: (evt.data.tool_name as string) ?? 'Tool',
-          status: 'running',
-          details: evt.data,
+          label: toolName,
+          status: (evt.data.ok === false) ? 'error' : 'complete',
           nodeType: 'toolCall',
+          arguments: toolArgs,
+          outputs: toolOutput ? { output: toolOutput } : undefined,
+          error: toolError || undefined,
+          details: evt.data,
         },
-      };
-      store.addGraphNode(node);
+      });
       if (callerId) {
         store.addGraphEdge({
           id: `e-${callerId}-${toolId}`,
           source: callerId,
           target: toolId,
+        });
+      }
+      // Show code execution blocks with syntax highlighting
+      if (toolName === 'code.execute' && toolArgs?.code && typeof toolArgs.code === 'string') {
+        store.addOutputBlock({
+          type: 'code',
+          content: toolArgs.code as string,
+          language: 'python',
+          title: `Code Execution${evt.data.ok === false ? ' (FAILED)' : ''}`,
+        });
+        if (toolOutput) {
+          store.addOutputBlock({
+            type: 'code',
+            content: toolOutput,
+            language: 'text',
+            title: 'Output',
+          });
+        }
+        if (toolError) {
+          store.addOutputBlock({
+            type: 'error',
+            content: toolError,
+            title: 'Execution Error',
+          });
+        }
+      } else if (isVerbose) {
+        store.addOutputBlock({
+          type: 'code',
+          content: `${toolName}(${callerId.slice(0, 8)})${evt.data.ok === false ? ' → FAILED' : ' → OK'}`,
+          title: 'Tool Call',
         });
       }
       break;
@@ -266,36 +472,72 @@ function processEvent(
       break;
     }
 
-    case 'iteration.start': {
-      store.addOutputBlock({
-        type: 'markdown',
-        content: `**Iteration ${evt.data.iteration ?? '?'}**`,
-        title: 'Iteration',
-      });
-      break;
-    }
-
-    case 'iteration.decision': {
-      store.addOutputBlock({
-        type: 'markdown',
-        content:
-          (evt.data.reasoning as string) ??
-          JSON.stringify(evt.data, null, 2),
-        title: 'Decision',
-      });
-      break;
-    }
-
+    // ----- Budget -----
     case 'budget.update': {
-      store.updateBudget(evt.data as Partial<BudgetState>);
+      // Map both flat format and nested format from watcher
+      const d = evt.data;
+      const budgetUpdate: Partial<BudgetState> = {};
+
+      if (typeof d.loops_used === 'number') budgetUpdate.loops_used = d.loops_used;
+      if (typeof d.tokens_used === 'number') budgetUpdate.tokens_used = d.tokens_used;
+      if (typeof d.workers_used === 'number') budgetUpdate.workers_used = d.workers_used;
+
+      // Nested format from budget_snapshot.json
+      const loops = d.loops as Record<string, number> | undefined;
+      const tokens = d.tokens as Record<string, number> | undefined;
+      const workers = d.workers as Record<string, number> | undefined;
+      const wallTime = d.wall_time as Record<string, number> | undefined;
+      const toolCalls = d.tool_calls as Record<string, number> | undefined;
+
+      if (loops) {
+        if (typeof loops.used === 'number') budgetUpdate.loops_used = loops.used;
+        if (typeof loops.max === 'number') budgetUpdate.loops_max = loops.max;
+      }
+      if (tokens) {
+        if (typeof tokens.consumed === 'number') budgetUpdate.tokens_used = tokens.consumed;
+        if (typeof tokens.max === 'number') budgetUpdate.tokens_max = tokens.max;
+      }
+      if (workers) {
+        if (typeof workers.spawned === 'number') budgetUpdate.workers_used = workers.spawned;
+        if (typeof workers.max === 'number') budgetUpdate.workers_max = workers.max;
+      }
+      if (wallTime) {
+        if (typeof wallTime.elapsed_s === 'number') budgetUpdate.wall_time_ms = wallTime.elapsed_s * 1000;
+        if (typeof wallTime.max_s === 'number') budgetUpdate.wall_time_max_ms = wallTime.max_s * 1000;
+      }
+      if (toolCalls) {
+        if (typeof toolCalls.used === 'number') budgetUpdate.tool_calls_used = toolCalls.used;
+        if (typeof toolCalls.max === 'number') budgetUpdate.tool_calls_max = toolCalls.max;
+      }
+
+      if (Object.keys(budgetUpdate).length > 0) {
+        store.updateBudget(budgetUpdate);
+      }
       break;
     }
 
+    // ----- Run complete -----
     case 'run.complete': {
+      const status = (evt.data.status as string) ?? 'complete';
+      const isError = status === 'error' || status === 'failed';
+
+      // Update manager and task root nodes
+      store.updateGraphNode('manager', { status: isError ? 'error' : 'complete' });
+      store.updateGraphNode('task_root', { status: isError ? 'error' : 'complete' });
+
       set({
-        runStatus: 'complete',
+        runStatus: isError ? 'error' : 'complete',
+        activePanel: 'state',
       });
-      if (evt.data.result) {
+
+      if (isError && evt.data.result) {
+        const result = evt.data.result as Record<string, unknown>;
+        store.addOutputBlock({
+          type: 'error',
+          content: (result.error as string) ?? JSON.stringify(result, null, 2),
+          title: 'Error',
+        });
+      } else if (evt.data.result) {
         store.addOutputBlock({
           type: 'markdown',
           content:
@@ -305,14 +547,17 @@ function processEvent(
           title: 'Final Result',
         });
       }
+      // Load full graph from backend and refresh history
+      store.loadRunGraph();
+      api.listRuns().then((runs) => set({ runHistory: runs })).catch(() => {});
       break;
     }
 
-    case 'run.error': {
-      set({ runStatus: 'error' });
+    // ----- Errors & logs -----
+    case 'error': {
       store.addOutputBlock({
         type: 'error',
-        content: (evt.data.error as string) ?? 'Unknown error',
+        content: (evt.data.message as string) ?? (evt.data.error as string) ?? 'Unknown error',
         title: 'Error',
       });
       break;
@@ -344,6 +589,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   runStatus: 'idle',
   events: [],
   addEvent: (event) => {
+    // Deduplicate events by type+seq to handle replayed buffer
+    const existing = get().events;
+    const isDupe = existing.some(
+      (e) => e.type === event.type && e.seq === event.seq && e.timestamp === event.timestamp,
+    );
+    if (isDupe) return;
     set((s) => ({ events: [...s.events, event] }));
     processEvent(event, get, set);
   },
@@ -371,6 +622,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   selectedNodeId: null,
   selectNode: (id) =>
     set({ selectedNodeId: id, inspectorOpen: id !== null }),
+  loadRunGraph: async (runId) => {
+    const rid = runId ?? get().currentRunId;
+    if (!rid) return;
+    try {
+      const graph = await api.getRunGraph(rid);
+      // Map backend nodes to ReactFlow Node format
+      const nodes: Node[] = graph.nodes.map((n, i) => ({
+        id: n.id,
+        type: 'default',
+        position: (n as unknown as Record<string, unknown>).position as { x: number; y: number } ?? { x: 0, y: i * 120 },
+        data: { ...n.data, nodeType: n.type },
+      }));
+      const edges: Edge[] = graph.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+      }));
+      set({ graphNodes: nodes, graphEdges: edges });
+    } catch {
+      // silently ignore
+    }
+  },
 
   // -- Output ---------------------------------------------------------------
   outputBlocks: [],
@@ -430,9 +703,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
 
     try {
-      // Upload attached files if any
+      // Upload attached files and inject paths into config
+      let uploadedPaths: string[] = [];
       if (state.attachedFiles.length > 0) {
-        await api.uploadFiles(state.attachedFiles);
+        const result = await api.uploadFiles(state.attachedFiles);
+        uploadedPaths = result.paths;
       }
 
       // Auto-create session if none exists
@@ -453,16 +728,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         }
       }
 
+      // Build config for the run (clean empty optional fields)
+      const runConfig = {
+        ...state.config,
+        output_dir: state.config.output_dir?.trim() || '',
+        input_files: uploadedPaths,
+      } as WorkflowConfig;
+
       // Start the run (in session context if available)
       let run_id: string;
       if (sessionId) {
-        const result = await api.startRunInSession(
-          sessionId,
-          state.config,
-        );
+        const result = await api.startRunInSession(sessionId, runConfig);
         run_id = result.run_id;
       } else {
-        const result = await api.startRun(state.config);
+        const result = await api.startRun(runConfig);
         run_id = result.run_id;
       }
       set({ currentRunId: run_id });
@@ -472,7 +751,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         get().addEvent(event);
         // On run complete/error, reload session history
         if (
-          (event.type === 'run.complete' || event.type === 'run.error') &&
+          (event.type === 'run.complete' || event.type === 'error') &&
           get().currentSessionId
         ) {
           const sid = get().currentSessionId!;
@@ -585,51 +864,177 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   selectSession: async (sessionId) => {
     try {
-      const [detail, history] = await Promise.all([
-        api.getSession(sessionId),
-        api.getSessionHistory(sessionId),
-      ]);
+      const full = await api.getSessionFull(sessionId);
 
-      // Build output blocks from session history
-      const outputBlocks: OutputBlock[] = history.map((item) => ({
-        type: item.role === 'user' ? ('markdown' as const) : ('markdown' as const),
-        content:
-          item.role === 'user'
-            ? `**Task:** ${item.content}`
-            : item.content,
-        title:
-          item.role === 'user'
-            ? 'Task'
-            : item.status === 'error'
-              ? 'Error'
-              : 'Result',
-      }));
-
-      // Restore session settings if available
-      const settingsUpdate: Partial<WorkflowConfig> = {};
-      if (detail.settings && Object.keys(detail.settings).length > 0) {
-        Object.assign(settingsUpdate, detail.settings);
+      // Restore session config
+      const settings = full.session.settings ?? {};
+      const configUpdate: Partial<WorkflowConfig> = {};
+      if (Object.keys(settings).length > 0) {
+        Object.assign(configUpdate, settings);
       }
+
+      // Find the last run for status and graph
+      const lastRun = full.runs.length > 0 ? full.runs[full.runs.length - 1] : null;
+      const lastRunId = lastRun?.run_id ?? null;
+      const runStatus = lastRun
+        ? (lastRun.status === 'error' || lastRun.status === 'failed' ? 'error' as const
+          : lastRun.status === 'running' ? 'running' as const
+          : 'complete' as const)
+        : 'idle' as const;
+
+      // Set last task
+      if (lastRun) {
+        configUpdate.task = lastRun.task;
+      }
+
+      // Rebuild output blocks from ALL runs' events
+      const outputBlocks: OutputBlock[] = [];
+      const allEvents: RunEvent[] = [];
+      for (const run of full.runs) {
+        // Add task header
+        outputBlocks.push({
+          type: 'markdown',
+          content: `**Run started** — ${run.model}`,
+          title: 'Run',
+        });
+
+        // Replay events for output blocks
+        for (const evt of run.events) {
+          allEvents.push(evt as unknown as RunEvent);
+          const d = evt.data;
+          switch (evt.type) {
+            case 'iteration.start':
+              outputBlocks.push({
+                type: 'markdown',
+                content: `**Iteration ${d.iteration ?? '?'}**`,
+                title: 'Iteration',
+              });
+              break;
+            case 'iteration.decision': {
+              const decision = (d.decision as string) ?? '';
+              const reasoning = (d.reasoning as string) ?? '';
+              const conf = d.confidence;
+              outputBlocks.push({
+                type: 'markdown',
+                content: reasoning
+                  ? `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`
+                  : JSON.stringify(d, null, 2),
+                title: `Iteration ${d.iteration ?? '?'}`,
+              });
+              break;
+            }
+            case 'worker.spawn':
+              outputBlocks.push({
+                type: 'markdown',
+                content: `**Worker spawned:** \`${((d.worker_id as string) ?? '?').slice(0, 8)}\`\n\n${((d.instructions as string) ?? '').slice(0, 500)}`,
+                title: 'Worker',
+              });
+              break;
+            case 'worker.complete': {
+              const hasErr = Boolean(d.error || d.has_error);
+              outputBlocks.push({
+                type: hasErr ? 'error' : 'json',
+                content: hasErr
+                  ? `Worker failed: ${d.error}`
+                  : JSON.stringify(d.result ?? d, null, 2),
+                title: `Worker ${((d.worker_id as string) ?? '?').slice(0, 8)}`,
+              });
+              break;
+            }
+            case 'error':
+              outputBlocks.push({
+                type: 'error',
+                content: (d.message as string) ?? (d.error as string) ?? 'Unknown error',
+                title: 'Error',
+              });
+              break;
+          }
+        }
+
+        // Add final result
+        if (run.result) {
+          const r = run.result;
+          const isErr = r.status === 'error' || r.status === 'failed';
+          const resultData = r.result as Record<string, unknown> | undefined;
+          outputBlocks.push({
+            type: isErr ? 'error' : 'markdown',
+            content: isErr
+              ? ((resultData?.error as string) ?? JSON.stringify(r, null, 2))
+              : (typeof resultData === 'string'
+                  ? resultData
+                  : JSON.stringify(resultData ?? r, null, 2)),
+            title: isErr ? 'Error' : 'Final Result',
+          });
+        }
+      }
+
+      // Build graph from last run
+      let graphNodes: Node[] = [];
+      let graphEdges: Edge[] = [];
+      if (lastRun?.graph) {
+        graphNodes = lastRun.graph.nodes.map((n: Record<string, unknown>, i: number) => ({
+          id: n.id as string,
+          type: 'default',
+          position: (n.position as { x: number; y: number }) ?? { x: 0, y: i * 120 },
+          data: { ...(n.data as Record<string, unknown>), nodeType: n.type as string },
+        }));
+        graphEdges = lastRun.graph.edges.map((e: Record<string, unknown>) => ({
+          id: e.id as string,
+          source: e.source as string,
+          target: e.target as string,
+        }));
+      }
+
+      // Build session history for sidebar
+      const sessionHistory: SessionHistoryItem[] = full.runs.flatMap((run) => [
+        {
+          role: 'user' as const,
+          content: run.task,
+          run_id: run.run_id,
+          timestamp: run.created_at,
+        },
+        {
+          role: 'assistant' as const,
+          content: run.result
+            ? JSON.stringify((run.result as Record<string, unknown>).result ?? run.result)
+            : '',
+          run_id: run.run_id,
+          timestamp: run.completed_at ?? run.created_at,
+          status: run.status,
+        },
+      ]);
 
       set((s) => ({
         currentSessionId: sessionId,
-        sessionHistory: history,
+        currentRunId: lastRunId,
+        runStatus,
+        sessionHistory,
         outputBlocks,
-        events: [],
-        graphNodes: [],
-        graphEdges: [],
-        currentRunId: null,
-        runStatus: 'idle',
-        config: Object.keys(settingsUpdate).length > 0
-          ? { ...s.config, ...settingsUpdate }
-          : s.config,
+        events: allEvents,
+        graphNodes,
+        graphEdges,
+        selectedNodeId: null,
+        activePanel: lastRun ? 'state' : 'output',
+        config: { ...s.config, ...configUpdate },
+        budget: { ...DEFAULT_BUDGET },
       }));
-    } catch {
-      // If we can't load detail, at least select it
-      set({
-        currentSessionId: sessionId,
-        sessionHistory: [],
-      });
+    } catch (err) {
+      // If full load fails, try basic load
+      try {
+        await api.getSession(sessionId);
+        set({
+          currentSessionId: sessionId,
+          sessionHistory: [],
+          outputBlocks: [],
+          events: [],
+          graphNodes: [],
+          graphEdges: [],
+          currentRunId: null,
+          runStatus: 'idle',
+        });
+      } catch {
+        set({ currentSessionId: sessionId, sessionHistory: [] });
+      }
     }
   },
 
@@ -711,10 +1116,40 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       const saved = await api.loadSettings();
       if (saved) {
-        set((s) => ({
-          config: { ...s.config, ...saved },
+        // Extract UI state fields
+        const {
+          sidebar_open,
+          inspector_open,
+          active_panel,
+          last_session_id,
+          ...workflowSettings
+        } = saved as Record<string, unknown>;
+
+        const stateUpdate: Record<string, unknown> = {
           settingsLoaded: true,
-        }));
+        };
+
+        // Apply workflow config settings
+        if (Object.keys(workflowSettings).length > 0) {
+          const s = get();
+          stateUpdate.config = { ...s.config, ...workflowSettings };
+        }
+
+        // Apply UI state
+        if (typeof sidebar_open === 'boolean') stateUpdate.sidebarOpen = sidebar_open;
+        if (typeof inspector_open === 'boolean') stateUpdate.inspectorOpen = inspector_open;
+        if (typeof active_panel === 'string') stateUpdate.activePanel = active_panel;
+        if (typeof last_session_id === 'string' && last_session_id) {
+          stateUpdate.currentSessionId = last_session_id;
+          // Load the last session
+          api.getSession(last_session_id).then((detail) => {
+            if (detail) {
+              set({ currentSessionId: last_session_id });
+            }
+          }).catch(() => {});
+        }
+
+        set(stateUpdate as Partial<WorkflowStore>);
       } else {
         set({ settingsLoaded: true });
       }
@@ -725,10 +1160,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   saveCurrentSettings: async () => {
     try {
-      const { config } = get();
-      // Save everything except the task (which is session-specific)
-      const { task: _task, ...settings } = config;
-      await api.saveSettings(settings);
+      const state = get();
+      const { task: _task, output_dir: _outDir, input_files: _files, ...workflowSettings } = state.config;
+      await api.saveSettings({
+        ...workflowSettings,
+        // UI state
+        sidebar_open: state.sidebarOpen,
+        inspector_open: state.inspectorOpen,
+        active_panel: state.activePanel,
+        last_session_id: state.currentSessionId,
+      });
     } catch {
       // silently ignore
     }

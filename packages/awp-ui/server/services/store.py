@@ -224,13 +224,21 @@ class StoreService:
         )
         await self.db.commit()
 
-    async def update_session(self, session_id: str, title: str | None = None) -> None:
+    async def update_session(
+        self,
+        session_id: str,
+        title: str | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> None:
         """Update mutable fields on a session."""
         parts: list[str] = []
         params: list[Any] = []
         if title is not None:
             parts.append("title = ?")
             params.append(title)
+        if settings is not None:
+            parts.append("settings_json = ?")
+            params.append(json.dumps(settings, default=str))
         if not parts:
             return
         parts.append("updated_at = ?")

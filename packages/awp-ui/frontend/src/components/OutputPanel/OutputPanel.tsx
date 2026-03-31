@@ -139,6 +139,35 @@ function JsonNode({
   }
 
   if (typeof value === 'string') {
+    // Detect code-like strings: key is "code" or multi-line with code indicators
+    const isCode =
+      (name === 'code' || name === 'source') && value.includes('\n');
+    if (isCode) {
+      return (
+        <div style={{ paddingLeft: depth * 16 }}>
+          {name && <span className="text-awp-purple">{name}:</span>}
+          <div className="mt-1 relative group">
+            <div className="absolute right-2 top-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <span className="text-[10px] uppercase tracking-wider text-awp-muted">python</span>
+              <CopyButton text={value} />
+            </div>
+            <SyntaxHighlighter
+              style={oneDark}
+              language="python"
+              PreTag="div"
+              customStyle={{
+                background: '#0d1117',
+                borderRadius: '0.5rem',
+                fontSize: '0.8rem',
+                border: '1px solid #30363d',
+              }}
+            >
+              {value}
+            </SyntaxHighlighter>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex items-start gap-1" style={{ paddingLeft: depth * 16 }}>
         {name && <span className="text-awp-purple shrink-0">{name}:</span>}

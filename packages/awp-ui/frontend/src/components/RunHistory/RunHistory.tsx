@@ -226,7 +226,7 @@ export function RunHistory() {
           <div className="space-y-2">
             {sorted.map((entry) => (
               <RunEntry
-                key={entry.id}
+                key={entry.run_id}
                 entry={entry}
                 onLoad={() => handleLoad(entry)}
                 onDelete={() => handleDelete(entry)}

@@ -17,6 +17,8 @@ export interface WorkflowConfig {
   tools: string[];
   forbidden_tools: string[];
   verbose: boolean;
+  output_dir: string;
+  input_files: string[];
 }
 
 /** WebSocket event types pushed from the backend during a run. */
@@ -31,11 +33,15 @@ export type RunEventType =
   | 'worker.spawn'
   | 'worker.complete'
   | 'delegation.start'
+  | 'run.start'
   | 'run.complete'
-  | 'run.error'
+  | 'error'
+  | 'graph.update'
   | 'log';
 
 export interface RunEvent {
+  run_id?: string;
+  seq?: number;
   type: RunEventType;
   timestamp: string;
   data: Record<string, unknown>;
@@ -88,7 +94,7 @@ export interface AgentEdge {
 
 /** History entry for completed/in-progress runs. */
 export interface RunHistoryEntry {
-  id: string;
+  run_id: string;
   task: string;
   model: string;
   status: string;
@@ -171,7 +177,7 @@ export interface BudgetState {
 }
 
 /** Active panel in the main content area. */
-export type ActivePanel = 'output' | 'graph' | 'settings' | 'history';
+export type ActivePanel = 'state' | 'final' | 'output' | 'graph' | 'graphvis' | 'settings' | 'history';
 
 /** WebSocket connection handle. */
 export interface WebSocketConnection {

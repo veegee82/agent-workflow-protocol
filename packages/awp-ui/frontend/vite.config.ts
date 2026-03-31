@@ -18,6 +18,7 @@ export default defineConfig({
           vendor: ['react', 'react-dom'],
           flow: ['reactflow', '@reactflow/core'],
           markdown: ['react-markdown', 'remark-gfm', 'rehype-highlight', 'rehype-raw'],
+          syntax: ['react-syntax-highlighter'],
         },
       },
     },
