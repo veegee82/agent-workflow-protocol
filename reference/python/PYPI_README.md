@@ -183,11 +183,18 @@ Agents cannot grant themselves additional permissions. The "always denied" set i
 
 ## Workflow Studio (Browser UI)
 
-AWP includes a full browser-based UI for running and monitoring workflows in real time:
+AWP includes a full browser-based UI for running and monitoring workflows in real time.
+
+**One-liner (works on Linux, macOS, and Windows):**
 
 ```bash
-pip install awp-agents
-awp studio
+pip install awp-agents && awp studio
+```
+
+If `awp` is not on your PATH after install, use:
+
+```bash
+pip install awp-agents && python -m awp studio
 ```
 
 Opens at `http://127.0.0.1:8420`. Live WebSocket streaming, agent graph visualization, artifact gallery, session persistence, and settings management — all included.
