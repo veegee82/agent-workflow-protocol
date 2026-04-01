@@ -1,6 +1,4 @@
-# README_SUPER_NERD.md
-
-## The Philosophy of Orchestrated Intelligence: AWP as a New Computing Paradigm
+# The Philosophy of Orchestrated Intelligence: AWP as a New Computing Paradigm
 
 *This document is for the reader who wants to understand not just what AWP does, but why it matters at the deepest level — and what entirely new categories of computation it unlocks in data science, enterprise, and beyond.*
 
@@ -271,7 +269,7 @@ AWP enables four categories of feedback loops in data science workflows, each co
   <img src="assets/sn-feedback-taxonomy.svg" alt="Data Science Feedback Loop Taxonomy" width="100%"/>
 </p>
 
-**A1 — Conditional Branching**: The simplest feedback: if the data quality check fails, take a different path. This is analogous to `if/else` — the paths are predefined, but the choice is data-driven.
+**A1 — Adaptive Branching**: The simplest feedback: if the data quality check fails, take a different path. This is analogous to `if/else` — the paths are predefined, but the choice is data-driven.
 
 **A2 — Iterative Refinement**: The manager-worker loop enables true iteration. The manager delegates analysis, reviews results, and re-delegates with refined instructions. This is the cognitive equivalent of the scientist who runs an experiment, observes results, formulates a new hypothesis, and runs another experiment.
 
@@ -514,7 +512,7 @@ AWP's budget system transforms the relationship between AI capabilities and busi
 
 ```
 budget:
-  max_total_tokens: 500000   # ≈ $0.75 at current Claude pricing
+  max_total_tokens: 500000   # cost depends on model choice
   max_wall_time: 300         # 5 minutes maximum
   max_total_workers: 8       # bounded parallelism
 ```

@@ -177,7 +177,7 @@ export interface BudgetState {
 }
 
 /** Active panel in the main content area. */
-export type ActivePanel = 'state' | 'final' | 'output' | 'graph' | 'graphvis' | 'settings' | 'history';
+export type ActivePanel = 'protocol' | 'output' | 'results' | 'graph' | 'graphvis' | 'memory' | 'history' | 'settings';
 
 /** WebSocket connection handle. */
 export interface WebSocketConnection {
@@ -186,20 +186,41 @@ export interface WebSocketConnection {
   readyState: () => number;
 }
 
-/** A workflow session (like a chat in Claude Desktop). */
+/** Experiment status lifecycle. */
+export type ExperimentStatus = 'draft' | 'running' | 'complete' | 'failed' | 'archived';
+
+/** A workflow experiment (formerly session). */
 export interface Session {
   id: string;
   title: string;
+  description: string;
+  hypothesis: string;
+  status: ExperimentStatus;
+  tags: string[];
+  base_dir: string | null;
   created_at: string;
   updated_at: string;
   run_count: number;
   last_run_status: string | null;
 }
 
-/** Detailed session info including run history and settings. */
+/** A single experiment memory entry. */
+export interface MemoryEntry {
+  id: number;
+  session_id: string;
+  run_id?: string | null;
+  type: 'note' | 'observation' | 'finding' | 'decision';
+  content: string;
+  source: 'user' | 'agent' | 'system';
+  created_at: string;
+  updated_at: string;
+}
+
+/** Detailed session/experiment info including run history, settings, and memory. */
 export interface SessionDetail extends Session {
   runs: RunHistoryEntry[];
   settings: Record<string, unknown>;
+  memory: MemoryEntry[];
 }
 
 /** A single history item within a session (task or result). */

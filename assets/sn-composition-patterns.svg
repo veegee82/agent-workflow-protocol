@@ -116,7 +116,7 @@
   <rect x="435" y="297" width="130" height="38" rx="8" fill="url(#par-node)" filter="url(#shadow)"/>
   <text x="500" y="321" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Aggregator</text>
 
-  <text x="500" y="362" text-anchor="middle" fill="#2a7aaa" font-size="11">A1 -- Branching DAG</text>
+  <text x="500" y="362" text-anchor="middle" fill="#2a7aaa" font-size="11">A1 -- Adaptive DAG</text>
 
   <!-- ===== NESTED PATTERN ===== -->
   <rect x="672" y="72" width="310" height="310" rx="10" fill="url(#nest-bg)" filter="url(#shadow)"/>

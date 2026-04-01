@@ -226,6 +226,7 @@ class LLMClient:
 
         self.timeout = timeout
         self._provider = detected
+        self.total_tokens_used: int = 0
 
         # Local models (Ollama) need longer timeouts and no API key
         if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
@@ -374,7 +375,16 @@ class LLMClient:
             )
             resp.raise_for_status()
 
-        return resp.json()
+        result = resp.json()
+
+        # Accumulate token usage from API response
+        usage = result.get("usage")
+        if isinstance(usage, dict):
+            total = usage.get("total_tokens", 0)
+            if isinstance(total, int):
+                self.total_tokens_used += total
+
+        return result
 
     def chat_text(
         self,

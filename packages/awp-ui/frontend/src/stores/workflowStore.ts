@@ -13,9 +13,133 @@ import type {
   Session,
   SessionHistoryItem,
   SecretEntry,
+  MemoryEntry,
 } from '@/types';
 import * as api from '@/api/client';
 import { connectToRun } from '@/api/websocket';
+
+// ---------------------------------------------------------------------------
+// Helpers – result formatting
+// ---------------------------------------------------------------------------
+
+/** Known keys that typically hold the main markdown/text content in agent results. */
+const CONTENT_KEYS = ['report_content', 'report', 'answer', 'your', 'result', 'output', 'response', 'summary', 'analysis'];
+
+/**
+ * Convert an agent result dict into OutputBlock(s).
+ * Extracts the primary markdown content + confidence instead of dumping raw JSON.
+ */
+/**
+ * Unwrap the nested result structure to find the final_result payload.
+ * Common shapes:
+ *   { result: { delegation_loop: { final_result: { your: "...", confidence: 0.9 } } } }
+ *   { delegation_loop: { final_result: { ... } } }
+ *   { final_result: { ... } }
+ *   { your: "...", confidence: 0.9 }   ← already unwrapped
+ */
+function unwrapResult(data: Record<string, unknown>): Record<string, unknown> {
+  // Try delegation loop nesting first (deepest common pattern)
+  const inner = data.result;
+  if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+    const dl = (inner as Record<string, unknown>).delegation_loop;
+    if (dl && typeof dl === 'object' && !Array.isArray(dl)) {
+      const fr = (dl as Record<string, unknown>).final_result;
+      if (fr && typeof fr === 'object' && !Array.isArray(fr)) {
+        return fr as Record<string, unknown>;
+      }
+      // delegation_loop itself may have content keys
+      return dl as Record<string, unknown>;
+    }
+    // result itself may be the final object
+    const fr2 = (inner as Record<string, unknown>).final_result;
+    if (fr2 && typeof fr2 === 'object' && !Array.isArray(fr2)) {
+      return fr2 as Record<string, unknown>;
+    }
+  }
+  // Top-level final_result
+  const fr3 = data.final_result;
+  if (fr3 && typeof fr3 === 'object' && !Array.isArray(fr3)) {
+    return fr3 as Record<string, unknown>;
+  }
+  // Already flat — check if it has content keys
+  return data;
+}
+
+function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[] {
+  // String result – use as-is (markdown or plain text)
+  if (typeof resultData === 'string') {
+    return [{ type: 'markdown', content: resultData, title }];
+  }
+
+  // Not an object – fall back to JSON tree
+  if (resultData == null || typeof resultData !== 'object' || Array.isArray(resultData)) {
+    return [{ type: 'json', content: JSON.stringify(resultData, null, 2), title }];
+  }
+
+  // Unwrap nested result structures to find the actual content
+  const dict = unwrapResult(resultData as Record<string, unknown>);
+  const confidence = typeof dict.confidence === 'number' ? dict.confidence : undefined;
+
+  // Find the primary content key
+  let mainContent: string | undefined;
+  let mainKey: string | undefined;
+  for (const key of CONTENT_KEYS) {
+    if (key in dict && typeof dict[key] === 'string' && (dict[key] as string).length > 0) {
+      mainContent = dict[key] as string;
+      mainKey = key;
+      break;
+    }
+  }
+
+  // If no known key, try the first string value that's long enough to be content
+  if (!mainContent) {
+    for (const [k, v] of Object.entries(dict)) {
+      if (k === 'confidence') continue;
+      if (typeof v === 'string' && v.length > 20) {
+        mainContent = v;
+        mainKey = k;
+        break;
+      }
+    }
+  }
+
+  // No extractable content – show as structured JSON
+  if (!mainContent) {
+    return [{ type: 'json', content: JSON.stringify(dict, null, 2), title }];
+  }
+
+  // Build confidence badge line
+  const confLine = confidence !== undefined
+    ? `\n\n---\n**Confidence:** ${(confidence * 100).toFixed(0)}%`
+    : '';
+
+  // Collect remaining keys (excluding content + confidence)
+  const extraKeys = Object.keys(dict).filter((k) => k !== mainKey && k !== 'confidence');
+  const extras: OutputBlock[] = [];
+  if (extraKeys.length > 0) {
+    const extraDict: Record<string, unknown> = {};
+    for (const k of extraKeys) extraDict[k] = dict[k];
+    // Only show extras if they contain meaningful data
+    const hasContent = extraKeys.some((k) => {
+      const v = dict[k];
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === 'object' && v !== null) return Object.keys(v as Record<string, unknown>).length > 0;
+      return v != null && v !== '';
+    });
+    if (hasContent) {
+      extras.push({
+        type: 'json',
+        content: JSON.stringify(extraDict, null, 2),
+        title: 'Additional Data',
+      });
+    }
+  }
+
+  return [
+    { type: 'markdown', content: mainContent + confLine, title },
+    ...extras,
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Default values
@@ -23,19 +147,19 @@ import { connectToRun } from '@/api/websocket';
 
 const DEFAULT_CONFIG: WorkflowConfig = {
   task: '',
-  model: 'anthropic/claude-sonnet-4-20250514',
+  model: 'nvidia/nemotron-3-super-120b-a12b:free',
   worker_model: undefined,
   api_key: undefined,
   max_loops: 20,
-  max_total_tokens: 2_000_000,
+  max_total_tokens: 500_000,
   max_wall_time: 600,
-  max_tool_calls: 100,
-  max_total_workers: 10,
-  max_depth: 3,
+  max_tool_calls: 200,
+  max_total_workers: 30,
+  max_depth: 5,
   sandbox: 'subprocess',
   packages: [],
   code_mode: true,
-  tool_creation: false,
+  tool_creation: true,
   tools: [],
   forbidden_tools: [],
   verbose: false,
@@ -47,13 +171,13 @@ const DEFAULT_BUDGET: BudgetState = {
   loops_used: 0,
   loops_max: 20,
   tokens_used: 0,
-  tokens_max: 2_000_000,
+  tokens_max: 500_000,
   workers_used: 0,
-  workers_max: 10,
+  workers_max: 30,
   wall_time_ms: 0,
   wall_time_max_ms: 600_000,
   tool_calls_used: 0,
-  tool_calls_max: 100,
+  tool_calls_max: 200,
 };
 
 // ---------------------------------------------------------------------------
@@ -115,7 +239,7 @@ export interface WorkflowStore {
   addFiles: (files: File[]) => void;
   removeFile: (index: number) => void;
 
-  // Sessions
+  // Sessions / Experiments
   currentSessionId: string | null;
   sessions: Session[];
   sessionHistory: SessionHistoryItem[];
@@ -124,6 +248,14 @@ export interface WorkflowStore {
   selectSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
+  updateSessionMetadata: (sessionId: string, update: Partial<Session>) => Promise<void>;
+
+  // Experiment Memory
+  experimentMemory: MemoryEntry[];
+  loadExperimentMemory: () => Promise<void>;
+  addMemoryEntry: (type: string, content: string, source?: string) => Promise<void>;
+  updateMemoryEntry: (memoryId: number, content: string) => Promise<void>;
+  deleteMemoryEntry: (memoryId: number) => Promise<void>;
 
   // Secrets
   secrets: SecretEntry[];
@@ -318,7 +450,10 @@ function processEvent(
       const iteration = (evt.data.iteration as string) ?? '';
       const skills = (evt.data.skills as string[]) ?? [];
       const codeMode = evt.data.code_mode;
-      const parentId = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
+      // Link to the iteration node if available, otherwise fall back to manager
+      const iterNodeId = iteration ? `iter_${iteration}` : null;
+      const iterNodeExists = iterNodeId && store.graphNodes.some((n) => n.id === iterNodeId);
+      const parentId = (evt.data.parent_id as string) ?? (iterNodeExists ? iterNodeId! : lastManagerId() ?? 'manager');
 
       store.addGraphNode({
         id: workerId,
@@ -527,7 +662,7 @@ function processEvent(
 
       set({
         runStatus: isError ? 'error' : 'complete',
-        activePanel: 'state',
+        activePanel: 'protocol',
       });
 
       if (isError && evt.data.result) {
@@ -538,18 +673,35 @@ function processEvent(
           title: 'Error',
         });
       } else if (evt.data.result) {
-        store.addOutputBlock({
-          type: 'markdown',
-          content:
-            typeof evt.data.result === 'string'
-              ? (evt.data.result as string)
-              : JSON.stringify(evt.data.result, null, 2),
-          title: 'Final Result',
-        });
+        for (const block of resultToOutputBlocks(evt.data.result, 'Final Result')) {
+          store.addOutputBlock(block);
+        }
       }
       // Load full graph from backend and refresh history
       store.loadRunGraph();
-      api.listRuns().then((runs) => set({ runHistory: runs })).catch(() => {});
+      store.loadHistory();
+
+      // Auto-add finding to experiment memory
+      {
+        const sessionId = get().currentSessionId;
+        const runId = get().currentRunId;
+        if (sessionId && evt.data.result) {
+          const resultStr = typeof evt.data.result === 'string'
+            ? (evt.data.result as string)
+            : JSON.stringify(evt.data.result, null, 2);
+          const summary = resultStr.slice(0, 500);
+          api.addMemoryEntry(sessionId, {
+            type: isError ? 'observation' : 'finding',
+            content: isError
+              ? `Run ${(runId ?? '').slice(0, 8)} failed: ${summary}`
+              : `Run ${(runId ?? '').slice(0, 8)}: ${summary}`,
+            source: 'agent',
+            run_id: runId ?? undefined,
+          }).then((entry) => {
+            set((s) => ({ experimentMemory: [entry, ...s.experimentMemory] }));
+          }).catch(() => {});
+        }
+      }
       break;
     }
 
@@ -627,6 +779,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (!rid) return;
     try {
       const graph = await api.getRunGraph(rid);
+      // Only replace if backend returned actual nodes — don't discard
+      // real-time nodes with an empty response
+      if (!graph.nodes || graph.nodes.length === 0) return;
       // Map backend nodes to ReactFlow Node format
       const nodes: Node[] = graph.nodes.map((n, i) => ({
         id: n.id,
@@ -656,7 +811,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     set((s) => ({ budget: { ...s.budget, ...partial } })),
 
   // -- UI state -------------------------------------------------------------
-  activePanel: 'output',
+  activePanel: 'protocol',
   setActivePanel: (panel) => set({ activePanel: panel }),
   sidebarOpen: true,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -671,8 +826,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   runHistory: [],
   loadHistory: async () => {
     try {
-      const history = await api.listRuns();
-      set({ runHistory: history });
+      const sessionId = get().currentSessionId;
+      if (sessionId) {
+        // Experiment-scoped: only show runs for current experiment
+        const detail = await api.getSession(sessionId);
+        set({ runHistory: detail.runs });
+      } else {
+        // No experiment selected: show all runs
+        const history = await api.listRuns();
+        set({ runHistory: history });
+      }
     } catch {
       // silently ignore -- backend may be down
     }
@@ -699,7 +862,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         tool_calls_max: state.config.max_tool_calls,
       },
       selectedNodeId: null,
-      activePanel: 'output',
+      activePanel: 'protocol',
     });
 
     try {
@@ -837,7 +1000,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   createSession: async (title) => {
     try {
       const sessionTitle =
-        title ?? `Session ${new Date().toLocaleString()}`;
+        title ?? `Experiment ${new Date().toLocaleString()}`;
       const session = await api.createSession(sessionTitle);
       set((s) => ({
         currentSessionId: session.id,
@@ -847,6 +1010,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         events: [],
         graphNodes: [],
         graphEdges: [],
+        experimentMemory: [],
       }));
     } catch {
       // silently ignore
@@ -914,13 +1078,19 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const decision = (d.decision as string) ?? '';
               const reasoning = (d.reasoning as string) ?? '';
               const conf = d.confidence;
-              outputBlocks.push({
-                type: 'markdown',
-                content: reasoning
-                  ? `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`
-                  : JSON.stringify(d, null, 2),
-                title: `Iteration ${d.iteration ?? '?'}`,
-              });
+              if (reasoning) {
+                outputBlocks.push({
+                  type: 'markdown',
+                  content: `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`,
+                  title: `Iteration ${d.iteration ?? '?'}`,
+                });
+              } else {
+                outputBlocks.push({
+                  type: 'json',
+                  content: JSON.stringify(d, null, 2),
+                  title: `Iteration ${d.iteration ?? '?'}`,
+                });
+              }
               break;
             }
             case 'worker.spawn':
@@ -955,16 +1125,18 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         if (run.result) {
           const r = run.result;
           const isErr = r.status === 'error' || r.status === 'failed';
-          const resultData = r.result as Record<string, unknown> | undefined;
-          outputBlocks.push({
-            type: isErr ? 'error' : 'markdown',
-            content: isErr
-              ? ((resultData?.error as string) ?? JSON.stringify(r, null, 2))
-              : (typeof resultData === 'string'
-                  ? resultData
-                  : JSON.stringify(resultData ?? r, null, 2)),
-            title: isErr ? 'Error' : 'Final Result',
-          });
+          if (isErr) {
+            const resultData = r.result as Record<string, unknown> | undefined;
+            outputBlocks.push({
+              type: 'error',
+              content: (resultData?.error as string) ?? JSON.stringify(r, null, 2),
+              title: 'Error',
+            });
+          } else {
+            for (const block of resultToOutputBlocks(r.result, 'Final Result')) {
+              outputBlocks.push(block);
+            }
+          }
         }
       }
 
@@ -1014,9 +1186,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         graphNodes,
         graphEdges,
         selectedNodeId: null,
-        activePanel: lastRun ? 'state' : 'output',
+        activePanel: lastRun ? 'protocol' : 'protocol',
         config: { ...s.config, ...configUpdate },
         budget: { ...DEFAULT_BUDGET },
+        experimentMemory: full.memory ?? [],
       }));
     } catch (err) {
       // If full load fails, try basic load
@@ -1031,9 +1204,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           graphEdges: [],
           currentRunId: null,
           runStatus: 'idle',
+          experimentMemory: [],
         });
       } catch {
-        set({ currentSessionId: sessionId, sessionHistory: [] });
+        set({ currentSessionId: sessionId, sessionHistory: [], experimentMemory: [] });
       }
     }
   },
@@ -1065,11 +1239,80 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   renameSession: async (sessionId, title) => {
     try {
-      await api.updateSession(sessionId, title);
+      await api.updateSession(sessionId, { title });
       set((s) => ({
         sessions: s.sessions.map((sess) =>
           sess.id === sessionId ? { ...sess, title } : sess,
         ),
+      }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  updateSessionMetadata: async (sessionId, update) => {
+    try {
+      await api.updateSession(sessionId, update);
+      set((s) => ({
+        sessions: s.sessions.map((sess) =>
+          sess.id === sessionId ? { ...sess, ...update } : sess,
+        ),
+      }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  // -- Experiment Memory -----------------------------------------------------
+  experimentMemory: [],
+
+  loadExperimentMemory: async () => {
+    const sessionId = get().currentSessionId;
+    if (!sessionId) {
+      set({ experimentMemory: [] });
+      return;
+    }
+    try {
+      const memory = await api.getExperimentMemory(sessionId);
+      set({ experimentMemory: memory });
+    } catch {
+      set({ experimentMemory: [] });
+    }
+  },
+
+  addMemoryEntry: async (type, content, source = 'user') => {
+    const sessionId = get().currentSessionId;
+    if (!sessionId) return;
+    try {
+      const entry = await api.addMemoryEntry(sessionId, { type, content, source });
+      set((s) => ({ experimentMemory: [entry, ...s.experimentMemory] }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  updateMemoryEntry: async (memoryId, content) => {
+    const sessionId = get().currentSessionId;
+    if (!sessionId) return;
+    try {
+      await api.updateMemoryEntry(sessionId, memoryId, content);
+      set((s) => ({
+        experimentMemory: s.experimentMemory.map((m) =>
+          m.id === memoryId ? { ...m, content, updated_at: new Date().toISOString() } : m,
+        ),
+      }));
+    } catch {
+      // silently ignore
+    }
+  },
+
+  deleteMemoryEntry: async (memoryId) => {
+    const sessionId = get().currentSessionId;
+    if (!sessionId) return;
+    try {
+      await api.deleteMemoryEntry(sessionId, memoryId);
+      set((s) => ({
+        experimentMemory: s.experimentMemory.filter((m) => m.id !== memoryId),
       }));
     } catch {
       // silently ignore

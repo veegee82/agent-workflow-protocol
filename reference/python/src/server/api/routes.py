@@ -38,7 +38,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _default_settings: dict[str, Any] = {
-    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+    "model": "openrouter/anthropic/claude-sonnet-4",
     "worker_model": None,
     "api_key": None,
     "max_loops": 100,
@@ -687,7 +687,7 @@ async def add_run_to_session(session_id: str, body: dict[str, Any]) -> dict[str,
     }
     await store.update_session(session_id, settings=session_settings)
 
-    runner_service.start_run(run_id, config_dict, session_id=session_id)
+    runner_service.start_run(run_id, config_dict)
 
     return {"run_id": run_id, "status": "running", "session_id": session_id}
 

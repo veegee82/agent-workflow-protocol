@@ -857,12 +857,12 @@ os.environ["LLM_BASE_URL"] = "https://api.openai.com/v1"
 |-----------|---------|------------|
 | `model` | *(required)* | LLM model identifier |
 | `worker_model` | = `model` | Model for worker agents |
-| `max_loops` | 10 | Max iteration loops |
-| `max_total_tokens` | 500,000 | Max total LLM tokens |
-| `max_wall_time` | 300 | Max runtime in seconds |
+| `max_loops` | 100 | Max iteration loops |
+| `max_total_tokens` | 1,000,000 | Max total LLM tokens |
+| `max_wall_time` | 3000 | Max runtime in seconds |
 | `max_tool_calls` | 100 | Max tool invocations |
-| `max_total_workers` | 30 | Max spawned workers |
-| `max_depth` | 5 | Max recursion depth |
+| `max_total_workers` | 100 | Max spawned workers |
+| `max_depth` | 10 | Max recursion depth |
 | `sandbox` | `"subprocess"` | subprocess / docker / venv / none |
 | `packages` | `[]` | Additional pip packages |
 | `output_dir` | *(temp)* | Output directory |
@@ -1111,36 +1111,64 @@ AWP offers enterprise governance not as a feature, but as an *inherent property*
 
 ### Source Code Structure
 
+AWP is split into two independent, publishable packages that share the `awp.*` namespace:
+
 ```
-reference/python/src/awp/
-+-- models/                      # Pydantic models (7 layers)
-|   +-- manifest.py              # Layer 0: Workflow root
-|   +-- agent.py                 # Layer 1: Identity + output
-|   +-- capabilities.py          # Layer 2: Tools, skills, sandbox
-|   +-- communication.py         # Layer 3: Message bus
-|   +-- memory.py                # Layer 4: 4 memory levels
-|   +-- orchestration.py         # Layer 5: DAG, loop, budget
-|   +-- observability.py         # Layer 6: Tracing, metrics
-|   +-- security.py              # Cross-cutting: Safety
-|   +-- state.py                 # State model, sharing
-+-- parser/                      # YAML -> Pydantic
-+-- validator/                   # Rule engine R1-R26
-+-- runtime/                     # Execution engines
-|   +-- runner.py                # DAG engine (A0-A1)
-|   +-- delegation_loop_runner.py # Delegation loop (A2-A4)
-|   +-- tools.py                 # Tool registry + dynamic tools
-|   +-- llm.py                   # LLM client abstraction
-|   +-- code_executor.py         # Sandbox execution
-|   +-- docker_executor.py       # Docker sandbox
-|   +-- venv_executor.py         # venv sandbox
-+-- data/                        # Programmatic API
-|   +-- workflow.py              # AgentWorkflow class
-|   +-- inputs.py                # Input classification
-|   +-- prompts.py               # Manager prompt templates
-+-- cli.py                       # CLI entry point
+packages/awp-core/src/awp/          # Protocol layer (models, parser, validator, CLI)
++-- models/                         # Pydantic models (7 layers)
+|   +-- manifest.py                 # Layer 0: Workflow root
+|   +-- agent.py                    # Layer 1: Identity + output
+|   +-- capabilities.py             # Layer 2: Tools, skills, sandbox
+|   +-- communication.py            # Layer 3: Message bus
+|   +-- memory.py                   # Layer 4: 4 memory levels
+|   +-- orchestration.py            # Layer 5: DAG, loop, budget
+|   +-- observability.py            # Layer 6: Tracing, metrics
+|   +-- security.py                 # Cross-cutting: Safety
+|   +-- state.py                    # State model, sharing
+|   +-- common.py                   # Shared Pydantic base models
+|   +-- custom_tools.py             # Custom tool definitions
++-- parser/                         # YAML -> Pydantic
+|   +-- manifest_parser.py          # Workflow manifest parser
+|   +-- agent_parser.py             # Agent definition parser
+|   +-- template.py                 # Template handling
++-- validator/                      # Rule engine R1-R26
+|   +-- rules.py                    # All 26 validation rules
+|   +-- schema_validator.py         # JSON Schema validation
+|   +-- contract_validator.py       # Output contract validation
+|   +-- graph_validator.py          # DAG/graph validation
+|   +-- compliance.py               # Autonomy level compliance
++-- packager/                       # Workflow packaging (.awp.zip)
++-- cli.py                          # CLI entry point
++-- agent.py                        # Abstract AWPAgent interface
++-- visualizer.py                   # DAG visualization
+
+packages/awp-runtime/src/awp/       # Execution layer (engines, LLM, tools, data API)
++-- runtime/                        # Execution engines
+|   +-- runner.py                   # DAG engine (A0-A1)
+|   +-- delegation_loop_runner.py   # Delegation loop (A2-A4)
+|   +-- tools.py                    # Tool registry + dynamic tools
+|   +-- dynamic_tool_factory.py     # A3 dynamic tool creation
+|   +-- llm.py                      # LLM client abstraction
+|   +-- code_executor.py            # Sandbox execution
+|   +-- docker_executor.py          # Docker sandbox
+|   +-- venv_executor.py            # venv sandbox
+|   +-- base_executor.py            # Base executor class
+|   +-- executor_factory.py         # Executor selection logic
+|   +-- skill_loader.py             # Dynamic skill loading (A3)
+|   +-- message_bus.py              # Inter-agent communication (Layer 3)
+|   +-- observability.py            # Metrics and tracing (Layer 6)
+|   +-- security.py                 # Security enforcement
+|   +-- secrets.py                  # Secret management
++-- data/                           # Programmatic API
+|   +-- workflow.py                 # AgentWorkflow class
+|   +-- inputs.py                   # Input classification
+|   +-- prompts.py                  # Manager prompt templates
+|   +-- resolvers/                  # Input resolvers (S3, SQL, URL, etc.)
 ```
 
 ### SVG Diagrams (assets/)
+
+**README_NERD diagrams:**
 
 | File | Content |
 |------|---------|
@@ -1154,6 +1182,30 @@ reference/python/src/awp/
 | `agent-output-contract.svg` | Output contract and confidence |
 | `concept-map.svg` | Concept map |
 | `validation-pipeline.svg` | Two-tier validation |
+| `architecture-selection.svg` | Engine selection guide |
+| `data-science-workflow.svg` | Data science pipeline |
+| `enterprise-architecture.svg` | Enterprise deployment |
+| `benchmark-framework.svg` | Backend comparison framework |
+| `generation-pipeline.svg` | Workflow generation pipeline |
+| `quickstart-flow.svg` | Getting started flow |
+
+**README_SUPER_NERD diagrams (sn-* prefix):**
+
+| File | Content |
+|------|---------|
+| `sn-three-eras.svg` | Three eras of computation |
+| `sn-composition-patterns.svg` | Agent composition patterns |
+| `sn-autonomy-lattice.svg` | Autonomy lattice (formal view) |
+| `sn-information-flow.svg` | Information flow in agent networks |
+| `sn-notebook-vs-pipeline.svg` | Notebook vs cognitive pipeline |
+| `sn-delegation-iteration.svg` | Delegation loop iterative refinement |
+| `sn-feedback-taxonomy.svg` | Data science feedback loop taxonomy |
+| `sn-org-isomorphism.svg` | Organizational isomorphism |
+| `sn-compliance-paradox.svg` | The compliance paradox |
+| `sn-enterprise-ecosystem.svg` | Enterprise agent ecosystem |
+| `sn-emergence-spectrum.svg` | Emergence-control spectrum |
+| `sn-cost-model.svg` | Cost dimensions in agent workflows |
+| `sn-cognitive-stack.svg` | Cognitive architecture stack |
 
 ### Example Workflows
 

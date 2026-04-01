@@ -262,6 +262,50 @@ class RunLogger:
             )
         self.write_md(self.run_dir / "RUN_SUMMARY.md", md)
 
+    # -- Progressive logging (real-time file writes for watchers) --------
+
+    def log_manager_decision(self, iteration: int, manager_decision: dict) -> None:
+        """Write manager_decision.json immediately after manager returns."""
+        iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
+        iter_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(iter_dir / "manager_decision.json", manager_decision)
+
+    def log_worker_envelope(
+        self, iteration: int, worker_id: str, envelope: dict
+    ) -> None:
+        """Write envelope.json before worker starts executing."""
+        worker_dir = (
+            self.run_dir
+            / "iterations"
+            / f"{iteration:03d}"
+            / "delegations"
+            / worker_id
+        )
+        worker_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(worker_dir / "envelope.json", envelope)
+
+    def log_worker_result(
+        self, iteration: int, worker_id: str, result: dict
+    ) -> None:
+        """Write result.json after worker completes."""
+        worker_dir = (
+            self.run_dir
+            / "iterations"
+            / f"{iteration:03d}"
+            / "delegations"
+            / worker_id
+        )
+        worker_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(worker_dir / "result.json", result)
+
+    def log_iteration_budget(self, iteration: int, budget: "BudgetSnapshot") -> None:
+        """Write budget_snapshot.json after iteration finishes."""
+        iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
+        iter_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(iter_dir / "budget_snapshot.json", budget.to_dict())
+
+    # -- Full iteration log (called after iteration for full artifact dump) --
+
     def log_iteration(
         self,
         iteration: int,
@@ -273,7 +317,7 @@ class RunLogger:
         iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
 
-        # Manager decision
+        # Manager decision (may already exist from progressive write)
         self.write_json(iter_dir / "manager_decision.json", manager_decision)
 
         # Delegations
@@ -628,9 +672,11 @@ class DelegationLoopRunner:
         run_id: Optional[str] = None,
         depth: int = 0,
         parent_budget: Optional[BudgetSnapshot] = None,
+        generate_graph: bool = True,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
+        self._generate_graph = generate_graph
         self._tools = tool_registry
         self._manager_model = manager_model or config.models.manager or ""
         self._worker_model = worker_model or config.models.worker or self._manager_model
@@ -743,16 +789,17 @@ class DelegationLoopRunner:
             status,
         )
 
-        # Generate execution graph
-        try:
-            from .execution_graph import generate_execution_graph
+        # Generate execution graph (only when explicitly requested, e.g. verbose=True in Jupyter)
+        if self._generate_graph:
+            try:
+                from .execution_graph import generate_execution_graph
 
-            generate_execution_graph(
-                run_dir=self._logger.run_dir,
-                output_path=self._logger.run_dir / "execution_graph.html",
-            )
-        except Exception as exc:
-            logger.debug("Execution graph generation skipped: %s", exc)
+                generate_execution_graph(
+                    run_dir=self._logger.run_dir,
+                    output_path=self._logger.run_dir / "execution_graph.html",
+                )
+            except Exception as exc:
+                logger.debug("Execution graph generation skipped: %s", exc)
 
         return {"delegation_loop": final_result}
 
@@ -774,6 +821,9 @@ class DelegationLoopRunner:
             # 1. Ask manager for decision
             manager_decision = self._run_manager(task, state, iteration)
             decision_type = manager_decision.get("decision", "fail")
+
+            # Write manager decision to disk immediately (for file watchers)
+            self._logger.log_manager_decision(iteration, manager_decision)
 
             # 2. Handle decision
             if decision_type == "complete":
@@ -821,12 +871,17 @@ class DelegationLoopRunner:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
 
-            delegation_results = self._execute_delegations(envelopes, task, state)
+            delegation_results = self._execute_delegations(
+                envelopes, task, state, iteration=iteration
+            )
 
             # 4. Validate results (2-tier)
             validation_results = self._validate_results(delegation_results, task)
 
-            # 5. Log iteration
+            # 5. Write budget snapshot immediately (for file watchers)
+            self._logger.log_iteration_budget(iteration, self._budget)
+
+            # 5b. Log full iteration (artifacts, tools, etc.)
             self._logger.log_iteration(
                 iteration,
                 manager_decision,
@@ -893,6 +948,7 @@ class DelegationLoopRunner:
             # Build enhanced task with context
             enhanced_task = self._build_manager_task(task, state, iteration)
             result = agent.run(enhanced_task, state)
+            self._budget.tokens_consumed += llm.total_tokens_used
 
             # Extract the manager's output
             manager_output = result.get(agent.name, {})
@@ -942,8 +998,10 @@ class DelegationLoopRunner:
 
         try:
             result = llm.chat_json(messages, temperature=0.2, max_tokens=4096)
+            self._budget.tokens_consumed += llm.total_tokens_used
             return self._parse_manager_output(result)
         except Exception as exc:
+            self._budget.tokens_consumed += llm.total_tokens_used
             logger.error("Inline manager failed: %s", exc)
             return {"decision": "fail", "reason": str(exc)}
 
@@ -1174,7 +1232,8 @@ You MUST respond with a JSON object containing ONE of these decisions:
     # -- Worker execution -------------------------------------------------
 
     def _execute_delegations(
-        self, envelopes: list[dict], task: str, state: dict
+        self, envelopes: list[dict], task: str, state: dict,
+        iteration: int = 0,
     ) -> list[dict]:
         """Execute all delegations in parallel (fan-out)."""
         results: list[dict] = []
@@ -1185,8 +1244,13 @@ You MUST respond with a JSON object containing ONE of these decisions:
 
             logger.info("  Spawning worker: %s", worker_id)
 
+            # Write envelope to disk BEFORE worker starts (for file watchers)
+            self._logger.log_worker_envelope(iteration, worker_id, envelope)
+
             try:
                 result = self._run_ephemeral_worker(worker_id, envelope, task, state)
+                # Write result to disk immediately (for file watchers)
+                self._logger.log_worker_result(iteration, worker_id, result)
                 return {
                     "worker_id": worker_id,
                     "envelope": envelope,
@@ -1195,10 +1259,12 @@ You MUST respond with a JSON object containing ONE of these decisions:
                 }
             except Exception as exc:
                 logger.error("  Worker %s failed: %s", worker_id, exc)
+                error_result = {"error": str(exc), "confidence": 0.0}
+                self._logger.log_worker_result(iteration, worker_id, error_result)
                 return {
                     "worker_id": worker_id,
                     "envelope": envelope,
-                    "result": {"error": str(exc), "confidence": 0.0},
+                    "result": error_result,
                     "status": "error",
                 }
 
@@ -1504,6 +1570,7 @@ print("Chart saved")
                             result.get("tools_registered", []), indent=2, default=str
                         ),
                     )
+                self._budget.tokens_consumed += llm.total_tokens_used
                 return result
 
         # Simple call (no tools)
@@ -1541,6 +1608,7 @@ print("Chart saved")
                 json.dumps(result.get("tools_registered", []), indent=2, default=str),
             )
 
+        self._budget.tokens_consumed += llm.total_tokens_used
         return result
 
     def _build_tool_creation_prompt(self, namespace: str) -> str:
@@ -1899,6 +1967,7 @@ Rules:
             ]
 
             v_result = llm.chat_json(messages, temperature=0.1, max_tokens=1024)
+            self._budget.tokens_consumed += llm.total_tokens_used
             return v_result
 
         except Exception as exc:

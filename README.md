@@ -24,6 +24,7 @@
 
 <p align="center">
   <a href="docs/">Docs</a> &middot;
+  <a href="docs/architecture.md">Architecture</a> &middot;
   <a href="examples/">Examples</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
@@ -57,15 +58,25 @@
 
 ## 1. Quickstart: 3 Lines of Code
 
+### Quick Start
+
+```bash
+pip install awp-agents
+awp studio
+# Opens Workflow Studio at http://127.0.0.1:8420
+```
+
+This launches **[Workflow Studio](#3-workflow-studio-ui)** — a browser-based UI where you can configure tasks, attach files, pick a model, and watch agents solve problems live. No code required.
+
 <p align="center">
-  <img src="assets/quickstart-flow.svg" alt="Quickstart Flow" width="100%"/>
+  <img src="assets/ui.png" alt="AWP Workflow Studio" width="100%"/>
 </p>
+
+Options: `--port 9000`, `--no-open`, `--base-dir ./my-workflows`, `--dev` (Vite hot-reload).
 
 ### Installation
 
 ```bash
-pip install awp-agents
-
 # With data science extras (pandas, numpy, Pillow)
 pip install awp-agents[data]
 
@@ -79,6 +90,10 @@ pip install awp-agents[all]
 pip install -e "reference/python/[data]"
 ```
 
+<p align="center">
+  <img src="assets/quickstart-flow.svg" alt="Quickstart Flow" width="100%"/>
+</p>
+
 ### What's Inside
 
 | Module | What it provides |
@@ -88,7 +103,7 @@ pip install -e "reference/python/[data]"
 | `awp.validator` | Rule engine (R1-R26): naming, graph structure, budgets |
 | `awp.runtime` | DAG engine + delegation loop engine, LLM client, tool registry, code executors |
 | `awp.data` | Programmatic API — `AgentWorkflow` for 3-line workflows |
-| `awp.cli` | CLI: `awp validate`, `awp compliance`, `awp visualize`, `awp run` |
+| `awp.cli` | CLI: `awp studio`, `awp validate`, `awp compliance`, `awp visualize`, `awp run` |
 
 ```python
 from awp.models import AWPManifest
@@ -573,13 +588,15 @@ AWP ships with **Workflow Studio**, a browser-based UI for running, monitoring, 
 - **File attachments** -- Upload files as inputs directly from the task bar
 - **Syntax highlighting** -- Prism-based code rendering for Python, JSON, YAML, SQL, and more
 
-**Quick start:**
+**Quick start (2 commands):**
 
 ```bash
-pip install -e "packages/awp-ui/[awp]"
-cd packages/awp-ui && python start.py
+pip install awp-agents
+awp studio
 # Opens http://127.0.0.1:8420
 ```
+
+Options: `awp studio --port 9000`, `--no-open`, `--base-dir ./my-workflows`, `--dev` (Vite hot-reload).
 
 See the full guide: **[docs/ui.md](docs/ui.md)**
 

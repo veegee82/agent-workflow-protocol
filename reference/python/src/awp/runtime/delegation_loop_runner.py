@@ -619,9 +619,11 @@ class DelegationLoopRunner:
         run_id: Optional[str] = None,
         depth: int = 0,
         parent_budget: Optional[BudgetSnapshot] = None,
+        generate_graph: bool = True,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
+        self._generate_graph = generate_graph
         self._tools = tool_registry
         self._manager_model = manager_model or config.models.manager or ""
         self._worker_model = worker_model or config.models.worker or self._manager_model
@@ -734,16 +736,17 @@ class DelegationLoopRunner:
             status,
         )
 
-        # Generate execution graph
-        try:
-            from .execution_graph import generate_execution_graph
+        # Generate execution graph (only when explicitly requested, e.g. verbose=True in Jupyter)
+        if self._generate_graph:
+            try:
+                from .execution_graph import generate_execution_graph
 
-            generate_execution_graph(
-                run_dir=self._logger.run_dir,
-                output_path=self._logger.run_dir / "execution_graph.html",
-            )
-        except Exception as exc:
-            logger.debug("Execution graph generation skipped: %s", exc)
+                generate_execution_graph(
+                    run_dir=self._logger.run_dir,
+                    output_path=self._logger.run_dir / "execution_graph.html",
+                )
+            except Exception as exc:
+                logger.debug("Execution graph generation skipped: %s", exc)
 
         return {"delegation_loop": final_result}
 
@@ -884,6 +887,7 @@ class DelegationLoopRunner:
             # Build enhanced task with context
             enhanced_task = self._build_manager_task(task, state, iteration)
             result = agent.run(enhanced_task, state)
+            self._budget.tokens_consumed += llm.total_tokens_used
 
             # Extract the manager's output
             manager_output = result.get(agent.name, {})
@@ -933,8 +937,10 @@ class DelegationLoopRunner:
 
         try:
             result = llm.chat_json(messages, temperature=0.2, max_tokens=4096)
+            self._budget.tokens_consumed += llm.total_tokens_used
             return self._parse_manager_output(result)
         except Exception as exc:
+            self._budget.tokens_consumed += llm.total_tokens_used
             logger.error("Inline manager failed: %s", exc)
             return {"decision": "fail", "reason": str(exc)}
 
@@ -1512,6 +1518,7 @@ print("Chart saved")
                             result.get("tools_registered", []), indent=2, default=str
                         ),
                     )
+                self._budget.tokens_consumed += llm.total_tokens_used
                 return result
 
         # Simple call (no tools)
@@ -1549,6 +1556,7 @@ print("Chart saved")
                 json.dumps(result.get("tools_registered", []), indent=2, default=str),
             )
 
+        self._budget.tokens_consumed += llm.total_tokens_used
         return result
 
     def _build_tool_creation_prompt(self, namespace: str) -> str:
@@ -1907,6 +1915,7 @@ Rules:
             ]
 
             v_result = llm.chat_json(messages, temperature=0.1, max_tokens=1024)
+            self._budget.tokens_consumed += llm.total_tokens_used
             return v_result
 
         except Exception as exc:

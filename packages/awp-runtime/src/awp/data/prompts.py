@@ -8,6 +8,24 @@ if TYPE_CHECKING:
     from awp.runtime.skill_loader import SkillBundle
 
 
+def _build_experiment_context_hint(has_context: bool) -> str:
+    """Return a prompt section about experiment context files, or empty string."""
+    if not has_context:
+        return ""
+    return (
+        "\n## Experiment History (Previous Runs)\n\n"
+        "This run is part of an ongoing experiment. The `_experiment_context/` directory "
+        "in the workspace contains detailed results from previous runs:\n"
+        "- `experiment.json` — experiment metadata (title, hypothesis, description)\n"
+        "- `run_NNN_summary.json` — per-run task, result, and metadata\n"
+        "- `memory.json` — accumulated findings, observations, and decisions\n"
+        "- `experiment_brief.md` — human-readable summary of all previous work\n\n"
+        "Workers can read these files via `code.execute` or `file.read` to access "
+        "detailed prior results. Use them to build upon previous work and avoid "
+        "repeating analyses that have already been done.\n"
+    )
+
+
 def build_manager_system_prompt(
     input_manifest: dict[str, Any],
     sandbox_type: str,
@@ -17,6 +35,7 @@ def build_manager_system_prompt(
     tool_creation: bool = True,
     skill_bundles: list[SkillBundle] | None = None,
     external_tool_names: list[str] | None = None,
+    has_experiment_context: bool = False,
 ) -> str:
     """Build the system prompt for the delegation loop manager.
 
@@ -235,4 +254,4 @@ Respond with a JSON object containing ONE of these decisions:
 - Be specific in instructions — workers only see what you provide
 - Tell workers to save output files to `_output_dir`
 - Respond ONLY with the JSON object, no other text
-{skills_section}{ext_tools_section}"""
+{skills_section}{ext_tools_section}{_build_experiment_context_hint(has_experiment_context)}"""

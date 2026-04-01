@@ -154,7 +154,7 @@ class Agent(StandaloneAgent):
 
     def _build_system_prompt(self) -> str:
         base = super()._build_system_prompt()
-        return base + "\n\nAlways respond in German."
+        return base + "\n\nAlways respond in formal academic English."
 ```
 
 ## Dependencies

@@ -10,7 +10,6 @@ import {
   File as FileIcon,
   Eye,
   EyeOff,
-  ChevronDown,
   Loader2,
   CheckCircle2,
   AlertCircle,
@@ -19,15 +18,6 @@ import {
 import { useWorkflowStore } from '@/stores/workflowStore';
 import clsx from 'clsx';
 
-const MODEL_SUGGESTIONS = [
-  'anthropic/claude-sonnet-4',
-  'anthropic/claude-opus-4',
-  'openai/gpt-4o',
-  'openai/o3-mini',
-  'google/gemini-2.5-pro-preview',
-  'meta-llama/llama-3.3-70b-instruct',
-  'deepseek/deepseek-chat-v3-0324',
-];
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -85,8 +75,6 @@ export function TaskInput() {
   } = useWorkflowStore();
 
   const [showApiKey, setShowApiKey] = useState(false);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showWorkerDropdown, setShowWorkerDropdown] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -132,19 +120,6 @@ export function TaskInput() {
     [addFiles],
   );
 
-  const selectModel = useCallback(
-    (model: string, field: 'model' | 'worker_model') => {
-      updateConfig({ [field]: model });
-      setShowModelDropdown(false);
-      setShowWorkerDropdown(false);
-    },
-    [updateConfig],
-  );
-
-  const filteredModels = (query: string) =>
-    MODEL_SUGGESTIONS.filter((m) =>
-      m.toLowerCase().includes(query.toLowerCase()),
-    );
 
   return (
     <div className="flex h-full flex-col gap-4 p-4 overflow-y-auto">
@@ -226,78 +201,35 @@ export function TaskInput() {
         </div>
       )}
 
-      {/* Model selector */}
-      <div className="relative space-y-1.5">
+      {/* Model */}
+      <div className="space-y-1.5">
         <label className="text-xs font-medium text-awp-muted uppercase tracking-wide">
           Model
         </label>
-        <div className="relative">
-          <input
-            type="text"
-            value={config.model}
-            onChange={(e) => {
-              updateConfig({ model: e.target.value });
-              setShowModelDropdown(true);
-            }}
-            onFocus={() => setShowModelDropdown(true)}
-            onBlur={() => setTimeout(() => setShowModelDropdown(false), 150)}
-            placeholder="anthropic/claude-sonnet-4"
-            className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-2 pr-8 text-sm text-awp-text placeholder:text-awp-muted/60 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
-          />
-          <ChevronDown className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-awp-muted pointer-events-none" />
-        </div>
-        {showModelDropdown && filteredModels(config.model).length > 0 && (
-          <div className="absolute z-50 mt-1 w-full rounded-lg border border-awp-border bg-awp-panel shadow-xl">
-            {filteredModels(config.model).map((m) => (
-              <button
-                key={m}
-                onMouseDown={() => selectModel(m, 'model')}
-                className="w-full px-3 py-1.5 text-left text-xs text-awp-text hover:bg-awp-blue/10 transition-colors first:rounded-t-lg last:rounded-b-lg"
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-        )}
+        <input
+          type="text"
+          value={config.model}
+          onChange={(e) => updateConfig({ model: e.target.value })}
+          placeholder="nvidia/nemotron-3-super-120b-a12b:free"
+          className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-2 text-sm font-mono text-awp-text placeholder:text-awp-muted/60 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+        />
       </div>
 
       {/* Worker model */}
-      <div className="relative space-y-1.5">
+      <div className="space-y-1.5">
         <label className="text-xs font-medium text-awp-muted uppercase tracking-wide">
           Worker Model{' '}
           <span className="text-awp-muted/60 normal-case">(optional)</span>
         </label>
-        <div className="relative">
-          <input
-            type="text"
-            value={config.worker_model ?? ''}
-            onChange={(e) => {
-              updateConfig({
-                worker_model: e.target.value || undefined,
-              });
-              setShowWorkerDropdown(true);
-            }}
-            onFocus={() => setShowWorkerDropdown(true)}
-            onBlur={() => setTimeout(() => setShowWorkerDropdown(false), 150)}
-            placeholder="Defaults to main model"
-            className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-2 pr-8 text-sm text-awp-text placeholder:text-awp-muted/60 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
-          />
-          <ChevronDown className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-awp-muted pointer-events-none" />
-        </div>
-        {showWorkerDropdown &&
-          filteredModels(config.worker_model ?? '').length > 0 && (
-            <div className="absolute z-50 mt-1 w-full rounded-lg border border-awp-border bg-awp-panel shadow-xl">
-              {filteredModels(config.worker_model ?? '').map((m) => (
-                <button
-                  key={m}
-                  onMouseDown={() => selectModel(m, 'worker_model')}
-                  className="w-full px-3 py-1.5 text-left text-xs text-awp-text hover:bg-awp-blue/10 transition-colors first:rounded-t-lg last:rounded-b-lg"
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          )}
+        <input
+          type="text"
+          value={config.worker_model ?? ''}
+          onChange={(e) =>
+            updateConfig({ worker_model: e.target.value || undefined })
+          }
+          placeholder="Same as main model"
+          className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-2 text-sm font-mono text-awp-text placeholder:text-awp-muted/60 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+        />
       </div>
 
       {/* API key */}

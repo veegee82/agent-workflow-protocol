@@ -55,7 +55,7 @@ class SandboxConfig(BaseModel):
     network_access: bool = False
     packages: list[str] = Field(default_factory=list)  # pip packages to pre-install
     image: str = "awp-sandbox-python"  # Docker image name (docker type only)
-    pip_install: bool = False  # Allow runtime pip install for missing packages
+    pip_install: bool = True  # Allow runtime pip install for missing packages
 
     model_config = {"extra": "allow"}
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "awp-agents"
-version = "1.0.1"
+version = "1.0.2"
 description = "Agent Workflow Protocol — an open standard for orchestrating multi-agent AI workflows with YAML definitions, DAG execution, and recursive delegation loops (A0-A4 autonomy)"
 readme = "PYPI_README.md"
 license = "MIT"
@@ -33,6 +33,11 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "httpx>=0.25",
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+    "websockets>=12.0",
+    "aiosqlite>=0.19",
+    "python-multipart>=0.0.6",
 ]
 
 [project.optional-dependencies]
@@ -56,3 +61,7 @@ awp = "awp.cli:_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["awp*", "server*"]
+
+[tool.setuptools.package-data]
+server = ["frontend/dist/**/*"]

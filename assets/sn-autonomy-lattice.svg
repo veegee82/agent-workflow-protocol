@@ -91,11 +91,11 @@
   <!-- ===== A1 ===== -->
   <rect x="60" y="398" width="120" height="60" rx="8" fill="url(#a1-grad)" filter="url(#shadow)"/>
   <text x="120" y="425" text-anchor="middle" fill="#fff" font-size="18" font-weight="bold">A1</text>
-  <text x="120" y="445" text-anchor="middle" fill="#ddd" font-size="10">Branching</text>
+  <text x="120" y="445" text-anchor="middle" fill="#ddd" font-size="10">Adaptive</text>
 
   <!-- Capabilities -->
   <rect x="200" y="403" width="350" height="50" rx="6" fill="#0f1a1f" stroke="#1a8a9e" stroke-width="1" filter="url(#shadow)"/>
-  <text x="215" y="424" fill="#4fc3f7" font-size="13" font-weight="bold">Branching logic</text>
+  <text x="215" y="424" fill="#4fc3f7" font-size="13" font-weight="bold">Conditional logic</text>
   <text x="215" y="441" fill="#3a9ab0" font-size="11">Conditional paths, state-dependent routing</text>
 
   <!-- Safety -->

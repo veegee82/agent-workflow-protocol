@@ -6,7 +6,7 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
-  MessageSquare,
+  FlaskConical,
   X,
 } from 'lucide-react';
 import type { Session } from '@/types';
@@ -47,7 +47,7 @@ function relativeTime(dateStr: string): string {
 }
 
 /** Group sessions into time buckets. */
-function groupSessions(
+function groupByTime(
   sessions: Session[],
 ): { label: string; sessions: Session[] }[] {
   const now = new Date();
@@ -80,15 +80,43 @@ function groupSessions(
     .map(([label, arr]) => ({ label, sessions: arr }));
 }
 
+/** Group sessions by experiment status. */
+function groupByStatus(
+  sessions: Session[],
+): { label: string; sessions: Session[] }[] {
+  const statusOrder = ['running', 'draft', 'complete', 'failed', 'archived'];
+  const statusLabels: Record<string, string> = {
+    running: 'Running',
+    draft: 'Draft',
+    complete: 'Complete',
+    failed: 'Failed',
+    archived: 'Archived',
+  };
+
+  const groups: Record<string, Session[]> = {};
+  for (const s of sessions) {
+    const key = s.status ?? 'draft';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  }
+
+  return statusOrder
+    .filter((k) => groups[k]?.length > 0)
+    .map((k) => ({ label: statusLabels[k] ?? k, sessions: groups[k] }));
+}
+
 /** Status dot color class. */
-function statusDotClass(status: string | null): string {
+function statusDotClass(status: string | null | undefined): string {
   switch (status) {
     case 'complete':
       return 'bg-awp-green';
     case 'running':
       return 'bg-awp-blue animate-pulse';
     case 'error':
+    case 'failed':
       return 'bg-awp-red';
+    case 'archived':
+      return 'bg-awp-muted/30';
     default:
       return 'bg-awp-muted/50';
   }
@@ -156,7 +184,7 @@ function SessionContextMenu({
 }
 
 // ---------------------------------------------------------------------------
-// Session Item
+// Session/Experiment Item
 // ---------------------------------------------------------------------------
 
 function SessionItem({
@@ -238,7 +266,7 @@ function SessionItem({
               <span
                 className={clsx(
                   'h-2 w-2 rounded-full shrink-0',
-                  statusDotClass(session.last_run_status),
+                  statusDotClass(session.status ?? session.last_run_status),
                 )}
               />
               <span className="text-xs font-medium text-awp-text truncate flex-1">
@@ -258,14 +286,36 @@ function SessionItem({
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="flex items-center gap-2 mt-1 ml-4">
+
+            {/* Hypothesis subtitle */}
+            {session.hypothesis ? (
+              <p className="text-[10px] text-awp-muted/70 truncate ml-4 mt-0.5 italic">
+                {session.hypothesis}
+              </p>
+            ) : null}
+
+            <div className="flex items-center gap-2 mt-1 ml-4 flex-wrap">
               <span className="text-[10px] text-awp-muted">
                 {relativeTime(session.updated_at)}
               </span>
               {session.run_count > 0 && (
                 <span className="inline-flex items-center gap-0.5 rounded-full bg-awp-border/50 px-1.5 py-0.5 text-[10px] text-awp-muted">
-                  <MessageSquare className="h-2.5 w-2.5" />
+                  <FlaskConical className="h-2.5 w-2.5" />
                   {session.run_count}
+                </span>
+              )}
+              {/* Tags */}
+              {session.tags?.slice(0, 3).map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-0.5 rounded-full bg-awp-blue/10 px-1.5 py-0.5 text-[10px] text-awp-blue/70"
+                >
+                  {tag}
+                </span>
+              ))}
+              {(session.tags?.length ?? 0) > 3 && (
+                <span className="text-[10px] text-awp-muted">
+                  +{(session.tags?.length ?? 0) - 3}
                 </span>
               )}
             </div>
@@ -302,11 +352,17 @@ export function SessionSidebar({
   onRenameSession,
 }: SessionSidebarProps) {
   const [search, setSearch] = useState('');
+  const [groupMode, setGroupMode] = useState<'time' | 'status'>('time');
 
   const filtered = useMemo(() => {
     if (!search.trim()) return sessions;
     const q = search.toLowerCase();
-    return sessions.filter((s) => s.title.toLowerCase().includes(q));
+    return sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        (s.hypothesis ?? '').toLowerCase().includes(q) ||
+        (s.tags ?? []).some((t) => t.toLowerCase().includes(q)),
+    );
   }, [sessions, search]);
 
   const sorted = useMemo(
@@ -319,7 +375,10 @@ export function SessionSidebar({
     [filtered],
   );
 
-  const groups = useMemo(() => groupSessions(sorted), [sorted]);
+  const groups = useMemo(
+    () => (groupMode === 'time' ? groupByTime(sorted) : groupByStatus(sorted)),
+    [sorted, groupMode],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -331,7 +390,7 @@ export function SessionSidebar({
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-awp-border bg-awp-bg px-3 py-2 text-xs font-medium text-awp-text hover:bg-awp-blue/10 hover:border-awp-blue/30 hover:text-awp-blue transition-colors"
         >
           <Plus className="h-3.5 w-3.5" />
-          New Session
+          New Experiment
         </button>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-awp-muted" />
@@ -339,7 +398,7 @@ export function SessionSidebar({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search sessions..."
+            placeholder="Search experiments..."
             className="w-full rounded-md border border-awp-border bg-awp-bg pl-7 pr-7 py-1.5 text-xs text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue focus:border-awp-blue transition-colors"
           />
           {search && (
@@ -352,15 +411,48 @@ export function SessionSidebar({
             </button>
           )}
         </div>
+
+        {/* Group toggle */}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-awp-muted uppercase tracking-wider">
+            Group by
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setGroupMode('time')}
+              className={clsx(
+                'px-1.5 py-0.5 text-[10px] rounded transition-colors',
+                groupMode === 'time'
+                  ? 'bg-awp-blue/15 text-awp-blue font-medium'
+                  : 'text-awp-muted hover:text-awp-text',
+              )}
+            >
+              Time
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupMode('status')}
+              className={clsx(
+                'px-1.5 py-0.5 text-[10px] rounded transition-colors',
+                groupMode === 'status'
+                  ? 'bg-awp-blue/15 text-awp-blue font-medium'
+                  : 'text-awp-muted hover:text-awp-text',
+              )}
+            >
+              Status
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
         {groups.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-awp-muted gap-2">
-            <MessageSquare className="h-8 w-8 text-awp-border" />
+            <FlaskConical className="h-8 w-8 text-awp-border" />
             <p className="text-xs">
-              {search ? 'No matching sessions' : 'No sessions yet'}
+              {search ? 'No matching experiments' : 'No experiments yet'}
             </p>
           </div>
         )}

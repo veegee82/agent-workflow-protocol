@@ -1045,6 +1045,23 @@ class ToolRegistry:
             "Execute Python code in a sandboxed subprocess",
         )
 
+        self._register(
+            "pip.install",
+            self._pip_install,
+            {
+                "type": "object",
+                "properties": {
+                    "packages": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of pip package specifiers (e.g. ['pandas>=1.0', 'numpy'])",
+                    },
+                },
+                "required": ["packages"],
+            },
+            "Install Python packages via pip at runtime",
+        )
+
     def set_security_context(self, security_ctx: Any) -> None:
         """Set security context for access control enforcement."""
         self._security_context = security_ctx
@@ -1162,6 +1179,11 @@ class ToolRegistry:
             preamble = f"_workspace_dir = {str(ws)!r}\n_output_dir = {str(out)!r}\n"
 
         return self._code_executor.execute(preamble + code, timeout=timeout)
+
+    def _pip_install(self, *, packages: list[str]) -> dict[str, Any]:
+        if not self._code_executor:
+            return _err("Code executor not configured", 503)
+        return self._code_executor.install_runtime_packages(packages)
 
     # -- Memory curate tool -----------------------------------------------
 

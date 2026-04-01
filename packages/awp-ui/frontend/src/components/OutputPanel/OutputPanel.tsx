@@ -97,6 +97,59 @@ function ImageModal({
 }
 
 // ---------------------------------------------------------------------------
+// Markdown renderer (hoisted for use in JsonNode)
+// ---------------------------------------------------------------------------
+
+function MarkdownBlock({ content }: { content: string }) {
+  return (
+    <div className="prose prose-invert prose-sm max-w-none prose-headings:text-awp-text prose-p:text-awp-text prose-a:text-awp-blue prose-strong:text-awp-text prose-code:text-awp-cyan prose-code:bg-awp-bg prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        components={{
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const codeStr = String(children).replace(/\n$/, '');
+            if (match) {
+              return (
+                <div className="relative group">
+                  <div className="absolute right-2 top-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[10px] uppercase tracking-wider text-awp-muted">
+                      {match[1]}
+                    </span>
+                    <CopyButton text={codeStr} />
+                  </div>
+                  <SyntaxHighlighter
+                    style={oneDark}
+                    language={match[1]}
+                    PreTag="div"
+                    customStyle={{
+                      background: '#0d1117',
+                      borderRadius: '0.5rem',
+                      fontSize: '0.8rem',
+                      border: '1px solid #30363d',
+                    }}
+                  >
+                    {codeStr}
+                  </SyntaxHighlighter>
+                </div>
+              );
+            }
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Collapsible JSON tree
 // ---------------------------------------------------------------------------
 
@@ -139,7 +192,7 @@ function JsonNode({
   }
 
   if (typeof value === 'string') {
-    // Detect code-like strings: key is "code" or multi-line with code indicators
+    // Detect code-like strings: key is "code" or "source" with newlines
     const isCode =
       (name === 'code' || name === 'source') && value.includes('\n');
     if (isCode) {
@@ -168,10 +221,64 @@ function JsonNode({
         </div>
       );
     }
+
+    // Detect markdown-rich strings (headings, lists, bold, links, etc.)
+    const isMarkdown =
+      value.includes('\n') &&
+      (/^#{1,6}\s/m.test(value) ||
+        /^[-*]\s/m.test(value) ||
+        /\*\*.+\*\*/m.test(value) ||
+        /\[.+\]\(.+\)/m.test(value) ||
+        /^>\s/m.test(value) ||
+        /^```/m.test(value) ||
+        /^\d+\.\s/m.test(value));
+    if (isMarkdown) {
+      return (
+        <div style={{ paddingLeft: depth * 16 }}>
+          {name && <span className="text-awp-purple mb-1 block">{name}:</span>}
+          <div className="ml-2 mt-1 rounded-lg border border-awp-border/40 bg-awp-bg/50 p-3">
+            <MarkdownBlock content={value} />
+          </div>
+        </div>
+      );
+    }
+
+    // Detect embedded JSON strings
+    const trimmedStr = value.trim();
+    const isJsonStr =
+      (trimmedStr.startsWith('{') && trimmedStr.endsWith('}')) ||
+      (trimmedStr.startsWith('[') && trimmedStr.endsWith(']'));
+    if (isJsonStr && trimmedStr.length > 2) {
+      try {
+        const inner = JSON.parse(trimmedStr);
+        return (
+          <div style={{ paddingLeft: depth * 16 }}>
+            {name && <span className="text-awp-purple">{name}:</span>}
+            <JsonNode value={inner} depth={depth + 1} />
+          </div>
+        );
+      } catch {
+        // not valid JSON, fall through
+      }
+    }
+
+    // Short strings: inline display
+    if (value.length <= 200 && !value.includes('\n')) {
+      return (
+        <div className="flex items-start gap-1" style={{ paddingLeft: depth * 16 }}>
+          {name && <span className="text-awp-purple shrink-0">{name}:</span>}
+          <span className="text-awp-green break-all">&quot;{value}&quot;</span>
+        </div>
+      );
+    }
+
+    // Long multi-line plain strings: show in a scrollable block
     return (
-      <div className="flex items-start gap-1" style={{ paddingLeft: depth * 16 }}>
-        {name && <span className="text-awp-purple shrink-0">{name}:</span>}
-        <span className="text-awp-green break-all">&quot;{value}&quot;</span>
+      <div style={{ paddingLeft: depth * 16 }}>
+        {name && <span className="text-awp-purple block mb-1">{name}:</span>}
+        <div className="ml-2 rounded-lg border border-awp-border/40 bg-awp-bg/50 p-3 text-awp-green text-xs max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
+          {value}
+        </div>
       </div>
     );
   }
@@ -246,55 +353,6 @@ function JsonNode({
 // ---------------------------------------------------------------------------
 // Individual block renderers
 // ---------------------------------------------------------------------------
-
-function MarkdownBlock({ content }: { content: string }) {
-  return (
-    <div className="prose prose-invert prose-sm max-w-none prose-headings:text-awp-text prose-p:text-awp-text prose-a:text-awp-blue prose-strong:text-awp-text prose-code:text-awp-cyan prose-code:bg-awp-bg prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
-        components={{
-          code({ className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            const codeStr = String(children).replace(/\n$/, '');
-            if (match) {
-              return (
-                <div className="relative group">
-                  <div className="absolute right-2 top-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-[10px] uppercase tracking-wider text-awp-muted">
-                      {match[1]}
-                    </span>
-                    <CopyButton text={codeStr} />
-                  </div>
-                  <SyntaxHighlighter
-                    style={oneDark}
-                    language={match[1]}
-                    PreTag="div"
-                    customStyle={{
-                      background: '#0d1117',
-                      borderRadius: '0.5rem',
-                      fontSize: '0.8rem',
-                      border: '1px solid #30363d',
-                    }}
-                  >
-                    {codeStr}
-                  </SyntaxHighlighter>
-                </div>
-              );
-            }
-            return (
-              <code className={className} {...props}>
-                {children}
-              </code>
-            );
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
-}
 
 function CodeBlock({ content, language }: { content: string; language?: string }) {
   return (
@@ -436,9 +494,17 @@ function ErrorBlock({ content, title }: { content: string; title?: string }) {
           {title && (
             <div className="mb-1 text-xs font-semibold text-awp-red">{title}</div>
           )}
-          <pre className="whitespace-pre-wrap break-words text-sm text-awp-red/90 font-mono">
-            {content}
-          </pre>
+          <div className="rounded overflow-hidden">
+            <SyntaxHighlighter
+              language="text"
+              style={oneDark}
+              customStyle={{ margin: 0, padding: '0.5rem', background: 'transparent', fontSize: '0.8125rem', lineHeight: '1.5', color: 'rgba(248,81,73,0.9)' }}
+              wrapLines
+              wrapLongLines
+            >
+              {content}
+            </SyntaxHighlighter>
+          </div>
         </div>
       </div>
     </div>

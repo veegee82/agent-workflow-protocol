@@ -94,19 +94,19 @@
   <!-- A1 -->
   <rect x="540" y="268" width="340" height="44" rx="8" fill="url(#gA1)" filter="url(#shadow)"/>
   <text x="560" y="295" fill="#a5d6a7" font-size="12" font-weight="bold">A1</text>
-  <text x="590" y="295" fill="#fff" font-size="13" font-weight="bold">Conditional</text>
+  <text x="590" y="295" fill="#fff" font-size="13" font-weight="bold">Adaptive</text>
   <text x="860" y="295" text-anchor="end" fill="#c8e6c9" font-size="10">Branching on confidence</text>
 
   <!-- A2 -->
   <rect x="540" y="216" width="340" height="44" rx="8" fill="url(#gA2)" filter="url(#shadow)"/>
   <text x="560" y="243" fill="#fff" font-size="12" font-weight="bold">A2</text>
-  <text x="590" y="243" fill="#fff" font-size="13" font-weight="bold">Iterative</text>
+  <text x="590" y="243" fill="#fff" font-size="13" font-weight="bold">Delegation</text>
   <text x="860" y="243" text-anchor="end" fill="#e8f5e9" font-size="10">Manager-worker loops</text>
 
   <!-- A3 -->
   <rect x="540" y="164" width="340" height="44" rx="8" fill="url(#gA3)" filter="url(#shadow)"/>
   <text x="560" y="191" fill="#fff" font-size="12" font-weight="bold">A3</text>
-  <text x="590" y="191" fill="#fff" font-size="13" font-weight="bold">Adaptive</text>
+  <text x="590" y="191" fill="#fff" font-size="13" font-weight="bold">Tool Creation</text>
   <text x="860" y="191" text-anchor="end" fill="#e8f5e9" font-size="10">Dynamic tool creation</text>
 
   <!-- A4 -->

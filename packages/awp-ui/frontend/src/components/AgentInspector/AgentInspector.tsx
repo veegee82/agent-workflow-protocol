@@ -1,4 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
@@ -101,7 +104,54 @@ function JsonValue({ value, depth = 0, name }: { value: unknown; depth?: number;
         </div>
       );
     }
-    return <span className="text-awp-green break-all">&quot;{value}&quot;</span>;
+
+    // Detect markdown-rich strings
+    const isMarkdown =
+      value.includes('\n') &&
+      (/^#{1,6}\s/m.test(value) ||
+        /^[-*]\s/m.test(value) ||
+        /\*\*.+\*\*/m.test(value) ||
+        /\[.+\]\(.+\)/m.test(value) ||
+        /^>\s/m.test(value) ||
+        /^```/m.test(value) ||
+        /^\d+\.\s/m.test(value));
+    if (isMarkdown) {
+      return (
+        <div className="mt-1 w-full rounded-lg border border-awp-border/40 bg-awp-bg/50 p-2">
+          <div className="prose prose-invert prose-xs max-w-none prose-headings:text-awp-text prose-p:text-awp-text prose-a:text-awp-blue prose-strong:text-awp-text prose-code:text-awp-cyan prose-code:bg-awp-bg prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+              {value}
+            </ReactMarkdown>
+          </div>
+        </div>
+      );
+    }
+
+    // Detect embedded JSON strings
+    const trimmedStr = value.trim();
+    const isJsonStr =
+      (trimmedStr.startsWith('{') && trimmedStr.endsWith('}')) ||
+      (trimmedStr.startsWith('[') && trimmedStr.endsWith(']'));
+    if (isJsonStr && trimmedStr.length > 2) {
+      try {
+        const inner = JSON.parse(trimmedStr);
+        return <JsonValue value={inner} depth={depth + 1} />;
+      } catch {
+        // not valid JSON, fall through
+      }
+    }
+
+    // Short strings: inline
+    if (value.length <= 200 && !value.includes('\n')) {
+      return <span className="text-awp-green break-all">&quot;{value}&quot;</span>;
+    }
+
+    // Long plain strings: scrollable block
+    return (
+      <div className="mt-1 w-full rounded-lg border border-awp-border/40 bg-awp-bg/50 p-2 text-awp-green text-[11px] max-h-48 overflow-y-auto whitespace-pre-wrap break-words">
+        {value}
+      </div>
+    );
   }
 
   if (Array.isArray(value)) {
@@ -467,10 +517,16 @@ export function AgentInspector() {
             title="Errors"
             icon={<AlertTriangle className="h-3 w-3 text-awp-red" />}
           >
-            <div className="rounded-lg border border-awp-red/30 bg-awp-red/5 p-2.5">
-              <pre className="whitespace-pre-wrap break-words text-[11px] text-awp-red/90 font-mono">
+            <div className="rounded-lg border border-awp-red/30 overflow-hidden">
+              <SyntaxHighlighter
+                language="text"
+                style={oneDark}
+                customStyle={{ margin: 0, padding: '0.625rem', background: 'rgba(248,81,73,0.05)', fontSize: '0.6875rem', lineHeight: '1.5', color: 'rgba(248,81,73,0.9)' }}
+                wrapLines
+                wrapLongLines
+              >
                 {error}
-              </pre>
+              </SyntaxHighlighter>
             </div>
           </Section>
         )}

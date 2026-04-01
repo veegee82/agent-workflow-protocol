@@ -127,6 +127,7 @@ class AgentWorkflow:
         secrets: dict[str, str] | None = None,
         skills: list[str | Path] | None = None,
         external_tools: list[Any] | None = None,
+        experiment_context: str | None = None,
     ) -> None:
         if not model:
             raise ValueError(
@@ -170,6 +171,7 @@ class AgentWorkflow:
         self.secrets = secrets or {}
         self.skills = skills or []
         self.external_tools = external_tools or []
+        self.experiment_context = experiment_context
 
     def run(self) -> dict[str, Any]:
         """Execute the workflow and return results as a dict.
@@ -268,7 +270,12 @@ class AgentWorkflow:
             tool_creation=self.tool_creation,
             skill_bundles=skill_bundles,
             external_tool_names=[s.name for s in ext_tool_specs],
+            has_experiment_context=bool(self.experiment_context),
         )
+
+        # Append experiment context (previous run results, memory) if available
+        if self.experiment_context:
+            manager_prompt += "\n" + self.experiment_context
 
         # Write manager prompt to workspace for the DelegationLoopRunner
         manager_dir = workspace_dir / "agents" / "manager"
@@ -312,6 +319,7 @@ class AgentWorkflow:
             tool_registry=tool_registry,
             manager_model=self.model,
             worker_model=self.worker_model,
+            generate_graph=self.verbose,
         )
 
         raw_result = runner.run(self.task)

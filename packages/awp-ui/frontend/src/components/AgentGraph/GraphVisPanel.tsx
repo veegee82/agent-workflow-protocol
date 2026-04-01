@@ -26,6 +26,8 @@ import {
   X,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { customNodeTypes } from './CustomNodes';
 
@@ -36,59 +38,168 @@ import { customNodeTypes } from './CustomNodes';
 function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
-  const inDegree = new Map<string, number>();
-  const children = new Map<string, string[]>();
+  // Build adjacency
+  const childrenMap = new Map<string, string[]>();
+  const parentMap = new Map<string, string>();
+  const nodeMap = new Map<string, Node>();
   for (const n of nodes) {
-    inDegree.set(n.id, 0);
-    children.set(n.id, []);
+    childrenMap.set(n.id, []);
+    nodeMap.set(n.id, n);
   }
   for (const e of edges) {
-    inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
-    const ch = children.get(e.source);
-    if (ch) ch.push(e.target);
+    const ch = childrenMap.get(e.source);
+    if (ch && nodeMap.has(e.target)) {
+      ch.push(e.target);
+      parentMap.set(e.target, e.source);
+    }
   }
 
-  const layers: string[][] = [];
-  const visited = new Set<string>();
-  let queue = nodes.filter((n) => (inDegree.get(n.id) ?? 0) === 0).map((n) => n.id);
+  const nt = (id: string) => nodeMap.get(id)?.data?.nodeType ?? nodeMap.get(id)?.type ?? '';
 
-  while (queue.length > 0) {
-    layers.push(queue);
-    queue.forEach((id) => visited.add(id));
-    const next: string[] = [];
-    for (const id of queue) {
-      for (const child of children.get(id) ?? []) {
-        if (!visited.has(child) && !next.includes(child)) {
-          const parentsDone = edges
-            .filter((e) => e.target === child)
-            .every((e) => visited.has(e.source));
-          if (parentsDone) next.push(child);
+  // Layout constants
+  const COL_GAP = 220;   // horizontal gap between columns (workers, tools)
+  const ROW_GAP = 160;   // vertical gap between iteration rows
+  const TOOL_Y_OFFSET = 120; // tool calls sit below their worker within the same row band
+
+  const positions = new Map<string, { x: number; y: number }>();
+
+  // Find roots
+  const roots = nodes.filter((n) => !parentMap.has(n.id)).map((n) => n.id);
+  if (roots.length === 0 && nodes.length > 0) roots.push(nodes[0].id);
+
+  // -----------------------------------------------------------------------
+  // Row-based layout: iterations are rows, workers/tools are columns
+  //
+  // Structure:  root → manager → iter0 → [worker0, worker1, ...]
+  //                             iter1 → [worker2, ...]
+  //                             ...
+  //
+  // Row 0: root (task)
+  // Row 1: manager
+  // Row 2: iter000  |  worker_a  worker_b  (+ tool calls below each worker)
+  // Row 3: iter001  |  worker_c
+  // ...
+  // Last:  completion
+  // -----------------------------------------------------------------------
+
+  // Collect iterations ordered under each manager, and workers under each iteration
+  // For each iteration, compute how many "sub-rows" it needs (1 if no tools, 2 if tools)
+  function collectSubtree(rootId: string, startRow: number, xCenter: number): number {
+    const type = nt(rootId);
+    let row = startRow;
+
+    // Place root (task node)
+    if (type === 'task' || type === 'completion' || (!type && !parentMap.has(rootId))) {
+      positions.set(rootId, { x: xCenter, y: row * ROW_GAP });
+      row++;
+    }
+
+    const rootChildren = (childrenMap.get(rootId) ?? []).filter((c) => nodeMap.has(c));
+
+    // Find manager child
+    const managerIds = rootChildren.filter((c) => nt(c) === 'manager');
+    const otherChildren = rootChildren.filter((c) => nt(c) !== 'manager');
+
+    for (const mgrId of managerIds) {
+      positions.set(mgrId, { x: xCenter, y: row * ROW_GAP });
+      row++;
+
+      // Iterations under this manager
+      const iterChildren = (childrenMap.get(mgrId) ?? []).filter((c) => nodeMap.has(c));
+      const iterIds = iterChildren.filter((c) => nt(c) === 'iteration');
+      const mgrOther = iterChildren.filter((c) => nt(c) !== 'iteration');
+
+      for (const iterId of iterIds) {
+        // Workers under this iteration
+        const iterKids = (childrenMap.get(iterId) ?? []).filter((c) => nodeMap.has(c));
+        const workerIds = iterKids.filter((c) => nt(c) === 'worker');
+        const otherIterKids = iterKids.filter((c) => nt(c) !== 'worker');
+
+        // Compute column count: each worker is a column, plus tool columns
+        // Place iteration node at x=xCenter (left column, col 0)
+        // Workers start at col 1, 2, 3, ...
+        const iterY = row * ROW_GAP;
+        positions.set(iterId, { x: xCenter, y: iterY });
+
+        let col = 1;
+        let hasToolRow = false;
+        for (const wId of workerIds) {
+          const wx = xCenter + col * COL_GAP;
+          positions.set(wId, { x: wx, y: iterY });
+
+          // Tool calls under this worker
+          const wKids = (childrenMap.get(wId) ?? []).filter((c) => nodeMap.has(c));
+          const toolIds = wKids.filter((c) => nt(c) === 'toolCall');
+          const subRunIds = wKids.filter((c) => nt(c) !== 'toolCall');
+
+          if (toolIds.length > 0) {
+            hasToolRow = true;
+            for (let ti = 0; ti < toolIds.length; ti++) {
+              positions.set(toolIds[ti], {
+                x: wx + ti * (COL_GAP * 0.55),
+                y: iterY + TOOL_Y_OFFSET,
+              });
+            }
+            // Adjust col to account for tool spread
+            col += Math.max(1, Math.ceil(toolIds.length * 0.55));
+          } else {
+            col++;
+          }
+
+          // Sub-runs (A4 recursive delegation) — place below
+          if (subRunIds.length > 0) {
+            let subRow = row + (hasToolRow ? 2 : 1);
+            for (const subId of subRunIds) {
+              subRow = collectSubtree(subId, subRow, wx);
+            }
+          }
+        }
+
+        // Other non-worker children of iteration (e.g. completion, misc)
+        for (const otherId of otherIterKids) {
+          positions.set(otherId, { x: xCenter + col * COL_GAP, y: iterY });
+          col++;
+        }
+
+        row += hasToolRow ? 2 : 1;
+      }
+
+      // Non-iteration children of manager
+      for (const otherId of mgrOther) {
+        if (!positions.has(otherId)) {
+          positions.set(otherId, { x: xCenter, y: row * ROW_GAP });
+          row++;
         }
       }
     }
-    if (next.length === 0) {
-      const remaining = nodes.filter((n) => !visited.has(n.id)).map((n) => n.id);
-      if (remaining.length > 0) { queue = remaining; continue; }
+
+    // Non-manager children of root (e.g. completion node)
+    for (const otherId of otherChildren) {
+      if (!positions.has(otherId)) {
+        positions.set(otherId, { x: xCenter, y: row * ROW_GAP });
+        row++;
+      }
     }
-    queue = next;
+
+    return row;
   }
 
-  const xGap = 260;
-  const yGap = 180;
-  const nodePositions = new Map<string, { x: number; y: number }>();
+  let currentRow = 0;
+  for (const rootId of roots) {
+    currentRow = collectSubtree(rootId, currentRow, 0);
+  }
 
-  for (let row = 0; row < layers.length; row++) {
-    const layer = layers[row];
-    const totalWidth = (layer.length - 1) * xGap;
-    const startX = -totalWidth / 2;
-    for (let col = 0; col < layer.length; col++) {
-      nodePositions.set(layer[col], { x: startX + col * xGap, y: row * yGap });
+  // Place any unpositioned nodes (safety net)
+  for (const n of nodes) {
+    if (!positions.has(n.id)) {
+      positions.set(n.id, { x: 0, y: currentRow * ROW_GAP });
+      currentRow++;
     }
   }
 
   return nodes.map((n) => ({
     ...n,
-    position: nodePositions.get(n.id) ?? n.position,
+    position: positions.get(n.id) ?? n.position,
   }));
 }
 
@@ -379,81 +490,336 @@ function Legend() {
 // Node detail tooltip (shown on hover)
 // ---------------------------------------------------------------------------
 
-function NodeTooltip({ node, position }: { node: Node; position: { x: number; y: number } }) {
-  const data = node.data ?? {};
-  const nodeType = data.nodeType ?? node.type ?? 'unknown';
-  const status = data.status ?? 'pending';
-  const confidence = data.confidence as number | undefined;
-  const label = data.label ?? node.id;
-  const error = data.error as string | undefined;
-  const tools = data.tools_used as string[] | undefined;
-  const toolCount = data.toolCount as number | undefined;
+function TooltipRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 py-1">
+      <span className="text-[10px] text-awp-muted shrink-0 w-[72px] text-right uppercase tracking-wider pt-px">{label}</span>
+      <span className="text-[11px] text-awp-text flex-1 min-w-0">{children}</span>
+    </div>
+  );
+}
 
-  const typeColors: Record<string, string> = {
-    task: 'border-awp-blue/60',
-    manager: 'border-awp-purple/60',
-    iteration: 'border-awp-yellow/60',
-    worker: 'border-awp-cyan/60',
-    toolCall: 'border-awp-green/60',
-    completion: 'border-awp-green/60',
+function NodeTooltip({ node, position }: { node: Node; position: { x: number; y: number } }) {
+  const d = node.data ?? {};
+  const nodeType = (d.nodeType ?? node.type ?? 'unknown') as string;
+  const status = (d.status ?? 'pending') as string;
+  const confidence = d.confidence as number | undefined;
+  const label = (d.label ?? node.id) as string;
+  const error = d.error as string | undefined;
+  const tools = d.tools_used as string[] | undefined;
+  const toolCount = d.toolCount as number | undefined;
+  const model = d.model as string | undefined;
+  const decision = d.decision as string | undefined;
+  const iteration = d.iteration;
+  const reasoning = d.reasoning as string | undefined;
+  const instructions = d.instructions as string | undefined;
+  const toolsAllowed = d.toolsAllowed as string[] | undefined;
+  const toolsCreated = d.tools_created as string[] | undefined;
+  const budget = d.budget as Record<string, unknown> | undefined;
+  const finalBudget = d.finalBudget as Record<string, unknown> | undefined;
+  const task = d.task as string | undefined;
+  const runId = d.run_id as string | undefined;
+  const models = d.models as Record<string, string> | undefined;
+  const stdout = d.stdout as string | undefined;
+  const stderr = d.stderr as string | undefined;
+  const toolArgs = d.arguments as Record<string, unknown> | undefined;
+  const toolOutput = d.output as string | undefined;
+  const timing = d.timing as { start?: string; end?: string; duration_ms?: number } | undefined;
+  const iterationCount = d.iterationCount ?? d.totalIterations;
+  const codeMode = d.code_mode;
+  const skills = d.skills as string[] | undefined;
+  const outputs = d.outputs as Record<string, unknown> | undefined;
+  const workerId = d.worker_id as string | undefined;
+
+  const typeIcons: Record<string, { icon: React.ReactNode; color: string; border: string }> = {
+    task: { icon: <Diamond className="h-3.5 w-3.5" />, color: 'text-awp-blue', border: 'border-awp-blue/50' },
+    manager: { icon: <Star className="h-3.5 w-3.5 fill-current/30" />, color: 'text-awp-purple', border: 'border-awp-purple/50' },
+    iteration: { icon: <RefreshCw className="h-3.5 w-3.5" />, color: 'text-awp-yellow', border: 'border-awp-yellow/50' },
+    worker: { icon: <Circle className="h-3.5 w-3.5" />, color: 'text-awp-cyan', border: 'border-awp-cyan/50' },
+    toolCall: { icon: <Wrench className="h-3.5 w-3.5" />, color: 'text-awp-green', border: 'border-awp-green/50' },
+    completion: { icon: <CheckSquare className="h-3.5 w-3.5" />, color: 'text-awp-green', border: 'border-awp-green/50' },
   };
+  const typeInfo = typeIcons[nodeType] ?? { icon: null, color: 'text-awp-muted', border: 'border-awp-border/60' };
+
+  // Clamp tooltip so it doesn't overflow the viewport
+  const left = Math.min(position.x + 16, window.innerWidth - 380);
+  const top = Math.min(position.y - 12, window.innerHeight - 400);
 
   return (
     <div
       className={clsx(
         'fixed z-50 pointer-events-none animate-fade-in',
         'rounded-xl bg-awp-panel/95 backdrop-blur-md border shadow-2xl',
-        'px-4 py-3 min-w-[200px] max-w-[320px]',
-        typeColors[nodeType] ?? 'border-awp-border/60',
+        'min-w-[260px] max-w-[360px] overflow-hidden',
+        typeInfo.border,
       )}
-      style={{ left: position.x + 16, top: position.y - 12 }}
+      style={{ left, top }}
     >
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-xs font-semibold text-awp-text">{label}</span>
+      {/* Header */}
+      <div className={clsx('flex items-center gap-2 px-4 py-2.5 border-b border-awp-border/30', `bg-gradient-to-r from-awp-bg/80 to-transparent`)}>
+        <span className={typeInfo.color}>{typeInfo.icon}</span>
+        <span className="text-xs font-semibold text-awp-text truncate flex-1">{label}</span>
         <StatusBadge status={status} />
       </div>
 
-      <div className="text-[10px] text-awp-muted uppercase tracking-wider mb-1">
-        {nodeType}
+      {/* Body */}
+      <div className="px-4 py-2.5 space-y-0.5 divide-y divide-awp-border/20">
+        {/* Type & ID */}
+        <div className="pb-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-awp-muted uppercase tracking-wider">{nodeType}</span>
+            {workerId && <span className="text-[9px] text-awp-muted/60 font-mono">{workerId}</span>}
+            {runId && <span className="text-[9px] text-awp-muted/60 font-mono">{runId}</span>}
+          </div>
+        </div>
+
+        {/* Task (for task nodes) */}
+        {task && (
+          <div className="pt-1.5">
+            <TooltipRow label="Task">
+              <span className="line-clamp-3">{task}</span>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Model */}
+        {(model || models) && (
+          <div className="pt-1.5">
+            {model && <TooltipRow label="Model"><span className="font-mono text-[10px]">{model}</span></TooltipRow>}
+            {models && !model && Object.entries(models).map(([k, v]) => (
+              <TooltipRow key={k} label={k}><span className="font-mono text-[10px]">{v}</span></TooltipRow>
+            ))}
+          </div>
+        )}
+
+        {/* Iteration / Decision */}
+        {(iteration !== undefined || decision) && (
+          <div className="pt-1.5">
+            {iteration !== undefined && <TooltipRow label="Iteration"><span className="font-mono font-bold">{String(iteration)}</span></TooltipRow>}
+            {decision && (
+              <TooltipRow label="Decision">
+                <span className={clsx(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                  decision === 'delegate' ? 'bg-awp-yellow/15 text-awp-yellow' :
+                  decision === 'complete' ? 'bg-awp-green/15 text-awp-green' :
+                  'bg-awp-red/15 text-awp-red',
+                )}>{decision.toUpperCase()}</span>
+              </TooltipRow>
+            )}
+          </div>
+        )}
+
+        {/* Confidence */}
+        {confidence !== undefined && (
+          <div className="pt-1.5">
+            <div className="flex items-center gap-2 py-1">
+              <span className="text-[10px] text-awp-muted shrink-0 w-[72px] text-right uppercase tracking-wider">Confidence</span>
+              <ConfidenceBar value={confidence} />
+              <span className={clsx(
+                'text-[11px] font-mono font-bold tabular-nums',
+                confidence >= 0.8 ? 'text-awp-green' : confidence >= 0.5 ? 'text-awp-yellow' : 'text-awp-red',
+              )}>
+                {(confidence * 100).toFixed(0)}%
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Instructions (workers) */}
+        {instructions && (
+          <div className="pt-1.5">
+            <TooltipRow label="Task">
+              <span className="line-clamp-3 text-[10px]">{instructions}</span>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Reasoning (iterations) */}
+        {reasoning && (
+          <div className="pt-1.5">
+            <TooltipRow label="Reasoning">
+              <span className="line-clamp-3 text-[10px] italic text-awp-muted">{reasoning}</span>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Tools */}
+        {(tools && tools.length > 0) && (
+          <div className="pt-1.5">
+            <TooltipRow label="Tools">
+              <div className="flex flex-wrap gap-1">
+                {tools.slice(0, 8).map((t, i) => (
+                  <span key={i} className="inline-flex items-center gap-0.5 rounded-md bg-awp-bg/80 px-1.5 py-0.5 text-[9px] text-awp-green font-mono">
+                    <Wrench className="h-2 w-2" />{t}
+                  </span>
+                ))}
+                {tools.length > 8 && <span className="text-[9px] text-awp-muted">+{tools.length - 8}</span>}
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Tools allowed (workers) */}
+        {toolsAllowed && toolsAllowed.length > 0 && !tools && (
+          <div className="pt-1.5">
+            <TooltipRow label="Tools">
+              <div className="flex flex-wrap gap-1">
+                {toolsAllowed.slice(0, 6).map((t, i) => (
+                  <span key={i} className="rounded-md bg-awp-bg/80 px-1.5 py-0.5 text-[9px] text-awp-muted font-mono">{t}</span>
+                ))}
+                {toolsAllowed.length > 6 && <span className="text-[9px] text-awp-muted">+{toolsAllowed.length - 6}</span>}
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Tools created */}
+        {toolsCreated && toolsCreated.length > 0 && (
+          <div className="pt-1.5">
+            <TooltipRow label="Created">
+              <div className="flex flex-wrap gap-1">
+                {toolsCreated.map((t, i) => (
+                  <span key={i} className="rounded-md bg-awp-purple/10 border border-awp-purple/20 px-1.5 py-0.5 text-[9px] text-awp-purple font-mono">{t}</span>
+                ))}
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {toolCount !== undefined && !tools && !toolsAllowed && (
+          <div className="pt-1.5">
+            <TooltipRow label="Tools">{toolCount} tool call{toolCount !== 1 ? 's' : ''}</TooltipRow>
+          </div>
+        )}
+
+        {/* Tool call details */}
+        {toolArgs && (
+          <div className="pt-1.5">
+            <TooltipRow label="Args">
+              <div className="rounded overflow-hidden line-clamp-4">
+                <SyntaxHighlighter
+                  language="json"
+                  style={oneDark}
+                  customStyle={{ margin: 0, padding: '0.375rem 0.5rem', background: 'rgba(13,17,23,0.6)', fontSize: '0.5625rem', lineHeight: '1.4' }}
+                  wrapLines
+                  wrapLongLines
+                >
+                  {JSON.stringify(toolArgs, null, 2)}
+                </SyntaxHighlighter>
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+        {(stdout || toolOutput) && (
+          <div className="pt-1.5">
+            <TooltipRow label="Output">
+              <div className="rounded overflow-hidden line-clamp-4">
+                <SyntaxHighlighter
+                  language="text"
+                  style={oneDark}
+                  customStyle={{ margin: 0, padding: '0.375rem 0.5rem', background: 'rgba(13,17,23,0.6)', fontSize: '0.5625rem', lineHeight: '1.4' }}
+                  wrapLines
+                  wrapLongLines
+                >
+                  {String(stdout || toolOutput)}
+                </SyntaxHighlighter>
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+        {stderr && (
+          <div className="pt-1.5">
+            <TooltipRow label="Stderr">
+              <div className="rounded overflow-hidden line-clamp-3">
+                <SyntaxHighlighter
+                  language="text"
+                  style={oneDark}
+                  customStyle={{ margin: 0, padding: '0.375rem 0.5rem', background: 'rgba(13,17,23,0.6)', fontSize: '0.5625rem', lineHeight: '1.4' }}
+                  wrapLines
+                  wrapLongLines
+                >
+                  {stderr}
+                </SyntaxHighlighter>
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Skills / Code mode */}
+        {(skills && skills.length > 0 || codeMode !== undefined) && (
+          <div className="pt-1.5 flex items-center gap-2">
+            {codeMode !== undefined && (
+              <span className={clsx('rounded-md px-1.5 py-0.5 text-[9px] font-medium', codeMode ? 'bg-awp-blue/10 text-awp-blue' : 'bg-awp-muted/10 text-awp-muted')}>
+                Code: {codeMode ? 'ON' : 'OFF'}
+              </span>
+            )}
+            {skills && skills.map((s, i) => (
+              <span key={i} className="rounded-md bg-awp-purple/10 px-1.5 py-0.5 text-[9px] text-awp-purple">{s}</span>
+            ))}
+          </div>
+        )}
+
+        {/* Budget */}
+        {(budget || finalBudget) && (
+          <div className="pt-1.5">
+            <TooltipRow label="Budget">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] font-mono">
+                {Object.entries(finalBudget ?? budget ?? {}).slice(0, 8).map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-1">
+                    <span className="text-awp-muted truncate">{k.replace(/_/g, ' ')}</span>
+                    <span className="text-awp-text font-semibold">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Timing */}
+        {timing && timing.duration_ms !== undefined && (
+          <div className="pt-1.5">
+            <TooltipRow label="Duration">
+              <span className="font-mono text-[10px]">{(timing.duration_ms / 1000).toFixed(1)}s</span>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Iteration count (completion nodes) */}
+        {iterationCount !== undefined && (
+          <div className="pt-1.5">
+            <TooltipRow label="Iterations"><span className="font-mono font-bold">{String(iterationCount)}</span></TooltipRow>
+          </div>
+        )}
+
+        {/* Outputs (agent.complete) */}
+        {outputs && Object.keys(outputs).length > 0 && (
+          <div className="pt-1.5">
+            <TooltipRow label="Output">
+              <div className="rounded overflow-hidden line-clamp-4">
+                <SyntaxHighlighter
+                  language="json"
+                  style={oneDark}
+                  customStyle={{ margin: 0, padding: '0.375rem 0.5rem', background: 'rgba(13,17,23,0.6)', fontSize: '0.5625rem', lineHeight: '1.4' }}
+                  wrapLines
+                  wrapLongLines
+                >
+                  {JSON.stringify(outputs, null, 2)}
+                </SyntaxHighlighter>
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="pt-1.5">
+            <div className="rounded-md bg-awp-red/10 border border-awp-red/20 px-2.5 py-1.5">
+              <div className="text-[9px] text-awp-red/70 uppercase tracking-wider mb-0.5">Error</div>
+              <span className="text-[10px] text-awp-red line-clamp-4">{error}</span>
+            </div>
+          </div>
+        )}
       </div>
-
-      {confidence !== undefined && (
-        <div className="flex items-center gap-2 mt-1.5">
-          <span className="text-[10px] text-awp-muted">Confidence</span>
-          <ConfidenceBar value={confidence} />
-          <span className={clsx(
-            'text-[11px] font-mono font-bold tabular-nums',
-            confidence >= 0.8 ? 'text-awp-green' : confidence >= 0.5 ? 'text-awp-yellow' : 'text-awp-red',
-          )}>
-            {(confidence * 100).toFixed(0)}%
-          </span>
-        </div>
-      )}
-
-      {(tools && tools.length > 0) && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {tools.slice(0, 5).map((t, i) => (
-            <span key={i} className="inline-flex items-center gap-1 rounded-md bg-awp-bg/80 px-1.5 py-0.5 text-[9px] text-awp-green font-mono">
-              <Wrench className="h-2 w-2" /> {t}
-            </span>
-          ))}
-          {tools.length > 5 && (
-            <span className="text-[9px] text-awp-muted">+{tools.length - 5} more</span>
-          )}
-        </div>
-      )}
-
-      {toolCount !== undefined && !tools && (
-        <div className="mt-1 text-[10px] text-awp-muted">
-          {toolCount} tool call{toolCount !== 1 ? 's' : ''}
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-1.5 rounded-md bg-awp-red/10 border border-awp-red/20 px-2 py-1">
-          <span className="text-[10px] text-awp-red line-clamp-2">{error}</span>
-        </div>
-      )}
     </div>
   );
 }

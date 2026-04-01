@@ -8,8 +8,8 @@ AWP does not exist in a vacuum. It builds on lessons from existing protocols and
 |---------|-----|-----|-----|---------|-----------|--------|
 | Agent Identity | Yes | No | Yes | No | No | Partial |
 | Tool Protocol | MCP-compatible | Yes | No | No | No | No |
-| Orchestration (DAG) | Yes | No | No | No | Yes | No |
-| Memory Protocol | Yes (4 tiers) | No | No | No | Checkpoints | No |
+| Orchestration (DAG) | Yes | No | No | No | Yes | Partial |
+| Memory Protocol | Yes (4 tiers) | No | No | No | Checkpoints | Partial |
 | Communication | Yes (Message Bus) | No | Yes | No | No | No |
 | Observability | Yes (OTel) | No | No | No | LangSmith | No |
 | State Sharing | Yes (contracts) | No | No | No | Yes | No |
@@ -19,7 +19,7 @@ AWP does not exist in a vacuum. It builds on lessons from existing protocols and
 | Runtime-Agnostic | Yes | Yes | Yes | Yes | No | No |
 | Declarative Config | Yes (YAML) | Yes (JSON) | Yes (JSON) | Yes (YAML/JSON) | Partial | Yes (YAML) |
 | Versioning | SemVer | No | No | Yes | No | No |
-| Validation Rules | 24 rules (R1-R24) | No | No | Yes | No | No |
+| Validation Rules | 26 rules (R1-R26) | No | No | Yes | No | No |
 | Sub-Workflows | Yes | No | No | No | Yes | No |
 
 ## Detailed Comparisons
@@ -80,9 +80,9 @@ AWP does not exist in a vacuum. It builds on lessons from existing protocols and
 **CrewAI** uses YAML to define agent roles, goals, and backstories. It provides a simple way to assign tasks to agents with different personas.
 
 **What CrewAI does not cover:**
-- Formal DAG orchestration (agents are loosely sequenced)
-- A standardized tool protocol (uses custom tool wrappers)
-- Memory protocol with defined tiers
+- Formal DAG orchestration (offers sequential/hierarchical process, but no arbitrary dependency graphs)
+- A standardized tool protocol (uses custom tool wrappers, not MCP)
+- Tiered memory protocol (has short-term, long-term, and entity memory, but no formal protocol spec)
 - Output contracts with schema validation
 - Packaging and portability across runtimes
 

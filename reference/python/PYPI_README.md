@@ -181,6 +181,19 @@ dynamic_tools:
 
 Agents cannot grant themselves additional permissions. The "always denied" set is enforced regardless of capabilities or sandbox type.
 
+## Workflow Studio (Browser UI)
+
+AWP includes a full browser-based UI for running and monitoring workflows in real time:
+
+```bash
+pip install awp-agents
+awp studio
+```
+
+Opens at `http://127.0.0.1:8420`. Live WebSocket streaming, agent graph visualization, artifact gallery, session persistence, and settings management — all included.
+
+Options: `--port 9000`, `--no-open`, `--base-dir ./my-workflows`, `--dev`.
+
 ## YAML Workflows & CLI
 
 Define agents in YAML, run with the CLI:
@@ -207,6 +220,7 @@ orchestration:
 ```
 
 ```bash
+awp studio                                     # Launch browser UI
 awp validate my-workflow/                      # Validate (R1-R26)
 awp compliance my-workflow/ --level A2         # Check autonomy level
 awp visualize my-workflow/ --format mermaid    # Render DAG
@@ -276,9 +290,10 @@ awp-agents
 ├── awp.validator   — Rule engine (R1-R26)
 ├── awp.runtime     — DAG engine + delegation loop + code executors
 ├── awp.data        — Programmatic API (AgentWorkflow, Source, ExternalTool)
-├── awp.cli         — Command-line interface
+├── awp.cli         — Command-line interface (incl. `awp studio`)
 ├── awp.packager    — .awp.zip archive support
-└── awp.visualizer  — Mermaid DAG rendering
+├── awp.visualizer  — Mermaid DAG rendering
+└── server          — Workflow Studio (FastAPI + React SPA)
 ```
 
 ## Links

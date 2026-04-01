@@ -23,7 +23,7 @@
 
   <!-- Backend A: LLM -->
   <rect x="40" y="245" width="220" height="120" rx="10" fill="#111" stroke="#9C27B0" stroke-width="1.5"/>
-  <text x="150" y="270" text-anchor="middle" fill="#9C27B0" font-size="12" font-weight="bold">Run A: LLM Comparison</text>
+  <text x="150" y="270" text-anchor="middle" fill="#9C27B0" font-size="12" font-weight="bold">Backend A: LLM Comparison</text>
   <line x1="60" y1="280" x2="240" y2="280" stroke="#222"/>
   <text x="60" y="300" fill="#aaa" font-size="10">Claude Sonnet 4</text>
   <text x="60" y="318" fill="#aaa" font-size="10">GPT-4o</text>
@@ -32,7 +32,7 @@
 
   <!-- Backend B: Memory -->
   <rect x="280" y="245" width="180" height="120" rx="10" fill="#111" stroke="#4fc3f7" stroke-width="1.5"/>
-  <text x="370" y="270" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Run B: Vector DB</text>
+  <text x="370" y="270" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">Backend B: Vector DB</text>
   <line x1="300" y1="280" x2="440" y2="280" stroke="#222"/>
   <text x="300" y="300" fill="#aaa" font-size="10">Pinecone</text>
   <text x="300" y="318" fill="#aaa" font-size="10">Weaviate</text>
@@ -41,7 +41,7 @@
 
   <!-- Backend C: Sandbox -->
   <rect x="500" y="245" width="180" height="120" rx="10" fill="#111" stroke="#4CAF50" stroke-width="1.5"/>
-  <text x="590" y="270" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">Run C: Sandbox</text>
+  <text x="590" y="270" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">Backend C: Sandbox</text>
   <line x1="520" y1="280" x2="660" y2="280" stroke="#222"/>
   <text x="520" y="300" fill="#aaa" font-size="10">subprocess</text>
   <text x="520" y="318" fill="#aaa" font-size="10">Docker</text>
@@ -50,7 +50,7 @@
 
   <!-- Backend D: Observability -->
   <rect x="720" y="245" width="210" height="120" rx="10" fill="#111" stroke="#f44336" stroke-width="1.5"/>
-  <text x="825" y="270" text-anchor="middle" fill="#f44336" font-size="12" font-weight="bold">Run D: Observability</text>
+  <text x="825" y="270" text-anchor="middle" fill="#f44336" font-size="12" font-weight="bold">Backend D: Observability</text>
   <line x1="740" y1="280" x2="910" y2="280" stroke="#222"/>
   <text x="740" y="300" fill="#aaa" font-size="10">Datadog</text>
   <text x="740" y="318" fill="#aaa" font-size="10">Grafana + Tempo</text>

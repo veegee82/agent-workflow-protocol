@@ -12,6 +12,7 @@ import type {
   SessionDetail,
   SessionHistoryItem,
   SecretEntry,
+  MemoryEntry,
 } from '@/types';
 
 /**
@@ -132,6 +133,18 @@ export function fileServeUrl(filePath: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Open directory in system file explorer
+// ---------------------------------------------------------------------------
+
+/** Open a directory in the system file explorer. */
+export async function openDirectory(path: string): Promise<void> {
+  return request<void>('/api/open-directory', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
 
@@ -188,11 +201,14 @@ export async function getAvailableTools(): Promise<string[]> {
 // Sessions
 // ---------------------------------------------------------------------------
 
-/** Create a new session. */
-export async function createSession(title: string): Promise<Session> {
+/** Create a new experiment. */
+export async function createSession(
+  title: string,
+  extra?: { description?: string; hypothesis?: string; tags?: string[]; base_dir?: string },
+): Promise<Session> {
   return request<Session>('/api/sessions', {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, ...extra }),
   });
 }
 
@@ -207,14 +223,14 @@ export async function getSession(sessionId: string): Promise<SessionDetail> {
   return request<SessionDetail>(`/api/sessions/${sessionId}`);
 }
 
-/** Update a session title. */
+/** Update experiment metadata. */
 export async function updateSession(
   sessionId: string,
-  title: string,
+  update: Partial<Pick<Session, 'title' | 'description' | 'hypothesis' | 'status' | 'tags' | 'base_dir'>>,
 ): Promise<void> {
   return request<void>(`/api/sessions/${sessionId}`, {
     method: 'PUT',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(update),
   });
 }
 
@@ -233,11 +249,16 @@ export async function getSessionHistory(
   return data.history;
 }
 
-/** Full session data including all runs, events, and graphs. */
+/** Full session/experiment data including all runs, events, graphs, and memory. */
 export interface SessionFull {
   session: {
     id: string;
     title: string;
+    description: string;
+    hypothesis: string;
+    status: string;
+    tags: string[];
+    base_dir: string | null;
     created_at: string;
     updated_at: string;
     settings: Record<string, unknown>;
@@ -254,6 +275,7 @@ export interface SessionFull {
     created_at: string;
     completed_at: string | null;
   }>;
+  memory: MemoryEntry[];
 }
 
 /** Load full session data for complete restoration. */
@@ -273,6 +295,49 @@ export async function startRunInSession(
       body: JSON.stringify(config),
     },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Experiment Memory
+// ---------------------------------------------------------------------------
+
+/** List all memory entries for an experiment. */
+export async function getExperimentMemory(sessionId: string): Promise<MemoryEntry[]> {
+  const data = await request<{ memory: MemoryEntry[] }>(`/api/sessions/${sessionId}/memory`);
+  return data.memory;
+}
+
+/** Add a memory entry to an experiment. */
+export async function addMemoryEntry(
+  sessionId: string,
+  entry: { type: string; content: string; source?: string; run_id?: string },
+): Promise<MemoryEntry> {
+  return request<MemoryEntry>(`/api/sessions/${sessionId}/memory`, {
+    method: 'POST',
+    body: JSON.stringify(entry),
+  });
+}
+
+/** Update a memory entry. */
+export async function updateMemoryEntry(
+  sessionId: string,
+  memoryId: number,
+  content: string,
+): Promise<void> {
+  return request<void>(`/api/sessions/${sessionId}/memory/${memoryId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+}
+
+/** Delete a memory entry. */
+export async function deleteMemoryEntry(
+  sessionId: string,
+  memoryId: number,
+): Promise<void> {
+  return request<void>(`/api/sessions/${sessionId}/memory/${memoryId}`, {
+    method: 'DELETE',
+  });
 }
 
 // ---------------------------------------------------------------------------

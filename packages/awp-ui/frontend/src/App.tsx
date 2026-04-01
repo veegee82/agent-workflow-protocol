@@ -12,7 +12,8 @@ import {
   GitBranch,
   Settings,
   History,
-  LayoutDashboard,
+  ClipboardList,
+  BookOpen,
   FolderOpen,
   Upload,
   Trash2,
@@ -31,6 +32,11 @@ import {
   Loader2,
   Key,
   Network,
+  Plus,
+  Pencil,
+  X,
+  Tag,
+  FlaskConical,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -39,7 +45,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import * as api from '@/api/client';
-import type { ActivePanel, OutputBlock } from '@/types';
+import type { ActivePanel, OutputBlock, ExperimentStatus } from '@/types';
 import {
   TabBar,
   Panel,
@@ -116,6 +122,25 @@ function CodeBlock({ content, language, filename, maxHeight = '24rem' }: {
 }
 
 // ---------------------------------------------------------------------------
+// JSON Viewer — syntax highlighted, fully formatted, no height limit
+// ---------------------------------------------------------------------------
+
+/** Render any value as pretty-printed JSON with syntax highlighting. */
+function JsonViewer({ data }: { data: unknown }) {
+  let text: string;
+  if (typeof data === 'string') {
+    try {
+      text = JSON.stringify(JSON.parse(data), null, 2);
+    } catch {
+      text = data;
+    }
+  } else {
+    text = JSON.stringify(data, null, 2);
+  }
+  return <CodeBlock content={text} language="json" maxHeight="none" />;
+}
+
+// ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
 
@@ -168,11 +193,12 @@ function TopBar() {
   const isRunning = runStatus === 'running';
 
   const tabs = [
-    { id: 'state' as const, label: 'State', icon: <LayoutDashboard className="h-4 w-4" /> },
-    { id: 'final' as const, label: 'Final', icon: <FolderOpen className="h-4 w-4" /> },
+    { id: 'protocol' as const, label: 'Protocol', icon: <ClipboardList className="h-4 w-4" /> },
     { id: 'output' as const, label: 'Output', icon: <FileText className="h-4 w-4" /> },
+    { id: 'results' as const, label: 'Results', icon: <FolderOpen className="h-4 w-4" /> },
     { id: 'graph' as const, label: 'Graph', icon: <GitBranch className="h-4 w-4" /> },
     { id: 'graphvis' as const, label: 'Graph Vis', icon: <Network className="h-4 w-4" /> },
+    { id: 'memory' as const, label: 'Memory', icon: <BookOpen className="h-4 w-4" /> },
     { id: 'history' as const, label: 'History', icon: <History className="h-4 w-4" /> },
   ];
 
@@ -182,7 +208,7 @@ function TopBar() {
   return (
     <header className="flex items-center gap-2 border-b border-awp-border bg-awp-panel px-3 h-12 shrink-0">
       {/* Sidebar toggle */}
-      <IconButton tooltip="Toggle sessions" onClick={toggleSidebar} size="sm">
+      <IconButton tooltip="Toggle experiments" onClick={toggleSidebar} size="sm">
         {sidebarOpen ? (
           <PanelLeftClose className="h-4 w-4" />
         ) : (
@@ -433,17 +459,24 @@ function RightSidebar() {
         <div className="space-y-3">
           <label className="block">
             <span className="text-xs text-awp-muted">Model</span>
+            <p className="text-[10px] text-awp-muted/70 mt-0.5 mb-1">
+              Auto-routes: <span className="font-mono">provider/model</span> → OpenRouter, <span className="font-mono">gpt-*</span> → OpenAI, <span className="font-mono">claude-*</span> → Anthropic, <span className="font-mono">ollama/*</span> → local
+            </p>
             <input
               type="text"
               value={config.model}
               onChange={(e) => updateConfig({ model: e.target.value })}
               disabled={isRunning}
-              className="mt-1 w-full rounded-md border border-awp-border bg-awp-bg px-2.5 py-1.5 text-sm text-awp-text focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
+              placeholder="nvidia/nemotron-3-super-120b-a12b:free"
+              className="w-full rounded-md border border-awp-border bg-awp-bg px-2.5 py-1.5 text-sm font-mono text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
             />
           </label>
 
           <label className="block">
             <span className="text-xs text-awp-muted">Worker model</span>
+            <p className="text-[10px] text-awp-muted/70 mt-0.5 mb-1">
+              Used for sub-agents. Leave empty to use the main model.
+            </p>
             <input
               type="text"
               value={config.worker_model ?? ''}
@@ -453,8 +486,8 @@ function RightSidebar() {
                 })
               }
               disabled={isRunning}
-              placeholder="Same as model"
-              className="mt-1 w-full rounded-md border border-awp-border bg-awp-bg px-2.5 py-1.5 text-sm text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
+              placeholder="Same as main model"
+              className="w-full rounded-md border border-awp-border bg-awp-bg px-2.5 py-1.5 text-sm font-mono text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
             />
           </label>
 
@@ -670,7 +703,7 @@ function InspectorContent({ node }: { node: { id: string; data: Record<string, u
         <div>
           <span className="text-xs text-awp-muted">Inputs</span>
           <div className="mt-1">
-            <CodeBlock content={JSON.stringify(data.inputs, null, 2)} language="json" maxHeight="12rem" />
+            <JsonViewer data={data.inputs} />
           </div>
         </div>
       )}
@@ -679,7 +712,7 @@ function InspectorContent({ node }: { node: { id: string; data: Record<string, u
         <div>
           <span className="text-xs text-awp-muted">Outputs</span>
           <div className="mt-1">
-            <CodeBlock content={JSON.stringify(data.outputs, null, 2)} language="json" maxHeight="12rem" />
+            <JsonViewer data={data.outputs} />
           </div>
         </div>
       )}
@@ -688,34 +721,292 @@ function InspectorContent({ node }: { node: { id: string; data: Record<string, u
 }
 
 // ---------------------------------------------------------------------------
-// State Panel — final result + run status overview
+// Protocol Panel — Experiment overview (Lab Notebook)
 // ---------------------------------------------------------------------------
 
-function StatePanel() {
-  const { currentRunId, runStatus, outputBlocks, budget } = useWorkflowStore();
+function useAutoSave(sessionId: string | null, field: string, value: string, delay = 800) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevRef = useRef(value);
+
+  useEffect(() => {
+    if (!sessionId || value === prevRef.current) return;
+    prevRef.current = value;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      api.updateSession(sessionId, { [field]: value } as Record<string, string>).catch(() => {});
+    }, delay);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [sessionId, field, value, delay]);
+}
+
+function ProtocolPanel() {
+  const {
+    currentSessionId,
+    sessions,
+    runStatus,
+    outputBlocks,
+    budget,
+    config,
+    runHistory,
+    updateSessionMetadata,
+  } = useWorkflowStore();
+
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
+
+  const [title, setTitle] = React.useState(currentSession?.title ?? '');
+  const [hypothesis, setHypothesis] = React.useState(currentSession?.hypothesis ?? '');
+  const [description, setDescription] = React.useState(currentSession?.description ?? '');
+  const [status, setStatus] = React.useState<string>(currentSession?.status ?? 'draft');
+  const [tags, setTags] = React.useState<string[]>(currentSession?.tags ?? []);
+  const [baseDir, setBaseDir] = React.useState(currentSession?.base_dir ?? '');
+  const [newTag, setNewTag] = React.useState('');
+
+  // Sync when session changes
+  useEffect(() => {
+    setTitle(currentSession?.title ?? '');
+    setHypothesis(currentSession?.hypothesis ?? '');
+    setDescription(currentSession?.description ?? '');
+    setStatus(currentSession?.status ?? 'draft');
+    setTags(currentSession?.tags ?? []);
+    setBaseDir(currentSession?.base_dir ?? '');
+  }, [currentSessionId, currentSession?.title, currentSession?.hypothesis, currentSession?.description, currentSession?.status, currentSession?.tags, currentSession?.base_dir]);
+
+  useAutoSave(currentSessionId, 'title', title);
+  useAutoSave(currentSessionId, 'hypothesis', hypothesis);
+  useAutoSave(currentSessionId, 'description', description);
+  useAutoSave(currentSessionId, 'base_dir', baseDir);
+
+  const handleStatusChange = useCallback((newStatus: string) => {
+    setStatus(newStatus);
+    if (currentSessionId) {
+      updateSessionMetadata(currentSessionId, { status: newStatus as ExperimentStatus });
+    }
+  }, [currentSessionId, updateSessionMetadata]);
+
+  const handleAddTag = useCallback(() => {
+    const tag = newTag.trim();
+    if (!tag || tags.includes(tag)) { setNewTag(''); return; }
+    const updated = [...tags, tag];
+    setTags(updated);
+    setNewTag('');
+    if (currentSessionId) {
+      updateSessionMetadata(currentSessionId, { tags: updated });
+    }
+  }, [newTag, tags, currentSessionId, updateSessionMetadata]);
+
+  const handleRemoveTag = useCallback((tag: string) => {
+    const updated = tags.filter((t) => t !== tag);
+    setTags(updated);
+    if (currentSessionId) {
+      updateSessionMetadata(currentSessionId, { tags: updated });
+    }
+  }, [tags, currentSessionId, updateSessionMetadata]);
 
   const finalResult = outputBlocks.find((b) => b.title === 'Final Result' || b.title === 'Agent Result');
   const errorBlock = outputBlocks.find((b) => b.type === 'error');
 
-  if (!currentRunId && !finalResult) {
+  // Compute aggregated stats from run history
+  const totalRuns = runHistory.length;
+
+  const statusColors: Record<string, string> = {
+    draft: 'text-awp-muted border-awp-border',
+    running: 'text-awp-blue border-awp-blue/50',
+    complete: 'text-awp-green border-awp-green/50',
+    failed: 'text-awp-red border-awp-red/50',
+    archived: 'text-awp-muted border-awp-muted/50',
+  };
+
+  if (!currentSessionId) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-awp-muted gap-3">
-        <LayoutDashboard className="h-12 w-12 text-awp-border" />
-        <p className="text-sm">Run status will appear here</p>
+        <FlaskConical className="h-12 w-12 text-awp-border" />
+        <p className="text-sm">Select or create an experiment to begin</p>
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
-      {/* Running indicator */}
-      {runStatus === 'running' ? (
-        <div className="flex items-center gap-2 text-awp-blue text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" /> Running...
-        </div>
-      ) : null}
+      {/* Title */}
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="w-full bg-transparent text-xl font-semibold text-awp-text border-none outline-none placeholder:text-awp-muted/50"
+        placeholder="Experiment title..."
+      />
 
-      {/* Final result */}
+      {/* Status selector */}
+      <div className="flex items-center gap-3">
+        <select
+          value={status}
+          onChange={(e) => handleStatusChange(e.target.value)}
+          className={clsx(
+            'text-xs font-medium px-2 py-1 rounded border bg-transparent cursor-pointer',
+            statusColors[status] ?? statusColors.draft,
+          )}
+        >
+          <option value="draft">Draft</option>
+          <option value="running">Running</option>
+          <option value="complete">Complete</option>
+          <option value="failed">Failed</option>
+          <option value="archived">Archived</option>
+        </select>
+
+        {runStatus === 'running' && (
+          <div className="flex items-center gap-1 text-awp-blue text-xs">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Run in progress
+          </div>
+        )}
+      </div>
+
+      {/* Hypothesis */}
+      <div>
+        <label className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-1">
+          Hypothesis
+        </label>
+        <textarea
+          value={hypothesis}
+          onChange={(e) => setHypothesis(e.target.value)}
+          rows={2}
+          className="w-full bg-awp-bg border border-awp-border rounded-md px-3 py-2 text-sm text-awp-text resize-y placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue/50"
+          placeholder="What do you expect to find?"
+        />
+      </div>
+
+      {/* Description */}
+      <div>
+        <label className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-1">
+          Description
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          className="w-full bg-awp-bg border border-awp-border rounded-md px-3 py-2 text-sm text-awp-text resize-y placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue/50"
+          placeholder="Describe the experiment setup, methodology, context..."
+        />
+      </div>
+
+      {/* Tags */}
+      <div>
+        <label className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-1">
+          Tags
+        </label>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-awp-blue/10 text-awp-blue text-xs"
+            >
+              <Tag className="h-2.5 w-2.5" />
+              {tag}
+              <button
+                type="button"
+                onClick={() => handleRemoveTag(tag)}
+                className="hover:text-awp-red transition-colors"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+          <div className="inline-flex items-center gap-1">
+            <input
+              type="text"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddTag(); } }}
+              className="w-20 bg-transparent border-b border-awp-border text-xs text-awp-text outline-none placeholder:text-awp-muted/40"
+              placeholder="+ Add"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Base Directory */}
+      <div>
+        <label className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-1">
+          Base Directory
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={baseDir}
+            onChange={(e) => setBaseDir(e.target.value)}
+            className="flex-1 bg-awp-bg border border-awp-border rounded-md px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue/50"
+            placeholder="/path/to/experiments"
+          />
+          {baseDir && (
+            <button
+              type="button"
+              onClick={() => api.openDirectory(baseDir).catch(() => {})}
+              className="shrink-0 flex items-center gap-1 px-2 py-1.5 text-xs text-awp-muted hover:text-awp-blue border border-awp-border rounded-md hover:border-awp-blue/30 hover:bg-awp-blue/5 transition-colors"
+              title="Open in file explorer"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Config Summary */}
+      <div className="rounded-lg border border-awp-border bg-awp-bg p-4">
+        <span className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-3">Configuration</span>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <div>
+            <span className="text-awp-muted">Model</span>
+            <p className="text-awp-text font-mono truncate">{config.model?.split('/').pop() ?? '-'}</p>
+          </div>
+          <div>
+            <span className="text-awp-muted">Sandbox</span>
+            <p className="text-awp-text font-mono">{config.sandbox}</p>
+          </div>
+          <div>
+            <span className="text-awp-muted">Max Loops</span>
+            <p className="text-awp-text font-mono">{config.max_loops}</p>
+          </div>
+          <div>
+            <span className="text-awp-muted">Token Budget</span>
+            <p className="text-awp-text font-mono">{(config.max_total_tokens / 1000).toFixed(0)}k</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="rounded-lg border border-awp-border bg-awp-bg p-4">
+        <span className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-3">Statistics</span>
+        <div className="grid grid-cols-3 gap-3 text-xs">
+          <div className="text-center">
+            <p className="text-lg font-semibold text-awp-text">{totalRuns}</p>
+            <span className="text-awp-muted">Runs</span>
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-semibold text-awp-text">{budget.tokens_used > 0 ? `${(budget.tokens_used / 1000).toFixed(0)}k` : '-'}</p>
+            <span className="text-awp-muted">Tokens</span>
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-semibold text-awp-text">{budget.wall_time_ms > 0 ? `${(budget.wall_time_ms / 1000).toFixed(1)}s` : '-'}</p>
+            <span className="text-awp-muted">Wall Time</span>
+          </div>
+        </div>
+
+        {/* Budget bars */}
+        {(budget.loops_used > 0 || budget.tokens_used > 0) ? (
+          <div className="grid grid-cols-2 gap-3 text-xs mt-3 pt-3 border-t border-awp-border">
+            <div>
+              <span className="text-awp-muted">Iterations</span>
+              <p className="text-awp-text font-mono">{budget.loops_used} / {budget.loops_max}</p>
+              <ProgressBar value={budget.loops_max > 0 ? budget.loops_used / budget.loops_max : 0} className="mt-1" />
+            </div>
+            <div>
+              <span className="text-awp-muted">Workers</span>
+              <p className="text-awp-text font-mono">{budget.workers_used} / {budget.workers_max}</p>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Last Result */}
       {finalResult ? (
         <div className="rounded-lg border border-awp-green/30 bg-awp-green/5 p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -731,12 +1022,11 @@ function StatePanel() {
               </ReactMarkdown>
             </div>
           ) : (
-            <CodeBlock content={finalResult.content} language="json" />
+            <JsonViewer data={finalResult.content} />
           )}
         </div>
       ) : null}
 
-      {/* Error */}
       {errorBlock && !finalResult ? (
         <div className="rounded-lg border border-awp-red/30 bg-awp-red/5 p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -746,42 +1036,15 @@ function StatePanel() {
           <p className="text-sm text-awp-red whitespace-pre-wrap break-words">{errorBlock.content}</p>
         </div>
       ) : null}
-
-      {/* Budget summary */}
-      {(budget.loops_used > 0 || budget.tokens_used > 0) ? (
-        <div className="rounded-lg border border-awp-border bg-awp-bg p-4">
-          <span className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-3">Budget</span>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="text-awp-muted">Iterations</span>
-              <p className="text-awp-text font-mono">{budget.loops_used} / {budget.loops_max}</p>
-              <ProgressBar value={budget.loops_max > 0 ? budget.loops_used / budget.loops_max : 0} className="mt-1" />
-            </div>
-            <div>
-              <span className="text-awp-muted">Tokens</span>
-              <p className="text-awp-text font-mono">{(budget.tokens_used / 1000).toFixed(1)}k / {(budget.tokens_max / 1000).toFixed(0)}k</p>
-              <ProgressBar value={budget.tokens_max > 0 ? budget.tokens_used / budget.tokens_max : 0} className="mt-1" />
-            </div>
-            <div>
-              <span className="text-awp-muted">Workers</span>
-              <p className="text-awp-text font-mono">{budget.workers_used} / {budget.workers_max}</p>
-            </div>
-            <div>
-              <span className="text-awp-muted">Wall time</span>
-              <p className="text-awp-text font-mono">{(budget.wall_time_ms / 1000).toFixed(1)}s / {(budget.wall_time_max_ms / 1000).toFixed(0)}s</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Final Panel — all output artifacts (images, tables, HTML, text, code, data)
+// Results Panel — all output artifacts (images, tables, HTML, text, code, data)
 // ---------------------------------------------------------------------------
 
-function FinalPanel() {
+function ResultsPanel() {
   const { currentRunId, runStatus } = useWorkflowStore();
   const [artifacts, setArtifacts] = React.useState<Array<{
     name: string; path: string; relative: string; kind: string; size: number;
@@ -820,8 +1083,30 @@ function FinalPanel() {
   const textFiles = artifacts.filter((a) => a.kind === 'text');
   const codeFiles = artifacts.filter((a) => a.kind === 'code');
 
+  // Derive the workspace directory from the first artifact path
+  const workspaceDir = artifacts.length > 0
+    ? artifacts[0].path.substring(0, artifacts[0].path.lastIndexOf('/'))
+    : null;
+
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
+      {/* Header with open-in-explorer button */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-awp-muted uppercase tracking-wider">
+          Artifacts ({artifacts.length})
+        </span>
+        {workspaceDir && (
+          <button
+            type="button"
+            onClick={() => api.openDirectory(workspaceDir).catch(() => {})}
+            className="shrink-0 flex items-center gap-1 px-2 py-1.5 text-xs text-awp-muted hover:text-awp-blue border border-awp-border rounded-md hover:border-awp-blue/30 hover:bg-awp-blue/5 transition-colors"
+            title={`Open ${workspaceDir}`}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="flex items-center gap-2 text-awp-muted text-sm">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading artifacts...
@@ -923,6 +1208,8 @@ function FinalPanel() {
           {textFiles.map((f) => {
             const content = textContents[f.path] ?? '';
             const isMd = f.name.endsWith('.md');
+            const isJson = f.name.endsWith('.json');
+            const isYaml = f.name.endsWith('.yaml') || f.name.endsWith('.yml');
 
             return (
               <div key={f.path} className="rounded-lg border border-awp-border bg-awp-bg p-3 mb-3">
@@ -933,8 +1220,10 @@ function FinalPanel() {
                       {content}
                     </ReactMarkdown>
                   </div>
+                ) : isJson ? (
+                  <JsonViewer data={content} />
                 ) : (
-                  <CodeBlock content={content} filename={f.name} maxHeight="20rem" />
+                  <CodeBlock content={content} language={isYaml ? 'yaml' : undefined} filename={f.name} maxHeight="none" />
                 )}
               </div>
             );
@@ -952,7 +1241,7 @@ function FinalPanel() {
             const content = textContents[f.path] ?? '';
             return (
               <div key={f.path} className="mb-3">
-                <CodeBlock content={content} filename={f.relative} maxHeight="24rem" />
+                <CodeBlock content={content} filename={f.relative} maxHeight="none" />
               </div>
             );
           })}
@@ -1034,7 +1323,7 @@ function OutputBlockCard({ block }: { block: OutputBlock }) {
         <CodeBlock content={block.content} />
       )}
       {block.type === 'json' && (
-        <CodeBlock content={block.content} language="json" />
+        <JsonViewer data={block.content} />
       )}
       {block.type === 'error' && (
         <p className="text-sm text-awp-red whitespace-pre-wrap break-words">
@@ -1049,9 +1338,7 @@ function OutputBlockCard({ block }: { block: OutputBlock }) {
         />
       )}
       {(block.type === 'table' || block.type === 'chart' || block.type === 'file') && (
-        <pre className="text-sm whitespace-pre-wrap break-words">
-          <code>{block.content}</code>
-        </pre>
+        <CodeBlock content={block.content} maxHeight="none" />
       )}
     </div>
   );
@@ -1252,7 +1539,7 @@ function GraphTreeNode({
             {/* Tool call arguments */}
             {toolArgs != null && Object.keys(toolArgs).length > 0 ? (
               <DetailRow label="Arguments">
-                <CodeBlock content={JSON.stringify(toolArgs, null, 2)} language="json" maxHeight="8rem" />
+                <JsonViewer data={toolArgs} />
               </DetailRow>
             ) : null}
 
@@ -1266,7 +1553,7 @@ function GraphTreeNode({
             {/* Outputs */}
             {outputs != null && Object.keys(outputs).length > 0 ? (
               <DetailRow label="Output">
-                <CodeBlock content={JSON.stringify(outputs, null, 2)} language="json" maxHeight="12rem" />
+                <JsonViewer data={outputs} />
               </DetailRow>
             ) : null}
 
@@ -1289,7 +1576,7 @@ function GraphTreeNode({
             {/* Budget info (task root / completion) */}
             {details != null && typeof (details as Record<string, unknown>).budget === 'object' ? (
               <DetailRow label="Budget">
-                <CodeBlock content={JSON.stringify((details as Record<string, unknown>).budget, null, 2)} language="json" maxHeight="10rem" />
+                <JsonViewer data={(details as Record<string, unknown>).budget} />
               </DetailRow>
             ) : null}
           </div>
@@ -1365,15 +1652,237 @@ function GraphPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// History Panel
+// Memory Panel — Experiment notes, observations, findings, decisions
+// ---------------------------------------------------------------------------
+
+const MEMORY_TYPE_CONFIG: Record<string, { label: string; color: string; dotColor: string }> = {
+  finding: { label: 'FINDING', color: 'text-awp-green', dotColor: 'bg-awp-green' },
+  note: { label: 'NOTE', color: 'text-awp-blue', dotColor: 'bg-awp-blue' },
+  observation: { label: 'OBSERVATION', color: 'text-yellow-400', dotColor: 'bg-yellow-400' },
+  decision: { label: 'DECISION', color: 'text-purple-400', dotColor: 'bg-purple-400' },
+};
+
+function MemoryPanel() {
+  const {
+    currentSessionId,
+    experimentMemory,
+    addMemoryEntry,
+    updateMemoryEntry: storeUpdateMemory,
+    deleteMemoryEntry: storeDeleteMemory,
+    loadExperimentMemory,
+  } = useWorkflowStore();
+
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [newType, setNewType] = React.useState<string>('note');
+  const [newContent, setNewContent] = React.useState('');
+  const [editingId, setEditingId] = React.useState<number | null>(null);
+  const [editContent, setEditContent] = React.useState('');
+  const [filter, setFilter] = React.useState<string>('all');
+
+  useEffect(() => {
+    if (currentSessionId) loadExperimentMemory();
+  }, [currentSessionId, loadExperimentMemory]);
+
+  const handleAdd = useCallback(() => {
+    if (!newContent.trim()) return;
+    addMemoryEntry(newType, newContent.trim());
+    setNewContent('');
+    setShowAdd(false);
+  }, [newType, newContent, addMemoryEntry]);
+
+  const handleSaveEdit = useCallback((id: number) => {
+    if (!editContent.trim()) return;
+    storeUpdateMemory(id, editContent.trim());
+    setEditingId(null);
+  }, [editContent, storeUpdateMemory]);
+
+  const filtered = filter === 'all'
+    ? experimentMemory
+    : experimentMemory.filter((m) => m.type === filter);
+
+  if (!currentSessionId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-awp-muted gap-3">
+        <BookOpen className="h-12 w-12 text-awp-border" />
+        <p className="text-sm">Select an experiment to view its memory</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto p-4 space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="text-xs bg-awp-bg border border-awp-border rounded px-2 py-1 text-awp-text"
+          >
+            <option value="all">All ({experimentMemory.length})</option>
+            <option value="finding">Findings</option>
+            <option value="note">Notes</option>
+            <option value="observation">Observations</option>
+            <option value="decision">Decisions</option>
+          </select>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowAdd(!showAdd)}
+          className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-awp-blue hover:bg-awp-blue/10 rounded transition-colors"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add Note
+        </button>
+      </div>
+
+      {/* Add form */}
+      {showAdd && (
+        <div className="rounded-lg border border-awp-blue/30 bg-awp-blue/5 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={newType}
+              onChange={(e) => setNewType(e.target.value)}
+              className="text-xs bg-awp-bg border border-awp-border rounded px-2 py-1 text-awp-text"
+            >
+              <option value="note">Note</option>
+              <option value="observation">Observation</option>
+              <option value="finding">Finding</option>
+              <option value="decision">Decision</option>
+            </select>
+          </div>
+          <textarea
+            value={newContent}
+            onChange={(e) => setNewContent(e.target.value)}
+            rows={3}
+            className="w-full bg-awp-bg border border-awp-border rounded-md px-3 py-2 text-sm text-awp-text resize-y placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue/50"
+            placeholder="Write your note... (Markdown supported)"
+            autoFocus
+          />
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => { setShowAdd(false); setNewContent(''); }}
+              className="px-2 py-1 text-xs text-awp-muted hover:text-awp-text transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={!newContent.trim()}
+              className="px-3 py-1 text-xs font-medium bg-awp-blue text-white rounded hover:bg-awp-blue/80 disabled:opacity-50 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Memory entries */}
+      {filtered.length === 0 ? (
+        <div className="text-center text-awp-muted text-sm py-8">
+          No memory entries yet. Run an experiment or add notes manually.
+        </div>
+      ) : (
+        filtered.map((entry) => {
+          const typeConfig = MEMORY_TYPE_CONFIG[entry.type] ?? MEMORY_TYPE_CONFIG.note;
+          const isEditing = editingId === entry.id;
+
+          return (
+            <div
+              key={entry.id}
+              className="rounded-lg border border-awp-border bg-awp-bg p-3 space-y-2"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={clsx('w-2 h-2 rounded-full', typeConfig.dotColor)} />
+                  <span className={clsx('text-[10px] font-bold uppercase tracking-wider', typeConfig.color)}>
+                    {typeConfig.label}
+                  </span>
+                  <span className="text-[10px] text-awp-muted">
+                    ({entry.source}{entry.run_id ? `, Run ${entry.run_id.slice(0, 8)}` : ''})
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {entry.source === 'user' && !isEditing && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { setEditingId(entry.id); setEditContent(entry.content); }}
+                        className="p-0.5 text-awp-muted hover:text-awp-text transition-colors"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => storeDeleteMemory(entry.id)}
+                        className="p-0.5 text-awp-muted hover:text-awp-red transition-colors"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Content */}
+              {isEditing ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    rows={3}
+                    className="w-full bg-awp-panel border border-awp-border rounded-md px-3 py-2 text-sm text-awp-text resize-y focus:outline-none focus:ring-1 focus:ring-awp-blue/50"
+                    autoFocus
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="px-2 py-1 text-xs text-awp-muted hover:text-awp-text"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveEdit(entry.id)}
+                      className="px-2 py-1 text-xs font-medium bg-awp-blue text-white rounded hover:bg-awp-blue/80"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="prose prose-sm prose-invert max-w-none text-sm break-words">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                    {entry.content}
+                  </ReactMarkdown>
+                </div>
+              )}
+
+              {/* Timestamp */}
+              <div className="text-[10px] text-awp-muted">
+                {new Date(entry.created_at).toLocaleString()}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// History Panel — Experiment-scoped run history
 // ---------------------------------------------------------------------------
 
 function HistoryPanel() {
-  const { runHistory, loadHistory, currentRunId, loadRunGraph } = useWorkflowStore();
+  const { runHistory, loadHistory, currentRunId, currentSessionId, loadRunGraph } = useWorkflowStore();
 
   useEffect(() => {
     loadHistory();
-  }, [loadHistory]);
+  }, [loadHistory, currentSessionId]);
 
   const handleSelectRun = useCallback((runId: string) => {
     useWorkflowStore.setState({
@@ -1387,13 +1896,16 @@ function HistoryPanel() {
     return (
       <div className="flex flex-col items-center justify-center h-full text-awp-muted gap-3">
         <History className="h-12 w-12 text-awp-border" />
-        <p className="text-sm">No previous runs</p>
+        <p className="text-sm">{currentSessionId ? 'No runs in this experiment yet' : 'No previous runs'}</p>
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-2">
+      <div className="text-xs font-medium text-awp-muted uppercase tracking-wider mb-3">
+        Experiment Runs ({runHistory.length})
+      </div>
       {runHistory.map((entry) => (
         <button
           key={entry.run_id}
@@ -1568,11 +2080,12 @@ export function App() {
         {/* Main content + task input */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <main className="flex-1 min-h-0 overflow-hidden">
-            {activePanel === 'state' && <StatePanel />}
-            {activePanel === 'final' && <FinalPanel />}
+            {activePanel === 'protocol' && <ProtocolPanel />}
             {activePanel === 'output' && <OutputPanel />}
+            {activePanel === 'results' && <ResultsPanel />}
             {activePanel === 'graph' && <GraphPanel />}
             {activePanel === 'graphvis' && <GraphVisPanel />}
+            {activePanel === 'memory' && <MemoryPanel />}
             {activePanel === 'history' && <HistoryPanel />}
           </main>
           <TaskInputBar />

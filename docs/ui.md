@@ -6,36 +6,26 @@ AWP Workflow Studio is the browser-based UI for running, monitoring, and inspect
   <img src="../assets/ui.png" alt="AWP Workflow Studio" width="100%"/>
 </p>
 
-## Installation
+## Quick Start
 
 ```bash
-# Install all three packages (core + runtime + UI)
-pip install -e packages/awp-core/
-pip install -e "packages/awp-runtime/[data]"
-pip install -e "packages/awp-ui/[awp]"
-
-# Install frontend dependencies and build
-cd packages/awp-ui/frontend && npm install && npm run build && cd -
-```
-
-## Starting the UI
-
-### Option 1: start.py (recommended)
-
-```bash
-cd packages/awp-ui
-python start.py
-```
-
-This automatically frees port 8420 if occupied and launches the server. The browser opens at `http://127.0.0.1:8420`.
-
-### Option 2: AWP CLI
-
-```bash
+pip install awp-agents
 awp studio
 ```
 
-### Option 3: PyCharm Run Configuration
+That's it. The browser opens at `http://127.0.0.1:8420`.
+
+### Development Install (from source)
+
+```bash
+pip install -e packages/awp-core/
+pip install -e "packages/awp-runtime/[data]"
+pip install -e "packages/awp-ui/[awp]"
+cd packages/awp-ui/frontend && npm install && npm run build && cd -
+awp studio --dev
+```
+
+### PyCharm Run Configuration
 
 1. **Run > Edit Configurations > + > Python**
 2. **Module name:** `awp.cli`
@@ -49,6 +39,7 @@ awp studio
 |------|---------|-------------|
 | `--port` | 8420 | Server port |
 | `--host` | 127.0.0.1 | Bind address |
+| `--base-dir` | cwd | Base directory for workflow discovery |
 | `--dev` | off | Development mode with Vite hot-reload |
 | `--no-open` | off | Do not open browser automatically |
 

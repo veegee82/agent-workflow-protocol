@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Gauge,
   Shield,
@@ -9,6 +9,10 @@ import {
   Rocket,
   Infinity,
   Feather,
+  Key,
+  Trash2,
+  Plus,
+  Cpu,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Panel } from '@/components/Layout';
@@ -203,11 +207,11 @@ const PRESETS: Preset[] = [
     icon: <Zap className="h-3 w-3" />,
     values: {
       max_loops: 20,
-      max_total_tokens: 2_000_000,
+      max_total_tokens: 500_000,
       max_wall_time: 600,
-      max_total_workers: 10,
+      max_total_workers: 30,
       max_tool_calls: 200,
-      max_depth: 3,
+      max_depth: 5,
     },
   },
   {
@@ -291,6 +295,380 @@ function ToolsChecklist({
 // Main
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// API Keys section
+// ---------------------------------------------------------------------------
+
+/** Expected key prefix per provider — used for format validation hints. */
+const KEY_FORMAT_HINTS: Record<string, { prefix: string; placeholder: string; hint: string }> = {
+  OPENROUTER_API_KEY: {
+    prefix: 'sk-or-',
+    placeholder: 'sk-or-v1-abc123...',
+    hint: 'Starts with sk-or-. Get yours at openrouter.ai/keys',
+  },
+  OPENAI_API_KEY: {
+    prefix: 'sk-',
+    placeholder: 'sk-proj-abc123...',
+    hint: 'Starts with sk-. Get yours at platform.openai.com/api-keys',
+  },
+  ANTHROPIC_API_KEY: {
+    prefix: 'sk-ant-',
+    placeholder: 'sk-ant-api03-abc123...',
+    hint: 'Starts with sk-ant-. Get yours at console.anthropic.com',
+  },
+  LLM_API_KEY: {
+    prefix: '',
+    placeholder: 'your-api-key...',
+    hint: 'Universal fallback key. Format depends on your provider.',
+  },
+};
+
+function ApiKeysSection() {
+  const { secrets, loadSecrets, addSecret, removeSecret } = useWorkflowStore();
+  const [newKey, setNewKey] = useState('OPENROUTER_API_KEY');
+  const [newValue, setNewValue] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [keyError, setKeyError] = useState('');
+
+  useEffect(() => {
+    loadSecrets();
+  }, [loadSecrets]);
+
+  const validateKeyFormat = (provider: string, value: string): string => {
+    const fmt = KEY_FORMAT_HINTS[provider];
+    if (!fmt || !fmt.prefix || !value.trim()) return '';
+    if (!value.startsWith(fmt.prefix)) {
+      return `This doesn't look like a valid ${provider.replace('_API_KEY', '').replace('_', ' ')} key. Expected prefix: ${fmt.prefix}`;
+    }
+    if (value.trim().length < 20) {
+      return 'Key seems too short. Please paste the full key.';
+    }
+    return '';
+  };
+
+  const handleAdd = async () => {
+    if (!newKey.trim() || !newValue.trim()) return;
+    const error = validateKeyFormat(newKey, newValue);
+    if (error) {
+      setKeyError(error);
+      return;
+    }
+    await addSecret(newKey.trim(), newValue.trim());
+    setNewValue('');
+    setKeyError('');
+    setShowForm(false);
+  };
+
+  const handleValueChange = (v: string) => {
+    setNewValue(v);
+    if (keyError) setKeyError(validateKeyFormat(newKey, v));
+  };
+
+  const handleKeyChange = (k: string) => {
+    setNewKey(k);
+    setKeyError('');
+    setNewValue('');
+  };
+
+  const hasOpenRouterKey = secrets.some((s) => s.key === 'OPENROUTER_API_KEY');
+  const currentHint = KEY_FORMAT_HINTS[newKey] ?? KEY_FORMAT_HINTS.LLM_API_KEY;
+
+  return (
+    <Panel
+      title="API Keys"
+      icon={<Key className="h-3.5 w-3.5 text-awp-yellow" />}
+      defaultOpen
+    >
+      <div className="space-y-3">
+        {!hasOpenRouterKey && secrets.length === 0 && (
+          <div className="rounded-lg border border-awp-yellow/30 bg-awp-yellow/5 px-3 py-2">
+            <p className="text-[11px] text-awp-yellow font-medium">
+              No API key configured.
+            </p>
+            <p className="text-[10px] text-awp-yellow/80 mt-1">
+              AWP uses <span className="font-semibold">OpenRouter</span> to access all models.
+              Get a free key at{' '}
+              <span className="font-mono underline">openrouter.ai/keys</span> and add it as{' '}
+              <span className="font-mono">OPENROUTER_API_KEY</span>.
+            </p>
+          </div>
+        )}
+
+        {secrets.length > 0 && (
+          <div className="space-y-1.5">
+            {secrets.map((sec) => (
+              <div
+                key={sec.key}
+                className="flex items-center justify-between rounded-md border border-awp-border bg-awp-bg px-3 py-1.5"
+              >
+                <div className="flex items-center gap-2">
+                  <Key className="h-3 w-3 text-awp-green" />
+                  <span className="text-xs font-mono text-awp-text">{sec.key}</span>
+                </div>
+                <button
+                  onClick={() => removeSecret(sec.key)}
+                  className="p-1 rounded text-awp-muted hover:text-awp-red transition-colors"
+                  title="Remove"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showForm ? (
+          <div className="space-y-2 rounded-lg border border-awp-border bg-awp-bg p-3">
+            <select
+              value={newKey}
+              onChange={(e) => handleKeyChange(e.target.value)}
+              className="w-full rounded-md border border-awp-border bg-awp-panel px-2.5 py-1.5 text-xs text-awp-text focus:border-awp-blue/60 focus:outline-none"
+            >
+              <option value="OPENROUTER_API_KEY">OPENROUTER_API_KEY (recommended)</option>
+              <option value="OPENAI_API_KEY">OPENAI_API_KEY</option>
+              <option value="ANTHROPIC_API_KEY">ANTHROPIC_API_KEY</option>
+              <option value="LLM_API_KEY">LLM_API_KEY (universal fallback)</option>
+            </select>
+
+            <p className="text-[10px] text-awp-muted">
+              {currentHint.hint}
+            </p>
+
+            <input
+              type="password"
+              value={newValue}
+              onChange={(e) => handleValueChange(e.target.value)}
+              placeholder={currentHint.placeholder}
+              className={clsx(
+                'w-full rounded-md border bg-awp-panel px-2.5 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:outline-none transition-colors',
+                keyError
+                  ? 'border-awp-red/60 focus:border-awp-red/80 focus:ring-1 focus:ring-awp-red/30'
+                  : 'border-awp-border focus:border-awp-blue/60 focus:ring-1 focus:ring-awp-blue/30',
+              )}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+            />
+
+            {keyError && (
+              <p className="text-[10px] text-awp-red">
+                {keyError}
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleAdd}
+                disabled={!newValue.trim()}
+                className="flex-1 rounded-md bg-awp-blue px-3 py-1.5 text-xs font-medium text-white hover:bg-awp-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => { setShowForm(false); setNewValue(''); setKeyError(''); }}
+                className="rounded-md border border-awp-border px-3 py-1.5 text-xs text-awp-muted hover:text-awp-text transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-1.5 rounded-md border border-dashed border-awp-border px-3 py-1.5 text-xs text-awp-muted hover:border-awp-blue/50 hover:text-awp-blue transition-colors w-full justify-center"
+          >
+            <Plus className="h-3 w-3" />
+            Add API Key
+          </button>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Model routing – detect provider from model string
+// ---------------------------------------------------------------------------
+
+type ProviderRoute = {
+  provider: string;
+  apiBase: string;
+  requiredKey: string;
+  color: string;
+  hint: string;
+};
+
+/** Detect provider and required API key from a model string. */
+function detectProvider(model: string): ProviderRoute {
+  const m = model.toLowerCase().trim();
+
+  // Direct OpenAI models (gpt-*, o1-*, o3-*, dall-e-*, etc.)
+  if (/^(gpt-|o[0-9]|dall-e|text-|tts-|whisper)/.test(m)) {
+    return {
+      provider: 'OpenAI (direct)',
+      apiBase: 'https://api.openai.com/v1',
+      requiredKey: 'OPENAI_API_KEY',
+      color: 'text-awp-green',
+      hint: 'Direct OpenAI API. Requires OPENAI_API_KEY (sk-...).',
+    };
+  }
+
+  // Direct Anthropic models (claude-*)
+  if (/^claude-/.test(m)) {
+    return {
+      provider: 'Anthropic (direct)',
+      apiBase: 'https://api.anthropic.com/v1',
+      requiredKey: 'ANTHROPIC_API_KEY',
+      color: 'text-awp-purple',
+      hint: 'Direct Anthropic API. Requires ANTHROPIC_API_KEY (sk-ant-...).',
+    };
+  }
+
+  // Ollama – localhost models or explicit ollama/ prefix
+  if (m.startsWith('ollama/') || m.startsWith('localhost') || m.startsWith('http://localhost')) {
+    return {
+      provider: 'Ollama (local)',
+      apiBase: 'http://localhost:11434/v1',
+      requiredKey: '',
+      color: 'text-awp-yellow',
+      hint: 'Local Ollama instance. No API key needed – make sure Ollama is running.',
+    };
+  }
+
+  // Everything else → OpenRouter (provider/model format)
+  return {
+    provider: 'OpenRouter',
+    apiBase: 'https://openrouter.ai/api/v1',
+    requiredKey: 'OPENROUTER_API_KEY',
+    color: 'text-awp-blue',
+    hint: 'Routed via OpenRouter. Requires OPENROUTER_API_KEY (sk-or-...).',
+  };
+}
+
+/** Example model strings shown as quick-paste helpers. */
+const MODEL_EXAMPLES = [
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super (free)', provider: 'OpenRouter' },
+  { id: 'deepseek/deepseek-chat-v3-0324:free',    label: 'DeepSeek V3 (free)',      provider: 'OpenRouter' },
+  { id: 'google/gemini-2.5-pro-exp-03-25:free',   label: 'Gemini 2.5 Pro (free)',   provider: 'OpenRouter' },
+  { id: 'meta-llama/llama-4-maverick:free',        label: 'Llama 4 Maverick (free)', provider: 'OpenRouter' },
+  { id: 'qwen/qwen3-235b-a22b:free',              label: 'Qwen3 235B (free)',       provider: 'OpenRouter' },
+  { id: 'anthropic/claude-sonnet-4',              label: 'Claude Sonnet 4',         provider: 'OpenRouter' },
+  { id: 'anthropic/claude-opus-4',                label: 'Claude Opus 4',           provider: 'OpenRouter' },
+  { id: 'openai/gpt-4.1',                         label: 'GPT-4.1',                 provider: 'OpenRouter' },
+  { id: 'openai/o3',                               label: 'OpenAI o3',               provider: 'OpenRouter' },
+  { id: 'deepseek/deepseek-r1',                   label: 'DeepSeek R1',             provider: 'OpenRouter' },
+  { id: 'claude-sonnet-4-20250514',               label: 'Claude Sonnet 4',         provider: 'Anthropic' },
+  { id: 'gpt-4.1',                                 label: 'GPT-4.1',                 provider: 'OpenAI' },
+  { id: 'ollama/llama3',                           label: 'Llama 3 (local)',         provider: 'Ollama' },
+] as const;
+
+function ModelSection() {
+  const { config, updateConfig, secrets } = useWorkflowStore();
+
+  const route = detectProvider(config.model);
+  const hasRequiredKey = !route.requiredKey || secrets.some((s) => s.key === route.requiredKey);
+
+  return (
+    <Panel
+      title="Model"
+      icon={<Cpu className="h-3.5 w-3.5 text-awp-blue" />}
+      defaultOpen
+    >
+      <div className="space-y-3">
+        {/* Manager model input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-awp-text">Manager Model</label>
+          <input
+            type="text"
+            value={config.model}
+            onChange={(e) => updateConfig({ model: e.target.value })}
+            placeholder="nvidia/nemotron-3-super-120b-a12b:free"
+            className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+          />
+        </div>
+
+        {/* Auto-detected routing */}
+        <div className={clsx(
+          'rounded-lg border px-3 py-2 space-y-1',
+          hasRequiredKey ? 'border-awp-border bg-awp-bg' : 'border-awp-yellow/30 bg-awp-yellow/5',
+        )}>
+          <div className="flex items-center gap-2">
+            <span className={clsx('text-[10px] font-semibold uppercase tracking-wide', route.color)}>
+              {route.provider}
+            </span>
+            {hasRequiredKey ? (
+              <span className="text-[10px] text-awp-green font-medium">Ready</span>
+            ) : (
+              <span className="text-[10px] text-awp-yellow font-medium">Key missing</span>
+            )}
+          </div>
+          <p className="text-[10px] text-awp-muted">{route.hint}</p>
+          {!hasRequiredKey && route.requiredKey && (
+            <p className="text-[10px] text-awp-yellow/90 mt-1">
+              Add <span className="font-mono font-semibold">{route.requiredKey}</span> in the API Keys section above.
+            </p>
+          )}
+        </div>
+
+        {/* Quick-paste examples */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-medium text-awp-muted uppercase tracking-wide">
+            Quick select
+          </label>
+          <div className="flex flex-wrap gap-1">
+            {MODEL_EXAMPLES.map((ex) => {
+              const isActive = config.model === ex.id;
+              return (
+                <button
+                  key={ex.id}
+                  onClick={() => updateConfig({ model: ex.id })}
+                  title={`${ex.id} (${ex.provider})`}
+                  className={clsx(
+                    'rounded-md border px-2 py-0.5 text-[10px] font-medium transition-colors',
+                    isActive
+                      ? 'border-awp-blue bg-awp-blue/15 text-awp-blue'
+                      : 'border-awp-border text-awp-muted hover:border-awp-muted hover:text-awp-text',
+                  )}
+                >
+                  {ex.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Worker model input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-awp-text">Worker Model</label>
+          <p className="text-[11px] text-awp-muted">
+            Optional. Leave empty to use the manager model for workers too.
+          </p>
+          <input
+            type="text"
+            value={config.worker_model ?? ''}
+            onChange={(e) => updateConfig({ worker_model: e.target.value || undefined })}
+            placeholder="Same as manager model"
+            className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+          />
+        </div>
+
+        {/* Routing rules info */}
+        <div className="rounded-lg border border-awp-border/50 bg-awp-bg/50 px-3 py-2 space-y-1">
+          <p className="text-[10px] font-semibold text-awp-text">Auto-routing rules</p>
+          <div className="text-[10px] text-awp-muted leading-relaxed space-y-0.5">
+            <p><span className="font-mono text-awp-blue">provider/model</span> → OpenRouter (OPENROUTER_API_KEY)</p>
+            <p><span className="font-mono text-awp-green">gpt-*</span>, <span className="font-mono text-awp-green">o3</span> → OpenAI direct (OPENAI_API_KEY)</p>
+            <p><span className="font-mono text-awp-purple">claude-*</span> → Anthropic direct (ANTHROPIC_API_KEY)</p>
+            <p><span className="font-mono text-awp-yellow">ollama/*</span> → Local Ollama (no key)</p>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
 export function SettingsPanel() {
   const { config, updateConfig } = useWorkflowStore();
 
@@ -315,6 +693,12 @@ export function SettingsPanel() {
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
+      {/* API Keys */}
+      <ApiKeysSection />
+
+      {/* Model */}
+      <ModelSection />
+
       {/* Presets */}
       <div className="space-y-2">
         <label className="text-xs font-medium text-awp-muted uppercase tracking-wide">

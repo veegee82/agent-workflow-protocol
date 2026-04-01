@@ -1,6 +1,7 @@
 """AWP CLI -- Command-line interface for AWP operations.
 
 Usage:
+    awp studio                           # Launch browser UI
     awp validate <path>
     awp pack <path> [-o <output>]
     awp unpack <file> [-o <output>]
@@ -84,6 +85,26 @@ def main(argv: list[str] | None = None) -> int:
         "--debug", "-d", action="store_true", help="Enable debug mode (verbose output)"
     )
 
+    # studio
+    p_studio = subparsers.add_parser(
+        "studio", help="Launch AWP Workflow Studio (browser UI)"
+    )
+    p_studio.add_argument(
+        "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
+    )
+    p_studio.add_argument(
+        "--port", "-p", type=int, default=8420, help="Port (default: 8420)"
+    )
+    p_studio.add_argument(
+        "--no-open", action="store_true", help="Don't auto-open browser"
+    )
+    p_studio.add_argument(
+        "--dev", action="store_true", help="Enable development mode (Vite hot-reload)"
+    )
+    p_studio.add_argument(
+        "--base-dir", help="Base directory for workflow discovery"
+    )
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -105,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_identity_card(args)
         elif args.command == "run":
             return cmd_run(args)
+        elif args.command == "studio":
+            return cmd_studio(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -2208,6 +2231,61 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         print()
         print(f"  ✓ Updated: {', '.join(changes)}")
     print()
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    """Launch AWP Workflow Studio (browser-based UI)."""
+    import logging
+    import os
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    )
+
+    host = args.host
+    port = args.port
+    url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
+
+    if args.base_dir:
+        os.environ["AWP_BASE_DIR"] = str(Path(args.base_dir).resolve())
+
+    print(f"\n  AWP Workflow Studio")
+    print(f"  {'─' * 40}")
+    print(f"  URL:   {url}")
+    print(f"  Mode:  {'development' if args.dev else 'production'}")
+    print(f"  {'─' * 40}")
+    print(f"  Press Ctrl+C to stop\n")
+
+    # Auto-open browser after a short delay
+    if not args.no_open:
+
+        def _open_browser() -> None:
+            import time
+
+            time.sleep(1.5)
+            webbrowser.open(url)
+
+        t = threading.Thread(target=_open_browser, daemon=True)
+        t.start()
+
+    try:
+        uvicorn.run(
+            "server.app:create_app",
+            factory=True,
+            host=host,
+            port=port,
+            reload=args.dev,
+            log_level="info",
+        )
+    except KeyboardInterrupt:
+        print("\n  Shutting down AWP Workflow Studio")
+
+    return 0
 
 
 def _main() -> None:
