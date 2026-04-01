@@ -1,0 +1,48 @@
+<svg viewBox="0 0 720 560" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="720" height="560">
+  <defs>
+    <marker id="ah5" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#f59e0b"/></marker>
+    <marker id="ah5g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#34d399"/></marker>
+  </defs>
+  <rect width="720" height="560" rx="12" fill="#0f172a"/>
+  <text x="360" y="30" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">RUNTIME CAPABILITY GENESIS</text>
+  <!-- Step 1 -->
+  <circle cx="50" cy="65" r="14" fill="#422006" stroke="#f59e0b" stroke-width="1.5"/><text x="50" y="70" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="700">1</text>
+  <text x="75" y="62" fill="#fbbf24" font-size="12" font-weight="600">MANAGER ANALYZES TASK</text>
+  <text x="75" y="80" fill="#94a3b8" font-size="10">"I need to normalize 47 different time series formats. No built-in tool handles this."</text>
+  <!-- Step 2 -->
+  <circle cx="50" cy="125" r="14" fill="#422006" stroke="#f59e0b" stroke-width="1.5"/><text x="50" y="130" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="700">2</text>
+  <text x="75" y="122" fill="#fbbf24" font-size="12" font-weight="600">MANAGER CREATES WORKER WITH CODE MODE</text>
+  <rect x="90" y="138" width="300" height="100" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="105" y="158" fill="#64748b" font-size="10">DelegationEnvelope:</text>
+  <text x="115" y="174" fill="#cbd5e1" font-size="10">instructions: "Build a normalization tool"</text>
+  <text x="115" y="190" fill="#34d399" font-size="10">codemode: enabled: true</text>
+  <text x="115" y="206" fill="#34d399" font-size="10">tool_creation: true</text>
+  <text x="115" y="222" fill="#cbd5e1" font-size="10">sandbox: subprocess</text>
+  <!-- Arrow -->
+  <line x1="240" y1="242" x2="240" y2="268" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ah5)"/>
+  <!-- Step 3 -->
+  <circle cx="50" cy="290" r="14" fill="#422006" stroke="#f59e0b" stroke-width="1.5"/><text x="50" y="295" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="700">3</text>
+  <text x="75" y="288" fill="#fbbf24" font-size="12" font-weight="600">WORKER WRITES + REGISTERS TOOL</text>
+  <rect x="90" y="302" width="300" height="60" rx="6" fill="#022c22" stroke="#10b981" stroke-width="1"/>
+  <text x="105" y="320" fill="#34d399" font-size="10" font-family="monospace">@tool("dynamic.normalize_ts")</text>
+  <text x="105" y="336" fill="#34d399" font-size="10" font-family="monospace">def normalize_ts(data, method):</text>
+  <text x="105" y="352" fill="#64748b" font-size="10" font-family="monospace">    # 50 lines of Python ...</text>
+  <!-- Validation pipeline -->
+  <line x1="400" y1="315" x2="430" y2="315" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah5g)"/>
+  <rect x="435" y="298" width="200" height="78" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="535" y="316" text-anchor="middle" fill="#34d399" font-size="10">AST validation</text>
+  <text x="535" y="332" text-anchor="middle" fill="#34d399" font-size="10">Import policy check (NC1-NC3)</text>
+  <text x="535" y="348" text-anchor="middle" fill="#34d399" font-size="10">Sandbox wrapping</text>
+  <text x="535" y="364" text-anchor="middle" fill="#34d399" font-size="10">Registration in ToolRegistry</text>
+  <!-- Arrow -->
+  <line x1="240" y1="366" x2="240" y2="398" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ah5)"/>
+  <!-- Step 4 -->
+  <circle cx="50" cy="420" r="14" fill="#422006" stroke="#f59e0b" stroke-width="1.5"/><text x="50" y="425" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="700">4</text>
+  <text x="75" y="418" fill="#fbbf24" font-size="12" font-weight="600">ALL SUBSEQUENT WORKERS CAN USE THE TOOL</text>
+  <text x="90" y="440" fill="#cbd5e1" font-size="10">Worker-3: calls dynamic.normalize_ts(data, "z-score")</text>
+  <text x="90" y="456" fill="#cbd5e1" font-size="10">Worker-5: calls dynamic.normalize_ts(data, "min-max")</text>
+  <!-- Step 5 -->
+  <circle cx="50" cy="500" r="14" fill="#1e293b" stroke="#475569" stroke-width="1.5"/><text x="50" y="505" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="700">5</text>
+  <text x="75" y="498" fill="#94a3b8" font-size="12">OPTIONAL: PERSIST FOR FUTURE RUNS</text>
+  <text x="90" y="518" fill="#64748b" font-size="10" font-family="monospace">workspace/runs/&lt;id&gt;/artifacts/tools/normalize_ts.py</text>
+</svg>

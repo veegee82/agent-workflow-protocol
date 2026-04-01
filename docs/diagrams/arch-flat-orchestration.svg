@@ -1,0 +1,24 @@
+<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="600" height="200">
+  <defs>
+    <marker id="ah7" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#64748b"/></marker>
+  </defs>
+  <rect width="600" height="200" rx="12" fill="#0f172a"/>
+  <text x="300" y="26" text-anchor="middle" fill="#94a3b8" font-size="13">Traditional (CrewAI, AutoGen)</text>
+  <!-- Planner -->
+  <rect x="245" y="38" width="110" height="32" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+  <text x="300" y="59" text-anchor="middle" fill="#94a3b8" font-size="11">Planner</text>
+  <line x1="300" y1="70" x2="300" y2="88" stroke="#64748b" stroke-width="1.2" marker-end="url(#ah7)"/>
+  <!-- Chain -->
+  <rect x="50" y="92" width="110" height="32" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+  <text x="105" y="113" text-anchor="middle" fill="#94a3b8" font-size="11">Researcher</text>
+  <rect x="245" y="92" width="110" height="32" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+  <text x="300" y="113" text-anchor="middle" fill="#94a3b8" font-size="11">Writer</text>
+  <rect x="440" y="92" width="110" height="32" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+  <text x="495" y="113" text-anchor="middle" fill="#94a3b8" font-size="11">Reviewer</text>
+  <line x1="160" y1="108" x2="240" y2="108" stroke="#64748b" stroke-width="1.2" marker-end="url(#ah7)"/>
+  <line x1="355" y1="108" x2="435" y2="108" stroke="#64748b" stroke-width="1.2" marker-end="url(#ah7)"/>
+  <!-- Problems -->
+  <text x="40" y="152" fill="#f87171" font-size="10">What if the research requires 12 sub-tasks?</text>
+  <text x="40" y="168" fill="#f87171" font-size="10">What if the writer needs a tool that doesn't exist?</text>
+  <text x="40" y="184" fill="#f87171" font-size="10">What if the whole approach is wrong after step 2?</text>
+</svg>

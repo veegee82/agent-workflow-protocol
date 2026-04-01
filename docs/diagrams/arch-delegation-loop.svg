@@ -1,0 +1,60 @@
+<svg viewBox="0 0 740 520" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="740" height="520">
+  <defs>
+    <marker id="ah8" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#f59e0b"/></marker>
+    <marker id="ah8b" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#64748b"/></marker>
+  </defs>
+  <rect width="740" height="520" rx="12" fill="#0f172a"/>
+  <text x="370" y="28" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">THE DELEGATION LOOP</text>
+  <!-- Manager -->
+  <rect x="120" y="42" width="500" height="60" rx="8" fill="#422006" stroke="#f59e0b" stroke-width="2"/>
+  <text x="370" y="64" text-anchor="middle" fill="#fbbf24" font-size="14" font-weight="600">MANAGER</text>
+  <text x="370" y="82" text-anchor="middle" fill="#fcd34d" font-size="10">Sees: task + history + budget + previous results. Decides: what workers to spawn.</text>
+  <!-- Fan-out arrows -->
+  <line x1="250" y1="102" x2="150" y2="135" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ah8)"/>
+  <line x1="370" y1="102" x2="370" y2="135" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ah8)"/>
+  <line x1="490" y1="102" x2="590" y2="135" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ah8)"/>
+  <!-- Workers -->
+  <rect x="60" y="140" width="180" height="105" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="150" y="160" text-anchor="middle" fill="#cbd5e1" font-size="12" font-weight="500">Worker 1</text>
+  <text x="80" y="178" fill="#64748b" font-size="9">instructions</text>
+  <text x="80" y="192" fill="#64748b" font-size="9">skills</text>
+  <text x="80" y="206" fill="#64748b" font-size="9">tools</text>
+  <text x="80" y="220" fill="#64748b" font-size="9">sandbox</text>
+  <text x="80" y="234" fill="#64748b" font-size="9">temperature</text>
+  <rect x="280" y="140" width="180" height="105" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="370" y="160" text-anchor="middle" fill="#cbd5e1" font-size="12" font-weight="500">Worker 2</text>
+  <text x="300" y="178" fill="#64748b" font-size="9">instructions</text>
+  <text x="300" y="192" fill="#64748b" font-size="9">skills</text>
+  <text x="300" y="206" fill="#64748b" font-size="9">tools</text>
+  <text x="300" y="220" fill="#64748b" font-size="9">sandbox</text>
+  <text x="300" y="234" fill="#64748b" font-size="9">output_schema</text>
+  <rect x="500" y="140" width="180" height="105" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="590" y="160" text-anchor="middle" fill="#cbd5e1" font-size="12" font-weight="500">Worker 3</text>
+  <text x="520" y="178" fill="#34d399" font-size="9">code_mode</text>
+  <text x="520" y="192" fill="#34d399" font-size="9">tool_creation</text>
+  <text x="520" y="206" fill="#64748b" font-size="9">tools</text>
+  <text x="520" y="220" fill="#64748b" font-size="9">sandbox</text>
+  <text x="520" y="234" fill="#64748b" font-size="9">output_schema</text>
+  <text x="700" y="190" fill="#475569" font-size="9" font-style="italic">Each</text>
+  <text x="700" y="204" fill="#475569" font-size="9" font-style="italic">configured</text>
+  <text x="700" y="218" fill="#475569" font-size="9" font-style="italic">differently</text>
+  <!-- Converge arrows -->
+  <line x1="150" y1="245" x2="310" y2="278" stroke="#64748b" stroke-width="1" marker-end="url(#ah8b)"/>
+  <line x1="370" y1="245" x2="370" y2="278" stroke="#64748b" stroke-width="1" marker-end="url(#ah8b)"/>
+  <line x1="590" y1="245" x2="430" y2="278" stroke="#64748b" stroke-width="1" marker-end="url(#ah8b)"/>
+  <!-- Validation -->
+  <rect x="170" y="282" width="400" height="52" rx="6" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="370" y="302" text-anchor="middle" fill="#60a5fa" font-size="12" font-weight="600">VALIDATION (Two-Tier)</text>
+  <text x="370" y="320" text-anchor="middle" fill="#93c5fd" font-size="10">Tier 1: Schema + fields + confidence (fast) | Tier 2: LLM semantic check (optional)</text>
+  <!-- Arrow to decision -->
+  <line x1="370" y1="334" x2="370" y2="360" stroke="#64748b" stroke-width="1.5" marker-end="url(#ah8b)"/>
+  <!-- Decision -->
+  <rect x="170" y="364" width="400" height="90" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="370" y="386" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="600">DECISION POINT</text>
+  <text x="200" y="408" fill="#f87171" font-size="10">Budget exhausted?</text><text x="410" y="408" fill="#f87171" font-size="10">STOP</text>
+  <text x="200" y="424" fill="#fb923c" font-size="10">Stall detected?</text><text x="410" y="424" fill="#fb923c" font-size="10">WARN then STOP</text>
+  <text x="200" y="440" fill="#34d399" font-size="10">Confidence high?</text><text x="410" y="440" fill="#34d399" font-size="10">STOP (success)</text>
+  <!-- Budget bar -->
+  <rect x="60" y="478" width="620" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="370" y="497" text-anchor="middle" fill="#94a3b8" font-size="11">Budget tracker: loops 3/20 | workers 7/30 | tokens 45K/1M</text>
+</svg>

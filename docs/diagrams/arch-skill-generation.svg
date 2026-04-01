@@ -1,0 +1,33 @@
+<svg viewBox="0 0 620 400" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="620" height="400">
+  <defs>
+    <marker id="ah6" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a78bfa"/></marker>
+  </defs>
+  <rect width="620" height="400" rx="12" fill="#0f172a"/>
+  <text x="310" y="28" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">SKILL GENERATION FLOW</text>
+  <!-- Worker 1 -->
+  <rect x="40" y="45" width="540" height="75" rx="8" fill="#1e293b" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="60" y="66" fill="#a78bfa" font-size="12" font-weight="600">Worker-1 (Domain Research)</text>
+  <text x="60" y="86" fill="#cbd5e1" font-size="10">Discovers: "ARIMA requires stationary data. ADF test p-value &lt; 0.05 means stationary.</text>
+  <text x="60" y="102" fill="#cbd5e1" font-size="10">If non-stationary, difference d times."</text>
+  <!-- Arrow -->
+  <line x1="310" y1="120" x2="310" y2="148" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah6)"/>
+  <!-- Skill doc -->
+  <rect x="100" y="152" width="420" height="100" rx="8" fill="#1a1035" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="120" y="174" fill="#a78bfa" font-size="12" font-weight="600">Generates: skills/timeseries_stationarity.md</text>
+  <line x1="120" y1="182" x2="500" y2="182" stroke="#334155" stroke-width="0.5"/>
+  <text x="130" y="200" fill="#cbd5e1" font-size="10" font-family="monospace"># Stationarity Testing for Time Series</text>
+  <text x="130" y="216" fill="#cbd5e1" font-size="10" font-family="monospace">1. Run ADF test on raw series</text>
+  <text x="130" y="232" fill="#cbd5e1" font-size="10" font-family="monospace">2. If p &gt; 0.05: apply differencing (d=1)</text>
+  <text x="130" y="248" fill="#cbd5e1" font-size="10" font-family="monospace">3. Re-test until stationary</text>
+  <!-- Arrow -->
+  <line x1="310" y1="255" x2="310" y2="278" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah6)"/>
+  <!-- Injection -->
+  <rect x="100" y="282" width="420" height="36" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1"/>
+  <text x="310" y="305" text-anchor="middle" fill="#fbbf24" font-size="11">Manager injects skill into Worker-3's system prompt</text>
+  <!-- Arrow -->
+  <line x1="310" y1="320" x2="310" y2="343" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah6)"/>
+  <!-- Worker 3 -->
+  <rect x="100" y="347" width="420" height="42" rx="8" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
+  <text x="120" y="366" fill="#34d399" font-size="12" font-weight="600">Worker-3 (Time Series Analysis)</text>
+  <text x="120" y="382" fill="#cbd5e1" font-size="10">Now has domain knowledge WITHOUT fine-tuning</text>
+</svg>

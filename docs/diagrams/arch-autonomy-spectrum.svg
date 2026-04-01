@@ -1,0 +1,70 @@
+<svg viewBox="0 0 760 420" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="760" height="420">
+  <defs>
+    <linearGradient id="autoGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#334155"/><stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <marker id="ah4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#94a3b8"/></marker>
+  </defs>
+  <rect width="760" height="420" rx="12" fill="#0f172a"/>
+  <text x="380" y="32" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">THE AUTONOMY SPECTRUM</text>
+  <!-- Arrow -->
+  <line x1="50" y1="55" x2="710" y2="55" stroke="url(#autoGrad)" stroke-width="3" marker-end="url(#ah4)"/>
+  <text x="380" y="50" text-anchor="middle" fill="#94a3b8" font-size="10">AUTONOMY</text>
+  <!-- A0 -->
+  <rect x="60" y="75" width="110" height="130" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="115" y="95" text-anchor="middle" fill="#94a3b8" font-size="13" font-weight="700">A0</text>
+  <text x="115" y="112" text-anchor="middle" fill="#64748b" font-size="10">Prescribed</text>
+  <rect x="82" y="122" width="66" height="60" rx="4" fill="#334155" opacity="0.5"/>
+  <text x="115" y="158" text-anchor="middle" fill="#94a3b8" font-size="18">░░</text>
+  <text x="115" y="220" text-anchor="middle" fill="#cbd5e1" font-size="9">Fixed DAG</text>
+  <text x="115" y="232" text-anchor="middle" fill="#cbd5e1" font-size="9">Fixed tools</text>
+  <text x="115" y="244" text-anchor="middle" fill="#64748b" font-size="9">No budget needed</text>
+  <!-- A1 -->
+  <rect x="190" y="75" width="110" height="130" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="245" y="95" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="700">A1</text>
+  <text x="245" y="112" text-anchor="middle" fill="#64748b" font-size="10">Adaptive</text>
+  <rect x="212" y="122" width="66" height="60" rx="4" fill="#1e3a5f" opacity="0.6"/>
+  <text x="245" y="158" text-anchor="middle" fill="#60a5fa" font-size="18">▓░</text>
+  <text x="245" y="220" text-anchor="middle" fill="#cbd5e1" font-size="9">Conditional</text>
+  <text x="245" y="232" text-anchor="middle" fill="#cbd5e1" font-size="9">Loops, Fan-out</text>
+  <text x="245" y="244" text-anchor="middle" fill="#64748b" font-size="9">No budget needed</text>
+  <!-- A2 -->
+  <rect x="320" y="75" width="110" height="130" rx="8" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="375" y="95" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="700">A2</text>
+  <text x="375" y="112" text-anchor="middle" fill="#64748b" font-size="10">Delegating</text>
+  <rect x="342" y="122" width="66" height="60" rx="4" fill="#422006" opacity="0.6"/>
+  <text x="375" y="158" text-anchor="middle" fill="#fbbf24" font-size="18">▓▓</text>
+  <text x="375" y="220" text-anchor="middle" fill="#cbd5e1" font-size="9">Dynamic workers</text>
+  <text x="375" y="232" text-anchor="middle" fill="#cbd5e1" font-size="9">Budget required</text>
+  <text x="375" y="244" text-anchor="middle" fill="#f59e0b" font-size="9">Safety envelope</text>
+  <!-- A3 -->
+  <rect x="450" y="75" width="110" height="130" rx="8" fill="#1e293b" stroke="#f97316" stroke-width="1.5"/>
+  <text x="505" y="95" text-anchor="middle" fill="#fb923c" font-size="13" font-weight="700">A3</text>
+  <text x="505" y="112" text-anchor="middle" fill="#64748b" font-size="10">Self-Tooling</text>
+  <rect x="472" y="122" width="66" height="60" rx="4" fill="#7c2d12" opacity="0.5"/>
+  <text x="505" y="158" text-anchor="middle" fill="#fb923c" font-size="18">██</text>
+  <text x="505" y="220" text-anchor="middle" fill="#cbd5e1" font-size="9">Creates tools &amp;</text>
+  <text x="505" y="232" text-anchor="middle" fill="#cbd5e1" font-size="9">skills at runtime</text>
+  <text x="505" y="244" text-anchor="middle" fill="#f97316" font-size="9">Budget + sandbox</text>
+  <!-- A4 -->
+  <rect x="580" y="75" width="110" height="130" rx="8" fill="#1e293b" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="635" y="95" text-anchor="middle" fill="#f87171" font-size="13" font-weight="700">A4</text>
+  <text x="635" y="112" text-anchor="middle" fill="#64748b" font-size="10">Self-Organizing</text>
+  <rect x="602" y="122" width="66" height="60" rx="4" fill="#7f1d1d" opacity="0.5"/>
+  <text x="635" y="158" text-anchor="middle" fill="#f87171" font-size="18">██</text>
+  <text x="635" y="220" text-anchor="middle" fill="#cbd5e1" font-size="9">Recursive</text>
+  <text x="635" y="232" text-anchor="middle" fill="#cbd5e1" font-size="9">delegation</text>
+  <text x="635" y="244" text-anchor="middle" fill="#ef4444" font-size="9">Budget hierarchy</text>
+  <!-- Safety bar -->
+  <line x1="60" y1="280" x2="690" y2="280" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah4)"/>
+  <text x="380" y="300" text-anchor="middle" fill="#f87171" font-size="11" font-weight="500">SAFETY REQUIREMENTS INCREASE</text>
+  <!-- Safety details -->
+  <text x="115" y="330" text-anchor="middle" fill="#64748b" font-size="9">No budget</text>
+  <text x="245" y="330" text-anchor="middle" fill="#64748b" font-size="9">No budget</text>
+  <text x="375" y="326" text-anchor="middle" fill="#fbbf24" font-size="9">Budget</text>
+  <text x="375" y="340" text-anchor="middle" fill="#fbbf24" font-size="9">required</text>
+  <text x="505" y="326" text-anchor="middle" fill="#fb923c" font-size="9">Budget +</text>
+  <text x="505" y="340" text-anchor="middle" fill="#fb923c" font-size="9">sandbox required</text>
+  <text x="635" y="326" text-anchor="middle" fill="#f87171" font-size="9">Budget + observ.</text>
+  <text x="635" y="340" text-anchor="middle" fill="#f87171" font-size="9">+ depth limit</text>
+</svg>

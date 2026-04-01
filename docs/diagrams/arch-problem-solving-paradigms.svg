@@ -1,0 +1,75 @@
+<svg viewBox="0 0 760 480" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="760" height="480">
+  <defs>
+    <marker id="pah1" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#64748b"/></marker>
+    <marker id="pah2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#f59e0b"/></marker>
+    <marker id="pah3" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#34d399"/></marker>
+  </defs>
+  <rect width="760" height="480" rx="12" fill="#0f172a"/>
+  <text x="380" y="28" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">THREE PARADIGMS OF AGENT PROBLEM-SOLVING</text>
+  <!-- Paradigm 1: Agent-first -->
+  <rect x="20" y="46" width="230" height="420" rx="8" fill="#1e293b" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="135" y="70" text-anchor="middle" fill="#f87171" font-size="13" font-weight="700">AGENT-FIRST</text>
+  <text x="135" y="88" text-anchor="middle" fill="#64748b" font-size="10">"The LLM thinks"</text>
+  <text x="135" y="104" text-anchor="middle" fill="#475569" font-size="9">CrewAI, AutoGen, Swarm</text>
+  <!-- Flow -->
+  <rect x="55" y="120" width="160" height="26" rx="4" fill="#450a0a" stroke="#7f1d1d" stroke-width="1"/><text x="135" y="138" text-anchor="middle" fill="#fca5a5" font-size="10">Problem</text>
+  <line x1="135" y1="146" x2="135" y2="162" stroke="#64748b" stroke-width="1" marker-end="url(#pah1)"/>
+  <rect x="55" y="166" width="160" height="26" rx="4" fill="#450a0a" stroke="#7f1d1d" stroke-width="1"/><text x="135" y="184" text-anchor="middle" fill="#fca5a5" font-size="10">LLM reasons</text>
+  <line x1="135" y1="192" x2="135" y2="208" stroke="#64748b" stroke-width="1" marker-end="url(#pah1)"/>
+  <rect x="55" y="212" width="160" height="26" rx="4" fill="#450a0a" stroke="#7f1d1d" stroke-width="1"/><text x="135" y="230" text-anchor="middle" fill="#fca5a5" font-size="10">Try solution</text>
+  <line x1="135" y1="238" x2="135" y2="254" stroke="#64748b" stroke-width="1" marker-end="url(#pah1)"/>
+  <rect x="55" y="258" width="160" height="26" rx="4" fill="#450a0a" stroke="#7f1d1d" stroke-width="1"/><text x="135" y="276" text-anchor="middle" fill="#fca5a5" font-size="10">Adjust &amp; retry</text>
+  <!-- Verdict -->
+  <line x1="40" y1="310" x2="230" y2="310" stroke="#334155" stroke-width="0.5"/>
+  <text x="40" y="330" fill="#f87171" font-size="9">Tools: fixed at instantiation</text>
+  <text x="40" y="346" fill="#f87171" font-size="9">Skills: none or static</text>
+  <text x="40" y="362" fill="#f87171" font-size="9">Control: minimal</text>
+  <text x="40" y="378" fill="#f87171" font-size="9">Reproducibility: low</text>
+  <text x="40" y="400" fill="#64748b" font-size="9">System stays the same.</text>
+  <text x="40" y="416" fill="#64748b" font-size="9">Only outputs change.</text>
+  <text x="135" y="450" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">Improvisation</text>
+  <!-- Paradigm 2: Orchestration-first -->
+  <rect x="265" y="46" width="230" height="420" rx="8" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="380" y="70" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="700">ORCHESTRATION-FIRST</text>
+  <text x="380" y="88" text-anchor="middle" fill="#64748b" font-size="10">"The framework steers"</text>
+  <text x="380" y="104" text-anchor="middle" fill="#475569" font-size="9">LangGraph, Haystack, Google ADK, Semantic Kernel</text>
+  <!-- Flow -->
+  <rect x="300" y="120" width="160" height="26" rx="4" fill="#422006" stroke="#92400e" stroke-width="1"/><text x="380" y="138" text-anchor="middle" fill="#fcd34d" font-size="10">Problem</text>
+  <line x1="380" y1="146" x2="380" y2="162" stroke="#f59e0b" stroke-width="1" marker-end="url(#pah2)"/>
+  <rect x="300" y="166" width="160" height="26" rx="4" fill="#422006" stroke="#92400e" stroke-width="1"/><text x="380" y="184" text-anchor="middle" fill="#fcd34d" font-size="10">Workflow routes</text>
+  <line x1="380" y1="192" x2="380" y2="208" stroke="#f59e0b" stroke-width="1" marker-end="url(#pah2)"/>
+  <rect x="300" y="212" width="160" height="26" rx="4" fill="#422006" stroke="#92400e" stroke-width="1"/><text x="380" y="230" text-anchor="middle" fill="#fcd34d" font-size="10">Use existing tools</text>
+  <line x1="380" y1="238" x2="380" y2="254" stroke="#f59e0b" stroke-width="1" marker-end="url(#pah2)"/>
+  <rect x="300" y="258" width="160" height="26" rx="4" fill="#422006" stroke="#92400e" stroke-width="1"/><text x="380" y="276" text-anchor="middle" fill="#fcd34d" font-size="10">Branch / loop</text>
+  <!-- Verdict -->
+  <line x1="285" y1="310" x2="475" y2="310" stroke="#334155" stroke-width="0.5"/>
+  <text x="285" y="330" fill="#fbbf24" font-size="9">Tools: configurable, mostly static</text>
+  <text x="285" y="346" fill="#fbbf24" font-size="9">Skills: optional, not generated</text>
+  <text x="285" y="362" fill="#fbbf24" font-size="9">Control: good</text>
+  <text x="285" y="378" fill="#fbbf24" font-size="9">Reproducibility: medium</text>
+  <text x="285" y="400" fill="#64748b" font-size="9">Better execution.</text>
+  <text x="285" y="416" fill="#64748b" font-size="9">But same capabilities.</text>
+  <text x="380" y="450" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">Execution</text>
+  <!-- Paradigm 3: Spec-first (AWP) -->
+  <rect x="510" y="46" width="230" height="420" rx="8" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+  <text x="625" y="70" text-anchor="middle" fill="#34d399" font-size="13" font-weight="700">SPEC-FIRST (AWP)</text>
+  <text x="625" y="88" text-anchor="middle" fill="#64748b" font-size="10">"The system evolves"</text>
+  <text x="625" y="104" text-anchor="middle" fill="#475569" font-size="9">Agent Workflow Protocol</text>
+  <!-- Flow -->
+  <rect x="545" y="120" width="160" height="26" rx="4" fill="#022c22" stroke="#065f46" stroke-width="1"/><text x="625" y="138" text-anchor="middle" fill="#6ee7b7" font-size="10">Problem</text>
+  <line x1="625" y1="146" x2="625" y2="162" stroke="#34d399" stroke-width="1" marker-end="url(#pah3)"/>
+  <rect x="545" y="166" width="160" height="26" rx="4" fill="#022c22" stroke="#065f46" stroke-width="1"/><text x="625" y="184" text-anchor="middle" fill="#6ee7b7" font-size="10">Diagnose gap</text>
+  <line x1="625" y1="192" x2="625" y2="208" stroke="#34d399" stroke-width="1" marker-end="url(#pah3)"/>
+  <rect x="545" y="212" width="160" height="26" rx="4" fill="#022c22" stroke="#065f46" stroke-width="1"/><text x="625" y="230" text-anchor="middle" fill="#6ee7b7" font-size="10">Build capability</text>
+  <line x1="625" y1="238" x2="625" y2="254" stroke="#34d399" stroke-width="1" marker-end="url(#pah3)"/>
+  <rect x="545" y="258" width="160" height="26" rx="4" fill="#022c22" stroke="#065f46" stroke-width="1"/><text x="625" y="276" text-anchor="middle" fill="#6ee7b7" font-size="10">Validate &amp; integrate</text>
+  <!-- Verdict -->
+  <line x1="530" y1="310" x2="720" y2="310" stroke="#334155" stroke-width="0.5"/>
+  <text x="530" y="330" fill="#34d399" font-size="9">Tools: created at runtime</text>
+  <text x="530" y="346" fill="#34d399" font-size="9">Skills: generated &amp; validated</text>
+  <text x="530" y="362" fill="#34d399" font-size="9">Control: formal governance</text>
+  <text x="530" y="378" fill="#34d399" font-size="9">Reproducibility: high</text>
+  <text x="530" y="400" fill="#34d399" font-size="9">System improves itself.</text>
+  <text x="530" y="416" fill="#34d399" font-size="9">Capabilities grow.</text>
+  <text x="625" y="450" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">Evolution</text>
+</svg>

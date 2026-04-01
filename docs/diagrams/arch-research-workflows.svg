@@ -1,0 +1,58 @@
+<svg viewBox="0 0 720 560" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="720" height="560">
+  <rect width="720" height="560" rx="12" fill="#0f172a"/>
+  <text x="360" y="28" text-anchor="middle" fill="#94a3b8" font-size="15" font-weight="600">SCIENTIFIC WORKFLOWS ENABLED BY AWP</text>
+  <!-- Card 1: Multi-modal -->
+  <rect x="20" y="44" width="335" height="228" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="40" y="68" fill="#60a5fa" font-size="12" font-weight="700">MULTI-MODAL DATA ANALYSIS</text>
+  <text x="40" y="90" fill="#64748b" font-size="9" font-family="monospace">inputs: { genomic_data, expression,</text>
+  <text x="40" y="104" fill="#64748b" font-size="9" font-family="monospace">  microscopy, clinical }</text>
+  <text x="40" y="122" fill="#94a3b8" font-size="9">task: "Correlate gene expression with</text>
+  <text x="40" y="136" fill="#94a3b8" font-size="9">cell morphology and clinical outcomes"</text>
+  <line x1="40" y1="148" x2="335" y2="148" stroke="#334155" stroke-width="0.5"/>
+  <text x="40" y="168" fill="#cbd5e1" font-size="9">Manager creates genomics worker (BioPython)</text>
+  <text x="40" y="184" fill="#cbd5e1" font-size="9">Manager creates imaging worker (scikit-image)</text>
+  <text x="40" y="200" fill="#cbd5e1" font-size="9">Manager creates statistics worker (scipy)</text>
+  <text x="40" y="216" fill="#34d399" font-size="9">Workers CREATE custom domain-specific tools</text>
+  <text x="40" y="232" fill="#cbd5e1" font-size="9">Manager synthesizes cross-modal findings</text>
+  <text x="40" y="260" fill="#fbbf24" font-size="9">Autonomy: A3 (Self-Tooling)</text>
+  <!-- Card 2: Literature review -->
+  <rect x="365" y="44" width="335" height="228" rx="8" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
+  <text x="385" y="68" fill="#34d399" font-size="12" font-weight="700">LITERATURE REVIEW + META-ANALYSIS</text>
+  <text x="385" y="90" fill="#64748b" font-size="9" font-family="monospace">inputs: { papers: "papers/*.pdf" }</text>
+  <text x="385" y="112" fill="#94a3b8" font-size="9">task: "Extract effect sizes, assess bias,</text>
+  <text x="385" y="126" fill="#94a3b8" font-size="9">run random-effects meta-analysis"</text>
+  <line x1="385" y1="140" x2="680" y2="140" stroke="#334155" stroke-width="0.5"/>
+  <text x="385" y="160" fill="#cbd5e1" font-size="9">Worker-1 extracts structured data from PDFs</text>
+  <text x="385" y="176" fill="#34d399" font-size="9">Worker-2 creates meta-analysis tool (statsmodels)</text>
+  <text x="385" y="192" fill="#cbd5e1" font-size="9">Worker-3 runs analysis + generates forest plot</text>
+  <text x="385" y="208" fill="#cbd5e1" font-size="9">Worker-4 writes interpretation with citations</text>
+  <text x="385" y="260" fill="#fbbf24" font-size="9">Autonomy: A3 (Self-Tooling)</text>
+  <!-- Card 3: Reproducible -->
+  <rect x="20" y="282" width="335" height="250" rx="8" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="40" y="306" fill="#fbbf24" font-size="12" font-weight="700">REPRODUCIBLE EXPERIMENTS</text>
+  <text x="40" y="328" fill="#64748b" font-size="9" font-family="monospace">inputs: { config: "experiment.yaml",</text>
+  <text x="40" y="342" fill="#64748b" font-size="9" font-family="monospace">  data: "raw/*.csv" }</text>
+  <text x="40" y="364" fill="#94a3b8" font-size="9">task: "Run parameter sweep, identify optimal</text>
+  <text x="40" y="378" fill="#94a3b8" font-size="9">config, generate reproducibility report"</text>
+  <line x1="40" y1="390" x2="335" y2="390" stroke="#334155" stroke-width="0.5"/>
+  <text x="40" y="410" fill="#cbd5e1" font-size="9">Workers fan out across parameter space</text>
+  <text x="40" y="426" fill="#cbd5e1" font-size="9">Each worker runs in isolated sandbox</text>
+  <text x="40" y="442" fill="#cbd5e1" font-size="9">Manager aggregates, identifies convergence</text>
+  <text x="40" y="458" fill="#cbd5e1" font-size="9">Final worker generates LaTeX-ready report</text>
+  <text x="40" y="474" fill="#a78bfa" font-size="9">Full audit trail ensures reproducibility</text>
+  <text x="40" y="520" fill="#fbbf24" font-size="9">Autonomy: A2 (Delegating) + Observability</text>
+  <!-- Card 4: Hypothesis -->
+  <rect x="365" y="282" width="335" height="250" rx="8" fill="#1e293b" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="385" y="306" fill="#a78bfa" font-size="12" font-weight="700">AUTOMATED HYPOTHESIS GENERATION</text>
+  <text x="385" y="328" fill="#64748b" font-size="9" font-family="monospace">inputs: { dataset: df,</text>
+  <text x="385" y="342" fill="#64748b" font-size="9" font-family="monospace">  domain_papers: "refs/*.pdf" }</text>
+  <text x="385" y="364" fill="#94a3b8" font-size="9">task: "Generate 5 testable hypotheses</text>
+  <text x="385" y="378" fill="#94a3b8" font-size="9">ranked by expected impact"</text>
+  <line x1="385" y1="390" x2="680" y2="390" stroke="#334155" stroke-width="0.5"/>
+  <text x="385" y="410" fill="#cbd5e1" font-size="9">Worker-1 profiles data (distributions, corr.)</text>
+  <text x="385" y="426" fill="#cbd5e1" font-size="9">Worker-2 extracts known findings from literature</text>
+  <text x="385" y="442" fill="#cbd5e1" font-size="9">Worker-3 identifies gaps (data vs. literature)</text>
+  <text x="385" y="458" fill="#cbd5e1" font-size="9">Manager ranks by novelty + testability</text>
+  <text x="385" y="474" fill="#cbd5e1" font-size="9">Each hypothesis includes test methodology</text>
+  <text x="385" y="520" fill="#fbbf24" font-size="9">Autonomy: A4 (Self-Organizing)</text>
+</svg>

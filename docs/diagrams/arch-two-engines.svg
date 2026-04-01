@@ -1,0 +1,58 @@
+<svg viewBox="0 0 740 380" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="740" height="380">
+  <defs>
+    <marker id="ah2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#60a5fa"/></marker>
+    <marker id="ah3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#f59e0b"/></marker>
+  </defs>
+  <rect width="740" height="380" rx="12" fill="#0f172a"/>
+  <!-- Divider -->
+  <line x1="370" y1="20" x2="370" y2="360" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
+  <!-- DAG side -->
+  <text x="185" y="36" text-anchor="middle" fill="#60a5fa" font-size="14" font-weight="600">engine: dag</text>
+  <rect x="100" y="60" width="70" height="34" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="135" y="82" text-anchor="middle" fill="#93c5fd" font-size="12">A1</text>
+  <rect x="210" y="60" width="70" height="34" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="245" y="82" text-anchor="middle" fill="#93c5fd" font-size="12">A2</text>
+  <rect x="210" y="130" width="70" height="34" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="245" y="152" text-anchor="middle" fill="#93c5fd" font-size="12">A3</text>
+  <rect x="290" y="60" width="70" height="34" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="325" y="82" text-anchor="middle" fill="#93c5fd" font-size="12">A4</text>
+  <line x1="170" y1="77" x2="205" y2="77" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+  <line x1="280" y1="77" x2="285" y2="77" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+  <line x1="245" y1="94" x2="245" y2="125" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#ah2)"/>
+  <text x="185" y="200" text-anchor="middle" fill="#64748b" font-size="11">Predetermined topology</text>
+  <text x="185" y="216" text-anchor="middle" fill="#64748b" font-size="11">Static agent set</text>
+  <text x="185" y="232" text-anchor="middle" fill="#60a5fa" font-size="11" font-weight="500">A0-A1 autonomy</text>
+  <!-- Delegation side -->
+  <text x="555" y="36" text-anchor="middle" fill="#f59e0b" font-size="14" font-weight="600">engine: delegation_loop</text>
+  <!-- Manager 1 -->
+  <rect x="510" y="55" width="90" height="34" rx="6" fill="#422006" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="555" y="77" text-anchor="middle" fill="#fbbf24" font-size="12">Manager</text>
+  <!-- Workers row 1 -->
+  <line x1="530" y1="89" x2="470" y2="115" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#ah3)"/>
+  <line x1="555" y1="89" x2="555" y2="115" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#ah3)"/>
+  <line x1="580" y1="89" x2="640" y2="115" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#ah3)"/>
+  <rect x="440" y="120" width="60" height="30" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="470" y="140" text-anchor="middle" fill="#cbd5e1" font-size="10">W1</text>
+  <rect x="525" y="120" width="60" height="30" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="555" y="140" text-anchor="middle" fill="#cbd5e1" font-size="10">W2</text>
+  <rect x="610" y="120" width="60" height="30" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="640" y="140" text-anchor="middle" fill="#cbd5e1" font-size="10">W3</text>
+  <text x="700" y="140" fill="#64748b" font-size="9" font-style="italic">Ephemeral</text>
+  <!-- Loop arrow -->
+  <line x1="555" y1="155" x2="555" y2="178" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#ah3)"/>
+  <!-- Manager 2 -->
+  <rect x="510" y="183" width="90" height="34" rx="6" fill="#422006" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="555" y="205" text-anchor="middle" fill="#fbbf24" font-size="12">Manager</text>
+  <text x="620" y="205" fill="#64748b" font-size="9">Loop N+1</text>
+  <!-- Workers row 2 -->
+  <line x1="535" y1="217" x2="500" y2="243" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#ah3)"/>
+  <line x1="575" y1="217" x2="610" y2="243" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#ah3)"/>
+  <rect x="470" y="248" width="60" height="30" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="500" y="268" text-anchor="middle" fill="#cbd5e1" font-size="10">W4</text>
+  <rect x="580" y="248" width="60" height="30" rx="5" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+  <text x="610" y="268" text-anchor="middle" fill="#cbd5e1" font-size="10">W5</text>
+  <text x="660" y="268" fill="#64748b" font-size="9" font-style="italic">New workers</text>
+  <text x="555" y="320" text-anchor="middle" fill="#64748b" font-size="11">Dynamic topology</text>
+  <text x="555" y="336" text-anchor="middle" fill="#64748b" font-size="11">Ephemeral agents</text>
+  <text x="555" y="352" text-anchor="middle" fill="#f59e0b" font-size="11" font-weight="500">A2-A4 autonomy</text>
+</svg>
