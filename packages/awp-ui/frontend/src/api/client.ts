@@ -65,6 +65,16 @@ async function request<T>(
 // Runs
 // ---------------------------------------------------------------------------
 
+/** Pre-flight check: verify API key is available for the selected model. */
+export async function preflightCheck(
+  config: WorkflowConfig,
+): Promise<{ ok: boolean; provider: string; required_key?: string; message?: string }> {
+  return request('/api/runs/preflight', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
 /** Start a new workflow run. Returns the assigned run ID. */
 export async function startRun(
   config: WorkflowConfig,

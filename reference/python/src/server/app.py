@@ -57,6 +57,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await store.save_settings(dict(_default_settings))
         logger.info("Set base_dir from CLI: %s", cli_base_dir)
 
+    # Auto-import API keys from environment variables into the secrets store
+    # so users who already have keys set in their shell can use them immediately
+    _AUTO_IMPORT_KEYS = [
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "LLM_API_KEY",
+    ]
+    for env_key in _AUTO_IMPORT_KEYS:
+        env_val = os.environ.get(env_key, "")
+        if env_val:
+            existing = await store.get_secret(env_key)
+            if not existing:
+                await store.save_secret(env_key, env_val)
+                logger.info("Auto-imported %s from environment", env_key)
+
     logger.info("AWP UI server started")
     yield
     await store.close()

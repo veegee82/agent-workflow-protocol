@@ -904,6 +904,24 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         input_files: uploadedPaths,
       } as WorkflowConfig;
 
+      // Pre-flight: check API key is available for the selected model
+      try {
+        const preflight = await api.preflightCheck(runConfig);
+        if (!preflight.ok) {
+          set({ runStatus: 'error' });
+          const store = get() as ReturnType<typeof useWorkflowStore.getState>;
+          store.addOutputBlock({
+            type: 'error',
+            content: preflight.message
+              ?? `No API key found for ${preflight.provider}. Add **${preflight.required_key}** in Settings → API Keys.`,
+            title: 'Missing API Key',
+          });
+          return;
+        }
+      } catch {
+        // Preflight endpoint may not exist on older backends — continue anyway
+      }
+
       // Start the run (in session context if available)
       let run_id: string;
       if (sessionId) {

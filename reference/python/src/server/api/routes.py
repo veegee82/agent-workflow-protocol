@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import tempfile
 import uuid
@@ -80,6 +81,45 @@ _available_tools: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 # Runs
 # ---------------------------------------------------------------------------
+
+
+@router.post("/runs/preflight")
+async def preflight_check(config: WorkflowConfig) -> dict[str, Any]:
+    """Check if a run can succeed before starting it (API key validation)."""
+    import re as _re
+    from server.app import store as _store
+
+    model = (config.model or "").lower().strip()
+    secrets = await _load_secrets_for_run(_store)
+
+    if model.startswith("ollama/") or model.startswith("localhost"):
+        return {"ok": True, "provider": "Ollama (local)"}
+
+    if _re.match(r"^(gpt-|o[0-9]|dall-e|text-|tts-|whisper)", model):
+        required = "OPENAI_API_KEY"
+        provider = "OpenAI"
+    elif model.startswith("claude-"):
+        required = "ANTHROPIC_API_KEY"
+        provider = "Anthropic"
+    else:
+        required = "OPENROUTER_API_KEY"
+        provider = "OpenRouter"
+
+    has_key = bool(
+        secrets.get(required)
+        or os.environ.get(required)
+        or secrets.get("LLM_API_KEY")
+        or os.environ.get("LLM_API_KEY")
+    )
+
+    if has_key:
+        return {"ok": True, "provider": provider}
+    return {
+        "ok": False,
+        "provider": provider,
+        "required_key": required,
+        "message": f"No {required} found. Add it in Settings → API Keys.",
+    }
 
 
 @router.post("/runs")
