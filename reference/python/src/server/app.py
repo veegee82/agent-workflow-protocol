@@ -67,7 +67,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # App factory
 # ---------------------------------------------------------------------------
 
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+def _find_frontend_dist() -> Path:
+    """Locate the built frontend dist directory."""
+    base = Path(__file__).resolve().parent
+    # PyPI install: dist is inside the server package
+    candidate = base / "frontend" / "dist"
+    if (candidate / "index.html").is_file():
+        return candidate
+    # Dev layout (packages/awp-ui): dist is a sibling of server/
+    candidate = base.parent / "frontend" / "dist"
+    if (candidate / "index.html").is_file():
+        return candidate
+    return base / "frontend" / "dist"  # fallback path for error messages
+
+
+_FRONTEND_DIST = _find_frontend_dist()
 
 
 def create_app() -> FastAPI:
