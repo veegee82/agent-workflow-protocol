@@ -356,21 +356,39 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
 
 def cmd_studio(args: argparse.Namespace) -> int:
     """Launch AWP Workflow Studio (browser-based UI)."""
+    import socket
+
+    # --- Pre-flight: check server module is importable ---
     try:
         from server.app import create_app  # noqa: F401
     except ImportError:
-        try:
-            import importlib
+        print(
+            "Error: The AWP Studio server module could not be loaded.\n"
+            "\n"
+            "If you installed awp-core only, install the UI package:\n"
+            "\n"
+            "    pip install -e packages/awp-ui/\n"
+            "\n"
+            "Or install the all-in-one PyPI package:\n"
+            "\n"
+            "    pip install awp-agents\n",
+            file=sys.stderr,
+        )
+        return 1
 
-            importlib.import_module("server.app")
-        except ImportError:
-            print(
-                "Error: awp-ui package is not installed.\n"
-                "Install it with:  pip install -e packages/awp-ui/\n"
-                "Or:               pip install awp-ui",
-                file=sys.stderr,
-            )
-            return 1
+    # --- Pre-flight: check uvicorn is available ---
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "Error: uvicorn is not installed.\n"
+            "\n"
+            "Install it with:\n"
+            "\n"
+            "    pip install 'uvicorn[standard]'\n",
+            file=sys.stderr,
+        )
+        return 1
 
     import logging
     import subprocess
@@ -385,6 +403,19 @@ def cmd_studio(args: argparse.Namespace) -> int:
     host = args.host
     port = args.port
     url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
+
+    # --- Pre-flight: check port is available ---
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        if sock.connect_ex((host if host != "0.0.0.0" else "127.0.0.1", port)) == 0:
+            print(
+                f"Error: Port {port} is already in use.\n"
+                f"\n"
+                f"Either stop the other process or use a different port:\n"
+                f"\n"
+                f"    awp studio --port {port + 1}\n",
+                file=sys.stderr,
+            )
+            return 1
 
     print(f"\n  AWP Workflow Studio")
     print(f"  {'─' * 40}")
@@ -432,8 +463,6 @@ def cmd_studio(args: argparse.Namespace) -> int:
         t.start()
 
     try:
-        import uvicorn
-
         uvicorn.run(
             "server.app:create_app",
             factory=True,

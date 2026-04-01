@@ -2237,10 +2237,56 @@ def cmd_studio(args: argparse.Namespace) -> int:
     """Launch AWP Workflow Studio (browser-based UI)."""
     import logging
     import os
+    import socket
     import threading
     import webbrowser
 
-    import uvicorn
+    # --- Pre-flight: check server module is importable ---
+    try:
+        from server.app import create_app  # noqa: F401
+    except ImportError:
+        print(
+            "Error: The AWP Studio server module could not be loaded.\n"
+            "\n"
+            "This usually means the package was not installed correctly.\n"
+            "Re-install with:\n"
+            "\n"
+            "    pip install --force-reinstall awp-agents\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --- Pre-flight: check uvicorn is available ---
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "Error: uvicorn is not installed.\n"
+            "\n"
+            "Install it with:\n"
+            "\n"
+            "    pip install 'uvicorn[standard]'\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --- Pre-flight: check frontend dist exists ---
+    frontend_dist = Path(__file__).resolve().parent.parent.parent / "server" / "frontend" / "dist"
+    if not (frontend_dist / "index.html").is_file():
+        # Also try relative to server module
+        try:
+            import server as _srv
+            alt = Path(_srv.__file__).resolve().parent / "frontend" / "dist"
+            if (alt / "index.html").is_file():
+                frontend_dist = alt
+            else:
+                raise FileNotFoundError
+        except (ImportError, FileNotFoundError, TypeError):
+            print(
+                "Warning: Frontend assets not found. The UI may not load.\n"
+                "Try reinstalling:  pip install --force-reinstall awp-agents\n",
+                file=sys.stderr,
+            )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -2254,12 +2300,25 @@ def cmd_studio(args: argparse.Namespace) -> int:
     if args.base_dir:
         os.environ["AWP_BASE_DIR"] = str(Path(args.base_dir).resolve())
 
-    print(f"\n  AWP Workflow Studio")
+    # --- Pre-flight: check port is available ---
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        if sock.connect_ex((host if host != "0.0.0.0" else "127.0.0.1", port)) == 0:
+            print(
+                f"Error: Port {port} is already in use.\n"
+                f"\n"
+                f"Either stop the other process or use a different port:\n"
+                f"\n"
+                f"    awp studio --port {port + 1}\n",
+                file=sys.stderr,
+            )
+            return 1
+
+    print("\n  AWP Workflow Studio")
     print(f"  {'─' * 40}")
     print(f"  URL:   {url}")
     print(f"  Mode:  {'development' if args.dev else 'production'}")
     print(f"  {'─' * 40}")
-    print(f"  Press Ctrl+C to stop\n")
+    print("  Press Ctrl+C to stop\n")
 
     # Auto-open browser after a short delay
     if not args.no_open:
