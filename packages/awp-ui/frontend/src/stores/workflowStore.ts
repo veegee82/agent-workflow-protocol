@@ -41,7 +41,8 @@ function unwrapResult(data: Record<string, unknown>): Record<string, unknown> {
   // Try delegation loop nesting first (deepest common pattern)
   const inner = data.result;
   if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
-    const dl = (inner as Record<string, unknown>).delegation_loop;
+    const innerDict = inner as Record<string, unknown>;
+    const dl = innerDict.delegation_loop;
     if (dl && typeof dl === 'object' && !Array.isArray(dl)) {
       const fr = (dl as Record<string, unknown>).final_result;
       if (fr && typeof fr === 'object' && !Array.isArray(fr)) {
@@ -50,10 +51,15 @@ function unwrapResult(data: Record<string, unknown>): Record<string, unknown> {
       // delegation_loop itself may have content keys
       return dl as Record<string, unknown>;
     }
-    // result itself may be the final object
-    const fr2 = (inner as Record<string, unknown>).final_result;
+    // result.final_result
+    const fr2 = innerDict.final_result;
     if (fr2 && typeof fr2 === 'object' && !Array.isArray(fr2)) {
       return fr2 as Record<string, unknown>;
+    }
+    // result itself has content keys (e.g. { your: "...", confidence: 0.65 })
+    const hasContent = CONTENT_KEYS.some((k) => k in innerDict && typeof innerDict[k] === 'string');
+    if (hasContent) {
+      return innerDict;
     }
   }
   // Top-level final_result
@@ -662,7 +668,7 @@ function processEvent(
 
       set({
         runStatus: isError ? 'error' : 'complete',
-        activePanel: 'protocol',
+        activePanel: 'output',
       });
 
       if (isError && evt.data.result) {
@@ -1021,6 +1027,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       const sessions = await api.listSessions();
       set({ sessions });
+      // Auto-create a first experiment so the user can start immediately
+      if (sessions.length === 0) {
+        const store = get() as ReturnType<typeof useWorkflowStore.getState>;
+        await store.createSession('Experiment 1');
+      }
     } catch {
       // silently ignore -- backend may be down
     }

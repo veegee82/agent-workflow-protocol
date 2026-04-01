@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # App factory
 # ---------------------------------------------------------------------------
 
-_FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def create_app() -> FastAPI:

@@ -42,6 +42,200 @@ def _make_event(
     )
 
 
+_FULL_DETAIL_RUNS = 5  # Show last N runs with full results in prompt
+_MAX_RESULT_CHARS = 500  # Truncate individual result summaries
+
+
+def _build_experiment_context(
+    session_id: str,
+) -> tuple[str, dict[str, Any]]:
+    """Fetch session data from the store and build prompt context + state files.
+
+    Runs synchronously (called from a background thread) by creating a
+    temporary event loop with a fresh DB connection to avoid sharing the
+    async connection across threads.
+
+    Returns (prompt_context_string, state_files_dict).
+    """
+    import asyncio
+
+    from server.services.store import StoreService
+
+    async def _fetch() -> tuple[dict | None, list, list]:
+        store = StoreService()
+        await store.init_db()
+        try:
+            session = await store.get_session(session_id)
+            history = await store.get_session_history(session_id)
+            memory = await store.get_memory_entries(session_id)
+            return session, history, memory
+        finally:
+            await store.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        session, history, memory = loop.run_until_complete(_fetch())
+    finally:
+        loop.close()
+
+    if not session:
+        return "", {}
+
+    # ── Approach 1: Build prompt context string ──────────────────────
+    parts: list[str] = ["## Experiment Context\n"]
+    parts.append(f"**Experiment:** {session.get('title', 'Untitled')}")
+    if session.get("hypothesis"):
+        parts.append(f"**Hypothesis:** {session['hypothesis']}")
+    if session.get("description"):
+        parts.append(f"**Description:** {session['description']}")
+    parts.append("")
+
+    # Group history into (task, result) pairs
+    run_pairs: list[dict[str, str]] = []
+    i = 0
+    while i < len(history) - 1:
+        if history[i]["role"] == "user" and history[i + 1]["role"] == "assistant":
+            run_pairs.append({
+                "task": history[i]["content"],
+                "result": history[i + 1]["content"],
+                "run_id": history[i].get("run_id", ""),
+                "timestamp": history[i].get("timestamp", ""),
+                "status": history[i + 1].get("status", ""),
+            })
+            i += 2
+        else:
+            i += 1
+
+    if run_pairs:
+        total = len(run_pairs)
+        parts.append(f"### Previous Run Results ({total} total, most recent first)\n")
+
+        # Recent runs: full detail
+        recent = list(reversed(run_pairs[-_FULL_DETAIL_RUNS:]))
+        for idx, pair in enumerate(recent):
+            run_num = total - idx
+            task_preview = pair["task"][:100]
+            result_preview = pair["result"][:_MAX_RESULT_CHARS]
+            if len(pair["result"]) > _MAX_RESULT_CHARS:
+                result_preview += "... (truncated, full result in _experiment_context/)"
+            parts.append(f"#### Run {run_num} — \"{task_preview}\"")
+            if pair.get("timestamp"):
+                parts.append(f"*{pair['timestamp']}*")
+            parts.append(f"**Result:** {result_preview}\n")
+
+        # Older runs: one-line summaries
+        older = list(reversed(run_pairs[:-_FULL_DETAIL_RUNS])) if total > _FULL_DETAIL_RUNS else []
+        if older:
+            parts.append("### Earlier Runs (summary)\n")
+            for idx, pair in enumerate(older):
+                run_num = total - _FULL_DETAIL_RUNS - idx
+                parts.append(f"- Run {run_num}: \"{pair['task'][:60]}\"")
+
+    parts.append("")
+
+    # Memory entries
+    if memory:
+        parts.append("### Experiment Memory\n")
+        for entry in memory:
+            parts.append(f"- [{entry['type']}] {entry['content'][:200]}")
+        parts.append("")
+
+    # Instructions for the manager
+    parts.append("### Instructions for Continuing This Experiment\n")
+    parts.append(
+        "You are continuing an existing experiment. Use the previous results to:\n"
+        "- Build upon successful findings rather than repeating work\n"
+        "- Refine or correct earlier results if the current task asks for it\n"
+        "- Reference specific previous runs when relevant\n"
+        "- Full previous results are available in `_experiment_context/` workspace files\n"
+    )
+
+    prompt_context = "\n".join(parts)
+
+    # ── Approach 2: Build state files dict ───────────────────────────
+    state_files: dict[str, Any] = {
+        "experiment.json": {
+            "id": session.get("id"),
+            "title": session.get("title"),
+            "hypothesis": session.get("hypothesis"),
+            "description": session.get("description"),
+            "tags": session.get("tags"),
+            "created_at": session.get("created_at"),
+        },
+        "memory.json": memory,
+        "runs": [],
+    }
+
+    # Build per-run summaries for file output (all runs, not truncated)
+    for idx, pair in enumerate(run_pairs):
+        state_files["runs"].append({
+            "run_number": idx + 1,
+            "run_id": pair.get("run_id", ""),
+            "task": pair["task"],
+            "result": pair["result"],
+            "timestamp": pair.get("timestamp", ""),
+        })
+
+    # Build the markdown brief (complete, not truncated)
+    brief_parts = [f"# Experiment: {session.get('title', 'Untitled')}\n"]
+    if session.get("hypothesis"):
+        brief_parts.append(f"**Hypothesis:** {session['hypothesis']}\n")
+    if session.get("description"):
+        brief_parts.append(f"**Description:** {session['description']}\n")
+    brief_parts.append(f"## Runs ({len(run_pairs)} total)\n")
+    for idx, pair in enumerate(run_pairs):
+        brief_parts.append(f"### Run {idx + 1}: {pair['task'][:120]}\n")
+        brief_parts.append(f"{pair['result']}\n")
+    if memory:
+        brief_parts.append("## Memory\n")
+        for entry in memory:
+            brief_parts.append(f"- [{entry['type']}] {entry['content']}\n")
+    state_files["experiment_brief.md"] = "\n".join(brief_parts)
+
+    return prompt_context, state_files
+
+
+def _write_experiment_state_files(
+    workspace_dir: Path, state_files: dict[str, Any]
+) -> None:
+    """Write experiment state files to the workspace for worker access."""
+    ctx_dir = workspace_dir / "workspace" / "_experiment_context"
+    ctx_dir.mkdir(parents=True, exist_ok=True)
+
+    # experiment.json
+    (ctx_dir / "experiment.json").write_text(
+        json.dumps(state_files.get("experiment.json", {}), indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    # memory.json
+    (ctx_dir / "memory.json").write_text(
+        json.dumps(state_files.get("memory.json", []), indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    # Per-run summaries
+    for run_data in state_files.get("runs", []):
+        num = run_data.get("run_number", 0)
+        fname = f"run_{num:03d}_summary.json"
+        (ctx_dir / fname).write_text(
+            json.dumps(run_data, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    # Markdown brief
+    brief = state_files.get("experiment_brief.md", "")
+    if brief:
+        (ctx_dir / "experiment_brief.md").write_text(brief, encoding="utf-8")
+
+    logger.info(
+        "Wrote experiment context to %s (%d runs, %d memory entries)",
+        ctx_dir,
+        len(state_files.get("runs", [])),
+        len(state_files.get("memory.json", [])),
+    )
+
+
 class _RunDirWatcher:
     """Watches the delegation loop run directory for new files and emits events.
 
@@ -367,6 +561,7 @@ class RunnerService:
         self,
         run_id: str,
         config: dict[str, Any],
+        session_id: str | None = None,
     ) -> str:
         """Launch an AgentWorkflow run in a background thread.
 
@@ -376,6 +571,9 @@ class RunnerService:
             Unique run identifier (pre-generated by the caller).
         config : dict
             WorkflowConfig fields (task, model, budget params, etc.).
+        session_id : str, optional
+            Session/experiment ID. When provided, previous run results
+            and experiment memory are injected into the manager prompt.
 
         Returns
         -------
@@ -384,7 +582,7 @@ class RunnerService:
         """
         thread = threading.Thread(
             target=self._run_workflow,
-            args=(run_id, config),
+            args=(run_id, config, session_id),
             daemon=True,
             name=f"awp-run-{run_id[:8]}",
         )
@@ -409,7 +607,7 @@ class RunnerService:
                 return False
             return info["thread"].is_alive()
 
-    def _run_workflow(self, run_id: str, config: dict[str, Any]) -> None:
+    def _run_workflow(self, run_id: str, config: dict[str, Any], session_id: str | None = None) -> None:
         """Execute the workflow synchronously in a background thread."""
         from server.services.store import StoreService
 
@@ -437,32 +635,58 @@ class RunnerService:
                         os.environ[key] = value
                         _injected_env_keys.append(key)
 
-            # If no explicit api_key, extract from secrets so AgentWorkflow
-            # sets LLM_API_KEY env var (the env injection above may race with
-            # cleanup from concurrent runs in the same process).
+            # If no explicit api_key, detect the correct key from
+            # the model string using provider-routing rules:
+            #   provider/model  → OpenRouter  (OPENROUTER_API_KEY)
+            #   gpt-*, o1-*, o3 → OpenAI     (OPENAI_API_KEY)
+            #   claude-*        → Anthropic   (ANTHROPIC_API_KEY)
+            #   ollama/*        → local       (no key)
             if not wf_kwargs.get("api_key"):
-                # Prefer provider-matched key, fall back to first *_API_KEY
                 model = wf_kwargs.get("model", "")
-                provider_prefix = model.split("/")[0].upper() if "/" in model else ""
-                provider_key_name = f"{provider_prefix}_API_KEY" if provider_prefix else ""
-                fallback = None
-                for key, value in wf_kwargs.get("secrets", {}).items():
-                    if key.endswith("_API_KEY") and value:
-                        if key == provider_key_name:
+                model_lower = model.lower().strip()
+                secrets_dict = wf_kwargs.get("secrets", {})
+
+                # Determine which key name this model needs
+                import re
+                if model_lower.startswith("ollama/") or model_lower.startswith("localhost"):
+                    # Local Ollama – no key needed, set dummy to skip validation
+                    wf_kwargs["api_key"] = "ollama-local"
+                elif re.match(r"^(gpt-|o[0-9]|dall-e|text-|tts-|whisper)", model_lower):
+                    # Direct OpenAI model
+                    preferred_key = "OPENAI_API_KEY"
+                    wf_kwargs["api_key"] = (
+                        secrets_dict.get(preferred_key, "")
+                        or os.environ.get(preferred_key, "")
+                    )
+                elif model_lower.startswith("claude-"):
+                    # Direct Anthropic model
+                    preferred_key = "ANTHROPIC_API_KEY"
+                    wf_kwargs["api_key"] = (
+                        secrets_dict.get(preferred_key, "")
+                        or os.environ.get(preferred_key, "")
+                    )
+                else:
+                    # provider/model format → OpenRouter
+                    preferred_key = "OPENROUTER_API_KEY"
+                    wf_kwargs["api_key"] = (
+                        secrets_dict.get(preferred_key, "")
+                        or os.environ.get(preferred_key, "")
+                    )
+
+                # Fallback: try any *_API_KEY from secrets
+                if not wf_kwargs.get("api_key"):
+                    for key, value in secrets_dict.items():
+                        if key.endswith("_API_KEY") and value:
                             wf_kwargs["api_key"] = value
-                            fallback = None
                             break
-                        if fallback is None:
-                            fallback = value
-                if fallback and not wf_kwargs.get("api_key"):
-                    wf_kwargs["api_key"] = fallback
 
             # Validate that we actually have an API key before starting
-            if not wf_kwargs.get("api_key") and not os.environ.get("LLM_API_KEY"):
+            is_local = wf_kwargs.get("api_key") == "ollama-local"
+            if not is_local and not wf_kwargs.get("api_key") and not os.environ.get("LLM_API_KEY"):
                 raise ValueError(
-                    "No API key configured. Add your OPENROUTER_API_KEY "
+                    "No API key configured. Add the required key "
                     "in the Settings panel (API Keys section) or set the "
-                    "LLM_API_KEY / OPENROUTER_API_KEY environment variable."
+                    "LLM_API_KEY environment variable."
                 )
 
             # Create output_dir for watching
@@ -475,6 +699,17 @@ class RunnerService:
                 output_dir = tmp
 
             workspace_dir = Path(output_dir)
+
+            # Inject experiment context from previous runs (if in a session)
+            if session_id:
+                try:
+                    ctx, files = _build_experiment_context(session_id)
+                    if ctx:
+                        wf_kwargs["experiment_context"] = ctx
+                    if files:
+                        _write_experiment_state_files(workspace_dir, files)
+                except Exception as exc:
+                    logger.warning("Failed to load experiment context: %s", exc)
 
             # Start the directory watcher
             watcher = _RunDirWatcher(run_id, workspace_dir)
@@ -657,6 +892,10 @@ class RunnerService:
             name = Path(fpath).stem or f"file_{i}"
             inputs[name] = fpath
         kwargs["inputs"] = inputs
+
+        # Experiment context (injected by session-aware runs)
+        if config.get("experiment_context"):
+            kwargs["experiment_context"] = config["experiment_context"]
 
         return kwargs
 

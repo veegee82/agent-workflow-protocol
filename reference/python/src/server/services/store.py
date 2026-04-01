@@ -15,6 +15,35 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "awp_ui.db"
 
+
+def _extract_result_answer(result_data: Any) -> str:
+    """Extract a human-readable answer from a run result dict.
+
+    Handles nested structures like:
+      {"status": "complete", "result": {"delegation_loop": {"answer": "..."}}}
+    Falls back to str(result_data) if no answer field is found.
+    """
+    if not isinstance(result_data, dict):
+        return str(result_data) if result_data else ""
+
+    # Direct answer key
+    if "answer" in result_data:
+        return str(result_data["answer"])
+
+    # Nested: result.delegation_loop.answer (common pattern)
+    inner = result_data.get("result", {})
+    if isinstance(inner, dict):
+        dl = inner.get("delegation_loop", {})
+        if isinstance(dl, dict):
+            if "answer" in dl:
+                return str(dl["answer"])
+            # Fallback: final_result
+            fr = dl.get("final_result", {})
+            if isinstance(fr, dict) and "answer" in fr:
+                return str(fr["answer"])
+
+    return str(result_data)
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS runs (
     id          TEXT PRIMARY KEY,
@@ -404,11 +433,7 @@ class StoreService:
             # Assistant message (the result)
             result_content = ""
             if run.get("result"):
-                result_data = run["result"]
-                if isinstance(result_data, dict):
-                    result_content = result_data.get("answer", str(result_data))
-                else:
-                    result_content = str(result_data)
+                result_content = _extract_result_answer(run["result"])
             history.append({
                 "role": "assistant",
                 "content": result_content,

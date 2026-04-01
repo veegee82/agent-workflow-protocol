@@ -24,6 +24,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+# Exception: reference package needs built frontend in git
+!reference/python/src/server/frontend/dist/
 downloads/
 eggs/
 .eggs/
