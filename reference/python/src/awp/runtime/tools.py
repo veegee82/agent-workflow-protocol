@@ -1188,7 +1188,59 @@ class ToolRegistry:
                 f"    return path\n"
             )
 
-        return self._code_executor.execute(preamble + code, timeout=timeout)
+        result = self._code_executor.execute(preamble + code, timeout=timeout)
+
+        # Enhance error messages with actionable hints so the LLM can self-correct
+        if not result["ok"]:
+            error = result.get("error", "")
+            stderr = result.get("data", {}).get("stderr", "")
+            error_text = error or stderr
+
+            hints: list[str] = []
+
+            # Detect missing packages and hint at pip.install
+            if "ModuleNotFoundError" in error_text or "ImportError" in error_text:
+                # Extract module name from error
+                import re
+                m = re.search(r"No module named ['\"]([^'\"]+)['\"]", error_text)
+                module = m.group(1).split(".")[0] if m else "the_package"
+                hints.append(
+                    f"HINT: Use the pip.install tool to install missing packages "
+                    f"before retrying. Example: pip.install(packages=[\"{module}\"])"
+                )
+
+            # Detect common syntax patterns
+            if "SyntaxError" in error_text:
+                hints.append(
+                    "HINT: Check for unescaped quotes, missing colons, or "
+                    "indentation errors in the code string."
+                )
+
+            # Detect NameError for common sandbox variables
+            if "NameError" in error_text:
+                if "_workspace_dir" in error_text or "_output_dir" in error_text:
+                    hints.append(
+                        "HINT: _workspace_dir and _output_dir are pre-defined variables. "
+                        "Use them directly — do not redefine them."
+                    )
+                if "_secrets" in error_text:
+                    hints.append(
+                        "HINT: _secrets is only available in dynamic tools, "
+                        "not in direct code.execute calls."
+                    )
+
+            # Detect file not found
+            if "FileNotFoundError" in error_text:
+                hints.append(
+                    "HINT: Use _workspace_dir + \"/inputs/FILENAME\" for input files "
+                    "and _output_dir + \"/FILENAME\" for output files. "
+                    "Check that the file exists before reading."
+                )
+
+            if hints:
+                result["error"] = error_text + "\n\n" + "\n".join(hints)
+
+        return result
 
     def _pip_install(self, *, packages: list[str]) -> dict[str, Any]:
         if not self._code_executor:

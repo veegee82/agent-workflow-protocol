@@ -35,9 +35,9 @@ from .context_sharing import (
     prepare_context,
 )
 
-from ..agent import AWPAgent
-from ..parser import parse_agent
-from ..parser.manifest_parser import parse_manifest
+from awp.agent import AWPAgent
+from awp.parser import parse_agent
+from awp.parser.manifest_parser import parse_manifest
 from .llm import LLMClient
 from .tools import ToolRegistry
 
@@ -192,15 +192,30 @@ class StandaloneAgent(AWPAgent):
                 return result
         except (json.JSONDecodeError, ValueError):
             pass
-        # Find first { ... } block
+        # Find first { ... } block with proper string tracking
         start = text.find("{")
         if start == -1:
             return None
         depth = 0
+        in_string = False
+        escape = False
         for i in range(start, len(text)):
-            if text[i] == "{":
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                if in_string:
+                    escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
                 depth += 1
-            elif text[i] == "}":
+            elif ch == "}":
                 depth -= 1
                 if depth == 0:
                     try:

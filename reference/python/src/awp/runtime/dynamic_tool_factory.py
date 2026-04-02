@@ -617,6 +617,41 @@ class DynamicToolFactory:
                 400,
             )
 
+        # Validate handler signature: must use keyword-only arguments (after *)
+        handler_node = handlers[0]
+        args = handler_node.args
+
+        # Check for positional args (should have none, or only after *)
+        has_kw_only = bool(args.kwonlyargs)
+        has_var_keyword = args.kwarg is not None  # **kwargs
+        has_positional = bool(args.args)
+
+        if has_positional and not has_kw_only and not has_var_keyword:
+            return _err(
+                "Handler must use keyword-only arguments: 'def handler(*, arg1, arg2)'. "
+                "Found positional arguments instead. Add '*' before parameters.",
+                400,
+            )
+
+        if not has_kw_only and not has_var_keyword:
+            # handler() with no args at all — warn but allow (may be a no-arg tool)
+            logger.warning(
+                "Handler has no parameters — tool will ignore all inputs"
+            )
+
+        # Check handler has a return statement (common LLM mistake: forgetting return)
+        has_return = False
+        for node in ast.walk(handler_node):
+            if isinstance(node, ast.Return) and node.value is not None:
+                has_return = True
+                break
+        if not has_return:
+            return _err(
+                "Handler function must have a return statement that returns a dict. "
+                "Expected: return {\"ok\": True, \"status\": 200, \"data\": {...}, \"error\": None}",
+                400,
+            )
+
         return _ok({"valid": True})
 
     def _make_sandboxed_tool(
@@ -694,16 +729,38 @@ class DynamicToolFactory:
 
             if exec_result["ok"]:
                 stdout = exec_result["data"]["stdout"].strip()
+                stderr = exec_result["data"].get("stderr", "").strip()
                 if stdout:
+                    # Take only the last line as JSON output — handler may
+                    # print debug info before the final json.dumps() line.
+                    lines = stdout.strip().split("\n")
+                    json_line = lines[-1]
                     try:
-                        return json.loads(stdout)
+                        return json.loads(json_line)
                     except json.JSONDecodeError:
-                        return _err(
-                            f"Dynamic tool '{fqn}' returned invalid JSON: {stdout[:200]}",
-                        )
-                return _err(f"Dynamic tool '{fqn}' produced no output")
+                        # Fall back to trying the full stdout
+                        try:
+                            return json.loads(stdout)
+                        except json.JSONDecodeError:
+                            return _err(
+                                f"Dynamic tool '{fqn}' returned invalid JSON. "
+                                f"Last line: {json_line[:200]}. "
+                                f"Handler must return a dict via: "
+                                f'return {{"ok": True, "status": 200, "data": {{}}, "error": None}}',
+                            )
+                # No stdout but success exit code — handler forgot to return
+                return _err(
+                    f"Dynamic tool '{fqn}' produced no output. "
+                    f"Ensure handler() returns a dict and the script ends with "
+                    f"print(json.dumps(result))."
+                    + (f" stderr: {stderr[:500]}" if stderr else ""),
+                )
+            # Execution failed — include stderr for debugging
+            error = exec_result.get("error", "")
+            stderr = exec_result.get("data", {}).get("stderr", "")
             return _err(
-                exec_result.get("error", f"Dynamic tool '{fqn}' execution failed"),
+                f"Dynamic tool '{fqn}' execution failed: {error}"
+                + (f"\nstderr: {stderr[:1000]}" if stderr and stderr not in error else ""),
             )
 
         return tool_fn

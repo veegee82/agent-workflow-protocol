@@ -104,7 +104,7 @@ class CodeExecutor(BaseExecutor):
                         "stderr": stderr,
                         "returncode": result.returncode,
                     },
-                    "error": stderr[:500]
+                    "error": stderr[:2000]
                     if stderr
                     else f"Exit code {result.returncode}",
                 }
