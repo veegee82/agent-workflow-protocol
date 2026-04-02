@@ -56,6 +56,43 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _find_truncation_points(text: str) -> list[int]:
+    """Return candidate truncation offsets for repairing truncated JSON.
+
+    Yields positions just after structural tokens (closing brace/bracket,
+    comma after a complete value) — from longest to shortest — so the caller
+    can try each until one produces valid JSON.
+    """
+    points: list[int] = []
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            if not in_str:
+                # End of a string — candidate point right after it
+                points.append(i + 1)
+            continue
+        if in_str:
+            continue
+        if ch in ("}", "]", ","):
+            points.append(i + 1)
+    # Reverse so we try longest (most complete) first
+    points.reverse()
+    return points
+
+
+# ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
 
@@ -983,7 +1020,7 @@ class DelegationLoopRunner:
         ]
 
         try:
-            result = llm.chat_json(messages, temperature=0.2, max_tokens=4096)
+            result = llm.chat_json(messages, temperature=0.2, max_tokens=8192)
             self._budget.tokens_consumed += llm.total_tokens_used
             return self._parse_manager_output(result)
         except Exception as exc:
@@ -1213,6 +1250,16 @@ You MUST respond with a JSON object containing ONE of these decisions:
                 output["decision"] = "fail"
             # else: keep as-is, will be caught downstream
 
+        # Filter out incomplete delegations (e.g. from truncated JSON repair)
+        if output.get("decision") == "delegate" and "delegations" in output:
+            valid = []
+            for d in output["delegations"]:
+                if isinstance(d, dict) and d.get("worker_id") and d.get("instructions"):
+                    valid.append(d)
+                else:
+                    logger.warning("Dropping incomplete delegation entry: %s", d)
+            output["delegations"] = valid
+
         return output
 
     # -- Worker execution -------------------------------------------------
@@ -1354,6 +1401,17 @@ You MUST respond with a JSON object containing ONE of these decisions:
             input_registry_block = build_input_registry(workspace_path_obj)
 
             system_parts.append(f"""{input_registry_block}
+## IMPORTANT: Use `code.execute` for All Computation
+
+You MUST use the `code.execute` tool to run Python code for:
+- Data processing, analysis, and computation
+- Creating charts/plots (matplotlib, etc.)
+- Saving files (PNGs, CSVs, JSON, etc.)
+- Any task that requires importing libraries
+
+Do NOT try to compute results in your JSON response — use `code.execute` to run actual Python code.
+Do NOT use `file.write` for binary files (PNGs, images) — generate them via `code.execute` with matplotlib/PIL.
+
 ## File I/O
 
 In `code.execute` calls, these paths are available as pre-defined variables:
@@ -2027,6 +2085,52 @@ Rules:
                         except (json.JSONDecodeError, ValueError):
                             pass
                         break
+
+            # Strategy 4: repair truncated JSON — LLM response was cut off
+            # mid-output (e.g. max_tokens reached).  Progressively trim the
+            # tail and close open delimiters until we get valid JSON.
+            if depth > 0:
+                fragment = cleaned[start:]
+                # Try progressively shorter truncation points
+                for trim_to in _find_truncation_points(fragment):
+                    candidate = fragment[:trim_to]
+                    # Re-scan to find what delimiters are open at this point
+                    _stack: list[str] = []
+                    _in_str = False
+                    _esc = False
+                    for ch in candidate:
+                        if _esc:
+                            _esc = False
+                            continue
+                        if ch == "\\":
+                            _esc = True
+                            continue
+                        if ch == '"':
+                            _in_str = not _in_str
+                            continue
+                        if _in_str:
+                            continue
+                        if ch == "{":
+                            _stack.append("}")
+                        elif ch == "[":
+                            _stack.append("]")
+                        elif ch in ("}", "]") and _stack and _stack[-1] == ch:
+                            _stack.pop()
+                    # If we're inside a string at this point, skip
+                    if _in_str:
+                        continue
+                    repaired = candidate + "".join(reversed(_stack))
+                    try:
+                        parsed = json.loads(repaired)
+                        if isinstance(parsed, dict):
+                            parsed["_truncated"] = True
+                            logger.warning(
+                                "Recovered truncated JSON (trimmed to %d/%d chars, closed %d delimiters)",
+                                trim_to, len(fragment), len(_stack),
+                            )
+                            return parsed
+                    except (json.JSONDecodeError, ValueError):
+                        continue
 
         return {"result": text, "_confidence_source": "parse_failure"}
 
