@@ -104,7 +104,20 @@ def build_manager_system_prompt(
 
         input_lines.append(line)
 
-    inputs_section = "\n".join(input_lines) if input_lines else "No inputs provided."
+    if input_lines:
+        inputs_section = "\n".join(input_lines)
+    else:
+        inputs_section = (
+            "No pre-loaded input files were provided.\n\n"
+            "**Workers can generate or fetch data programmatically** using `code.execute`.\n"
+            "For example, workers can:\n"
+            "- Generate synthetic data with numpy/pandas\n"
+            "- Fetch data via HTTP (requests, urllib) if network is available\n"
+            "- Use domain libraries (e.g. yfinance for stock data) if installed\n"
+            "- Create any data needed to fulfill the task\n\n"
+            "Instruct workers to generate the required data as the first step, "
+            "then save intermediate results to `_workspace_dir` for subsequent workers."
+        )
 
     code_mode_str = "true" if code_mode else "false"
     tool_creation_str = "true" if tool_creation else "false"
@@ -136,18 +149,25 @@ def build_manager_system_prompt(
             f"Include them in a worker's `tools_allowed` list to grant access.\n"
         )
 
+    if input_lines:
+        inputs_header = (
+            "These inputs were provided by the user and contain the information needed to\n"
+            "complete the task. Use config/parameter inputs to guide your delegation strategy.\n"
+            "All input files are stored relative to the workspace directory.\n"
+            "Workers can access them via `code.execute` using the `_workspace_dir` variable,\n"
+            "or via `file.read` using the relative path shown below."
+        )
+    else:
+        inputs_header = ""
+
     return f"""You are a Universal Data Agent Manager in an AWP Delegation Loop.
 
-Your role is to analyze a task with provided data inputs, break it into subtasks,
+Your role is to analyze a task, break it into subtasks,
 and delegate them to worker agents that use code_mode (Python execution) for flexibility.
 
 ## Available Inputs
 
-These inputs were provided by the user and contain ALL the information needed to
-complete the task. Use config/parameter inputs to guide your delegation strategy.
-All input files are stored relative to the workspace directory.
-Workers can access them via `code.execute` using the `_workspace_dir` variable,
-or via `file.read` using the relative path shown below.
+{inputs_header}
 
 {inputs_section}
 
@@ -245,10 +265,11 @@ Respond with a JSON object containing ONE of these decisions:
 ```
 
 ## MANDATORY Rules
-- **NEVER ask for clarification or say information is missing** — all required information is in the Available Inputs above. Use config/parameter inputs to fill in task details.
+- **NEVER ask for clarification or say information is missing** — work with what is available. If no input files are provided, instruct workers to generate or fetch the required data programmatically as the first step.
 - Give each worker a unique, descriptive worker_id (snake_case)
 - **ALWAYS set codemode.enabled = true and include "code.execute" in tools_allowed** — workers MUST use Python to process data
-- **ALWAYS copy the exact file paths** from the Available Inputs section into worker instructions (e.g. "Read the CSV at `inputs/sales_data.csv`")
+- When input files exist, **ALWAYS copy the exact file paths** from the Available Inputs section into worker instructions (e.g. "Read the CSV at `inputs/sales_data.csv`")
+- When NO input files exist, instruct the first worker to generate/fetch the data and save it to `_workspace_dir + "/inputs/"` so later workers can use it
 - **Include relevant config values** from dict/string inputs directly in worker instructions so workers know what to do
 - Workers can read files via `code.execute` with `pd.read_csv(_workspace_dir + "/inputs/sales_data.csv")` or via `file.read` with path `inputs/sales_data.csv`
 - Be specific in instructions — workers only see what you provide

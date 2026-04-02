@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from ..models.orchestration import DelegationLoopConfig, DelegationBudget
+from awp.models.orchestration import DelegationLoopConfig, DelegationBudget
 from .agent import StandaloneAgent
 from .context_sharing import (
     ContextBudgetConfig,
@@ -1020,7 +1020,7 @@ class DelegationLoopRunner:
         ]
 
         try:
-            result = llm.chat_json(messages, temperature=0.2, max_tokens=8192)
+            result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
             self._budget.tokens_consumed += llm.total_tokens_used
             return self._parse_manager_output(result)
         except Exception as exc:
@@ -1400,8 +1400,21 @@ You MUST respond with a JSON object containing ONE of these decisions:
             workspace_path_obj = self._dir / "workspace"
             input_registry_block = build_input_registry(workspace_path_obj)
 
+            # When no input files exist, tell worker it can generate data
+            no_inputs_hint = ""
+            if not input_registry_block.strip():
+                no_inputs_hint = (
+                    "## Data Availability\n\n"
+                    "No pre-loaded input files are available in the workspace. "
+                    "If the task requires data, **generate it programmatically** "
+                    "using `code.execute`. For example:\n"
+                    "- Generate synthetic data with numpy/pandas\n"
+                    "- Fetch data via HTTP or domain-specific libraries\n"
+                    "- Save generated data to `_workspace_dir + \"/inputs/\"` for reuse\n\n"
+                )
+
             system_parts.append(f"""{input_registry_block}
-## IMPORTANT: Use `code.execute` for All Computation
+{no_inputs_hint}## IMPORTANT: Use `code.execute` for All Computation
 
 You MUST use the `code.execute` tool to run Python code for:
 - Data processing, analysis, and computation
@@ -2059,6 +2072,8 @@ Rules:
             depth = 0
             in_string = False
             escape = False
+            # Track the stack of open delimiters for truncation repair
+            stack: list[str] = []
             for i in range(start, len(cleaned)):
                 ch = cleaned[i]
                 if escape:
@@ -2074,8 +2089,13 @@ Rules:
                     continue
                 if ch == "{":
                     depth += 1
+                    stack.append("}")
+                elif ch == "[":
+                    stack.append("]")
                 elif ch == "}":
                     depth -= 1
+                    if stack and stack[-1] == "}":
+                        stack.pop()
                     if depth == 0:
                         candidate = cleaned[start : i + 1]
                         try:
@@ -2085,6 +2105,9 @@ Rules:
                         except (json.JSONDecodeError, ValueError):
                             pass
                         break
+                elif ch == "]":
+                    if stack and stack[-1] == "]":
+                        stack.pop()
 
             # Strategy 4: repair truncated JSON — LLM response was cut off
             # mid-output (e.g. max_tokens reached).  Progressively trim the

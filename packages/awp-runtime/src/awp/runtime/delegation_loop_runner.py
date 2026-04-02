@@ -1400,8 +1400,21 @@ You MUST respond with a JSON object containing ONE of these decisions:
             workspace_path_obj = self._dir / "workspace"
             input_registry_block = build_input_registry(workspace_path_obj)
 
+            # When no input files exist, tell worker it can generate data
+            no_inputs_hint = ""
+            if not input_registry_block.strip():
+                no_inputs_hint = (
+                    "## Data Availability\n\n"
+                    "No pre-loaded input files are available in the workspace. "
+                    "If the task requires data, **generate it programmatically** "
+                    "using `code.execute`. For example:\n"
+                    "- Generate synthetic data with numpy/pandas\n"
+                    "- Fetch data via HTTP or domain-specific libraries\n"
+                    "- Save generated data to `_workspace_dir + \"/inputs/\"` for reuse\n\n"
+                )
+
             system_parts.append(f"""{input_registry_block}
-## IMPORTANT: Use `code.execute` for All Computation
+{no_inputs_hint}## IMPORTANT: Use `code.execute` for All Computation
 
 You MUST use the `code.execute` tool to run Python code for:
 - Data processing, analysis, and computation

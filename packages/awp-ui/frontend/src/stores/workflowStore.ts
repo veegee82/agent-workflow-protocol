@@ -158,9 +158,9 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   api_key: undefined,
   max_loops: 100,
   max_total_tokens: 10_000_000,
-  max_wall_time: 600,
+  max_wall_time: 5000,
   max_tool_calls: 250,
-  max_total_workers: 500,
+  max_total_workers: 100,
   max_depth: 10,
   sandbox: 'subprocess',
   packages: [],
@@ -168,7 +168,7 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   tool_creation: true,
   tools: [],
   forbidden_tools: [],
-  verbose: false,
+  verbose: true,
   output_dir: '',
   input_files: [],
   skills_dir: '',
@@ -1057,6 +1057,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const sessionTitle =
         title ?? `Experiment ${new Date().toLocaleString()}`;
       const session = await api.createSession(sessionTitle);
+      // Close any open WebSocket before switching
+      const prev = get();
+      prev._wsConnection?.close();
+
       set((s) => ({
         currentSessionId: session.id,
         sessions: [session, ...s.sessions],
@@ -1066,6 +1070,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         graphNodes: [],
         graphEdges: [],
         experimentMemory: [],
+        // Reset run state so the UI is fully clean
+        currentRunId: null,
+        runStatus: 'idle',
+        budget: { ...DEFAULT_BUDGET },
+        selectedNodeId: null,
+        attachedFiles: [],
+        config: { ...DEFAULT_CONFIG, model: s.config.model, api_key: s.config.api_key, worker_model: s.config.worker_model },
+        _wsConnection: null,
+        _wsStatus: 'closed',
       }));
     } catch {
       // silently ignore

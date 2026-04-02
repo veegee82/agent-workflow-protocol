@@ -2073,6 +2073,17 @@ export function App() {
               onNewSession={handleNewSession}
               onDeleteSession={deleteSession}
               onRenameSession={renameSession}
+              onOpenFolder={(session) => {
+                const base = session.base_dir;
+                if (!base) return;
+                const slug = (session.title || 'experiment')
+                  .toLowerCase()
+                  .replace(/ /g, '_')
+                  .slice(0, 40)
+                  .replace(/[^a-z0-9_-]/g, '') || 'experiment';
+                const folderPath = `${base}/${slug}_${session.id}`;
+                api.openDirectory(folderPath).catch(() => {});
+              }}
             />
           </div>
         )}

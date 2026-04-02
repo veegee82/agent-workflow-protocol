@@ -7,6 +7,7 @@ import {
   Pencil,
   Trash2,
   FlaskConical,
+  FolderOpen,
   X,
 } from 'lucide-react';
 import type { Session } from '@/types';
@@ -22,6 +23,7 @@ interface SessionSidebarProps {
   onNewSession: () => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  onOpenFolder?: (session: Session) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,12 +195,14 @@ function SessionItem({
   onSelect,
   onRename,
   onDelete,
+  onOpenFolder,
 }: {
   session: Session;
   isActive: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
+  onOpenFolder?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.title);
@@ -272,6 +276,19 @@ function SessionItem({
               <span className="text-xs font-medium text-awp-text truncate flex-1">
                 {session.title}
               </span>
+              {onOpenFolder && (
+                <button
+                  type="button"
+                  title="Open experiment folder"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenFolder();
+                  }}
+                  className="opacity-0 group-hover:opacity-100 shrink-0 text-awp-muted hover:text-awp-text transition-opacity"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -350,6 +367,7 @@ export function SessionSidebar({
   onNewSession,
   onDeleteSession,
   onRenameSession,
+  onOpenFolder,
 }: SessionSidebarProps) {
   const [search, setSearch] = useState('');
   const [groupMode, setGroupMode] = useState<'time' | 'status'>('time');
@@ -472,6 +490,7 @@ export function SessionSidebar({
                   onSelect={() => onSelectSession(session.id)}
                   onRename={(title) => onRenameSession(session.id, title)}
                   onDelete={() => onDeleteSession(session.id)}
+                  onOpenFolder={onOpenFolder ? () => onOpenFolder(session) : undefined}
                 />
               ))}
             </div>

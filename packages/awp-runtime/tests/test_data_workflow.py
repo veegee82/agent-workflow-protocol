@@ -261,7 +261,24 @@ class TestBuildManagerPrompt:
             forbidden_tools=[],
             max_tools_per_worker=10,
         )
-        assert "No inputs provided" in prompt
+        assert "No pre-loaded input files were provided" in prompt
+        assert "generate or fetch data programmatically" in prompt
+
+    def test_empty_inputs_instructs_data_generation(self):
+        """When no inputs are provided, the manager prompt should instruct
+        workers to generate data rather than failing."""
+        prompt = build_manager_system_prompt(
+            input_manifest={},
+            sandbox_type="subprocess",
+            forbidden_tools=[],
+            max_tools_per_worker=10,
+        )
+        # Must NOT contain contradictory "all required information is in the inputs"
+        assert "all required information is in the Available Inputs" not in prompt
+        # Must instruct workers to generate data
+        assert "generate" in prompt.lower() or "fetch" in prompt.lower()
+        # Must mention saving to _workspace_dir for other workers
+        assert "_workspace_dir" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -351,3 +368,163 @@ class TestAgentWorkflowConfig:
             )
             == "stall_detected"
         )
+
+
+# ---------------------------------------------------------------------------
+# E2E: Input handling robustness
+# ---------------------------------------------------------------------------
+
+
+class TestInputRobustness:
+    """End-to-end tests for input handling edge cases.
+
+    These tests verify that the workspace, manifest, and prompts are
+    correctly set up — they do NOT call LLMs.
+    """
+
+    def test_empty_inputs_workspace_still_created(self, tmp_path: Path):
+        """When inputs={}, workspace/inputs/ dir should still be created
+        and the manifest should be empty but valid."""
+        workspace = tmp_path / "workspace"
+        manifest = prepare_workspace({}, workspace)
+        assert manifest == {}
+        assert (workspace / "inputs").exists()
+        manifest_path = workspace / "input_manifest.json"
+        assert manifest_path.exists()
+        loaded = json.loads(manifest_path.read_text())
+        assert loaded == {}
+
+    def test_empty_inputs_manager_prompt_guides_data_generation(self):
+        """When no inputs are provided, the manager prompt must instruct
+        workers to generate or fetch data rather than claiming 'all required
+        information is in the inputs'."""
+        prompt = build_manager_system_prompt(
+            input_manifest={},
+            sandbox_type="subprocess",
+            forbidden_tools=["shell.execute"],
+            max_tools_per_worker=10,
+        )
+        # Should mention generating/fetching data
+        assert "generate" in prompt.lower()
+        # Should NOT have the misleading "all required information" clause
+        # when there are actually no inputs
+        assert "No pre-loaded input files" in prompt
+        # Should tell workers to save data to _workspace_dir for reuse
+        assert "_workspace_dir" in prompt
+
+    def test_empty_inputs_worker_prompt_guides_data_generation(self):
+        """When inputs/ is empty, the worker system prompt should include
+        a hint about generating data programmatically."""
+        from awp.runtime.context_sharing import build_input_registry
+
+        workspace = tmp_path = Path("/tmp/test_empty_inputs_worker")
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "inputs").mkdir(exist_ok=True)
+
+        registry = build_input_registry(workspace)
+        # Empty registry means no files found
+        assert registry.strip() == ""
+
+        import shutil
+        shutil.rmtree(workspace, ignore_errors=True)
+
+    def test_dataframe_input_roundtrip(self, tmp_path: Path):
+        """DataFrame inputs must be serialized to CSV, described in manifest,
+        and referenced correctly in the manager prompt."""
+        pd = pytest.importorskip("pandas")
+        np = pytest.importorskip("numpy")
+
+        # Create realistic FAANG-like data
+        np.random.seed(42)
+        tickers = ["AAPL", "MSFT", "GOOGL"]
+        dates = pd.bdate_range("2024-01-01", periods=20)
+        rows = []
+        for t in tickers:
+            base = {"AAPL": 178, "MSFT": 375, "GOOGL": 140}[t]
+            close = base + np.cumsum(np.random.randn(20) * 2)
+            for i, d in enumerate(dates):
+                rows.append({
+                    "Date": d, "Open": close[i] - 1, "High": close[i] + 2,
+                    "Low": close[i] - 2, "Close": close[i], "Volume": 1_000_000,
+                    "Ticker": t,
+                })
+        df = pd.DataFrame(rows)
+
+        workspace = tmp_path / "workspace"
+        manifest = prepare_workspace({"stock_data": df}, workspace)
+
+        # 1. CSV file must exist
+        csv_path = workspace / "inputs" / "stock_data.csv"
+        assert csv_path.exists()
+
+        # 2. Manifest must have correct metadata
+        entry = manifest["stock_data"]
+        assert entry["type"] == "dataframe"
+        assert entry["workspace_path"] == "inputs/stock_data.csv"
+        assert entry["schema"]["shape"] == [60, 7]
+        assert "Ticker" in entry["schema"]["columns"]
+
+        # 3. Manager prompt must reference the exact file path
+        prompt = build_manager_system_prompt(
+            input_manifest=manifest,
+            sandbox_type="subprocess",
+            forbidden_tools=["shell.execute"],
+            max_tools_per_worker=10,
+        )
+        assert "inputs/stock_data.csv" in prompt
+        assert "60 rows x 7 cols" in prompt
+
+        # 4. CSV must be readable and match original data
+        loaded = pd.read_csv(csv_path)
+        assert len(loaded) == 60
+        assert set(loaded["Ticker"].unique()) == {"AAPL", "MSFT", "GOOGL"}
+
+    def test_dict_input_inline_in_prompt(self, tmp_path: Path):
+        """Dict inputs (like portfolio_config) should appear inline in the
+        manager prompt so the manager can use them for delegation planning."""
+        config = {
+            "tickers": ["AAPL", "MSFT"],
+            "risk_free_rate": 0.05,
+        }
+        workspace = tmp_path / "workspace"
+        manifest = prepare_workspace({"portfolio_config": config}, workspace)
+
+        prompt = build_manager_system_prompt(
+            input_manifest=manifest,
+            sandbox_type="subprocess",
+            forbidden_tools=[],
+            max_tools_per_worker=10,
+        )
+        # Dict content should be shown inline
+        assert "portfolio_config" in prompt
+        assert "tickers" in prompt
+        assert "risk_free_rate" in prompt
+
+    def test_mixed_inputs_all_referenced(self, tmp_path: Path):
+        """When multiple input types are provided, all must appear in the
+        manifest and the prompt."""
+        pd = pytest.importorskip("pandas")
+
+        inputs = {
+            "data": pd.DataFrame({"a": [1, 2], "b": [3, 4]}),
+            "config": {"mode": "fast"},
+            "label": "experiment-1",
+            "threshold": 0.95,
+        }
+        workspace = tmp_path / "workspace"
+        manifest = prepare_workspace(inputs, workspace)
+
+        assert len(manifest) == 4
+        assert (workspace / "inputs" / "data.csv").exists()
+        assert (workspace / "inputs" / "config.json").exists()
+
+        prompt = build_manager_system_prompt(
+            input_manifest=manifest,
+            sandbox_type="subprocess",
+            forbidden_tools=[],
+            max_tools_per_worker=10,
+        )
+        assert "inputs/data.csv" in prompt
+        assert "inputs/config.json" in prompt
+        assert "experiment-1" in prompt
+        assert "0.95" in prompt
