@@ -1178,6 +1178,10 @@ class ToolRegistry:
             else:
                 out = self._workflow_dir / "output"
             out.mkdir(parents=True, exist_ok=True)
+            # Build a snapshot of all existing files so workers know what's available
+            tree_lines = self._snapshot_workspace_tree(ws, out)
+            tree_comment = "\n".join(f"# {l}" for l in tree_lines) if tree_lines else "# (empty workspace)"
+
             preamble = (
                 f"import os as _os\n"
                 f"_workspace_dir = {str(ws)!r}\n"
@@ -1186,6 +1190,19 @@ class ToolRegistry:
                 f"    d = _os.path.dirname(path) if not _os.path.isdir(path) else path\n"
                 f"    _os.makedirs(d, exist_ok=True)\n"
                 f"    return path\n"
+                f"def _list_files(directory=None):\n"
+                f"    \"\"\"List all files in a directory (defaults to _workspace_dir). Returns list of relative paths.\"\"\"\n"
+                f"    base = directory or _workspace_dir\n"
+                f"    found = []\n"
+                f"    for root, dirs, files in _os.walk(base):\n"
+                f"        for f in sorted(files):\n"
+                f"            full = _os.path.join(root, f)\n"
+                f"            found.append(_os.path.relpath(full, base))\n"
+                f"    return found\n"
+                f"\n"
+                f"# === WORKSPACE FILE TREE (snapshot at execution time) ===\n"
+                f"{tree_comment}\n"
+                f"# === END FILE TREE ===\n"
             )
 
         result = self._code_executor.execute(preamble + code, timeout=timeout)
@@ -1230,17 +1247,71 @@ class ToolRegistry:
                     )
 
             # Detect file not found
-            if "FileNotFoundError" in error_text:
+            if "FileNotFoundError" in error_text or "No such file or directory" in error_text:
                 hints.append(
                     "HINT: Use _workspace_dir + \"/inputs/FILENAME\" for input files "
                     "and _output_dir + \"/FILENAME\" for output files. "
-                    "Check that the file exists before reading."
+                    "Call _list_files() to see all available files in the workspace, "
+                    "or _list_files(_output_dir) for output files. "
+                    "Use _ensure_dir(path) before writing to subdirectories."
                 )
 
             if hints:
                 result["error"] = error_text + "\n\n" + "\n".join(hints)
 
         return result
+
+    @staticmethod
+    def _snapshot_workspace_tree(
+        workspace: Path, output: Path, max_files: int = 80
+    ) -> list[str]:
+        """Build a compact directory tree of workspace + output for the preamble.
+
+        Returns lines like:
+            _workspace_dir/
+              inputs/
+                data.csv  (12.3 KB)
+              context/
+            _output_dir/
+              chart.png  (45.1 KB)
+        """
+        lines: list[str] = []
+        count = 0
+
+        def _walk(base: Path, label: str, indent: int = 0) -> None:
+            nonlocal count
+            if count >= max_files:
+                return
+            prefix = "  " * indent
+            lines.append(f"{prefix}{label}/")
+            if not base.exists():
+                return
+            try:
+                entries = sorted(base.iterdir(), key=lambda p: (p.is_file(), p.name))
+            except OSError:
+                return
+            for entry in entries:
+                if count >= max_files:
+                    lines.append(f"{prefix}  ... (truncated)")
+                    return
+                if entry.name.startswith(".") or entry.name == "__pycache__":
+                    continue
+                if entry.is_dir():
+                    _walk(entry, entry.name, indent + 1)
+                else:
+                    size = entry.stat().st_size
+                    if size < 1024:
+                        size_str = f"{size} B"
+                    elif size < 1024 * 1024:
+                        size_str = f"{size / 1024:.1f} KB"
+                    else:
+                        size_str = f"{size / (1024 * 1024):.1f} MB"
+                    lines.append(f"{prefix}  {entry.name}  ({size_str})")
+                    count += 1
+
+        _walk(workspace, "_workspace_dir")
+        _walk(output, "_output_dir")
+        return lines
 
     def _pip_install(self, *, packages: list[str]) -> dict[str, Any]:
         if not self._code_executor:

@@ -1413,8 +1413,12 @@ You MUST respond with a JSON object containing ONE of these decisions:
                     "- Save generated data to `_workspace_dir + \"/inputs/\"` for reuse\n\n"
                 )
 
+            # Build live directory tree so worker knows ALL existing files
+            output_path_obj = self._dir / "output"
+            dir_tree = self._build_directory_tree(workspace_path_obj, output_path_obj)
+
             system_parts.append(f"""{input_registry_block}
-{no_inputs_hint}## IMPORTANT: Use `code.execute` for All Computation
+{no_inputs_hint}{dir_tree}## IMPORTANT: Use `code.execute` for All Computation
 
 You MUST use the `code.execute` tool to run Python code for:
 - Data processing, analysis, and computation
@@ -1442,6 +1446,25 @@ call `_ensure_dir(path)` first to create parent directories automatically:
 path = _output_dir + "/plots/chart.png"
 _ensure_dir(path)  # creates _output_dir/plots/ if needed
 plt.savefig(path, dpi=150, bbox_inches="tight")
+```
+
+**Discovering files at runtime:** Call `_list_files()` to get all files in the workspace,
+or `_list_files(_output_dir)` for output files. This is useful when reading results from
+previous workers:
+```python
+# See what files are available
+print(_list_files())           # workspace files
+print(_list_files(_output_dir))  # output files from other workers
+```
+
+**IMPORTANT: Always check before reading.** Before reading a file, verify it exists:
+```python
+path = _workspace_dir + "/inputs/data.csv"
+if _os.path.exists(path):
+    df = pd.read_csv(path)
+else:
+    print(f"File not found: {{path}}")
+    print("Available files:", _list_files())
 ```
 
 Example (reading CSV and saving a chart):
@@ -1667,6 +1690,94 @@ print("Chart saved")
 
         self._budget.tokens_consumed += llm.total_tokens_used
         return result
+
+    @staticmethod
+    def _build_directory_tree(
+        workspace: Path, output: Path, max_files: int = 60
+    ) -> str:
+        """Build a markdown directory tree of workspace + output for the worker prompt.
+
+        This gives workers a complete picture of what files exist so they can
+        read data from previous workers or avoid overwriting existing files.
+        """
+        lines: list[str] = []
+        count = 0
+
+        def _walk(base: Path, label: str, var_name: str, depth: int = 0) -> None:
+            nonlocal count
+            if count >= max_files or not base.exists():
+                return
+            try:
+                entries = sorted(base.iterdir(), key=lambda p: (p.is_file(), p.name))
+            except OSError:
+                return
+            for entry in entries:
+                if count >= max_files:
+                    lines.append(f"{'  ' * (depth + 1)}... (truncated)")
+                    return
+                if entry.name.startswith(".") or entry.name == "__pycache__":
+                    continue
+                rel = entry.relative_to(base)
+                if entry.is_dir():
+                    lines.append(f"{'  ' * (depth + 1)}{entry.name}/")
+                    _walk(entry, label, var_name, depth + 1)
+                else:
+                    size = entry.stat().st_size
+                    if size < 1024:
+                        s = f"{size} B"
+                    elif size < 1024 * 1024:
+                        s = f"{size / 1024:.1f} KB"
+                    else:
+                        s = f"{size / (1024 * 1024):.1f} MB"
+                    access = f'{var_name} + "/{rel}"'
+                    lines.append(f"{'  ' * (depth + 1)}{entry.name}  ({s})  →  `{access}`")
+                    count += 1
+
+        has_files = False
+
+        # Workspace tree
+        ws_entries = []
+        if workspace.exists():
+            try:
+                ws_entries = [
+                    e for e in workspace.iterdir()
+                    if not e.name.startswith(".") and e.name != "__pycache__"
+                ]
+            except OSError:
+                pass
+
+        if ws_entries:
+            lines.append(f"_workspace_dir = `{workspace}`")
+            _walk(workspace, "workspace", "_workspace_dir")
+            has_files = True
+
+        # Output tree
+        out_entries = []
+        if output.exists():
+            try:
+                out_entries = [
+                    e for e in output.rglob("*")
+                    if e.is_file() and not e.name.startswith(".")
+                ]
+            except OSError:
+                pass
+
+        if out_entries:
+            lines.append(f"_output_dir = `{output}`")
+            _walk(output, "output", "_output_dir")
+            has_files = True
+
+        if not has_files:
+            return ""
+
+        header = (
+            "## Workspace Directory Tree\n\n"
+            "These files currently exist. Use the paths shown to read/write them.\n"
+            "Call `_list_files()` in `code.execute` for a live listing at runtime.\n"
+            "Always use `_ensure_dir(path)` before writing to subdirectories.\n\n"
+            "```\n"
+        )
+        return header + "\n".join(lines) + "\n```\n\n"
 
     def _build_tool_creation_prompt(self, namespace: str) -> str:
         """Build the prompt section that instructs the worker to create tools.
