@@ -1205,7 +1205,49 @@ class ToolRegistry:
                 f"# === END FILE TREE ===\n"
             )
 
+        # Snapshot files before execution so we can detect new/changed files
+        from .file_validator import snapshot_file_state, validate_changed_files
+        dirs_to_watch = []
+        if self._workflow_dir:
+            dirs_to_watch = [
+                self._workflow_dir / "workspace",
+                self._workflow_dir / "output",
+            ]
+        snapshots_before = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
+
         result = self._code_executor.execute(preamble + code, timeout=timeout)
+
+        # --- File output validation (Phase 1: immediate feedback) ---
+        file_warnings: list[str] = []
+        if dirs_to_watch:
+            snapshots_after = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
+            for d_str in snapshots_before:
+                w = validate_changed_files(snapshots_before[d_str], snapshots_after[d_str])
+                file_warnings.extend(w)
+
+        if file_warnings:
+            warning_block = (
+                "\n\n⚠ OUTPUT FILE VALIDATION WARNINGS:\n"
+                + "\n".join(f"  - {w}" for w in file_warnings)
+                + "\n\nACTION REQUIRED: The files listed above are invalid or empty. "
+                "You MUST re-generate them with correct, complete data before proceeding. "
+                "For plots: ensure you actually plot data (not an empty figure) before "
+                "calling savefig(). For CSVs: ensure the DataFrame has rows, not just "
+                "a header. For text files: ensure meaningful content is written."
+            )
+            if result["ok"]:
+                # Attach warnings to stdout so the LLM sees them
+                data = result.get("data", {})
+                stdout = data.get("stdout", "") if isinstance(data, dict) else ""
+                if isinstance(data, dict):
+                    data["stdout"] = stdout + warning_block
+                    result["data"] = data
+                # Also flag in a dedicated field for programmatic access
+                result["_file_warnings"] = file_warnings
+            else:
+                # Append to error so even failed executions report file issues
+                result["error"] = (result.get("error") or "") + warning_block
+                result["_file_warnings"] = file_warnings
 
         # Enhance error messages with actionable hints so the LLM can self-correct
         if not result["ok"]:

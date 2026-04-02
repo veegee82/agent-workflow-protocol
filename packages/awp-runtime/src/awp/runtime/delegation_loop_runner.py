@@ -2104,7 +2104,37 @@ Rules:
         if "error" in result and len(result) <= 2:  # just error + confidence
             errors.append("Result contains only an error")
 
-        return {"passed": len(errors) == 0, "errors": errors}
+        # --- File output validation (Phase 3: safety net) ---
+        file_warnings = self._validate_output_files()
+        if file_warnings:
+            for w in file_warnings:
+                errors.append(f"Invalid output file: {w}")
+            # Penalize confidence — invalid files mean the result is unreliable
+            if isinstance(conf, (int, float)) and conf > 0:
+                penalty = min(0.3, 0.1 * len(file_warnings))
+                result["confidence"] = max(0.0, conf - penalty)
+                result["_confidence_penalty_reason"] = (
+                    f"Reduced by {penalty:.1f} due to {len(file_warnings)} "
+                    f"invalid output file(s)"
+                )
+
+        return {"passed": len(errors) == 0, "errors": errors, "file_warnings": file_warnings}
+
+    def _validate_output_files(self) -> list[str]:
+        """Scan workspace and output dirs for invalid files."""
+        from .file_validator import validate_directory
+
+        warnings: list[str] = []
+        workspace = self._dir / "workspace"
+        output = self._dir / "output"
+        if workspace.exists():
+            # Only validate outputs subdir of workspace (not inputs, context, etc.)
+            ws_outputs = workspace / "outputs"
+            if ws_outputs.exists():
+                warnings.extend(validate_directory(ws_outputs))
+        if output.exists():
+            warnings.extend(validate_directory(output))
+        return warnings
 
     def _validate_llm(self, result: dict, task: str, worker_id: str) -> dict:
         """Tier 2: LLM-based semantic validation."""
