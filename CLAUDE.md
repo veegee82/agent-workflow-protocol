@@ -103,6 +103,48 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 
 **Failure to sync causes cascading bugs**: generated workflows silently fail because they use outdated config patterns (e.g. `shell.execute` in `tools_allowed` when it's forbidden, `dynamic_tools.enabled: false` when tool creation is needed).
 
+## PyPI Build Rules (MANDATORY)
+
+### All-Package Build Policy
+
+**Every PyPI build MUST build ALL three packages together, in order:**
+
+1. `awp-core` (`packages/awp-core/`)
+2. `awp-runtime` (`packages/awp-runtime/`)
+3. `awp-agents` (`reference/python/`) — the meta-package that bundles everything for end users
+
+**Never build only one package.** Even if only one package changed, build all three. Version numbers must stay in sync across all three `pyproject.toml` files. When bumping versions, bump all three at once.
+
+### Build + Smoke Test Sequence
+
+After building, the following command sequence **MUST succeed before considering the build done**:
+
+```bash
+# 1. Build all three packages
+cd packages/awp-core && rm -rf dist/ build/ && python -m build
+cd packages/awp-runtime && rm -rf dist/ build/ && python -m build
+cd reference/python && rm -rf dist/ build/ && python -m build
+
+# 2. Install the meta-package (pulls in core + runtime + UI)
+pip install awp-agents
+
+# 3. Smoke test — this MUST launch without errors
+awp studio
+```
+
+`pip install awp-agents && awp studio` is the **golden path**. If this command fails at any point (import errors, missing dependencies, missing frontend assets, version mismatches), the build is broken. Do not push or publish until it works.
+
+### Version Sync Checklist
+
+When bumping versions, update ALL of these in one commit:
+
+| File | Field |
+|------|-------|
+| `packages/awp-core/pyproject.toml` | `version` |
+| `packages/awp-runtime/pyproject.toml` | `version` + `awp-core>=` dependency |
+| `packages/awp-ui/pyproject.toml` | `version` + `awp-core>=` and `awp-runtime>=` in `[project.optional-dependencies]` |
+| `reference/python/pyproject.toml` | `version` (awp-agents meta-package) |
+
 ## Code Style
 
 - Python 3.10+ with modern syntax (`X | Y` unions, `match` where appropriate)
