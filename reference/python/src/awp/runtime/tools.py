@@ -1162,11 +1162,13 @@ class ToolRegistry:
 
     # -- Code execution tool ----------------------------------------------
 
-    def _code_execute(self, *, code: str, timeout: int = 30) -> dict[str, Any]:
+    def _code_execute(self, *, code: str, timeout: int = 120) -> dict[str, Any]:
         if not self._code_executor:
             return _err("Code executor not configured", 503)
 
-        # Inject _workspace_dir and _output_dir so executed code can save files
+        # Inject _workspace_dir and _output_dir so executed code can save files.
+        # Also inject an _ensure_dir helper so LLM code can create subdirectories
+        # without needing to import os.makedirs explicitly.
         preamble = ""
         if self._workflow_dir:
             ws = self._workflow_dir / "workspace"
@@ -1176,7 +1178,15 @@ class ToolRegistry:
             else:
                 out = self._workflow_dir / "output"
             out.mkdir(parents=True, exist_ok=True)
-            preamble = f"_workspace_dir = {str(ws)!r}\n_output_dir = {str(out)!r}\n"
+            preamble = (
+                f"import os as _os\n"
+                f"_workspace_dir = {str(ws)!r}\n"
+                f"_output_dir = {str(out)!r}\n"
+                f"def _ensure_dir(path):\n"
+                f"    d = _os.path.dirname(path) if not _os.path.isdir(path) else path\n"
+                f"    _os.makedirs(d, exist_ok=True)\n"
+                f"    return path\n"
+            )
 
         return self._code_executor.execute(preamble + code, timeout=timeout)
 

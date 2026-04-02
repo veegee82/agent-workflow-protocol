@@ -8,10 +8,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from awp.data.inputs import prepare_workspace
-from awp.data.prompts import build_manager_system_prompt
-from awp.models.capabilities import SandboxConfig
-from awp.models.orchestration import (
+from .inputs import prepare_workspace
+from .prompts import build_manager_system_prompt
+from ..models.capabilities import SandboxConfig
+from ..models.orchestration import (
     CodeModeEnforcement,
     DelegationBudget,
     DelegationLoggingConfig,
@@ -25,11 +25,11 @@ from awp.models.orchestration import (
     WorkerPolicy,
     WorkerPolicyEnforced,
 )
-from awp.runtime.delegation_loop_runner import DelegationLoopRunner
-from awp.runtime.executor_factory import create_executor
-from awp.runtime.external_tools import ExternalToolSpec, normalize_external_tools
-from awp.runtime.skill_loader import SkillBundle, load_external_skills
-from awp.runtime.tools import ToolRegistry
+from ..runtime.delegation_loop_runner import DelegationLoopRunner
+from ..runtime.executor_factory import create_executor
+from ..runtime.external_tools import ExternalToolSpec, normalize_external_tools
+from ..runtime.skill_loader import SkillBundle, load_external_skills
+from ..runtime.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +111,10 @@ class AgentWorkflow:
         api_key: str | None = None,
         worker_model: str | None = None,
         max_loops: int = 100,
-        max_total_tokens: int = 1_000_000,
-        max_wall_time: int = 3000,
-        max_tool_calls: int = 100,
-        max_total_workers: int = 100,
+        max_total_tokens: int = 10_000_000,
+        max_wall_time: int = 600,
+        max_tool_calls: int = 250,
+        max_total_workers: int = 500,
         max_depth: int = 10,
         sandbox: str = "subprocess",
         packages: list[str] | None = None,

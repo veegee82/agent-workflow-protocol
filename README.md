@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <code>pip install awp-agents</code>
+  <code>pip install awp-agents && awp studio</code>
 </p>
 
 <p align="center">
@@ -61,8 +61,7 @@
 ### Quick Start
 
 ```bash
-pip install awp-agents
-awp studio
+pip install awp-agents && awp studio
 # Opens Workflow Studio at http://127.0.0.1:8420
 ```
 
@@ -961,23 +960,6 @@ history:
   full_results_window: 3      # Last 3 iterations in full
   persist_to_disk: true       # Older ones to disk
 ```
-
-### Execution Graph — Interactive Post-Run Visualization
-
-After a workflow completes, generate a self-contained interactive HTML graph showing the full execution hierarchy:
-
-```python
-from awp.runtime.execution_graph import generate_execution_graph
-
-# Point to the run directory (logged during execution)
-graph_path = generate_execution_graph(
-    run_dir=Path("./analysis/workspace/runs/run_abc123"),
-    output_path=Path("./analysis/execution_graph.html"),
-)
-# Open graph_path in a browser — no server needed
-```
-
-The graph visualizes managers, iterations, workers, tool calls, confidence levels (color-coded), timing, and recursive sub-delegations (A4). Nodes are clickable for detailed tooltips. Built with vis.js — zero Python dependencies for viewing.
 
 ---
 

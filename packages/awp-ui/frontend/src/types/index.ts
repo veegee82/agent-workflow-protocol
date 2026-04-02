@@ -19,6 +19,7 @@ export interface WorkflowConfig {
   verbose: boolean;
   output_dir: string;
   input_files: string[];
+  skills_dir: string;
 }
 
 /** WebSocket event types pushed from the backend during a run. */

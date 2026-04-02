@@ -1,6 +1,10 @@
-"""AWP — Agent Workflow Protocol reference implementation."""
+"""AWP — Agent Workflow Protocol core library.
 
-__version__ = "1.0.1"
+Provides models, parser, validator, and tools for the AWP specification.
+For the execution runtime, install ``awp-runtime``.
+"""
+
+__version__ = "1.0.0"
 
 from .agent import AWPAgent
 

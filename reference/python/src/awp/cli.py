@@ -1,13 +1,13 @@
 """AWP CLI -- Command-line interface for AWP operations.
 
 Usage:
-    awp studio                           # Launch browser UI
     awp validate <path>
     awp pack <path> [-o <output>]
     awp unpack <file> [-o <output>]
     awp visualize <path> [--format mermaid|ascii]
     awp identity-card <agent-path>
     awp compliance <path> [--level L0|L1|L2|L3|L4|L5]
+    awp studio [--port 8420] [--dev]
 """
 
 from __future__ import annotations
@@ -65,6 +65,33 @@ def main(argv: list[str] | None = None) -> int:
     p_ic = subparsers.add_parser("identity-card", help="Generate Agent Identity Card")
     p_ic.add_argument("agent_path", help="Path to agent.awp.yaml")
 
+    # studio (GUI)
+    p_studio = subparsers.add_parser(
+        "studio",
+        help="Launch AWP Workflow Studio (browser UI)",
+    )
+    p_studio.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    p_studio.add_argument(
+        "--port",
+        type=int,
+        default=8420,
+        help="Port number (default: 8420)",
+    )
+    p_studio.add_argument(
+        "--dev",
+        action="store_true",
+        help="Development mode: enable auto-reload and Vite dev server",
+    )
+    p_studio.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open browser automatically",
+    )
+
     # run
     p_run = subparsers.add_parser(
         "run", help="Run an AWP workflow (standalone runtime)"
@@ -83,26 +110,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--debug", "-d", action="store_true", help="Enable debug mode (verbose output)"
-    )
-
-    # studio
-    p_studio = subparsers.add_parser(
-        "studio", help="Launch AWP Workflow Studio (browser UI)"
-    )
-    p_studio.add_argument(
-        "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
-    )
-    p_studio.add_argument(
-        "--port", "-p", type=int, default=8420, help="Port (default: 8420)"
-    )
-    p_studio.add_argument(
-        "--no-open", action="store_true", help="Don't auto-open browser"
-    )
-    p_studio.add_argument(
-        "--dev", action="store_true", help="Enable development mode (Vite hot-reload)"
-    )
-    p_studio.add_argument(
-        "--base-dir", help="Base directory for workflow discovery"
     )
 
     args = parser.parse_args(argv)
@@ -124,10 +131,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_compliance(args)
         elif args.command == "identity-card":
             return cmd_identity_card(args)
-        elif args.command == "run":
-            return cmd_run(args)
         elif args.command == "studio":
             return cmd_studio(args)
+        elif args.command == "run":
+            return cmd_run(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -344,6 +351,136 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
         )
 
     print(yaml.dump(card, default_flow_style=False, allow_unicode=True))
+    return 0
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    """Launch AWP Workflow Studio (browser-based UI)."""
+    import socket
+
+    # --- Pre-flight: check server module is importable ---
+    try:
+        from server.app import create_app  # noqa: F401
+    except ImportError:
+        print(
+            "Error: The AWP Studio server module could not be loaded.\n"
+            "\n"
+            "If you installed awp-core only, install the UI package:\n"
+            "\n"
+            "    pip install -e packages/awp-ui/\n"
+            "\n"
+            "Or install the all-in-one PyPI package:\n"
+            "\n"
+            "    pip install awp-agents\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    # --- Pre-flight: check uvicorn is available ---
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "Error: uvicorn is not installed.\n"
+            "\n"
+            "Install it with:\n"
+            "\n"
+            "    pip install 'uvicorn[standard]'\n",
+            file=sys.stderr,
+        )
+        return 1
+
+    import logging
+    import subprocess
+    import threading
+    import webbrowser
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    )
+
+    host = args.host
+    port = args.port
+    url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
+
+    # --- Pre-flight: check port is available ---
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        if sock.connect_ex((host if host != "0.0.0.0" else "127.0.0.1", port)) == 0:
+            print(
+                f"Error: Port {port} is already in use.\n"
+                f"\n"
+                f"Either stop the other process or use a different port:\n"
+                f"\n"
+                f"    awp studio --port {port + 1}\n",
+                file=sys.stderr,
+            )
+            return 1
+
+    print(f"\n  AWP Workflow Studio")
+    print(f"  {'─' * 40}")
+    print(f"  URL:   {url}")
+    print(f"  Mode:  {'development' if args.dev else 'production'}")
+    print(f"  {'─' * 40}")
+    print(f"  Press Ctrl+C to stop\n")
+
+    vite_proc: subprocess.Popen[bytes] | None = None
+
+    if args.dev:
+        # Start Vite dev server for hot-reload
+        ui_pkg = Path(__file__).resolve().parent
+        # Walk up to find packages/awp-ui/frontend
+        for candidate in [
+            ui_pkg.parent.parent.parent / "awp-ui" / "frontend",
+            Path.cwd() / "packages" / "awp-ui" / "frontend",
+        ]:
+            if candidate.is_dir() and (candidate / "package.json").exists():
+                print(f"  Starting Vite dev server in {candidate}")
+                try:
+                    vite_proc = subprocess.Popen(
+                        ["npm", "run", "dev"],
+                        cwd=str(candidate),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                    )
+                except FileNotFoundError:
+                    print(
+                        "  Warning: npm not found; skipping Vite dev server.",
+                        file=sys.stderr,
+                    )
+                break
+
+    # Auto-open browser after a short delay
+    if not args.no_open:
+
+        def _open_browser() -> None:
+            import time
+
+            time.sleep(1.5)
+            webbrowser.open(url)
+
+        t = threading.Thread(target=_open_browser, daemon=True)
+        t.start()
+
+    try:
+        uvicorn.run(
+            "server.app:create_app",
+            factory=True,
+            host=host,
+            port=port,
+            reload=args.dev,
+            log_level="info",
+        )
+    except KeyboardInterrupt:
+        print("\n  Shutting down AWP Workflow Studio")
+    finally:
+        if vite_proc is not None:
+            vite_proc.terminate()
+            try:
+                vite_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                vite_proc.kill()
+
     return 0
 
 
@@ -2231,120 +2368,6 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         print()
         print(f"  ✓ Updated: {', '.join(changes)}")
     print()
-
-
-def cmd_studio(args: argparse.Namespace) -> int:
-    """Launch AWP Workflow Studio (browser-based UI)."""
-    import logging
-    import os
-    import socket
-    import threading
-    import webbrowser
-
-    # --- Pre-flight: check server module is importable ---
-    try:
-        from server.app import create_app  # noqa: F401
-    except ImportError:
-        print(
-            "Error: The AWP Studio server module could not be loaded.\n"
-            "\n"
-            "This usually means the package was not installed correctly.\n"
-            "Re-install with:\n"
-            "\n"
-            "    pip install --force-reinstall awp-agents\n",
-            file=sys.stderr,
-        )
-        return 1
-
-    # --- Pre-flight: check uvicorn is available ---
-    try:
-        import uvicorn
-    except ImportError:
-        print(
-            "Error: uvicorn is not installed.\n"
-            "\n"
-            "Install it with:\n"
-            "\n"
-            "    pip install 'uvicorn[standard]'\n",
-            file=sys.stderr,
-        )
-        return 1
-
-    # --- Pre-flight: check frontend dist exists ---
-    frontend_dist = Path(__file__).resolve().parent.parent.parent / "server" / "frontend" / "dist"
-    if not (frontend_dist / "index.html").is_file():
-        # Also try relative to server module
-        try:
-            import server as _srv
-            alt = Path(_srv.__file__).resolve().parent / "frontend" / "dist"
-            if (alt / "index.html").is_file():
-                frontend_dist = alt
-            else:
-                raise FileNotFoundError
-        except (ImportError, FileNotFoundError, TypeError):
-            print(
-                "Warning: Frontend assets not found. The UI may not load.\n"
-                "Try reinstalling:  pip install --force-reinstall awp-agents\n",
-                file=sys.stderr,
-            )
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-    )
-
-    host = args.host
-    port = args.port
-    url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
-
-    if args.base_dir:
-        os.environ["AWP_BASE_DIR"] = str(Path(args.base_dir).resolve())
-
-    # --- Pre-flight: check port is available ---
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        if sock.connect_ex((host if host != "0.0.0.0" else "127.0.0.1", port)) == 0:
-            print(
-                f"Error: Port {port} is already in use.\n"
-                f"\n"
-                f"Either stop the other process or use a different port:\n"
-                f"\n"
-                f"    awp studio --port {port + 1}\n",
-                file=sys.stderr,
-            )
-            return 1
-
-    print("\n  AWP Workflow Studio")
-    print(f"  {'─' * 40}")
-    print(f"  URL:   {url}")
-    print(f"  Mode:  {'development' if args.dev else 'production'}")
-    print(f"  {'─' * 40}")
-    print("  Press Ctrl+C to stop\n")
-
-    # Auto-open browser after a short delay
-    if not args.no_open:
-
-        def _open_browser() -> None:
-            import time
-
-            time.sleep(1.5)
-            webbrowser.open(url)
-
-        t = threading.Thread(target=_open_browser, daemon=True)
-        t.start()
-
-    try:
-        uvicorn.run(
-            "server.app:create_app",
-            factory=True,
-            host=host,
-            port=port,
-            reload=args.dev,
-            log_level="info",
-        )
-    except KeyboardInterrupt:
-        print("\n  Shutting down AWP Workflow Studio")
-
-    return 0
 
 
 def _main() -> None:

@@ -18,16 +18,20 @@ EXAMPLES = Path(__file__).parents[3] / "examples"
 
 class TestProviderDetection:
     def test_detect_from_model_prefix(self):
-        assert _detect_provider("openai/gpt-4o") == "openai"
+        # provider/model format → OpenRouter (except ollama)
+        assert _detect_provider("openai/gpt-4o") == "openrouter"
         assert _detect_provider("openrouter/model") == "openrouter"
         assert _detect_provider("ollama/llama3") == "ollama"
-        assert _detect_provider("groq/llama-3.1") == "groq"
-        assert _detect_provider("together/model") == "together"
-        assert _detect_provider("mistral/model") == "mistral"
-        assert _detect_provider("deepseek/model") == "deepseek"
+        assert _detect_provider("groq/llama-3.1") == "openrouter"
+        assert _detect_provider("together/model") == "openrouter"
+        assert _detect_provider("mistral/model") == "openrouter"
+        assert _detect_provider("deepseek/model") == "openrouter"
+        assert _detect_provider("nvidia/nemotron:free") == "openrouter"
 
     def test_no_prefix(self):
-        assert _detect_provider("gpt-4o") is None
+        # Bare model names → direct provider
+        assert _detect_provider("gpt-4o") == "openai"
+        assert _detect_provider("claude-sonnet-4") == "anthropic"
         assert _detect_provider("llama3") is None
 
     def test_known_providers_have_urls(self):
@@ -54,8 +58,12 @@ class TestLLMClient:
         assert client.api_key == "ollama"
 
     def test_auto_detect_from_model(self):
+        # provider/model format routes to OpenRouter
         client = LLMClient(model="openai/gpt-4o", api_key="sk-test")
-        assert "openai" in client.base_url
+        assert "openrouter" in client.base_url
+        # Bare model name routes to direct provider
+        client2 = LLMClient(model="gpt-4o", api_key="sk-test")
+        assert "openai.com" in client2.base_url
 
     def test_missing_model_raises(self):
         client = LLMClient(api_key="test", base_url="http://localhost:8080/v1")

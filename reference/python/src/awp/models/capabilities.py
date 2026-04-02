@@ -47,7 +47,7 @@ class SandboxConfig(BaseModel):
     enabled: bool = False
     type: str = "subprocess"  # subprocess | docker | venv | wasm | isolate | none
     runtime: str = "python"
-    timeout: int = 30
+    timeout: int = 120
     max_memory_mb: int = 256
     max_cpu_seconds: int = 30
     max_output_bytes: int = 1_048_576

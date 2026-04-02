@@ -1,8 +1,7 @@
 """Build React Flow graph data from an AWP delegation loop run directory.
 
-Reuses the directory-walking logic from
-``awp.runtime.execution_graph._collect_delegation_data`` and translates it
-into the React Flow node/edge schema expected by the frontend.
+Walks the run directory structure and translates it into the React Flow
+node/edge schema expected by the frontend.
 """
 
 from __future__ import annotations

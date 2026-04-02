@@ -109,9 +109,9 @@ class RunBudgetLimits(BaseModel):
     ``max_total_tokens`` serves as the primary resource limit.
     """
 
-    max_wall_time: int = 300  # seconds — total execution time
-    max_total_tokens: int = 1_000_000  # LLM token cap across all agents
-    max_tool_calls: int = 100  # total tool invocations
+    max_wall_time: int = 600  # seconds — total execution time
+    max_total_tokens: int = 10_000_000  # LLM token cap across all agents
+    max_tool_calls: int = 250  # total tool invocations
     max_agent_runs: int = 50  # total agent executions (incl. retries)
     max_cost_usd: float = 5.0  # monetary cost cap (estimated, ignored for free models)
 
@@ -155,12 +155,12 @@ class ContextBudget(BaseModel):
 class DelegationBudget(BaseModel):
     """Resource budget for the delegation loop and recursive sub-delegations."""
 
-    max_loops: int = 20
-    max_total_workers: int = 30
-    max_total_tokens: int = 1_000_000
+    max_loops: int = 100
+    max_total_workers: int = 500
+    max_total_tokens: int = 10_000_000
     max_wall_time: int = 600  # seconds
-    max_tool_calls: int = 200
-    max_depth: int = 5  # absolute safety limit for recursive delegation
+    max_tool_calls: int = 250
+    max_depth: int = 10
 
 
 class SandboxEnforcement(BaseModel):

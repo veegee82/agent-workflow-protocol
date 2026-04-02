@@ -614,10 +614,16 @@ class RunnerService:
         result: dict[str, Any] | None = None
         status = "failed"
 
-        # Emit run.start
+        # Emit run.start (mask secrets and api_key to avoid leaking in logs)
+        safe_config = dict(config)
+        safe_config.pop("api_key", None)
+        if "secrets" in safe_config:
+            safe_config["secrets"] = {
+                k: "***" for k in safe_config["secrets"]
+            }
         event_bus.emit_threadsafe(
             run_id,
-            _make_event(run_id, EventType.RUN_START, {"run_id": run_id, **config}),
+            _make_event(run_id, EventType.RUN_START, {"run_id": run_id, **safe_config}),
         )
 
         try:
@@ -883,8 +889,23 @@ class RunnerService:
         # Dict/list fields
         if config.get("secrets"):
             kwargs["secrets"] = config["secrets"]
-        if config.get("skills"):
-            kwargs["skills"] = config["skills"]
+        # Skills: explicit list or scanned from skills_dir
+        skills_list = list(config.get("skills") or [])
+        skills_dir = config.get("skills_dir", "")
+        if skills_dir:
+            from pathlib import Path as _P
+
+            sd = _P(skills_dir).expanduser().resolve()
+            if sd.is_dir():
+                for entry in sorted(sd.iterdir()):
+                    if entry.name.startswith("."):
+                        continue
+                    if entry.is_file() and entry.suffix.lower() in (".md", ".zip", ".skill"):
+                        skills_list.append(str(entry))
+                    elif entry.is_dir() and (entry / "SKILL.md").exists():
+                        skills_list.append(str(entry))
+        if skills_list:
+            kwargs["skills"] = skills_list
 
         # Inputs: merge dict inputs and file paths
         inputs: dict[str, Any] = dict(config.get("inputs", {}))

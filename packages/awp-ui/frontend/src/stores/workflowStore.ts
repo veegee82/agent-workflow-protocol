@@ -156,12 +156,12 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   model: 'nvidia/nemotron-3-super-120b-a12b:free',
   worker_model: undefined,
   api_key: undefined,
-  max_loops: 20,
-  max_total_tokens: 500_000,
+  max_loops: 100,
+  max_total_tokens: 10_000_000,
   max_wall_time: 600,
-  max_tool_calls: 200,
-  max_total_workers: 30,
-  max_depth: 5,
+  max_tool_calls: 250,
+  max_total_workers: 500,
+  max_depth: 10,
   sandbox: 'subprocess',
   packages: [],
   code_mode: true,
@@ -171,19 +171,20 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   verbose: false,
   output_dir: '',
   input_files: [],
+  skills_dir: '',
 };
 
 const DEFAULT_BUDGET: BudgetState = {
   loops_used: 0,
-  loops_max: 20,
+  loops_max: 100,
   tokens_used: 0,
-  tokens_max: 500_000,
+  tokens_max: 10_000_000,
   workers_used: 0,
-  workers_max: 30,
+  workers_max: 500,
   wall_time_ms: 0,
   wall_time_max_ms: 600_000,
   tool_calls_used: 0,
-  tool_calls_max: 200,
+  tool_calls_max: 250,
 };
 
 // ---------------------------------------------------------------------------
@@ -586,12 +587,42 @@ function processEvent(
             language: 'text',
             title: 'Output',
           });
+          // Detect PNG/image file paths in stdout and show them inline
+          const imgPathPattern = /(\/tmp\/[^\s'"]+\.(?:png|jpg|jpeg|gif|svg))/gi;
+          const imgMatches = toolOutput.match(imgPathPattern);
+          if (imgMatches) {
+            for (const imgPath of [...new Set(imgMatches)]) {
+              const url = `/api/files/serve?path=${encodeURIComponent(imgPath)}`;
+              store.addOutputBlock({
+                type: 'image',
+                content: url,
+                title: imgPath.split('/').pop() ?? 'Chart',
+              });
+            }
+          }
         }
         if (toolError) {
           store.addOutputBlock({
             type: 'error',
             content: toolError,
             title: 'Execution Error',
+          });
+        }
+      } else if (toolName === 'file.write' && evt.data.ok !== false) {
+        // Detect file.write of image files and show them inline
+        const writePath = (toolArgs?.path as string) ?? '';
+        if (/\.(png|jpg|jpeg|gif|svg)$/i.test(writePath)) {
+          const url = `/api/files/serve?path=${encodeURIComponent(writePath)}`;
+          store.addOutputBlock({
+            type: 'image',
+            content: url,
+            title: writePath.split('/').pop() ?? 'Image',
+          });
+        } else if (isVerbose) {
+          store.addOutputBlock({
+            type: 'code',
+            content: `${toolName}(${callerId.slice(0, 8)}) → OK`,
+            title: 'Tool Call',
           });
         }
       } else if (isVerbose) {

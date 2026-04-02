@@ -111,10 +111,10 @@ class AgentWorkflow:
         api_key: str | None = None,
         worker_model: str | None = None,
         max_loops: int = 100,
-        max_total_tokens: int = 1_000_000,
-        max_wall_time: int = 3000,
-        max_tool_calls: int = 100,
-        max_total_workers: int = 100,
+        max_total_tokens: int = 10_000_000,
+        max_wall_time: int = 600,
+        max_tool_calls: int = 250,
+        max_total_workers: int = 500,
         max_depth: int = 10,
         sandbox: str = "subprocess",
         packages: list[str] | None = None,
@@ -319,7 +319,6 @@ class AgentWorkflow:
             tool_registry=tool_registry,
             manager_model=self.model,
             worker_model=self.worker_model,
-            generate_graph=self.verbose,
         )
 
         raw_result = runner.run(self.task)

@@ -42,8 +42,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from awp.models.orchestration import DelegationLoopConfig, DelegationBudget
+from ..models.orchestration import DelegationLoopConfig, DelegationBudget
 from .agent import StandaloneAgent
+from .context_sharing import (
+    ContextBudgetConfig,
+    build_input_registry,
+    prepare_context,
+)
 from .llm import LLMClient
 from .tools import ToolRegistry
 
@@ -96,6 +101,8 @@ class BudgetSnapshot:
             1 - (self.workers_spawned / max(self.max_total_workers, 1)),
             1 - (self.wall_time_elapsed / max(self.max_wall_time, 1)),
         ]
+        if self.max_total_tokens:
+            fractions.append(1 - (self.tokens_consumed / self.max_total_tokens))
         if self.max_tool_calls:
             fractions.append(1 - (self.tool_calls_used / self.max_tool_calls))
         return max(0.0, min(fractions))
@@ -108,6 +115,8 @@ class BudgetSnapshot:
             return False, "max_total_workers reached"
         if self.wall_time_elapsed >= self.max_wall_time:
             return False, "max_wall_time exceeded"
+        if self.max_total_tokens and self.tokens_consumed >= self.max_total_tokens:
+            return False, "max_total_tokens reached"
         if self.max_tool_calls and self.tool_calls_used >= self.max_tool_calls:
             return False, "max_tool_calls reached"
         return True, "ok"
@@ -253,6 +262,50 @@ class RunLogger:
             )
         self.write_md(self.run_dir / "RUN_SUMMARY.md", md)
 
+    # -- Progressive logging (real-time file writes for watchers) --------
+
+    def log_manager_decision(self, iteration: int, manager_decision: dict) -> None:
+        """Write manager_decision.json immediately after manager returns."""
+        iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
+        iter_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(iter_dir / "manager_decision.json", manager_decision)
+
+    def log_worker_envelope(
+        self, iteration: int, worker_id: str, envelope: dict
+    ) -> None:
+        """Write envelope.json before worker starts executing."""
+        worker_dir = (
+            self.run_dir
+            / "iterations"
+            / f"{iteration:03d}"
+            / "delegations"
+            / worker_id
+        )
+        worker_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(worker_dir / "envelope.json", envelope)
+
+    def log_worker_result(
+        self, iteration: int, worker_id: str, result: dict
+    ) -> None:
+        """Write result.json after worker completes."""
+        worker_dir = (
+            self.run_dir
+            / "iterations"
+            / f"{iteration:03d}"
+            / "delegations"
+            / worker_id
+        )
+        worker_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(worker_dir / "result.json", result)
+
+    def log_iteration_budget(self, iteration: int, budget: "BudgetSnapshot") -> None:
+        """Write budget_snapshot.json after iteration finishes."""
+        iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
+        iter_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(iter_dir / "budget_snapshot.json", budget.to_dict())
+
+    # -- Full iteration log (called after iteration for full artifact dump) --
+
     def log_iteration(
         self,
         iteration: int,
@@ -264,7 +317,7 @@ class RunLogger:
         iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
 
-        # Manager decision
+        # Manager decision (may already exist from progressive write)
         self.write_json(iter_dir / "manager_decision.json", manager_decision)
 
         # Delegations
@@ -619,11 +672,9 @@ class DelegationLoopRunner:
         run_id: Optional[str] = None,
         depth: int = 0,
         parent_budget: Optional[BudgetSnapshot] = None,
-        generate_graph: bool = True,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
-        self._generate_graph = generate_graph
         self._tools = tool_registry
         self._manager_model = manager_model or config.models.manager or ""
         self._worker_model = worker_model or config.models.worker or self._manager_model
@@ -736,18 +787,6 @@ class DelegationLoopRunner:
             status,
         )
 
-        # Generate execution graph (only when explicitly requested, e.g. verbose=True in Jupyter)
-        if self._generate_graph:
-            try:
-                from .execution_graph import generate_execution_graph
-
-                generate_execution_graph(
-                    run_dir=self._logger.run_dir,
-                    output_path=self._logger.run_dir / "execution_graph.html",
-                )
-            except Exception as exc:
-                logger.debug("Execution graph generation skipped: %s", exc)
-
         return {"delegation_loop": final_result}
 
     def _loop(self, task: str, state: dict) -> tuple[dict, str]:
@@ -768,6 +807,9 @@ class DelegationLoopRunner:
             # 1. Ask manager for decision
             manager_decision = self._run_manager(task, state, iteration)
             decision_type = manager_decision.get("decision", "fail")
+
+            # Write manager decision to disk immediately (for file watchers)
+            self._logger.log_manager_decision(iteration, manager_decision)
 
             # 2. Handle decision
             if decision_type == "complete":
@@ -815,12 +857,17 @@ class DelegationLoopRunner:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
 
-            delegation_results = self._execute_delegations(envelopes, task, state)
+            delegation_results = self._execute_delegations(
+                envelopes, task, state, iteration=iteration
+            )
 
             # 4. Validate results (2-tier)
             validation_results = self._validate_results(delegation_results, task)
 
-            # 5. Log iteration
+            # 5. Write budget snapshot immediately (for file watchers)
+            self._logger.log_iteration_budget(iteration, self._budget)
+
+            # 5b. Log full iteration (artifacts, tools, etc.)
             self._logger.log_iteration(
                 iteration,
                 manager_decision,
@@ -1171,7 +1218,8 @@ You MUST respond with a JSON object containing ONE of these decisions:
     # -- Worker execution -------------------------------------------------
 
     def _execute_delegations(
-        self, envelopes: list[dict], task: str, state: dict
+        self, envelopes: list[dict], task: str, state: dict,
+        iteration: int = 0,
     ) -> list[dict]:
         """Execute all delegations in parallel (fan-out)."""
         results: list[dict] = []
@@ -1182,8 +1230,13 @@ You MUST respond with a JSON object containing ONE of these decisions:
 
             logger.info("  Spawning worker: %s", worker_id)
 
+            # Write envelope to disk BEFORE worker starts (for file watchers)
+            self._logger.log_worker_envelope(iteration, worker_id, envelope)
+
             try:
                 result = self._run_ephemeral_worker(worker_id, envelope, task, state)
+                # Write result to disk immediately (for file watchers)
+                self._logger.log_worker_result(iteration, worker_id, result)
                 return {
                     "worker_id": worker_id,
                     "envelope": envelope,
@@ -1192,10 +1245,12 @@ You MUST respond with a JSON object containing ONE of these decisions:
                 }
             except Exception as exc:
                 logger.error("  Worker %s failed: %s", worker_id, exc)
+                error_result = {"error": str(exc), "confidence": 0.0}
+                self._logger.log_worker_result(iteration, worker_id, error_result)
                 return {
                     "worker_id": worker_id,
                     "envelope": envelope,
-                    "result": {"error": str(exc), "confidence": 0.0},
+                    "result": error_result,
                     "status": "error",
                 }
 
@@ -1294,29 +1349,11 @@ You MUST respond with a JSON object containing ONE of these decisions:
             workspace_path = str(self._dir / "workspace")
             output_path = str(self._dir / "output")
 
-            # List available input files so the worker knows exact paths
-            inputs_dir = self._dir / "workspace" / "inputs"
-            input_files_list = ""
-            if inputs_dir.exists():
-                files = sorted(f.name for f in inputs_dir.iterdir() if f.is_file())
-                if files:
-                    file_lines = "\n".join(
-                        f'- `_workspace_dir + "/inputs/{f}"`' for f in files
-                    )
-                    input_files_list = f"""
-## Available Input Files
+            # Build input registry with schema previews for data files
+            workspace_path_obj = self._dir / "workspace"
+            input_registry_block = build_input_registry(workspace_path_obj)
 
-The following files are available in the workspace inputs directory:
-{file_lines}
-
-To read a file in `code.execute`, use the `_workspace_dir` variable:
-```python
-import pandas as pd
-df = pd.read_csv(_workspace_dir + "/inputs/FILENAME.csv")
-```
-"""
-
-            system_parts.append(f"""{input_files_list}
+            system_parts.append(f"""{input_registry_block}
 ## File I/O
 
 In `code.execute` calls, these paths are available as pre-defined variables:
@@ -1403,18 +1440,19 @@ print("Chart saved")
 
         system_prompt = "\n".join(system_parts)
 
-        # Build user message with context
+        # Build user message with context (smart spillover for large results)
         user_parts = [f"## Task\n{task}\n"]
 
-        # Include relevant state
-        for k, v in state.items():
-            if k == "task" or k.startswith("_"):
-                continue
-            if isinstance(v, dict):
-                summary = json.dumps(v, indent=2, default=str)
-                if len(summary) > 300:
-                    summary = summary[:300] + "..."
-                user_parts.append(f"### Context: {k}\n```json\n{summary}\n```\n")
+        cb_cfg = self._config.context_budget
+        ctx_budget = ContextBudgetConfig(
+            total_chars=cb_cfg.total_chars,
+            min_per_entry=cb_cfg.min_per_entry,
+            preview_chars=cb_cfg.preview_chars,
+        )
+        workspace_dir = self._dir / "workspace"
+        context_block = prepare_context(state, workspace_dir, ctx_budget)
+        if context_block:
+            user_parts.append(context_block)
 
         user_message = "\n".join(user_parts)
 

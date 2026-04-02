@@ -261,21 +261,6 @@ budget:
 
 The manager cannot override these limits — they are enforced by the runtime.
 
-## Execution Graph Visualization
-
-After a run, generate an interactive HTML graph of the full execution:
-
-```python
-from awp.runtime.execution_graph import generate_execution_graph
-
-generate_execution_graph(
-    run_dir=Path("./output/workspace/runs/run_abc"),
-    output_path=Path("./execution_graph.html"),
-)
-```
-
-Shows managers, workers, tool calls, confidence levels, timing, and recursive sub-delegations. Self-contained HTML — open in any browser.
-
 ## The 7-Layer Model
 
 AWP organizes agent configuration into 7 semantic layers:

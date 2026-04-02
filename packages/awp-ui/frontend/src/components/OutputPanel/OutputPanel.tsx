@@ -15,6 +15,11 @@ import {
   X,
   Inbox,
   Bot,
+  Zap,
+  Cpu,
+  Users,
+  Clock,
+  Wrench,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import type { OutputBlock } from '@/types';
@@ -577,6 +582,53 @@ function OutputBlockCard({ block, index }: { block: OutputBlock; index: number }
 }
 
 // ---------------------------------------------------------------------------
+// Budget State Bar — live auto-updating budget display
+// ---------------------------------------------------------------------------
+
+function BudgetStateBar() {
+  const budget = useWorkflowStore((s) => s.budget);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const isActive = runStatus === 'running' || budget.tokens_used > 0 || budget.loops_used > 0;
+
+  if (!isActive) return null;
+
+  const pct = (used: number, max: number) => max > 0 ? Math.min(100, (used / max) * 100) : 0;
+  const fmtTokens = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
+  const fmtTime = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    return s >= 3600 ? `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`;
+  };
+
+  const items = [
+    { icon: Zap, label: 'Tokens', used: fmtTokens(budget.tokens_used), max: fmtTokens(budget.tokens_max), pct: pct(budget.tokens_used, budget.tokens_max), color: 'text-yellow-400' },
+    { icon: Cpu, label: 'Loops', used: String(budget.loops_used), max: String(budget.loops_max), pct: pct(budget.loops_used, budget.loops_max), color: 'text-blue-400' },
+    { icon: Users, label: 'Workers', used: String(budget.workers_used), max: String(budget.workers_max), pct: pct(budget.workers_used, budget.workers_max), color: 'text-purple-400' },
+    { icon: Clock, label: 'Time', used: fmtTime(budget.wall_time_ms), max: fmtTime(budget.wall_time_max_ms), pct: pct(budget.wall_time_ms, budget.wall_time_max_ms), color: 'text-green-400' },
+    { icon: Wrench, label: 'Tools', used: String(budget.tool_calls_used), max: String(budget.tool_calls_max), pct: pct(budget.tool_calls_used, budget.tool_calls_max), color: 'text-orange-400' },
+  ];
+
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-awp-border bg-awp-panel/95 backdrop-blur px-4 py-2 text-[11px]">
+      <span className="text-awp-muted font-medium uppercase tracking-wider mr-1">State</span>
+      {items.map((item) => (
+        <div key={item.label} className="flex items-center gap-1.5">
+          <item.icon className={clsx('h-3 w-3', item.color)} />
+          <span className="text-awp-muted">{item.label}</span>
+          <span className="text-awp-text font-mono">{item.used}</span>
+          <span className="text-awp-muted">/</span>
+          <span className="text-awp-muted font-mono">{item.max}</span>
+          <div className="w-10 h-1 rounded-full bg-awp-border overflow-hidden">
+            <div
+              className={clsx('h-full rounded-full transition-all duration-500', item.pct > 90 ? 'bg-red-500' : item.pct > 70 ? 'bg-yellow-500' : 'bg-awp-blue')}
+              style={{ width: `${item.pct}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Main OutputPanel
 // ---------------------------------------------------------------------------
 
@@ -610,11 +662,13 @@ export function OutputPanel() {
   }
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      className="flex h-full flex-col gap-4 overflow-y-auto px-6 py-4 scroll-smooth"
-    >
+    <div className="flex h-full flex-col">
+      <BudgetStateBar />
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4 scroll-smooth"
+      >
       {outputBlocks.map((block, i) => (
         <OutputBlockCard key={i} block={block} index={i} />
       ))}
@@ -633,6 +687,7 @@ export function OutputPanel() {
           Scroll to bottom
         </button>
       )}
+      </div>
     </div>
   );
 }

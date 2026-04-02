@@ -13,6 +13,14 @@ import {
   Trash2,
   Plus,
   Cpu,
+  BookOpen,
+  FolderOpen,
+  FileText,
+  Archive,
+  Folder,
+  Loader2,
+  AlertCircle,
+  Check,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Panel } from '@/components/Layout';
@@ -666,6 +674,171 @@ function ModelSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Skills section
+// ---------------------------------------------------------------------------
+
+interface ScannedSkill {
+  name: string;
+  path: string;
+  type: 'file' | 'directory' | 'archive';
+  size?: number;
+}
+
+function SkillsSection() {
+  const { config, updateConfig } = useWorkflowStore();
+  const [scannedSkills, setScannedSkills] = useState<ScannedSkill[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [lastScannedDir, setLastScannedDir] = useState('');
+
+  // Scan directory when skills_dir changes (debounced)
+  useEffect(() => {
+    const dir = config.skills_dir?.trim();
+    if (!dir || dir === lastScannedDir) return;
+
+    const timeout = setTimeout(async () => {
+      setScanning(true);
+      setScanError('');
+      try {
+        const { scanSkillsDirectory } = await import('@/api/client');
+        const result = await scanSkillsDirectory(dir);
+        setScannedSkills(result.skills);
+        setLastScannedDir(dir);
+        setScanError('');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Only show error if it's not a "directory not found" on partial typing
+        if (dir.length > 2) {
+          setScanError(msg.replace(/^API \d+: /, ''));
+        }
+        setScannedSkills([]);
+      } finally {
+        setScanning(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeout);
+  }, [config.skills_dir, lastScannedDir]);
+
+  // Clear scanned skills when directory is emptied
+  useEffect(() => {
+    if (!config.skills_dir?.trim()) {
+      setScannedSkills([]);
+      setLastScannedDir('');
+      setScanError('');
+    }
+  }, [config.skills_dir]);
+
+  const skillIcon = (type: string) => {
+    switch (type) {
+      case 'directory': return <Folder className="h-3 w-3 text-awp-blue" />;
+      case 'archive': return <Archive className="h-3 w-3 text-awp-yellow" />;
+      default: return <FileText className="h-3 w-3 text-awp-cyan" />;
+    }
+  };
+
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return '';
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+  };
+
+  return (
+    <Panel
+      title="Skills"
+      icon={<BookOpen className="h-3.5 w-3.5 text-awp-purple" />}
+      defaultOpen={false}
+    >
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-awp-text">Skills Directory</label>
+          <p className="text-[11px] text-awp-muted">
+            Path to a folder containing skills (.md files, SKILL.md directories, or .zip archives).
+            All skills will be available to the manager agent.
+          </p>
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <FolderOpen className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-awp-muted" />
+              <input
+                type="text"
+                value={config.skills_dir || ''}
+                onChange={(e) => updateConfig({ skills_dir: e.target.value })}
+                placeholder="/path/to/skills"
+                className="w-full rounded-lg border border-awp-border bg-awp-bg pl-7 pr-3 py-1.5 text-xs text-awp-text font-mono placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Scanning indicator */}
+        {scanning && (
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <Loader2 className="h-3 w-3 text-awp-blue animate-spin" />
+            <span className="text-[11px] text-awp-muted">Scanning directory...</span>
+          </div>
+        )}
+
+        {/* Error message */}
+        {scanError && !scanning && (
+          <div className="flex items-start gap-2 rounded-lg border border-awp-red/30 bg-awp-red/5 px-3 py-2">
+            <AlertCircle className="h-3 w-3 text-awp-red mt-0.5 shrink-0" />
+            <p className="text-[11px] text-awp-red">{scanError}</p>
+          </div>
+        )}
+
+        {/* Scanned skills list */}
+        {scannedSkills.length > 0 && !scanning && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-medium text-awp-muted uppercase tracking-wide">
+                Found Skills
+              </label>
+              <div className="flex items-center gap-1">
+                <Check className="h-3 w-3 text-awp-green" />
+                <span className="text-[10px] text-awp-green font-medium">
+                  {scannedSkills.length} skill{scannedSkills.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+            <div className="rounded-lg border border-awp-border bg-awp-bg divide-y divide-awp-border/50 max-h-40 overflow-y-auto">
+              {scannedSkills.map((skill) => (
+                <div
+                  key={skill.path}
+                  className="flex items-center gap-2 px-2.5 py-1.5"
+                  title={skill.path}
+                >
+                  {skillIcon(skill.type)}
+                  <span className="text-xs text-awp-text flex-1 truncate">
+                    {skill.name}
+                  </span>
+                  <span className="text-[10px] text-awp-muted shrink-0">
+                    {skill.type === 'directory' ? 'dir' : formatSize(skill.size)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {config.skills_dir?.trim() && !scanning && !scanError && scannedSkills.length === 0 && lastScannedDir && (
+          <div className="rounded-lg border border-awp-border/50 bg-awp-bg/50 px-3 py-2">
+            <p className="text-[11px] text-awp-muted">
+              No skills found in this directory. Skills can be:
+            </p>
+            <ul className="text-[10px] text-awp-muted mt-1 space-y-0.5 list-disc list-inside">
+              <li><span className="font-mono">.md</span> files (single-file skills)</li>
+              <li>Subdirectories with a <span className="font-mono">SKILL.md</span> file</li>
+              <li><span className="font-mono">.zip</span> or <span className="font-mono">.skill</span> archives</li>
+            </ul>
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -730,7 +903,7 @@ export function SettingsPanel() {
             description="Maximum delegation loop iterations"
             value={config.max_loops}
             min={1}
-            max={200}
+            max={500}
             step={1}
             onChange={(v) => updateConfig({ max_loops: v })}
           />
@@ -738,9 +911,9 @@ export function SettingsPanel() {
             label="Max Tokens"
             description="Total token budget across all workers"
             value={config.max_total_tokens}
-            min={10_000}
-            max={50_000_000}
-            step={10_000}
+            min={100_000}
+            max={100_000_000}
+            step={100_000}
             onChange={(v) => updateConfig({ max_total_tokens: v })}
             format={formatTokens}
           />
@@ -756,10 +929,10 @@ export function SettingsPanel() {
           />
           <SliderInput
             label="Max Workers"
-            description="Maximum number of concurrent workers"
+            description="Maximum total workers spawned"
             value={config.max_total_workers}
             min={1}
-            max={100}
+            max={1000}
             step={1}
             onChange={(v) => updateConfig({ max_total_workers: v })}
           />
@@ -777,7 +950,7 @@ export function SettingsPanel() {
             description="Maximum delegation depth"
             value={config.max_depth}
             min={1}
-            max={10}
+            max={20}
             step={1}
             onChange={(v) => updateConfig({ max_depth: v })}
           />
@@ -851,6 +1024,9 @@ export function SettingsPanel() {
           />
         </div>
       </Panel>
+
+      {/* Skills */}
+      <SkillsSection />
 
       {/* Tools */}
       <Panel

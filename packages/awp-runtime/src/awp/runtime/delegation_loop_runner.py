@@ -672,11 +672,9 @@ class DelegationLoopRunner:
         run_id: Optional[str] = None,
         depth: int = 0,
         parent_budget: Optional[BudgetSnapshot] = None,
-        generate_graph: bool = True,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
-        self._generate_graph = generate_graph
         self._tools = tool_registry
         self._manager_model = manager_model or config.models.manager or ""
         self._worker_model = worker_model or config.models.worker or self._manager_model
@@ -788,18 +786,6 @@ class DelegationLoopRunner:
             self._budget.loops_used,
             status,
         )
-
-        # Generate execution graph (only when explicitly requested, e.g. verbose=True in Jupyter)
-        if self._generate_graph:
-            try:
-                from .execution_graph import generate_execution_graph
-
-                generate_execution_graph(
-                    run_dir=self._logger.run_dir,
-                    output_path=self._logger.run_dir / "execution_graph.html",
-                )
-            except Exception as exc:
-                logger.debug("Execution graph generation skipped: %s", exc)
 
         return {"delegation_loop": final_result}
 

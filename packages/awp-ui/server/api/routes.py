@@ -43,10 +43,10 @@ _default_settings: dict[str, Any] = {
     "worker_model": None,
     "api_key": None,
     "max_loops": 100,
-    "max_total_tokens": 1_000_000,
-    "max_wall_time": 3000,
-    "max_tool_calls": 100,
-    "max_total_workers": 100,
+    "max_total_tokens": 10_000_000,
+    "max_wall_time": 600,
+    "max_tool_calls": 250,
+    "max_total_workers": 500,
     "max_depth": 10,
     "sandbox": "subprocess",
     "packages": [],
@@ -508,6 +508,68 @@ async def load_skill(skill: SkillUpload) -> dict[str, Any]:
     logger.info("Loaded skill: %s from %s", entry["name"], entry["path"])
 
     return {"status": "loaded", "skill": entry, "total_skills": len(_loaded_skills)}
+
+
+@router.post("/skills/scan")
+async def scan_skills_directory(body: dict[str, Any]) -> dict[str, Any]:
+    """Scan a directory for skill files/subdirectories.
+
+    Looks for:
+    - .md files (single-file skills)
+    - Subdirectories containing SKILL.md (directory skills)
+    - .zip / .skill archives
+    """
+    dir_path = body.get("path", "")
+    if not dir_path:
+        raise HTTPException(status_code=400, detail="path is required")
+
+    target = Path(dir_path).expanduser().resolve()
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"Directory not found: {dir_path}")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a directory: {dir_path}")
+
+    skills: list[dict[str, Any]] = []
+
+    try:
+        for entry in sorted(target.iterdir()):
+            if entry.name.startswith("."):
+                continue
+
+            if entry.is_file():
+                ext = entry.suffix.lower()
+                if ext == ".md":
+                    skills.append({
+                        "name": entry.stem,
+                        "path": str(entry),
+                        "type": "file",
+                        "size": entry.stat().st_size,
+                    })
+                elif ext in (".zip", ".skill"):
+                    skills.append({
+                        "name": entry.stem,
+                        "path": str(entry),
+                        "type": "archive",
+                        "size": entry.stat().st_size,
+                    })
+
+            elif entry.is_dir():
+                # Check if it's a skill directory (contains SKILL.md)
+                skill_md = entry / "SKILL.md"
+                if skill_md.exists():
+                    skills.append({
+                        "name": entry.name,
+                        "path": str(entry),
+                        "type": "directory",
+                    })
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {dir_path}")
+
+    return {
+        "directory": str(target),
+        "skills": skills,
+        "count": len(skills),
+    }
 
 
 # ---------------------------------------------------------------------------

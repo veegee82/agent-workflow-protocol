@@ -95,6 +95,7 @@ class WorkflowConfig(BaseModel):
 
     # Skills
     skills: list[str] = Field(default_factory=list, description="Paths to skill files/dirs.")
+    skills_dir: str | None = Field(None, description="Directory containing skills to load.")
 
 
 # ---------------------------------------------------------------------------

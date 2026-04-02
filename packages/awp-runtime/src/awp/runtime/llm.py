@@ -53,22 +53,28 @@ PROVIDER_KEY_VARS: dict[str, list[str]] = {
 
 
 def _detect_provider(model: str) -> Optional[str]:
-    """Detect provider from model name prefix like 'openai/gpt-4o'."""
+    """Detect provider from model name prefix like 'openai/gpt-4o'.
+
+    Routing rules (per AWP spec):
+    - ``provider/model-name`` format → always OpenRouter (the slash indicates
+      an OpenRouter model path, even if the prefix is ``openai/`` or ``anthropic/``).
+    - ``ollama/*`` → local Ollama.
+    - Bare model names (``gpt-4o``, ``claude-sonnet-4``) → direct provider.
+    """
     if "/" in model:
         prefix = model.split("/")[0].lower()
-        if prefix in PROVIDER_URLS:
-            return prefix
-        # Common aliases
-        aliases = {
-            "gpt": "openai",
-            "o1": "openai",
-            "claude": "openrouter",  # Claude via OpenRouter
-            "llama": "ollama",
-            "qwen": "openrouter",
-            "gemma": "ollama",
-        }
-        if prefix in aliases:
-            return aliases[prefix]
+        # Only route to local providers for known local prefixes
+        if prefix == "ollama":
+            return "ollama"
+        # Everything else with a slash is OpenRouter (provider/model format)
+        return "openrouter"
+
+    # Bare model names → direct provider
+    lower = model.lower()
+    if lower.startswith(("gpt-", "o1-", "o3", "dall-e", "text-", "tts-", "whisper")):
+        return "openai"
+    if lower.startswith("claude-"):
+        return "anthropic"
     return None
 
 
@@ -387,8 +393,17 @@ class LLMClient:
         usage = result.get("usage")
         if isinstance(usage, dict):
             total = usage.get("total_tokens", 0)
-            if isinstance(total, int):
-                self.total_tokens_used += total
+            # Fallback: sum prompt + completion if total is missing/zero
+            if not total:
+                prompt = usage.get("prompt_tokens", 0)
+                completion = usage.get("completion_tokens", 0)
+                total = (prompt or 0) + (completion or 0)
+            # Accept int, float, or numeric string
+            try:
+                total = int(total)
+            except (TypeError, ValueError):
+                total = 0
+            self.total_tokens_used += total
 
         return result
 
@@ -421,14 +436,36 @@ class LLMClient:
         messages: list[dict[str, Any]],
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Parse the assistant's response as JSON."""
+        """Parse the assistant's response as JSON with robust fallback."""
         text = self.chat_text(messages, **kwargs)
         cleaned = text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
             lines = [line for line in lines if not line.strip().startswith("```")]
             cleaned = "\n".join(lines).strip()
-        return json.loads(cleaned)
+        # Strategy 1: direct parse
+        try:
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Strategy 2: extract first {...} block via brace matching
+        start = cleaned.find("{")
+        if start != -1:
+            depth = 0
+            for i in range(start, len(cleaned)):
+                if cleaned[i] == "{":
+                    depth += 1
+                elif cleaned[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(cleaned[start : i + 1])
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                        break
+        # Strategy 3: return wrapped text so callers don't crash
+        logger.warning("chat_json: could not parse JSON, wrapping raw text")
+        return {"result": text, "confidence": 0.0, "_parse_failure": True}
 
     def chat_with_tools(
         self,

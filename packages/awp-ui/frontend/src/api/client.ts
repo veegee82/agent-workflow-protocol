@@ -191,6 +191,23 @@ export async function loadSkill(path: string): Promise<Skill> {
   });
 }
 
+/** Scan a directory for skill files and subdirectories. */
+export interface ScannedSkill {
+  name: string;
+  path: string;
+  type: 'file' | 'directory' | 'archive';
+  size?: number;
+}
+
+export async function scanSkillsDirectory(
+  path: string,
+): Promise<{ directory: string; skills: ScannedSkill[]; count: number }> {
+  return request('/api/skills/scan', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
 /** Connect to an MCP server. */
 export async function connectMCP(
   config: MCPServerConfig,
