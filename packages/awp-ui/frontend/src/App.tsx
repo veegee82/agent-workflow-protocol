@@ -125,8 +125,12 @@ function CodeBlock({ content, language, filename, maxHeight = '24rem' }: {
 // JSON Viewer — syntax highlighted, fully formatted, no height limit
 // ---------------------------------------------------------------------------
 
-/** Render any value as pretty-printed JSON with syntax highlighting. */
+/** Render any value as pretty-printed JSON with syntax highlighting.
+ *  Large JSON (>30KB) is truncated by default with a "Show all" toggle. */
 function JsonViewer({ data }: { data: unknown }) {
+  const [showFull, setShowFull] = React.useState(false);
+  const TRUNCATE_THRESHOLD = 30_000;
+
   let text: string;
   if (typeof data === 'string') {
     try {
@@ -137,7 +141,24 @@ function JsonViewer({ data }: { data: unknown }) {
   } else {
     text = JSON.stringify(data, null, 2);
   }
-  return <CodeBlock content={text} language="json" maxHeight="none" />;
+
+  const isLarge = text.length > TRUNCATE_THRESHOLD;
+  const displayText = isLarge && !showFull ? text.slice(0, TRUNCATE_THRESHOLD) + '\n// ... truncated' : text;
+
+  return (
+    <div>
+      <CodeBlock content={displayText} language="json" maxHeight="24rem" />
+      {isLarge && (
+        <button
+          type="button"
+          onClick={() => setShowFull((v) => !v)}
+          className="mt-1 text-[11px] text-awp-blue hover:underline"
+        >
+          {showFull ? 'Show less' : `Show all (${(text.length / 1024).toFixed(0)} KB)`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1044,28 +1065,114 @@ function ProtocolPanel() {
 // Results Panel — all output artifacts (images, tables, HTML, text, code, data)
 // ---------------------------------------------------------------------------
 
+/** Collapsible section for artifact groups — lazy-loads content on expand. */
+function ArtifactSection({
+  title,
+  count,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  count: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  if (count === 0) return null;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 w-full text-left group"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 text-awp-muted shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-awp-muted shrink-0" />
+        )}
+        <span className="text-xs font-medium text-awp-muted uppercase tracking-wider group-hover:text-awp-text transition-colors">
+          {title} ({count})
+        </span>
+      </button>
+      {open && <div className="mt-2">{children}</div>}
+    </div>
+  );
+}
+
+/** Paginated list — shows PAGE_SIZE items with a "Show more" button. */
+function PaginatedList<T>({
+  items,
+  pageSize = 10,
+  renderItem,
+}: {
+  items: T[];
+  pageSize?: number;
+  renderItem: (item: T, index: number) => React.ReactNode;
+}) {
+  const [visibleCount, setVisibleCount] = React.useState(pageSize);
+  const visible = items.slice(0, visibleCount);
+  const remaining = items.length - visibleCount;
+  return (
+    <>
+      {visible.map((item, i) => renderItem(item, i))}
+      {remaining > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((v) => v + pageSize)}
+          className="w-full py-2 text-[11px] text-awp-blue hover:underline text-center"
+        >
+          Show {Math.min(remaining, pageSize)} more ({remaining} remaining)
+        </button>
+      )}
+    </>
+  );
+}
+
+/** Lazy text content loader — fetches file content only when rendered. */
+function LazyTextArtifact({
+  artifact,
+  render,
+}: {
+  artifact: { name: string; path: string; relative: string; kind: string; size: number };
+  render: (content: string) => React.ReactNode;
+}) {
+  const [content, setContent] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(api.fileServeUrl(artifact.path))
+      .then((r) => r.text())
+      .then(setContent)
+      .catch(() => setContent(''))
+      .finally(() => setLoading(false));
+  }, [artifact.path]);
+
+  if (loading || content === null) {
+    return (
+      <div className="flex items-center gap-2 text-awp-muted text-xs py-2">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading {artifact.name}...
+      </div>
+    );
+  }
+  return <>{render(content)}</>;
+}
+
 function ResultsPanel() {
   const { currentRunId, runStatus } = useWorkflowStore();
   const [artifacts, setArtifacts] = React.useState<Array<{
     name: string; path: string; relative: string; kind: string; size: number;
   }>>([]);
-  const [textContents, setTextContents] = React.useState<Record<string, string>>({});
   const [loading, setLoading] = React.useState(false);
 
   useEffect(() => {
     if (!currentRunId) return;
     setLoading(true);
-    api.getRunArtifacts(currentRunId).then((arts) => {
-      setArtifacts(arts);
-      const textArts = arts.filter((a) => ['text', 'code', 'table'].includes(a.kind));
-      Promise.all(
-        textArts.map((a) =>
-          fetch(api.fileServeUrl(a.path)).then((r) => r.text()).then((txt) => [a.path, txt] as const)
-        )
-      ).then((entries) => {
-        setTextContents(Object.fromEntries(entries));
-      });
-    }).catch(() => {}).finally(() => setLoading(false));
+    api.getRunArtifacts(currentRunId)
+      .then(setArtifacts)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [currentRunId, runStatus]);
 
   if (!currentRunId) {
@@ -1113,60 +1220,46 @@ function ResultsPanel() {
         </div>
       ) : null}
 
-      {/* Images */}
-      {images.length > 0 ? (
-        <div>
-          <h3 className="text-xs font-medium text-awp-muted uppercase tracking-wider mb-2">
-            Images ({images.length})
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {images.map((img) => {
-              const url = `/api/files/serve?path=${encodeURIComponent(img.path)}`;
-              return (
-                <div key={img.path} className="rounded-lg border border-awp-border bg-awp-bg p-2">
-                  <img src={url} alt={img.name} className="max-w-full rounded" />
-                  <p className="text-[10px] text-awp-muted mt-1 truncate">{img.relative}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      {/* HTML visualizations */}
-      {htmlFiles.length > 0 ? (
-        <div>
-          <h3 className="text-xs font-medium text-awp-muted uppercase tracking-wider mb-2">
-            Visualizations ({htmlFiles.length})
-          </h3>
-          {htmlFiles.map((f) => {
-            const url = `/api/files/serve?path=${encodeURIComponent(f.path)}`;
+      {/* Images — collapsed by default, paginated */}
+      <ArtifactSection title="Images" count={images.length} defaultOpen={images.length <= 8}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <PaginatedList items={images} pageSize={8} renderItem={(img) => {
+            const url = `/api/files/serve?path=${encodeURIComponent(img.path)}`;
             return (
-              <div key={f.path} className="rounded-lg border border-awp-border bg-awp-bg overflow-hidden mb-3">
-                <div className="px-3 py-1.5 border-b border-awp-border flex items-center justify-between">
-                  <span className="text-xs text-awp-muted truncate">{f.name}</span>
-                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-awp-blue hover:underline">Open</a>
-                </div>
-                <iframe src={url} className="w-full h-96 border-0" title={f.name} sandbox="allow-scripts" />
+              <div key={img.path} className="rounded-lg border border-awp-border bg-awp-bg p-2">
+                <img src={url} alt={img.name} className="max-w-full rounded" loading="lazy" />
+                <p className="text-[10px] text-awp-muted mt-1 truncate">{img.relative}</p>
               </div>
             );
-          })}
+          }} />
         </div>
-      ) : null}
+      </ArtifactSection>
 
-      {/* Tables (CSV/TSV) */}
-      {tables.length > 0 ? (
-        <div>
-          <h3 className="text-xs font-medium text-awp-muted uppercase tracking-wider mb-2">
-            Tables ({tables.length})
-          </h3>
-          {tables.map((f) => {
-            const content = textContents[f.path] ?? '';
+      {/* HTML visualizations — collapsed, paginated */}
+      <ArtifactSection title="Visualizations" count={htmlFiles.length}>
+        <PaginatedList items={htmlFiles} pageSize={4} renderItem={(f) => {
+          const url = `/api/files/serve?path=${encodeURIComponent(f.path)}`;
+          return (
+            <div key={f.path} className="rounded-lg border border-awp-border bg-awp-bg overflow-hidden mb-3">
+              <div className="px-3 py-1.5 border-b border-awp-border flex items-center justify-between">
+                <span className="text-xs text-awp-muted truncate">{f.name}</span>
+                <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-awp-blue hover:underline">Open</a>
+              </div>
+              <iframe src={url} className="w-full h-96 border-0" title={f.name} sandbox="allow-scripts" loading="lazy" />
+            </div>
+          );
+        }} />
+      </ArtifactSection>
+
+      {/* Tables (CSV/TSV) — collapsed, lazy content loading */}
+      <ArtifactSection title="Tables" count={tables.length}>
+        <PaginatedList items={tables} pageSize={5} renderItem={(f) => (
+          <LazyTextArtifact key={f.path} artifact={f} render={(content) => {
             const rows = content.split('\n').filter(Boolean);
             const header = rows[0]?.split(',') ?? [];
             const dataRows = rows.slice(1, 101);
             return (
-              <div key={f.path} className="rounded-lg border border-awp-border bg-awp-bg overflow-hidden mb-3">
+              <div className="rounded-lg border border-awp-border bg-awp-bg overflow-hidden mb-3">
                 <div className="px-3 py-1.5 border-b border-awp-border">
                   <span className="text-xs text-awp-muted">{f.name} ({rows.length - 1} rows)</span>
                 </div>
@@ -1195,24 +1288,19 @@ function ResultsPanel() {
                 ) : null}
               </div>
             );
-          })}
-        </div>
-      ) : null}
+          }} />
+        )} />
+      </ArtifactSection>
 
-      {/* Documents (Markdown / text / JSON / YAML) */}
-      {textFiles.length > 0 ? (
-        <div>
-          <h3 className="text-xs font-medium text-awp-muted uppercase tracking-wider mb-2">
-            Documents ({textFiles.length})
-          </h3>
-          {textFiles.map((f) => {
-            const content = textContents[f.path] ?? '';
+      {/* Documents — collapsed, lazy content loading, paginated */}
+      <ArtifactSection title="Documents" count={textFiles.length}>
+        <PaginatedList items={textFiles} pageSize={5} renderItem={(f) => (
+          <LazyTextArtifact key={f.path} artifact={f} render={(content) => {
             const isMd = f.name.endsWith('.md');
             const isJson = f.name.endsWith('.json');
             const isYaml = f.name.endsWith('.yaml') || f.name.endsWith('.yml');
-
             return (
-              <div key={f.path} className="rounded-lg border border-awp-border bg-awp-bg p-3 mb-3">
+              <div className="rounded-lg border border-awp-border bg-awp-bg p-3 mb-3">
                 <span className="text-xs text-awp-muted block mb-2">{f.relative}</span>
                 {isMd ? (
                   <div className="prose prose-sm prose-invert max-w-none break-words">
@@ -1223,30 +1311,24 @@ function ResultsPanel() {
                 ) : isJson ? (
                   <JsonViewer data={content} />
                 ) : (
-                  <CodeBlock content={content} language={isYaml ? 'yaml' : undefined} filename={f.name} maxHeight="none" />
+                  <CodeBlock content={content} language={isYaml ? 'yaml' : undefined} filename={f.name} />
                 )}
               </div>
             );
-          })}
-        </div>
-      ) : null}
+          }} />
+        )} />
+      </ArtifactSection>
 
-      {/* Code files */}
-      {codeFiles.length > 0 ? (
-        <div>
-          <h3 className="text-xs font-medium text-awp-muted uppercase tracking-wider mb-2">
-            Code ({codeFiles.length})
-          </h3>
-          {codeFiles.map((f) => {
-            const content = textContents[f.path] ?? '';
-            return (
-              <div key={f.path} className="mb-3">
-                <CodeBlock content={content} filename={f.relative} maxHeight="none" />
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+      {/* Code files — collapsed, lazy content loading, paginated */}
+      <ArtifactSection title="Code" count={codeFiles.length}>
+        <PaginatedList items={codeFiles} pageSize={5} renderItem={(f) => (
+          <LazyTextArtifact key={f.path} artifact={f} render={(content) => (
+            <div className="mb-3">
+              <CodeBlock content={content} filename={f.relative} />
+            </div>
+          )} />
+        )} />
+      </ArtifactSection>
 
       {/* Empty state */}
       {!loading && artifacts.length === 0 && runStatus !== 'running' ? (
@@ -1265,10 +1347,15 @@ function ResultsPanel() {
 function OutputPanel() {
   const { outputBlocks, runStatus } = useWorkflowStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const INITIAL_VISIBLE = 30;
+  const [showAll, setShowAll] = React.useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [outputBlocks.length]);
+
+  // Reset showAll when switching runs
+  useEffect(() => { setShowAll(false); }, [runStatus]);
 
   if (outputBlocks.length === 0 && runStatus === 'idle') {
     return (
@@ -1279,10 +1366,22 @@ function OutputPanel() {
     );
   }
 
+  const hiddenCount = showAll ? 0 : Math.max(0, outputBlocks.length - INITIAL_VISIBLE);
+  const visibleBlocks = showAll ? outputBlocks : outputBlocks.slice(hiddenCount);
+
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
-      {outputBlocks.map((block, i) => (
-        <OutputBlockCard key={i} block={block} />
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full py-2 rounded-lg border border-awp-border bg-awp-bg text-[11px] text-awp-blue hover:bg-awp-blue/5 transition-colors"
+        >
+          Show {hiddenCount} earlier blocks
+        </button>
+      )}
+      {visibleBlocks.map((block, i) => (
+        <OutputBlockCard key={showAll ? i : hiddenCount + i} block={block} />
       ))}
       <div ref={bottomRef} />
     </div>
@@ -2074,7 +2173,7 @@ export function App() {
               onDeleteSession={deleteSession}
               onRenameSession={renameSession}
               onOpenFolder={(session) => {
-                const base = session.base_dir;
+                const base = session.base_dir || (config as unknown as Record<string, unknown>).base_dir as string;
                 if (!base) return;
                 const slug = (session.title || 'experiment')
                   .toLowerCase()

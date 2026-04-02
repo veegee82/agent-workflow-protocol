@@ -2050,6 +2050,11 @@ Rules:
                 validation_results.append(v)
                 continue
 
+            # Include deterministic warnings in feedback even when passed
+            det_warnings = det.get("warnings", [])
+            if det_warnings:
+                v["feedback_warnings"] = det_warnings
+
             # Tier 2: LLM (if enabled and conditions met)
             val_cfg = self._config.validation
             confidence = result.get("confidence", 0.0)
@@ -2077,10 +2082,11 @@ Rules:
     def _validate_deterministic(self, result: dict) -> dict:
         """Tier 1: Cheap deterministic checks."""
         errors = []
+        warnings = []
 
         # Must be a dict
         if not isinstance(result, dict):
-            return {"passed": False, "errors": ["Result is not a dict"]}
+            return {"passed": False, "errors": ["Result is not a dict"], "warnings": [], "file_warnings": []}
 
         # Must have confidence
         if "confidence" not in result:
@@ -2093,10 +2099,10 @@ Rules:
         elif not (0.0 <= conf <= 1.0):
             errors.append(f"Confidence out of range: {conf}")
 
-        # Flag derived/fallback confidence so manager knows
+        # Flag derived/fallback confidence as a warning (informational, not a failure)
         source = result.get("_confidence_source")
         if source:
-            errors.append(
+            warnings.append(
                 f"Confidence was not provided by worker (source: {source})"
             )
 
@@ -2118,7 +2124,7 @@ Rules:
                     f"invalid output file(s)"
                 )
 
-        return {"passed": len(errors) == 0, "errors": errors, "file_warnings": file_warnings}
+        return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings, "file_warnings": file_warnings}
 
     def _validate_output_files(self) -> list[str]:
         """Scan workspace and output dirs for invalid files."""
@@ -2352,6 +2358,7 @@ Rules:
             wid = dr.get("worker_id", "?")
             result = dr.get("result", {})
             # Try common field names
+            found_finding = False
             for key in (
                 "findings",
                 "result",
@@ -2362,16 +2369,33 @@ Rules:
             ):
                 if key in result:
                     val = result[key]
-                    if isinstance(val, str):
+                    if isinstance(val, str) and val.strip():
                         if len(val) > 150:
                             val = val[:150] + "..."
                         findings.append(f"{wid}: {val}")
-                    elif isinstance(val, list):
+                        found_finding = True
+                    elif isinstance(val, list) and val:
                         findings.append(f"{wid}: {len(val)} items")
+                        found_finding = True
                     break
-            else:
-                conf = result.get("confidence", "?")
-                findings.append(f"{wid}: confidence={conf}")
+
+            if not found_finding:
+                # Surface tool errors when result is empty
+                tool_calls = result.get("_tool_calls", [])
+                failed_tools = [
+                    tc for tc in tool_calls
+                    if isinstance(tc, dict)
+                    and isinstance(tc.get("result"), dict)
+                    and not tc["result"].get("ok", True)
+                ]
+                if failed_tools:
+                    err = failed_tools[0]["result"].get("error", "unknown error")
+                    if isinstance(err, str) and len(err) > 150:
+                        err = err[:150] + "..."
+                    findings.append(f"{wid}: TOOL ERROR — {err}")
+                else:
+                    conf = result.get("confidence", "?")
+                    findings.append(f"{wid}: confidence={conf}")
         return "; ".join(findings)
 
     def _build_partial_result(self, reason: str) -> dict:

@@ -284,7 +284,7 @@ function SessionItem({
                     e.stopPropagation();
                     onOpenFolder();
                   }}
-                  className="opacity-0 group-hover:opacity-100 shrink-0 text-awp-muted hover:text-awp-text transition-opacity"
+                  className="shrink-0 text-awp-muted hover:text-awp-text transition-colors"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                 </button>

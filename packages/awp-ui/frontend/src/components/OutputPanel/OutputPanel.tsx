@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -155,8 +155,64 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Collapsible JSON tree
+// Collapsible JSON tree (paginated for large arrays/objects)
 // ---------------------------------------------------------------------------
+
+const JSON_PAGE_SIZE = 50;
+
+/** Paginated collapsible container for JSON arrays and objects. */
+function JsonCollapsibleNode<T>({
+  name,
+  label,
+  depth,
+  open,
+  onToggle,
+  items,
+  renderItem,
+}: {
+  name?: string;
+  label: string;
+  depth: number;
+  open: boolean;
+  onToggle: () => void;
+  items: T[];
+  renderItem: (item: T, index: number) => React.ReactNode;
+}) {
+  const [visibleCount, setVisibleCount] = useState(JSON_PAGE_SIZE);
+  const visible = items.slice(0, visibleCount);
+  const remaining = items.length - visibleCount;
+
+  return (
+    <div style={{ paddingLeft: depth * 16 }}>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1 text-awp-text hover:text-awp-blue transition-colors"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0" />
+        )}
+        {name && <span className="text-awp-purple">{name}:</span>}
+        <span className="text-awp-muted">{label}</span>
+      </button>
+      {open && (
+        <div className="mt-0.5">
+          {visible.map((item, i) => renderItem(item, i))}
+          {remaining > 0 && (
+            <button
+              onClick={() => setVisibleCount((v) => v + JSON_PAGE_SIZE)}
+              className="ml-4 mt-1 text-[11px] text-awp-blue hover:underline"
+              style={{ paddingLeft: (depth + 1) * 16 }}
+            >
+              Show {Math.min(remaining, JSON_PAGE_SIZE)} more ({remaining} remaining)
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function JsonNode({
   name,
@@ -290,60 +346,34 @@ function JsonNode({
 
   if (Array.isArray(value)) {
     return (
-      <div style={{ paddingLeft: depth * 16 }}>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1 text-awp-text hover:text-awp-blue transition-colors"
-        >
-          {open ? (
-            <ChevronDown className="h-3 w-3 shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0" />
-          )}
-          {name && <span className="text-awp-purple">{name}:</span>}
-          <span className="text-awp-muted">
-            [{value.length} item{value.length !== 1 ? 's' : ''}]
-          </span>
-        </button>
-        {open && (
-          <div className="mt-0.5">
-            {value.map((item, i) => (
-              <JsonNode key={i} name={String(i)} value={item} depth={depth + 1} />
-            ))}
-          </div>
+      <JsonCollapsibleNode
+        name={name}
+        label={`[${value.length} item${value.length !== 1 ? 's' : ''}]`}
+        depth={depth}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        items={value}
+        renderItem={(item, i) => (
+          <JsonNode key={i} name={String(i)} value={item} depth={depth + 1} />
         )}
-      </div>
+      />
     );
   }
 
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
     return (
-      <div style={{ paddingLeft: depth * 16 }}>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1 text-awp-text hover:text-awp-blue transition-colors"
-        >
-          {open ? (
-            <ChevronDown className="h-3 w-3 shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0" />
-          )}
-          {name && <span className="text-awp-purple">{name}:</span>}
-          <span className="text-awp-muted">
-            {'{'}
-            {entries.length} key{entries.length !== 1 ? 's' : ''}
-            {'}'}
-          </span>
-        </button>
-        {open && (
-          <div className="mt-0.5">
-            {entries.map(([k, v]) => (
-              <JsonNode key={k} name={k} value={v} depth={depth + 1} />
-            ))}
-          </div>
+      <JsonCollapsibleNode
+        name={name}
+        label={`{${entries.length} key${entries.length !== 1 ? 's' : ''}}`}
+        depth={depth}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        items={entries}
+        renderItem={([k, v]) => (
+          <JsonNode key={k} name={k} value={v} depth={depth + 1} />
         )}
-      </div>
+      />
     );
   }
 
