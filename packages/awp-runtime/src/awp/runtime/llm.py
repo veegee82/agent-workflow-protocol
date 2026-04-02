@@ -539,10 +539,32 @@ class LLMClient:
                 sanitized_name = fn.get("name", "")
                 # Map back to original dotted name for the tool registry
                 tool_name = name_map.get(sanitized_name, sanitized_name)
+                raw_args = fn.get("arguments", "{}")
                 try:
-                    args = json.loads(fn.get("arguments", "{}"))
-                except json.JSONDecodeError:
-                    args = {}
+                    args = json.loads(raw_args)
+                except json.JSONDecodeError as jde:
+                    logger.warning(
+                        "Tool call [%d]: %s has malformed arguments: %s",
+                        round_num, tool_name, raw_args[:200],
+                    )
+                    result = {
+                        "ok": False,
+                        "status": 400,
+                        "data": {},
+                        "error": (
+                            f"Invalid JSON in tool arguments: {jde}. "
+                            f"Raw arguments: {raw_args[:300]}. "
+                            "Please retry with valid JSON arguments."
+                        ),
+                    }
+                    current_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", ""),
+                            "content": json.dumps(result, default=str),
+                        }
+                    )
+                    continue
 
                 logger.info("Tool call [%d]: %s(%s)", round_num, tool_name, args)
 
