@@ -2203,14 +2203,17 @@ export function App() {
 
         {/* Main content + task input */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <main className="flex-1 min-h-0 overflow-hidden">
-            {activePanel === 'protocol' && <ProtocolPanel />}
-            {activePanel === 'output' && <OutputPanel />}
-            {activePanel === 'results' && <ResultsPanel />}
-            {activePanel === 'graph' && <GraphPanel />}
-            {activePanel === 'graphvis' && <GraphVisPanel />}
-            {activePanel === 'memory' && <MemoryPanel />}
-            {activePanel === 'history' && <HistoryPanel />}
+          <main className="flex-1 min-h-0 overflow-hidden relative">
+            {/* Use CSS visibility instead of conditional rendering so that
+                stateful panels (GraphVisPanel, etc.) keep their internal
+                state (layout, zoom, filters) across tab switches. */}
+            <div className={`absolute inset-0 ${activePanel === 'protocol' ? '' : 'invisible pointer-events-none'}`}><ProtocolPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'output' ? '' : 'invisible pointer-events-none'}`}><OutputPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'results' ? '' : 'invisible pointer-events-none'}`}><ResultsPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'graph' ? '' : 'invisible pointer-events-none'}`}><GraphPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'graphvis' ? '' : 'invisible pointer-events-none'}`}><GraphVisPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'memory' ? '' : 'invisible pointer-events-none'}`}><MemoryPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'invisible pointer-events-none'}`}><HistoryPanel /></div>
           </main>
           <TaskInputBar />
         </div>
