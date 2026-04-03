@@ -1185,6 +1185,7 @@ class ToolRegistry:
             preamble = (
                 f"import os as _os\n"
                 f"import builtins as _builtins\n"
+                f"import sys as _sys\n"
                 f"_workspace_dir = {str(ws)!r}\n"
                 f"_output_dir = {str(out)!r}\n"
                 f"def _ensure_dir(path):\n"
@@ -1218,6 +1219,36 @@ class ToolRegistry:
                 f"    return _orig_open(path, mode, *args, **kwargs)\n"
                 f"_builtins.open = _safe_open\n"
                 f"\n"
+                f"# --- Matplotlib safety: configure non-interactive backend early ---\n"
+                f"try:\n"
+                f"    import matplotlib as _mpl\n"
+                f"    _mpl.use('Agg')  # non-interactive backend for headless execution\n"
+                f"    _AWP_MATPLOTLIB_AVAILABLE = True\n"
+                f"except ImportError:\n"
+                f"    _AWP_MATPLOTLIB_AVAILABLE = False\n"
+                f"    print('WARNING: matplotlib is not installed. Use pip.install tool to install it before plotting.', file=_sys.stderr)\n"
+                f"\n"
+                f"# --- PNG validation helper: verify saved images are real ---\n"
+                f"def _verify_png(path):\n"
+                f"    \"\"\"Check if a saved PNG is a real image (not a placeholder). Call after savefig().\"\"\"\n"
+                f"    import struct as _struct\n"
+                f"    try:\n"
+                f"        with open(path, 'rb') as _f:\n"
+                f"            _header = _f.read(24)\n"
+                f"        if len(_header) < 24:\n"
+                f"            print(f'WARNING: {{path}} is too small ({{len(_header)}} bytes) — not a valid PNG', file=_sys.stderr)\n"
+                f"            return False\n"
+                f"        _w = _struct.unpack('>I', _header[16:20])[0]\n"
+                f"        _h = _struct.unpack('>I', _header[20:24])[0]\n"
+                f"        _size = _os.path.getsize(path)\n"
+                f"        if _w < 10 or _h < 10 or _size < 500:\n"
+                f"            print(f'WARNING: {{path}} is {{_w}}x{{_h}} ({{_size}} bytes) — placeholder, not a real chart', file=_sys.stderr)\n"
+                f"            return False\n"
+                f"        return True\n"
+                f"    except Exception as _e:\n"
+                f"        print(f'WARNING: Could not verify {{path}}: {{_e}}', file=_sys.stderr)\n"
+                f"        return False\n"
+                f"\n"
                 f"# === WORKSPACE FILE TREE (snapshot at execution time) ===\n"
                 f"{tree_comment}\n"
                 f"# === END FILE TREE ===\n"
@@ -1237,22 +1268,51 @@ class ToolRegistry:
 
         # --- File output validation (Phase 1: immediate feedback) ---
         file_warnings: list[str] = []
+        changed_paths: list[Path] = []
         if dirs_to_watch:
+            from .file_validator import find_changed_files, build_repair_instructions, classify_warning_severity
             snapshots_after = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
             for d_str in snapshots_before:
                 w = validate_changed_files(snapshots_before[d_str], snapshots_after[d_str])
                 file_warnings.extend(w)
+                changed_paths.extend(
+                    find_changed_files(snapshots_before[d_str], snapshots_after[d_str])
+                )
 
         if file_warnings:
+            # Build structured repair instructions with severity levels
+            warning_pairs = []
+            has_critical = False
+            for p in changed_paths:
+                from .file_validator import validate_file
+                w = validate_file(p)
+                if w:
+                    warning_pairs.append((p, w))
+                    severity = classify_warning_severity(p, w)
+                    if severity == "critical":
+                        has_critical = True
+
+            repair_instructions = build_repair_instructions(warning_pairs)
             warning_block = (
                 "\n\n⚠ OUTPUT FILE VALIDATION WARNINGS:\n"
                 + "\n".join(f"  - {w}" for w in file_warnings)
-                + "\n\nACTION REQUIRED: The files listed above are invalid or empty. "
-                "You MUST re-generate them with correct, complete data before proceeding. "
-                "For plots: ensure you actually plot data (not an empty figure) before "
-                "calling savefig(). For CSVs: ensure the DataFrame has rows, not just "
-                "a header. For text files: ensure meaningful content is written."
+                + "\n\n" + repair_instructions
             )
+
+            if has_critical:
+                warning_block += (
+                    "\n\n🛑 STOP: You have CRITICAL file errors. "
+                    "Do NOT proceed to the next task. Fix these files FIRST by "
+                    "re-running the code that generates them. "
+                    "Common fix pattern:\n"
+                    "1. Ensure matplotlib is installed: pip.install(packages=['matplotlib'])\n"
+                    "2. Import and configure: import matplotlib; matplotlib.use('Agg')\n"
+                    "3. Plot REAL data (not empty): plt.plot(x_data, y_data)\n"
+                    "4. Save: plt.savefig(path, dpi=150, bbox_inches='tight')\n"
+                    "5. Close: plt.close()\n"
+                    "NEVER write base64 placeholder images as a fallback."
+                )
+
             if result["ok"]:
                 # Attach warnings to stdout so the LLM sees them
                 data = result.get("data", {})
@@ -1262,10 +1322,12 @@ class ToolRegistry:
                     result["data"] = data
                 # Also flag in a dedicated field for programmatic access
                 result["_file_warnings"] = file_warnings
+                result["_has_critical_file_errors"] = has_critical
             else:
                 # Append to error so even failed executions report file issues
                 result["error"] = (result.get("error") or "") + warning_block
                 result["_file_warnings"] = file_warnings
+                result["_has_critical_file_errors"] = has_critical
 
         # Enhance error messages with actionable hints so the LLM can self-correct
         if not result["ok"]:

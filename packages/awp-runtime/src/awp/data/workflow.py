@@ -198,7 +198,19 @@ class AgentWorkflow:
         else:
             logging.basicConfig(level=logging.INFO)
 
-        # Set API key if provided
+        # Load secrets from ~/.awp/.env into os.environ so the LLM client
+        # can find API keys even when invoked via the programmatic API
+        # (the CLI sources this file, but AgentWorkflow() callers may not)
+        from awp.runtime.secrets import load_secrets
+        loaded = load_secrets(Path(self.output_dir) if self.output_dir else Path.cwd())
+        for key in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                     "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_PROVIDER",
+                     "GROQ_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY",
+                     "MISTRAL_API_KEY"):
+            if key in loaded and key not in os.environ:
+                os.environ[key] = loaded[key]
+
+        # Set API key if provided (explicit override takes priority)
         if self.api_key:
             os.environ["LLM_API_KEY"] = self.api_key
 

@@ -1142,6 +1142,15 @@ You MUST respond with a JSON object containing ONE of these decisions:
 - Be specific in instructions — the worker only sees what you provide
 - Set `temperature` per worker to control creativity (0.0 = deterministic, 1.0 = creative). Choose based on the task: use low temperature for analysis/validation, higher for brainstorming/writing. If omitted, defaults to 0.2.
 - Respond ONLY with the JSON object, no other text
+
+## Output File Validation
+All output files (PNGs, CSVs, JSON, etc.) are automatically validated after each worker run.
+- PNG files must be real charts (>500 bytes, >=10×10 pixels). 1×1 placeholder PNGs are REJECTED.
+- CSV files must have at least one data row beyond the header.
+- 0-byte files are always REJECTED.
+If validation finds broken files, you will see a "FILE REPAIR REQUIRED" section in the next iteration.
+You MUST delegate a repair worker to fix those files before marking the task as complete.
+Do NOT accept "complete" if there are unresolved critical file errors.
 """
 
     def _build_manager_task(self, task: str, state: dict, iteration: int) -> str:
@@ -1177,10 +1186,48 @@ You MUST respond with a JSON object containing ONE of these decisions:
         # Validation feedback from last iteration
         if self._history and self._history[-1].get("validation"):
             parts.append("## Validation Feedback\n")
+            has_file_issues = False
             for v in self._history[-1]["validation"]:
                 parts.append(
                     f"- Worker {v.get('worker_id', '?')}: {v.get('feedback', 'ok')}\n"
                 )
+                # Check for file validation failures in deterministic results
+                det = v.get("deterministic", {})
+                file_warnings = det.get("file_warnings", [])
+                if file_warnings:
+                    has_file_issues = True
+
+            # Inject explicit file repair instructions if there were file issues
+            if has_file_issues:
+                from .file_validator import validate_directory, build_repair_instructions
+                all_warnings = []
+                workspace = self._dir / "workspace"
+                output = self._dir / "output"
+                if workspace.exists():
+                    ws_outputs = workspace / "outputs"
+                    if ws_outputs.exists():
+                        for p in sorted(ws_outputs.rglob("*")):
+                            if p.is_file() and not p.name.startswith("."):
+                                from .file_validator import validate_file
+                                w = validate_file(p)
+                                if w:
+                                    all_warnings.append((p, w))
+                if output.exists():
+                    for p in sorted(output.rglob("*")):
+                        if p.is_file() and not p.name.startswith("."):
+                            from .file_validator import validate_file
+                            w = validate_file(p)
+                            if w:
+                                all_warnings.append((p, w))
+                if all_warnings:
+                    repair = build_repair_instructions(all_warnings)
+                    parts.append(f"\n## ⚠ FILE REPAIR REQUIRED\n{repair}\n")
+                    parts.append(
+                        "**You MUST delegate a worker to fix these broken files "
+                        "before marking the task as complete.** "
+                        "Instruct the worker to re-generate the files with real data. "
+                        "Do NOT accept placeholder images or empty files as valid output.\n"
+                    )
 
         # State from previous workers
         worker_states = {
@@ -1428,6 +1475,18 @@ You MUST use the `code.execute` tool to run Python code for:
 
 Do NOT try to compute results in your JSON response — use `code.execute` to run actual Python code.
 Do NOT use `file.write` for binary files (PNGs, images) — generate them via `code.execute` with matplotlib/PIL.
+
+## CRITICAL: Never Write Placeholder Files
+
+**NEVER write 1×1 pixel placeholder PNGs, empty files, or base64-encoded dummy images as a fallback.**
+If plotting fails (e.g. matplotlib not installed, empty data), you MUST:
+1. First install the missing package: `pip.install(packages=["matplotlib"])`
+2. Then re-run the plotting code with real data
+3. After saving, verify the file: `_verify_png(path)` (returns True if valid)
+
+All output files are automatically validated. Files that are empty, too small, or contain
+placeholder content will be flagged as CRITICAL errors, and your confidence score will be
+heavily penalized. The manager will require you to fix them before the task can complete.
 
 ## File I/O
 
@@ -2110,15 +2169,35 @@ Rules:
         # --- File output validation (Phase 3: safety net) ---
         file_warnings = self._validate_output_files()
         if file_warnings:
+            # Classify severity of each file warning
+            from .file_validator import classify_warning_severity
+            critical_count = 0
             for w in file_warnings:
                 errors.append(f"Invalid output file: {w}")
-            # Penalize confidence — invalid files mean the result is unreliable
+                # Try to extract path from warning for severity classification
+                # Warnings start with "filename.ext: ..."
+                fname = w.split(":")[0].strip() if ":" in w else ""
+                if fname:
+                    # Check candidate paths in output and workspace
+                    for search_dir in [self._dir / "output", self._dir / "workspace" / "outputs"]:
+                        candidates = list(search_dir.rglob(fname)) if search_dir.exists() else []
+                        for p in candidates:
+                            severity = classify_warning_severity(p, w)
+                            if severity == "critical":
+                                critical_count += 1
+                                break
+
+            # Penalize confidence — critical files get heavy penalty
             if isinstance(conf, (int, float)) and conf > 0:
-                penalty = min(0.3, 0.1 * len(file_warnings))
+                if critical_count > 0:
+                    # Critical files (0-byte, placeholder PNGs) → heavy penalty
+                    penalty = min(0.8, 0.2 * critical_count)
+                else:
+                    penalty = min(0.3, 0.1 * len(file_warnings))
                 result["confidence"] = max(0.0, conf - penalty)
                 result["_confidence_penalty_reason"] = (
                     f"Reduced by {penalty:.1f} due to {len(file_warnings)} "
-                    f"invalid output file(s)"
+                    f"invalid output file(s) ({critical_count} critical)"
                 )
 
         return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings, "file_warnings": file_warnings}

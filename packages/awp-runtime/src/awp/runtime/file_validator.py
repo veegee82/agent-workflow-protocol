@@ -87,9 +87,21 @@ def _detect_magic(path: Path, max_read: int = 16) -> str | None:
 def _validate_png(path: Path) -> str | None:
     """Return a warning string if the PNG is a placeholder, else None."""
     size = path.stat().st_size
+    if size == 0:
+        return (
+            f"{path.name}: PNG file is empty (0 bytes). "
+            "The file was created but no image data was written. "
+            "Ensure plt.savefig() is called AFTER plotting actual data, "
+            "and that the code did not error before reaching savefig()."
+        )
     if size < _RASTER_MIN_BYTES:
         return (
-            f"{path.name}: PNG is only {size} bytes — likely a placeholder. "
+            f"{path.name}: PNG is only {size} bytes — likely a 1×1 placeholder pixel. "
+            f"Do NOT write base64-encoded placeholder PNGs as a fallback. "
+            f"Instead, fix the plotting code so it generates a real chart. "
+            f"Common causes: (1) matplotlib not installed — use pip.install first, "
+            f"(2) empty DataFrame/Series passed to plot(), "
+            f"(3) plt.savefig() called on a blank figure with no data plotted. "
             f"Minimum expected: {_RASTER_MIN_BYTES} bytes for a real plot."
         )
     # Read IHDR chunk to check dimensions
@@ -102,7 +114,9 @@ def _validate_png(path: Path) -> str | None:
             if width < _PNG_MIN_WIDTH or height < _PNG_MIN_HEIGHT:
                 return (
                     f"{path.name}: PNG dimensions are {width}\u00d7{height} pixels — "
-                    f"too small to be a real chart. "
+                    f"too small to be a real chart (likely a placeholder). "
+                    f"Do NOT generate 1×1 pixel fallback images. "
+                    f"Fix the actual plotting code instead. "
                     f"Minimum: {_PNG_MIN_WIDTH}\u00d7{_PNG_MIN_HEIGHT}."
                 )
     except Exception:
@@ -586,3 +600,100 @@ def validate_changed_files(
         if w:
             warnings.append(w)
     return warnings
+
+
+# ---------------------------------------------------------------------------
+# Severity classification for file warnings
+# ---------------------------------------------------------------------------
+
+_CRITICAL_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".svg", ".webp"}
+_DATA_EXTENSIONS = {".csv", ".tsv", ".json", ".yaml", ".yml", ".xml", ".parquet", ".xlsx"}
+
+
+def classify_warning_severity(path: Path, warning: str) -> str:
+    """Classify a file warning as 'critical', 'error', or 'warning'.
+
+    - critical: The file is completely useless (0 bytes, placeholder image).
+      These MUST be regenerated — the output is broken.
+    - error: The file exists but is likely invalid (bad structure, too small).
+      Should be regenerated if possible.
+    - warning: The file may be suboptimal but is not empty/corrupt.
+    """
+    size = path.stat().st_size if path.exists() else 0
+    suffix = path.suffix.lower()
+
+    # 0-byte files are always critical
+    if size == 0:
+        return "critical"
+
+    # Placeholder images (1x1 pixel PNGs, tiny rasters) are critical
+    if suffix in _CRITICAL_EXTENSIONS and size < _RASTER_MIN_BYTES:
+        return "critical"
+
+    # Empty data files are errors
+    if suffix in _DATA_EXTENSIONS and ("empty" in warning.lower() or "no data" in warning.lower()):
+        return "error"
+
+    return "warning"
+
+
+def build_repair_instructions(warnings: list[tuple[Path, str]]) -> str:
+    """Build actionable repair instructions from a list of (path, warning) tuples.
+
+    Returns a formatted string that can be injected into the LLM context
+    to guide automatic repair of broken output files.
+    """
+    if not warnings:
+        return ""
+
+    critical = []
+    errors = []
+    for path, warning in warnings:
+        severity = classify_warning_severity(path, warning)
+        if severity == "critical":
+            critical.append((path, warning))
+        elif severity == "error":
+            errors.append((path, warning))
+
+    parts = []
+
+    if critical:
+        parts.append(
+            "🚨 CRITICAL: The following output files are BROKEN and MUST be regenerated:\n"
+        )
+        for path, warning in critical:
+            suffix = path.suffix.lower()
+            parts.append(f"  - {path.name}: {warning}")
+            if suffix in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"):
+                parts.append(
+                    f"    FIX: Re-run the plotting code that should create {path.name}. "
+                    "Ensure: (1) matplotlib is installed (pip.install if needed), "
+                    "(2) actual data is plotted before savefig(), "
+                    "(3) do NOT write placeholder/fallback images."
+                )
+            elif suffix == ".pdf":
+                parts.append(
+                    f"    FIX: Re-generate {path.name} with actual content. "
+                    "Ensure the PDF library wrote real pages."
+                )
+            else:
+                parts.append(
+                    f"    FIX: Re-generate {path.name} with actual content."
+                )
+
+    if errors:
+        parts.append(
+            "\n⚠ ERROR: The following output files have structural issues:\n"
+        )
+        for path, warning in errors:
+            parts.append(f"  - {path.name}: {warning}")
+            parts.append(f"    FIX: Re-generate with valid, complete data.")
+
+    if critical:
+        parts.append(
+            "\nIMPORTANT: Do NOT proceed to the next step until all CRITICAL files "
+            "are fixed. Do NOT use base64 placeholder images as a workaround. "
+            "If a library is missing, install it with pip.install first."
+        )
+
+    return "\n".join(parts)
