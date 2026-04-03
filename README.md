@@ -62,10 +62,15 @@
 
 ```bash
 pip install awp-agents && awp studio
-# Opens Workflow Studio at http://127.0.0.1:8420
 ```
 
-This launches **[Workflow Studio](#3-workflow-studio-ui)** — a browser-based UI where you can configure tasks, attach files, pick a model, and watch agents solve problems live. No code required.
+If `awp` is not recognized after install (common on Windows), use the universal fallback:
+
+```bash
+pip install awp-agents && python -m awp studio
+```
+
+This launches **[Workflow Studio](#3-workflow-studio-ui)** at `http://127.0.0.1:8420` — a browser-based UI where you can configure tasks, attach files, pick a model, and watch agents solve problems live. No code required.
 
 <p align="center">
   <img src="assets/ui.png" alt="AWP Workflow Studio" width="100%"/>
@@ -76,17 +81,15 @@ Options: `--port 9000`, `--no-open`, `--base-dir ./my-workflows`, `--dev` (Vite 
 ### Installation
 
 ```bash
-# With data science extras (pandas, numpy, Pillow)
-pip install awp-agents[data]
-
-# With all optional dependencies
-pip install awp-agents[all]
+pip install awp-agents
 ```
+
+> **Windows/macOS/Linux PATH issues?** If `awp` is not found after install, use `python -m awp` instead — it works identically on every platform, no PATH configuration needed. See [Platform Notes](#platform-notes) below.
 
 **For local development** (editable install from this repo):
 
 ```bash
-pip install -e "reference/python/[data]"
+pip install -e "reference/python/"
 ```
 
 <p align="center">
@@ -1143,6 +1146,19 @@ Every AWP workflow is organized into 7 semantic layers:
 **Opt-in principle**: Only layers 0+1 are required. A minimal workflow needs 5 lines of YAML. Complexity is only introduced where it's needed.
 
 For the complete theoretical derivation of all concepts (mental models, emergence theory, cybernetics parallels, analogies) see the [Theory Reference (README_NERD.md)](README_NERD.md).
+
+---
+
+## Platform Notes
+
+After `pip install awp-agents`, the `awp` console command should be available. If it is not, use `python -m awp` as a drop-in replacement.
+
+| Platform | Issue | Fix |
+|----------|-------|-----|
+| **Windows** | `awp` not recognized | `python -m awp studio` or add `Scripts\` to PATH: `setx PATH "%PATH%;%APPDATA%\Python\Python3XX\Scripts"` |
+| **macOS** | `awp` not found after `--user` install | `python3 -m awp studio` or `echo 'export PATH="$HOME/Library/Python/3.X/bin:$PATH"' >> ~/.zshrc` |
+| **Linux** | `awp` not found after `--user` install | `python3 -m awp studio` or `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc` |
+| **All** | Best practice | Use a virtual environment: `python -m venv .venv && source .venv/bin/activate && pip install awp-agents && awp studio` |
 
 ---
 

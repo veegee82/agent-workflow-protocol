@@ -13,16 +13,99 @@ Define workflows in YAML. Run them in Python. Scale from a single agent to recur
 
 ```bash
 pip install awp-agents
-
-# With data science extras (pandas, numpy, Pillow)
-pip install awp-agents[data]
-
-# With data source extras (SQL, S3)
-pip install awp-agents[sources-all]
-
-# Everything
-pip install awp-agents[all]
 ```
+
+### Quick Start (all platforms)
+
+```bash
+pip install awp-agents && awp studio
+```
+
+If `awp` is not recognized after install, use the universal fallback:
+
+```bash
+pip install awp-agents && python -m awp studio
+```
+
+`python -m awp` works identically to the `awp` command on every platform.
+
+### Platform-Specific Notes
+
+<details>
+<summary><b>Windows</b></summary>
+
+On Windows, `pip install` creates `awp.exe` in your Python `Scripts\` folder.
+If `awp` is not recognized, the Scripts folder is not in your PATH.
+
+**Option A — Use the universal fallback (recommended):**
+```cmd
+python -m awp studio
+```
+
+**Option B — Add Scripts to PATH permanently:**
+```cmd
+:: Find where pip installed the script:
+python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+
+:: Add that path to PATH (example):
+setx PATH "%PATH%;C:\Users\YourName\AppData\Roaming\Python\Python312\Scripts"
+```
+
+**Option C — Reinstall Python** from [python.org](https://www.python.org/downloads/) and check **"Add Python to PATH"** during installation.
+
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+On macOS, `pip install --user` puts scripts in `~/Library/Python/3.X/bin/` which may not be in PATH.
+
+**Option A — Use the universal fallback:**
+```bash
+python3 -m awp studio
+```
+
+**Option B — Add to PATH:**
+```bash
+echo 'export PATH="$HOME/Library/Python/3.12/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+awp studio
+```
+
+**Option C — Use a virtual environment (recommended):**
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install awp-agents
+awp studio
+```
+
+</details>
+
+<details>
+<summary><b>Linux</b></summary>
+
+On Linux, `pip install --user` puts scripts in `~/.local/bin/`.
+
+**Option A — Use the universal fallback:**
+```bash
+python3 -m awp studio
+```
+
+**Option B — Add to PATH (if not already):**
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+awp studio
+```
+
+**Option C — Use a virtual environment (recommended):**
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install awp-agents
+awp studio
+```
+
+</details>
 
 ## 3 Lines to a Running Workflow
 
@@ -185,16 +268,12 @@ Agents cannot grant themselves additional permissions. The "always denied" set i
 
 AWP includes a full browser-based UI for running and monitoring workflows in real time.
 
-**One-liner (works on Linux, macOS, and Windows):**
-
 ```bash
-pip install awp-agents && awp studio
-```
-
-If `awp` is not on your PATH after install, use:
-
-```bash
+# All platforms:
 pip install awp-agents && python -m awp studio
+
+# If awp is on PATH:
+awp studio
 ```
 
 Opens at `http://127.0.0.1:8420`. Live WebSocket streaming, agent graph visualization, artifact gallery, session persistence, and settings management — all included.
