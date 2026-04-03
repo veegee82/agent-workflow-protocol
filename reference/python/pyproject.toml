@@ -38,16 +38,16 @@ dependencies = [
     "websockets>=12.0",
     "aiosqlite>=0.19",
     "python-multipart>=0.0.6",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "sqlalchemy>=2.0",
+    "boto3>=1.28",
+    "docker>=7.0",
 ]
 
 [project.optional-dependencies]
-data = ["pandas>=2.0", "numpy>=1.24", "Pillow>=10.0"]
-sources-sql = ["sqlalchemy>=2.0"]
-sources-s3 = ["boto3>=1.28"]
-sources-all = ["sqlalchemy>=2.0", "boto3>=1.28"]
-docker = ["docker>=7.0"]
 dev = ["pytest>=7.0", "ruff>=0.4", "mypy>=1.0"]
-all = ["pandas>=2.0", "numpy>=1.24", "Pillow>=10.0", "docker>=7.0", "sqlalchemy>=2.0", "boto3>=1.28"]
 
 [project.urls]
 Homepage = "https://github.com/veegee82/agent-workflow-protocol"
