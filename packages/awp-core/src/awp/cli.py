@@ -2417,7 +2417,83 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
     print()
 
 
+def _check_awp_on_path() -> None:
+    """Print a one-time hint if the ``awp`` console script isn't on PATH.
+
+    Common on Windows after ``pip install --user`` because
+    ``%APPDATA%\\Python\\PythonXX\\Scripts`` is not added to PATH
+    by the Python installer by default.
+    """
+    import shutil
+    import os
+    import sysconfig
+
+    if shutil.which("awp") is not None:
+        return  # already on PATH, nothing to do
+
+    scripts_dir = sysconfig.get_path("scripts")
+    platform = sys.platform
+
+    print(
+        "\n"
+        "  ╔══════════════════════════════════════════════════════════════╗\n"
+        "  ║  TIP: The 'awp' command is not on your PATH.               ║\n"
+        "  ║  You can always use:  python -m awp  instead.              ║\n"
+        "  ╚══════════════════════════════════════════════════════════════╝\n"
+    )
+
+    if platform == "win32":
+        # On Windows, scripts go to Scripts/ in the Python install or venv
+        user_scripts = os.path.join(
+            os.environ.get("APPDATA", ""),
+            "Python",
+            f"Python{sys.version_info.major}{sys.version_info.minor}",
+            "Scripts",
+        )
+        print(f"  To fix permanently on Windows, add the Scripts folder to PATH:")
+        print()
+        if os.path.isdir(user_scripts):
+            print(f"    setx PATH \"%PATH%;{user_scripts}\"")
+        elif scripts_dir:
+            print(f"    setx PATH \"%PATH%;{scripts_dir}\"")
+        print()
+        print(f"  Or reinstall Python and check 'Add Python to PATH' in the installer.")
+    elif platform == "darwin":
+        # macOS: typically ~/Library/Python/X.Y/bin or ~/.local/bin
+        user_bin = os.path.expanduser(f"~/Library/Python/{sys.version_info.major}.{sys.version_info.minor}/bin")
+        local_bin = os.path.expanduser("~/.local/bin")
+        if os.path.isdir(user_bin):
+            target = user_bin
+        elif os.path.isdir(local_bin):
+            target = local_bin
+        else:
+            target = scripts_dir or "/usr/local/bin"
+        print(f"  To fix on macOS, add to your shell profile (~/.zshrc):")
+        print()
+        print(f"    echo 'export PATH=\"{target}:$PATH\"' >> ~/.zshrc && source ~/.zshrc")
+    else:
+        # Linux
+        local_bin = os.path.expanduser("~/.local/bin")
+        if os.path.isdir(local_bin):
+            target = local_bin
+        else:
+            target = scripts_dir or "~/.local/bin"
+        print(f"  To fix on Linux, add to your shell profile (~/.bashrc):")
+        print()
+        print(f"    echo 'export PATH=\"{target}:$PATH\"' >> ~/.bashrc && source ~/.bashrc")
+
+    print()
+    print(f"  Quick alternative (works everywhere, no PATH needed):")
+    print(f"    python -m awp studio")
+    print(f"    python -m awp validate <path>")
+    print()
+
+
 def _main() -> None:
+    # Check PATH only when invoked via python -m awp (not via the awp script)
+    # The awp script sets sys.argv[0] to the script path; __main__.py doesn't
+    if not sys.argv[0].endswith(("awp", "awp.exe")):
+        _check_awp_on_path()
     sys.exit(main())
 
 
