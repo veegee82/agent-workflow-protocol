@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "awp-agents"
-version = "1.0.13"
+version = "1.0.14"
 description = "Agent Workflow Protocol — an open standard for orchestrating multi-agent AI workflows with YAML definitions, DAG execution, and recursive delegation loops (A0-A4 autonomy)"
 readme = "PYPI_README.md"
 license = "MIT"
