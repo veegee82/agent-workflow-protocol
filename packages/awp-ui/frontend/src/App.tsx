@@ -45,7 +45,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import * as api from '@/api/client';
-import type { ActivePanel, OutputBlock, ExperimentStatus } from '@/types';
+import type { ActivePanel, OutputBlock, ExperimentStatus, Session } from '@/types';
 import {
   TabBar,
   Panel,
@@ -748,16 +748,17 @@ function InspectorContent({ node }: { node: { id: string; data: Record<string, u
 function useAutoSave(sessionId: string | null, field: string, value: string, delay = 800) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRef = useRef(value);
+  const updateSessionMetadata = useWorkflowStore((s) => s.updateSessionMetadata);
 
   useEffect(() => {
     if (!sessionId || value === prevRef.current) return;
     prevRef.current = value;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      api.updateSession(sessionId, { [field]: value } as Record<string, string>).catch(() => {});
+      updateSessionMetadata(sessionId, { [field]: value } as Partial<Session>);
     }, delay);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [sessionId, field, value, delay]);
+  }, [sessionId, field, value, delay, updateSessionMetadata]);
 }
 
 function ProtocolPanel() {
@@ -2173,7 +2174,10 @@ export function App() {
               onDeleteSession={deleteSession}
               onRenameSession={renameSession}
               onOpenFolder={(session) => {
-                const base = session.base_dir || (config as unknown as Record<string, unknown>).base_dir as string;
+                // Derive base_dir: session's own > current session's > any session with base_dir
+                const currentBase = sessions.find((s) => s.id === currentSessionId)?.base_dir;
+                const anyBase = sessions.find((s) => s.base_dir)?.base_dir;
+                const base = session.base_dir || currentBase || anyBase;
                 if (!base) return;
                 const slug = (session.title || 'experiment')
                   .toLowerCase()

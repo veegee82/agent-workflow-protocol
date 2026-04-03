@@ -1440,13 +1440,10 @@ Do NOT use relative paths like `open("data.csv")` — they will fail.
 
 Use string concatenation for paths: `_output_dir + "/chart.png"`
 
-**Subdirectories:** If you save files to a subdirectory (e.g. `_output_dir + "/plots/chart.png"`),
-call `_ensure_dir(path)` first to create parent directories automatically:
-```python
-path = _output_dir + "/plots/chart.png"
-_ensure_dir(path)  # creates _output_dir/plots/ if needed
-plt.savefig(path, dpi=150, bbox_inches="tight")
-```
+**Prefer flat output files:** Save files directly into `_output_dir` without subdirectories:
+`_output_dir + "/chart.png"`, `_output_dir + "/results.csv"`.
+Parent directories are created automatically when you call `open()` in write mode,
+so subdirectories like `_output_dir + "/plots/chart.png"` will also work.
 
 **Discovering files at runtime:** Call `_list_files()` to get all files in the workspace,
 or `_list_files(_output_dir)` for output files. This is useful when reading results from
