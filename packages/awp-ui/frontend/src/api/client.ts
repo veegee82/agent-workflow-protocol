@@ -422,3 +422,13 @@ export async function loadSettings(): Promise<Record<string, unknown> | null> {
     return null;
   }
 }
+
+/** Get server version from health endpoint. */
+export async function getVersion(): Promise<string> {
+  try {
+    const data = await request<{ version: string }>('/api/health');
+    return data.version;
+  } catch {
+    return '?';
+  }
+}

@@ -102,7 +102,14 @@ def main() -> None:
         import os
         os.environ["AWP_BASE_DIR"] = args.base_dir
 
-    print(f"\n  AWP Workflow Studio")
+    # Resolve version dynamically
+    try:
+        from importlib.metadata import version as _pkg_version
+        _version = _pkg_version("awp-agents")
+    except Exception:
+        _version = "dev"
+
+    print(f"\n  AWP Workflow Studio v{_version}")
     print(f"  {'─' * 40}")
     print(f"  URL:      {url}")
     print(f"  Mode:     {'development' if args.dev else 'production'}")

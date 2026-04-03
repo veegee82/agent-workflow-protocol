@@ -2048,6 +2048,11 @@ function HistoryPanel() {
 function BottomBar() {
   const { currentRunId, _wsStatus, events, budget } =
     useWorkflowStore();
+  const [version, setVersion] = React.useState('');
+
+  useEffect(() => {
+    api.getVersion().then(setVersion);
+  }, []);
 
   const isConnected = _wsStatus === 'open';
   const elapsed = budget.wall_time_ms > 0
@@ -2083,6 +2088,11 @@ function BottomBar() {
         <Clock className="h-3 w-3" />
         {elapsed}
       </span>
+
+      {/* Version */}
+      {version && (
+        <span className="text-awp-muted/50 font-mono">v{version}</span>
+      )}
     </footer>
   );
 }

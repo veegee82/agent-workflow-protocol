@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from server import __version__
 from server.event_bus import event_bus
 from server.services.store import StoreService
 
@@ -105,7 +106,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="AWP UI",
         description="Agent Workflow Protocol — Web UI backend with real-time WebSocket streaming",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -131,7 +132,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health_check() -> dict[str, str]:
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": __version__}
 
     # ------------------------------------------------------------------
     # REST API routes

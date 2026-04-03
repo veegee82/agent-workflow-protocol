@@ -91,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Do not open browser automatically",
     )
+    p_studio.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Skip automatic PyPI update check",
+    )
 
     # run
     p_run = subparsers.add_parser(
@@ -110,6 +115,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--debug", "-d", action="store_true", help="Enable debug mode (verbose output)"
+    )
+    p_run.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Skip automatic PyPI update check",
     )
 
     args = parser.parse_args(argv)
@@ -354,9 +364,34 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
     return 0
 
 
+def _auto_update_awp() -> None:
+    """Check PyPI for a newer awp-agents and upgrade if available."""
+    import subprocess as _sp
+
+    try:
+        result = _sp.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "awp-agents"],
+            capture_output=True, text=True, timeout=60,
+        )
+        output = result.stdout + result.stderr
+        if "Successfully installed" in output:
+            import re
+            pkgs = re.findall(r"awp[_-]\S+", output)
+            print(f"  Updated: {', '.join(pkgs) if pkgs else 'awp-agents'}")
+        else:
+            print("  Already up to date.")
+    except Exception as exc:
+        print(f"  Update check failed ({exc}), continuing with current version.")
+
+
 def cmd_studio(args: argparse.Namespace) -> int:
     """Launch AWP Workflow Studio (browser-based UI)."""
     import socket
+
+    # --- Pre-flight: auto-update from PyPI ---
+    if not getattr(args, "no_update", False) and not getattr(args, "dev", False):
+        print("  Checking for updates...")
+        _auto_update_awp()
 
     # --- Pre-flight: check server module is importable ---
     try:
@@ -417,7 +452,14 @@ def cmd_studio(args: argparse.Namespace) -> int:
             )
             return 1
 
-    print(f"\n  AWP Workflow Studio")
+    # Resolve version dynamically
+    try:
+        from importlib.metadata import version as _pkg_version
+        _version = _pkg_version("awp-agents")
+    except Exception:
+        _version = "dev"
+
+    print(f"\n  AWP Workflow Studio v{_version}")
     print(f"  {'─' * 40}")
     print(f"  URL:   {url}")
     print(f"  Mode:  {'development' if args.dev else 'production'}")
@@ -486,6 +528,11 @@ def cmd_studio(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Run an AWP workflow using the standalone runtime."""
+    # --- Pre-flight: auto-update from PyPI ---
+    if not getattr(args, "no_update", False):
+        print("  Checking for updates...")
+        _auto_update_awp()
+
     from .runtime import WorkflowRunner
 
     import os as _os
