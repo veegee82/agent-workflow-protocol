@@ -471,7 +471,7 @@ function RightSidebar() {
   const selectedNode = graphNodes.find((n) => n.id === selectedNodeId);
 
   return (
-    <aside className="flex flex-col gap-3 h-full overflow-y-auto p-3">
+    <aside className="flex flex-col gap-3 p-3">
       {/* Model settings */}
       <Panel
         title="Settings"
@@ -2175,7 +2175,7 @@ export function App() {
       <div className="flex flex-1 overflow-hidden">
         {/* Session sidebar (left) */}
         {sidebarOpen && (
-          <div className="w-60 shrink-0 border-r border-awp-border bg-awp-panel overflow-hidden animate-slide-in-left">
+          <div className="w-60 shrink-0 border-r border-awp-border bg-awp-panel overflow-y-auto animate-slide-in-left">
             <SessionSidebar
               sessions={sessions}
               currentSessionId={currentSessionId}
@@ -2217,7 +2217,7 @@ export function App() {
 
         {/* Settings sidebar (right) */}
         {inspectorOpen && (
-          <div className="w-80 shrink-0 border-l border-awp-border bg-awp-panel overflow-hidden animate-slide-in-right">
+          <div className="w-72 xl:w-80 shrink-0 border-l border-awp-border bg-awp-panel overflow-y-auto animate-slide-in-right">
             <RightSidebar />
           </div>
         )}
