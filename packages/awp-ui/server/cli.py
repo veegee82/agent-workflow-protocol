@@ -52,6 +52,11 @@ def main() -> None:
         help="Do not open browser automatically",
     )
     parser.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Skip automatic PyPI update check",
+    )
+    parser.add_argument(
         "--base-dir",
         default=None,
         help="Default base directory for experiment data storage",
@@ -63,6 +68,24 @@ def main() -> None:
         help="Log level (default: info)",
     )
     args = parser.parse_args()
+
+    # --- Pre-flight: auto-update from PyPI ---
+    if not args.no_update and not args.dev:
+        print("  Checking for updates...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--upgrade", "awp-agents"],
+                capture_output=True, text=True, timeout=60,
+            )
+            output = result.stdout + result.stderr
+            if "Successfully installed" in output:
+                import re
+                pkgs = re.findall(r"awp[_-]\S+", output)
+                print(f"  Updated: {', '.join(pkgs) if pkgs else 'awp-agents'}")
+            else:
+                print("  Already up to date.")
+        except Exception as exc:
+            print(f"  Update check failed ({exc}), continuing with current version.")
 
     log_level = args.log_level.upper()
     logging.basicConfig(

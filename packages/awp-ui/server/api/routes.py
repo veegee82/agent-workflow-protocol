@@ -627,13 +627,30 @@ async def create_session(body: dict[str, Any]) -> dict[str, Any]:
 
     session_id = uuid.uuid4().hex[:12]
     title = body.get("title", "Untitled Experiment")
+
+    # Resolve base_dir: explicit > global setting > default ~/awp-experiments
+    base_dir = body.get("base_dir") or ""
+    if not base_dir:
+        base_dir = _default_settings.get("base_dir") or ""
+    if not base_dir:
+        base_dir = str(Path.home() / "awp-experiments")
+        # Persist as global default so all future sessions use it
+        _default_settings["base_dir"] = base_dir
+        await store.save_settings(dict(_default_settings))
+
+    # Ensure base_dir exists
+    try:
+        Path(base_dir).mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
     await store.create_session(
         session_id,
         title=title,
         description=body.get("description", ""),
         hypothesis=body.get("hypothesis", ""),
         tags=body.get("tags"),
-        base_dir=body.get("base_dir"),
+        base_dir=base_dir,
     )
     session = await store.get_session(session_id)
     return session or {"id": session_id, "title": title}
