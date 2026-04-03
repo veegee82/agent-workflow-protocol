@@ -62,7 +62,8 @@ class VenvExecutor(BaseExecutor):
 
     def _setup_venv(self) -> None:
         """Create the venv and install packages if needed."""
-        venv_python = self._venv_dir / "bin" / "python"
+        _bin = "Scripts" if sys.platform == "win32" else "bin"
+        venv_python = self._venv_dir / _bin / "python"
 
         if not venv_python.exists():
             logger.info("Creating virtual environment at %s", self._venv_dir)
@@ -88,7 +89,8 @@ class VenvExecutor(BaseExecutor):
 
     def _install_packages(self, packages: list[str]) -> None:
         """Install pip packages into the venv."""
-        pip_path = self._venv_dir / "bin" / "pip"
+        _bin = "Scripts" if sys.platform == "win32" else "bin"
+        pip_path = self._venv_dir / _bin / "pip"
         logger.info("Installing packages in venv: %s", ", ".join(packages))
         try:
             subprocess.run(

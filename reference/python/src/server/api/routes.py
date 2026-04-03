@@ -353,9 +353,18 @@ async def serve_file(path: str = Query(...)) -> Any:
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Security: only serve files from /tmp or known workspace dirs
-    abs_str = str(file_path.resolve())
-    if not (abs_str.startswith("/tmp/") or abs_str.startswith("/home/")):
+    # Security: only serve files from temp dirs, home, or known workspace dirs
+    import tempfile
+    resolved = file_path.resolve()
+    allowed_roots = [
+        Path(tempfile.gettempdir()).resolve(),
+        Path.home().resolve(),
+    ]
+    # Also allow base_dir from settings (e.g. ~/awp-experiments)
+    global_base = _default_settings.get("base_dir")
+    if global_base:
+        allowed_roots.append(Path(global_base).resolve())
+    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return FileResponse(file_path)
