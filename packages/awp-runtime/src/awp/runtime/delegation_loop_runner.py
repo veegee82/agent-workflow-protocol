@@ -865,6 +865,36 @@ class DelegationLoopRunner:
                             result[key] = manager_decision[key]
                 if "confidence" not in result:
                     result["confidence"] = manager_decision.get("confidence", 0.8)
+
+                # --- Final output gate: reject completion if critical
+                # placeholder files exist (1x1 PNGs, empty PDFs, etc.)
+                file_warnings = self._validate_output_files()
+                if file_warnings:
+                    from .file_validator import classify_warning_severity
+                    critical = [
+                        w for w in file_warnings
+                        if self._classify_output_warning(w) == "critical"
+                    ]
+                    if critical and self._budget.can_continue()[0]:
+                        logger.warning(
+                            "Manager tried to COMPLETE but %d critical "
+                            "output files are broken: %s",
+                            len(critical),
+                            critical[:5],
+                        )
+                        # Inject the broken-file feedback into state so
+                        # the manager sees it on the next iteration and
+                        # delegates a repair worker.
+                        state["_file_repair_required"] = critical
+                        state["_last_manager_feedback"] = (
+                            f"COMPLETION REJECTED: {len(critical)} output "
+                            f"file(s) are placeholder/broken and MUST be "
+                            f"regenerated before the task can complete. "
+                            f"Broken files: "
+                            + "; ".join(critical[:10])
+                        )
+                        continue  # force another loop iteration
+
                 self._logger.log_iteration(
                     iteration,
                     manager_decision,
@@ -1228,6 +1258,17 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         "Instruct the worker to re-generate the files with real data. "
                         "Do NOT accept placeholder images or empty files as valid output.\n"
                     )
+
+        # Inject completion-rejection feedback (from final output gate)
+        repair_feedback = state.get("_last_manager_feedback")
+        if repair_feedback:
+            parts.append(
+                f"## 🛑 COMPLETION REJECTED — FILE REPAIR REQUIRED\n"
+                f"{repair_feedback}\n\n"
+                f"You MUST delegate a worker to fix these broken output "
+                f"files before attempting to complete again. "
+                f"Do NOT mark the task as complete until all files are valid.\n"
+            )
 
         # State from previous workers
         worker_states = {
@@ -2217,6 +2258,31 @@ Rules:
         if output.exists():
             warnings.extend(validate_directory(output))
         return warnings
+
+    def _classify_output_warning(self, warning: str) -> str:
+        """Classify a file warning string as critical/error/warning.
+
+        Extracts the filename from the warning (format: 'name.ext: ...'),
+        finds the actual file on disk, and uses classify_warning_severity.
+        Falls back to heuristic if the file can't be located.
+        """
+        from .file_validator import classify_warning_severity
+
+        fname = warning.split(":")[0].strip() if ":" in warning else ""
+        if fname:
+            for search_dir in [
+                self._dir / "output",
+                self._dir / "workspace" / "outputs",
+            ]:
+                if search_dir.exists():
+                    candidates = list(search_dir.rglob(fname))
+                    for p in candidates:
+                        return classify_warning_severity(p, warning)
+        # Heuristic fallback: placeholder keywords → critical
+        w_lower = warning.lower()
+        if "placeholder" in w_lower or "1×1" in w_lower or "0 bytes" in w_lower:
+            return "critical"
+        return "warning"
 
     def _validate_llm(self, result: dict, task: str, worker_id: str) -> dict:
         """Tier 2: LLM-based semantic validation."""
