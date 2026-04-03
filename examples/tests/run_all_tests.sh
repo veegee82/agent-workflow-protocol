@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 
 # Load AWP env
 source ~/.awp/.env 2>/dev/null || true
-export LLM_MODEL="${LLM_MODEL:-openrouter/nvidia/nemotron-3-super-120b-a12b:free}"
+export LLM_MODEL="${LLM_MODEL:-openrouter/openai/gpt-5-nano}"
 
 TESTS=(
   "01-basic-code-execute"

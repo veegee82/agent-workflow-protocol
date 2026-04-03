@@ -39,7 +39,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _default_settings: dict[str, Any] = {
-    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+    "model": "openai/gpt-5-nano",
     "worker_model": None,
     "api_key": None,
     "max_loops": 100,

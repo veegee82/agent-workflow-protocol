@@ -156,13 +156,13 @@ When bumping versions, update ALL of these in one commit:
 
 ## Default Model & Provider Routing
 
-- **Default model**: `nvidia/nemotron-3-super-120b-a12b:free` (free via OpenRouter)
+- **Default model**: `openai/gpt-5-nano` (via OpenRouter)
 - The UI uses a **free text input** for model selection — no dropdowns. Never add `<select>` dropdowns for model selection.
 - Provider is auto-detected from the model string:
 
 | Model string pattern | Routed to | Required API key |
 |---|---|---|
-| `provider/model-name` (e.g. `nvidia/nemotron-3-super-120b-a12b:free`) | **OpenRouter** | `OPENROUTER_API_KEY` |
+| `provider/model-name` (e.g. `openai/gpt-5-nano`) | **OpenRouter** | `OPENROUTER_API_KEY` |
 | `gpt-*`, `o1-*`, `o3*` | **OpenAI (direct)** | `OPENAI_API_KEY` |
 | `claude-*` | **Anthropic (direct)** | `ANTHROPIC_API_KEY` |
 | `ollama/*` | **Ollama (local)** | none |

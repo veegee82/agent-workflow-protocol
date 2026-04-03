@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -68,13 +69,15 @@ def _truncate(text: Any, max_len: int = 200) -> str:
 # Graph builder
 # ---------------------------------------------------------------------------
 
+_counter_lock = threading.Lock()
 _counter = 0
 
 
 def _uid(prefix: str) -> str:
     global _counter
-    _counter += 1
-    return f"{prefix}_{_counter}"
+    with _counter_lock:
+        _counter += 1
+        return f"{prefix}_{_counter}"
 
 
 def build_graph(run_dir: Path) -> GraphData:
@@ -118,6 +121,7 @@ def build_graph(run_dir: Path) -> GraphData:
             position={"x": 0, "y": 0},
             data={
                 "label": _truncate(task, 50),
+                "nodeType": "task",
                 "task": task,
                 "run_id": run_id,
                 "models": models,
@@ -153,6 +157,7 @@ def build_graph(run_dir: Path) -> GraphData:
                 position={"x": 0, "y": (max_level + 1) * _Y_SPACING},
                 data={
                     "label": f"Result: {comp_status}",
+                    "nodeType": "completion",
                     "status": comp_status,
                     "totalIterations": total_iters,
                     "finalBudget": final_budget,
@@ -170,12 +175,14 @@ def build_graph(run_dir: Path) -> GraphData:
             )
         )
 
-    # Update root status
+    # Update root and manager statuses based on completion
     if completion:
+        final_status = completion.get("status", "complete")
         for n in nodes:
             if n.id == root_id:
-                n.data["status"] = completion.get("status", "complete")
-                break
+                n.data["status"] = final_status
+            elif n.type == "manager" and n.data.get("status") == "running":
+                n.data["status"] = final_status
 
     return GraphData(nodes=nodes, edges=edges, stats=stats)
 
@@ -206,6 +213,8 @@ def _walk_run(
                 "label": f"Manager ({mgr_model[:25]})",
                 "model": mgr_model,
                 "depth": prefix.count("sub_"),
+                "nodeType": "manager",
+                "status": "running",
             },
         )
     )
@@ -261,6 +270,7 @@ def _walk_run(
                 },
                 data={
                     "label": f"Iter {iter_num}: {decision_type.upper()}",
+                    "nodeType": "iteration",
                     "iteration": iter_num,
                     "decision": decision_type,
                     "confidence": confidence,
@@ -325,6 +335,7 @@ def _walk_run(
                     },
                     data={
                         "label": worker_id_str,
+                        "nodeType": "worker",
                         "worker_id": worker_id_str,
                         "confidence": w_confidence,
                         "confidenceLabel": conf_label,
@@ -385,6 +396,7 @@ def _walk_run(
                         },
                         data={
                             "label": tool_name,
+                            "nodeType": "toolCall",
                             "tool": tool_name,
                             "ok": tc_ok,
                             "stdout": stdout,
@@ -392,7 +404,7 @@ def _walk_run(
                             "error": str(tc_result.get("error", ""))
                             if tc_result.get("error")
                             else None,
-                            "status": "ok" if tc_ok else "error",
+                            "status": "complete" if tc_ok else "error",
                         },
                     )
                 )

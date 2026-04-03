@@ -210,7 +210,7 @@ export function TaskInput() {
           type="text"
           value={config.model}
           onChange={(e) => updateConfig({ model: e.target.value })}
-          placeholder="nvidia/nemotron-3-super-120b-a12b:free"
+          placeholder="openai/gpt-5-nano"
           className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-2 text-sm font-mono text-awp-text placeholder:text-awp-muted/60 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
         />
       </div>

@@ -90,9 +90,25 @@ class BaseExecutor(ABC):
                 "data": {"installed": []},
                 "error": None,
             }
+
+        # Sanitize package names to prevent command injection
+        sanitized = []
+        for pkg in packages:
+            # Strip any shell metacharacters; allow only safe pip specifiers
+            clean = pkg.strip()
+            if clean and not any(c in clean for c in (";", "&", "|", "`", "$", "\n")):
+                sanitized.append(clean)
+        if not sanitized:
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {},
+                "error": "No valid package names provided after sanitization",
+            }
+
         try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--quiet"] + packages,
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet"] + sanitized,
                 check=True,
                 capture_output=True,
                 text=True,
@@ -101,15 +117,20 @@ class BaseExecutor(ABC):
             return {
                 "ok": True,
                 "status": 200,
-                "data": {"installed": packages},
+                "data": {
+                    "installed": sanitized,
+                    "stderr": result.stderr[:500] if result.stderr else "",
+                },
                 "error": None,
             }
         except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr[:500] if exc.stderr else str(exc)
+            stdout = exc.stdout[:500] if exc.stdout else ""
             return {
                 "ok": False,
                 "status": 500,
-                "data": {},
-                "error": f"pip install failed: {exc.stderr[:500] if exc.stderr else str(exc)}",
+                "data": {"stdout": stdout, "stderr": stderr},
+                "error": f"pip install failed: {stderr}",
             }
         except subprocess.TimeoutExpired:
             return {
@@ -117,6 +138,16 @@ class BaseExecutor(ABC):
                 "status": 408,
                 "data": {},
                 "error": "pip install timed out after 300s",
+            }
+        except FileNotFoundError:
+            return {
+                "ok": False,
+                "status": 500,
+                "data": {},
+                "error": (
+                    f"Python executable not found: {sys.executable}. "
+                    f"pip cannot be invoked."
+                ),
             }
 
     def cleanup(self) -> None:

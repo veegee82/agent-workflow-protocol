@@ -488,7 +488,7 @@ function RightSidebar() {
               value={config.model}
               onChange={(e) => updateConfig({ model: e.target.value })}
               disabled={isRunning}
-              placeholder="nvidia/nemotron-3-super-120b-a12b:free"
+              placeholder="openai/gpt-5-nano"
               className="w-full rounded-md border border-awp-border bg-awp-bg px-2.5 py-1.5 text-sm font-mono text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
             />
           </label>

@@ -789,8 +789,8 @@ class ToolRegistry:
         timeout: int = 30,
     ) -> dict[str, Any]:
         """Make an HTTP request using urllib (no external dependencies)."""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         timeout = min(timeout, 120)  # hard cap
         try:
@@ -1219,14 +1219,24 @@ class ToolRegistry:
                 f"    return _orig_open(path, mode, *args, **kwargs)\n"
                 f"_builtins.open = _safe_open\n"
                 f"\n"
-                f"# --- Matplotlib safety: configure non-interactive backend early ---\n"
+                f"# --- Matplotlib safety: auto-install and configure non-interactive backend ---\n"
+                f"_AWP_MATPLOTLIB_AVAILABLE = False\n"
                 f"try:\n"
                 f"    import matplotlib as _mpl\n"
-                f"    _mpl.use('Agg')  # non-interactive backend for headless execution\n"
+                f"    _mpl.use('Agg')\n"
                 f"    _AWP_MATPLOTLIB_AVAILABLE = True\n"
                 f"except ImportError:\n"
-                f"    _AWP_MATPLOTLIB_AVAILABLE = False\n"
-                f"    print('WARNING: matplotlib is not installed. Use pip.install tool to install it before plotting.', file=_sys.stderr)\n"
+                f"    # Auto-install matplotlib + reportlab so plots and PDFs work out of the box\n"
+                f"    try:\n"
+                f"        import subprocess as _sp\n"
+                f"        _sp.check_call([_sys.executable, '-m', 'pip', 'install', '-q',\n"
+                f"                        'matplotlib', 'reportlab'], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)\n"
+                f"        import matplotlib as _mpl\n"
+                f"        _mpl.use('Agg')\n"
+                f"        _AWP_MATPLOTLIB_AVAILABLE = True\n"
+                f"        print('INFO: Auto-installed matplotlib + reportlab for plotting/PDF support.', file=_sys.stderr)\n"
+                f"    except Exception:\n"
+                f"        print('WARNING: matplotlib is not installed and auto-install failed. Use pip.install tool.', file=_sys.stderr)\n"
                 f"\n"
                 f"# --- PNG validation helper: verify saved images are real ---\n"
                 f"def _verify_png(path):\n"
@@ -1270,7 +1280,11 @@ class ToolRegistry:
         file_warnings: list[str] = []
         changed_paths: list[Path] = []
         if dirs_to_watch:
-            from .file_validator import find_changed_files, build_repair_instructions, classify_warning_severity
+            from .file_validator import (
+                build_repair_instructions,
+                classify_warning_severity,
+                find_changed_files,
+            )
             snapshots_after = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
             for d_str in snapshots_before:
                 w = validate_changed_files(snapshots_before[d_str], snapshots_after[d_str])
@@ -1313,16 +1327,32 @@ class ToolRegistry:
                     "NEVER write base64 placeholder images as a fallback."
                 )
 
-            if result["ok"]:
-                # Attach warnings to stdout so the LLM sees them
+            if result["ok"] and has_critical:
+                # Critical file errors (placeholder PNGs, empty PDFs) →
+                # force the result to FAIL so the LLM MUST fix them before
+                # proceeding.  Without this, the LLM can ignore warnings.
                 data = result.get("data", {})
                 stdout = data.get("stdout", "") if isinstance(data, dict) else ""
                 if isinstance(data, dict):
                     data["stdout"] = stdout + warning_block
                     result["data"] = data
-                # Also flag in a dedicated field for programmatic access
+                result["ok"] = False
+                result["status"] = 422  # Unprocessable — output files are broken
+                result["error"] = (
+                    "Code executed successfully but produced INVALID output files. "
+                    + warning_block
+                )
                 result["_file_warnings"] = file_warnings
-                result["_has_critical_file_errors"] = has_critical
+                result["_has_critical_file_errors"] = True
+            elif result["ok"]:
+                # Non-critical warnings — attach but don't fail
+                data = result.get("data", {})
+                stdout = data.get("stdout", "") if isinstance(data, dict) else ""
+                if isinstance(data, dict):
+                    data["stdout"] = stdout + warning_block
+                    result["data"] = data
+                result["_file_warnings"] = file_warnings
+                result["_has_critical_file_errors"] = False
             else:
                 # Append to error so even failed executions report file issues
                 result["error"] = (result.get("error") or "") + warning_block

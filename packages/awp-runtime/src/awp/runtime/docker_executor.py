@@ -222,12 +222,19 @@ class DockerExecutor(BaseExecutor):
                 "data": {"installed": []},
                 "error": None,
             }
-        # Add to the pre-install list so subsequent execute() calls include them
-        self._packages.extend(packages)
+        # Add to the pre-install list so subsequent execute() calls include them.
+        # Deduplicate: keep only the last version specifier for each package.
+        existing = {p.split(">=")[0].split("==")[0].split("<")[0].strip().lower()
+                     for p in self._packages}
+        for pkg in packages:
+            base_name = pkg.split(">=")[0].split("==")[0].split("<")[0].strip().lower()
+            if base_name not in existing:
+                self._packages.append(pkg)
+                existing.add(base_name)
         return {
             "ok": True,
             "status": 200,
-            "data": {"installed": packages},
+            "data": {"installed": packages, "total_queued": len(self._packages)},
             "error": None,
         }
 

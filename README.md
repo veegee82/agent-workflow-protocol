@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <code>pip install awp-agents && awp studio</code>
+  <code>pip install awp-agents && python -m awp studio</code>
 </p>
 
 <p align="center">

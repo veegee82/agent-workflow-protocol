@@ -553,7 +553,7 @@ function detectProvider(model: string): ProviderRoute {
 
 /** Example model strings shown as quick-paste helpers. */
 const MODEL_EXAMPLES = [
-  { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super (free)', provider: 'OpenRouter' },
+  { id: 'openai/gpt-5-nano',                       label: 'GPT-5 Nano',              provider: 'OpenRouter' },
   { id: 'deepseek/deepseek-chat-v3-0324:free',    label: 'DeepSeek V3 (free)',      provider: 'OpenRouter' },
   { id: 'google/gemini-2.5-pro-exp-03-25:free',   label: 'Gemini 2.5 Pro (free)',   provider: 'OpenRouter' },
   { id: 'meta-llama/llama-4-maverick:free',        label: 'Llama 4 Maverick (free)', provider: 'OpenRouter' },
@@ -588,7 +588,7 @@ function ModelSection() {
             type="text"
             value={config.model}
             onChange={(e) => updateConfig({ model: e.target.value })}
-            placeholder="nvidia/nemotron-3-super-120b-a12b:free"
+            placeholder="openai/gpt-5-nano"
             className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
           />
         </div>

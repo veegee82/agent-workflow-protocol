@@ -153,7 +153,7 @@ function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[]
 
 const DEFAULT_CONFIG: WorkflowConfig = {
   task: '',
-  model: 'nvidia/nemotron-3-super-120b-a12b:free',
+  model: 'openai/gpt-5-nano',
   worker_model: undefined,
   api_key: undefined,
   max_loops: 100,

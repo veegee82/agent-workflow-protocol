@@ -21,17 +21,20 @@ import { customNodeTypes } from './CustomNodes';
 function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
-  // Build adjacency for topological sort
+  // Build adjacency for topological sort — O(n+e) using Maps
   const inDegree = new Map<string, number>();
   const children = new Map<string, string[]>();
+  const parents = new Map<string, Set<string>>();
   for (const n of nodes) {
     inDegree.set(n.id, 0);
     children.set(n.id, []);
+    parents.set(n.id, new Set());
   }
   for (const e of edges) {
+    if (!inDegree.has(e.target) || !children.has(e.source)) continue;
     inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
-    const ch = children.get(e.source);
-    if (ch) ch.push(e.target);
+    children.get(e.source)!.push(e.target);
+    parents.get(e.target)!.add(e.source);
   }
 
   // BFS layers
@@ -43,21 +46,21 @@ function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
     layers.push(queue);
     queue.forEach((id) => visited.add(id));
 
-    const next: string[] = [];
+    const next = new Set<string>();
     for (const id of queue) {
       for (const child of children.get(id) ?? []) {
-        if (!visited.has(child) && !next.includes(child)) {
-          // Check if all parents visited
-          const parentsDone = edges
-            .filter((e) => e.target === child)
-            .every((e) => visited.has(e.source));
-          if (parentsDone) next.push(child);
+        if (!visited.has(child) && !next.has(child)) {
+          // Check if all parents visited — O(1) per parent via Set
+          const allParentsVisited = [...(parents.get(child) ?? [])].every(
+            (p) => visited.has(p),
+          );
+          if (allParentsVisited) next.add(child);
         }
       }
     }
 
     // If nothing advanced, push remaining unvisited
-    if (next.length === 0) {
+    if (next.size === 0) {
       const remaining = nodes
         .filter((n) => !visited.has(n.id))
         .map((n) => n.id);
@@ -66,7 +69,7 @@ function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
         continue;
       }
     }
-    queue = next;
+    queue = [...next];
   }
 
   // Assign positions

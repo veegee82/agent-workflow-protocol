@@ -400,6 +400,36 @@ class DynamicToolFactory:
         if not validation["ok"]:
             return validation
 
+        # DT9: Reject tools that generate placeholder/dummy output files.
+        # LLMs sometimes create tools that write base64-encoded 1x1 PNGs or
+        # minimal PDF stubs as a workaround for missing libraries.  These
+        # bypass file validation and produce broken deliverables.
+        _code_lower = code.lower()
+        _desc_lower = description.lower()
+        _placeholder_indicators = [
+            # Base64-encoded 1x1 PNG payloads (multiple common variants)
+            "ivborw0kggoaaaansuheugaaaaeaaaabca",
+            # Explicit placeholder/dummy language
+            "placeholder" in _desc_lower and (
+                "png" in _desc_lower or "image" in _desc_lower
+                or "plot" in _desc_lower
+            ),
+            "placeholder" in name.lower(),
+            # Minimal PDF stubs
+            "placeholder pdf" in _code_lower,
+            "%pdf-1.1\\n%placeholder" in _code_lower,
+            b"%PDF-1.1".decode() in code and len(code) < 500 and "placeholder" in _code_lower,
+        ]
+        if any(_placeholder_indicators):
+            return _err(
+                f"Tool '{name}' appears to generate placeholder/dummy output files "
+                f"(base64 PNGs, minimal PDF stubs, etc.). "
+                f"This is not allowed — use real plotting libraries (matplotlib) "
+                f"and PDF generators (reportlab) instead. "
+                f"Install missing packages with pip.install first.",
+                403,
+            )
+
         # Code review logging
         if self._code_review:
             logger.info(
@@ -707,11 +737,81 @@ class DynamicToolFactory:
                 out.mkdir(parents=True, exist_ok=True)
                 output_dir = str(out)
 
+            # Build preamble with the same helpers code.execute provides.
+            # The AST validator only checks the tool's own code, not this
+            # preamble, so injecting _os etc. is safe and intentional.
             script = (
                 f"import json\n"
+                f"import os as _os\n"
+                f"import sys as _sys\n"
+                f"import builtins as _builtins\n"
                 f"_secrets = json.loads({json.dumps(secrets_json)})\n"
                 f"_workspace_dir = {json.dumps(workspace_dir)}\n"
                 f"_output_dir = {json.dumps(output_dir)}\n"
+                f"\n"
+                f"# --- Helpers (same as code.execute preamble) ---\n"
+                f"def _ensure_dir(path):\n"
+                f"    d = _os.path.dirname(path) if not _os.path.isdir(path) else path\n"
+                f"    _os.makedirs(d, exist_ok=True)\n"
+                f"    return path\n"
+                f"def _output_file(*parts):\n"
+                f"    return _os.path.join(_output_dir, *parts)\n"
+                f"def _input_file(*parts):\n"
+                f"    return _os.path.join(_workspace_dir, 'inputs', *parts)\n"
+                f"def _list_files(directory=None):\n"
+                f"    base = directory or _workspace_dir\n"
+                f"    found = []\n"
+                f"    for root, dirs, files in _os.walk(base):\n"
+                f"        for f in sorted(files):\n"
+                f"            full = _os.path.join(root, f)\n"
+                f"            found.append(_os.path.relpath(full, base))\n"
+                f"    return found\n"
+                f"\n"
+                f"# Auto-create parent dirs for writes\n"
+                f"_orig_open = _builtins.open\n"
+                f"def _safe_open(path, mode='r', *args, **kwargs):\n"
+                f"    p = str(path)\n"
+                f"    if any(m in str(mode) for m in ('w', 'a', 'x')):\n"
+                f"        parent = _os.path.dirname(p)\n"
+                f"        if parent and not _os.path.isdir(parent):\n"
+                f"            _os.makedirs(parent, exist_ok=True)\n"
+                f"    return _orig_open(path, mode, *args, **kwargs)\n"
+                f"_builtins.open = _safe_open\n"
+                f"\n"
+                f"# Matplotlib safety\n"
+                f"try:\n"
+                f"    import matplotlib as _mpl\n"
+                f"    _mpl.use('Agg')\n"
+                f"except ImportError:\n"
+                f"    try:\n"
+                f"        import subprocess as _sp\n"
+                f"        _sp.check_call(\n"
+                f"            [_sys.executable, '-m', 'pip', 'install', '-q',\n"
+                f"             'matplotlib', 'reportlab'],\n"
+                f"            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)\n"
+                f"        import matplotlib as _mpl\n"
+                f"        _mpl.use('Agg')\n"
+                f"    except Exception:\n"
+                f"        pass\n"
+                f"\n"
+                f"# PNG validation helper\n"
+                f"def _verify_png(path):\n"
+                f"    import struct as _struct\n"
+                f"    try:\n"
+                f"        with open(path, 'rb') as _f:\n"
+                f"            _header = _f.read(24)\n"
+                f"        if len(_header) < 24:\n"
+                f"            return False\n"
+                f"        _w = _struct.unpack('>I', _header[16:20])[0]\n"
+                f"        _h = _struct.unpack('>I', _header[20:24])[0]\n"
+                f"        _size = _os.path.getsize(path)\n"
+                f"        if _w < 10 or _h < 10 or _size < 500:\n"
+                f"            return False\n"
+                f"        return True\n"
+                f"    except Exception:\n"
+                f"        return False\n"
+                f"\n"
+                f"# --- End preamble ---\n"
                 f"{code}\n"
                 f"_args = json.loads({json.dumps(args_json)})\n"
                 f"_result = handler(**_args)\n"
@@ -725,7 +825,60 @@ class DynamicToolFactory:
                     list(injected_secrets.keys()),
                 )
 
+            # Snapshot files before execution for validation
+            _snapshot_before: dict[str, dict] = {}
+            _dirs_to_watch: list[Path] = []
+            if _workflow_dir:
+                _dirs_to_watch = [
+                    _workflow_dir / "workspace",
+                    _workflow_dir / "output",
+                ]
+                try:
+                    from .file_validator import snapshot_file_state
+                    _snapshot_before = {
+                        str(d): snapshot_file_state(d) for d in _dirs_to_watch
+                    }
+                except Exception:
+                    pass
+
             exec_result = executor.execute(script, timeout=10000)
+
+            # --- File validation: dynamic tools must not create broken files ---
+            if exec_result["ok"] and _dirs_to_watch and _snapshot_before:
+                try:
+                    from .file_validator import (
+                        classify_warning_severity,
+                        find_changed_files,
+                        snapshot_file_state,
+                        validate_file,
+                    )
+                    _snapshot_after = {
+                        str(d): snapshot_file_state(d) for d in _dirs_to_watch
+                    }
+                    critical_files: list[str] = []
+                    for d_str in _snapshot_before:
+                        changed = find_changed_files(
+                            _snapshot_before[d_str], _snapshot_after[d_str]
+                        )
+                        for p in changed:
+                            w = validate_file(p)
+                            if w and classify_warning_severity(p, w) == "critical":
+                                critical_files.append(w)
+                    if critical_files:
+                        logger.warning(
+                            "Dynamic tool %s created CRITICAL invalid files: %s",
+                            fqn, critical_files,
+                        )
+                        return _err(
+                            f"Dynamic tool '{fqn}' created invalid output files "
+                            f"(placeholder PNGs, empty PDFs, etc.). "
+                            f"Errors: {'; '.join(critical_files)}. "
+                            f"Fix: use real data and proper libraries (matplotlib, "
+                            f"reportlab) instead of base64 placeholders.",
+                            422,
+                        )
+                except ImportError:
+                    pass
 
             if exec_result["ok"]:
                 stdout = exec_result["data"]["stdout"].strip()

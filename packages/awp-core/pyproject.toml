@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "awp-core"
-version = "1.0.19"
+version = "1.0.20"
 description = "Agent Workflow Protocol — models, parser, validator, and schema tools"
 readme = "README.md"
 license = "MIT"

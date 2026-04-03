@@ -134,14 +134,16 @@ function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
 
           if (toolIds.length > 0) {
             hasToolRow = true;
+            const toolSpacing = Math.min(COL_GAP * 0.55, COL_GAP / Math.max(1, toolIds.length));
             for (let ti = 0; ti < toolIds.length; ti++) {
               positions.set(toolIds[ti], {
-                x: wx + ti * (COL_GAP * 0.55),
+                x: wx + ti * toolSpacing,
                 y: iterY + TOOL_Y_OFFSET,
               });
             }
-            // Adjust col to account for tool spread
-            col += Math.max(1, Math.ceil(toolIds.length * 0.55));
+            // Advance col to cover the full tool spread + 1 column gap
+            const toolSpread = (toolIds.length - 1) * toolSpacing;
+            col += Math.max(1, Math.ceil((toolSpread + COL_GAP * 0.3) / COL_GAP));
           } else {
             col++;
           }
