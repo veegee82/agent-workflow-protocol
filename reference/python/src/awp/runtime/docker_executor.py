@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import base64
 import logging
+import shlex
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from .base_executor import BaseExecutor
+from .base_executor import BaseExecutor, sanitize_pip_specs
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +112,10 @@ class DockerExecutor(BaseExecutor):
             # Build the in-container command
             container_cmd = []
 
-            # Optional runtime pip install
+            # Optional runtime pip install (shell-quoted to prevent injection)
             if self._pip_install and self._packages:
-                pip_cmd = f"pip install --quiet {' '.join(self._packages)} && "
+                quoted_pkgs = " ".join(shlex.quote(p) for p in self._packages)
+                pip_cmd = f"pip install --quiet {quoted_pkgs} && "
                 container_cmd.append("sh")
                 container_cmd.append("-c")
                 container_cmd.append(f"{pip_cmd}python /workspace/script.py")
@@ -222,12 +224,33 @@ class DockerExecutor(BaseExecutor):
                 "data": {"installed": []},
                 "error": None,
             }
-        # Add to the pre-install list so subsequent execute() calls include them
-        self._packages.extend(packages)
+        # Sanitize before queuing
+        sanitized, rejected = sanitize_pip_specs(packages)
+        if rejected:
+            logger.warning("Rejected pip specs in docker: %s", "; ".join(rejected))
+        if not sanitized:
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {"rejected": rejected},
+                "error": (
+                    "No valid package names after sanitization. "
+                    f"Rejected: {'; '.join(rejected)}"
+                ),
+            }
+        # Add to the pre-install list so subsequent execute() calls include them.
+        # Deduplicate: keep only the last version specifier for each package.
+        existing = {p.split(">=")[0].split("==")[0].split("<")[0].strip().lower()
+                     for p in self._packages}
+        for pkg in sanitized:
+            base_name = pkg.split(">=")[0].split("==")[0].split("<")[0].strip().lower()
+            if base_name not in existing:
+                self._packages.append(pkg)
+                existing.add(base_name)
         return {
             "ok": True,
             "status": 200,
-            "data": {"installed": packages},
+            "data": {"installed": packages, "total_queued": len(self._packages)},
             "error": None,
         }
 

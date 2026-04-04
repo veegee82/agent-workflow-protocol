@@ -408,7 +408,7 @@ class DynamicToolFactory:
         _desc_lower = description.lower()
         _placeholder_indicators = [
             # Base64-encoded 1x1 PNG payloads (multiple common variants)
-            "ivborw0kggoaaaansuheugaaaaeaaaabca",
+            "ivborw0kggoaaaansuheugaaaaeaaaabca" in _code_lower,
             # Explicit placeholder/dummy language
             "placeholder" in _desc_lower and (
                 "png" in _desc_lower or "image" in _desc_lower
@@ -582,13 +582,26 @@ class DynamicToolFactory:
             return list(self._namespace_configs[namespace].get("network_allowlist", []))
         return []
 
+    # Dangerous builtin function names that can bypass import restrictions
+    _DANGEROUS_BUILTINS: frozenset[str] = frozenset({
+        "eval", "exec", "compile", "__import__",
+    })
+
+    # Dangerous attribute names that indicate reflection-based import bypass
+    _DANGEROUS_ATTRS: frozenset[str] = frozenset({
+        "__import__", "__subclasses__", "__bases__", "__mro__",
+        "__globals__", "__builtins__", "__loader__", "__spec__",
+    })
+
     def validate_code(self, code: str, namespace: Optional[str] = None) -> dict[str, Any]:
         """Validate Python code via AST without executing it.
 
         Checks:
         1. Syntax validity
         2. No denied imports (namespace-capability-aware)
-        3. Contains exactly one ``def handler(*, ...)`` function
+        3. No dangerous builtins (eval, exec, compile, __import__)
+        4. No reflection-based import bypass (__subclasses__, __globals__, etc.)
+        5. Contains exactly one ``def handler(*, ...)`` function
 
         Args:
             code: Python source code string.
@@ -628,6 +641,49 @@ class DynamicToolFactory:
                             f"(sandbox type: {self._sandbox_type}{caps_info})",
                             403,
                         )
+
+            # --- Dangerous builtin calls: eval(), exec(), compile(), __import__() ---
+            elif isinstance(node, ast.Call):
+                func = node.func
+                # Direct call: eval(...), exec(...), __import__(...)
+                if isinstance(func, ast.Name) and func.id in self._DANGEROUS_BUILTINS:
+                    return _err(
+                        f"Use of '{func.id}()' is not allowed in dynamic tool code. "
+                        f"This function can bypass import restrictions and execute "
+                        f"arbitrary code.",
+                        403,
+                    )
+                # Attribute call: builtins.__import__(...), builtins.eval(...)
+                if isinstance(func, ast.Attribute):
+                    if func.attr in self._DANGEROUS_BUILTINS:
+                        return _err(
+                            f"Use of '.{func.attr}()' is not allowed in dynamic tool code. "
+                            f"This method can bypass import restrictions.",
+                            403,
+                        )
+                # getattr(obj, '__import__') / getattr(obj, '__globals__') etc.
+                if (
+                    isinstance(func, ast.Name) and func.id == "getattr"
+                    and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)
+                ):
+                    attr_name = node.args[1].value
+                    if attr_name in self._DANGEROUS_BUILTINS | self._DANGEROUS_ATTRS:
+                        return _err(
+                            f"Use of getattr(obj, '{attr_name}') is not allowed in "
+                            f"dynamic tool code. This can bypass sandbox restrictions.",
+                            403,
+                        )
+
+            # --- Dangerous attribute access: obj.__subclasses__, obj.__globals__ ---
+            elif isinstance(node, ast.Attribute):
+                if node.attr in self._DANGEROUS_ATTRS:
+                    return _err(
+                        f"Access to '.{node.attr}' is not allowed in dynamic tool code. "
+                        f"This attribute can be used to escape the sandbox.",
+                        403,
+                    )
 
         # Check for handler function
         handlers = []
@@ -737,66 +793,65 @@ class DynamicToolFactory:
                 out.mkdir(parents=True, exist_ok=True)
                 output_dir = str(out)
 
-            # Build preamble with the same helpers code.execute provides.
-            # The AST validator only checks the tool's own code, not this
-            # preamble, so injecting _os etc. is safe and intentional.
+            # Build preamble with RESTRICTED helpers only.
+            # SECURITY: We do NOT expose os, sys, subprocess, or builtins
+            # to dynamic tool code. Instead, we provide narrow helper
+            # functions that only do what's needed (path joining, dir
+            # creation, file listing) without giving access to the full
+            # os/sys modules.  This is critical because ALWAYS_DENIED
+            # blocks these imports in tool code, so the preamble must
+            # not re-introduce them.
             script = (
                 f"import json\n"
-                f"import os as _os\n"
-                f"import sys as _sys\n"
-                f"import builtins as _builtins\n"
                 f"_secrets = json.loads({json.dumps(secrets_json)})\n"
                 f"_workspace_dir = {json.dumps(workspace_dir)}\n"
                 f"_output_dir = {json.dumps(output_dir)}\n"
                 f"\n"
-                f"# --- Helpers (same as code.execute preamble) ---\n"
+                f"# --- Restricted helpers (no os/sys/subprocess exposed) ---\n"
                 f"def _ensure_dir(path):\n"
-                f"    d = _os.path.dirname(path) if not _os.path.isdir(path) else path\n"
-                f"    _os.makedirs(d, exist_ok=True)\n"
-                f"    return path\n"
+                f"    from pathlib import Path as _P\n"
+                f"    p = _P(path)\n"
+                f"    target = p.parent if not p.is_dir() else p\n"
+                f"    target.mkdir(parents=True, exist_ok=True)\n"
+                f"    return str(path)\n"
                 f"def _output_file(*parts):\n"
-                f"    return _os.path.join(_output_dir, *parts)\n"
+                f"    from pathlib import Path as _P\n"
+                f"    return str(_P(_output_dir).joinpath(*parts))\n"
                 f"def _input_file(*parts):\n"
-                f"    return _os.path.join(_workspace_dir, 'inputs', *parts)\n"
+                f"    from pathlib import Path as _P\n"
+                f"    return str(_P(_workspace_dir) / 'inputs' / _P(*parts))\n"
                 f"def _list_files(directory=None):\n"
-                f"    base = directory or _workspace_dir\n"
+                f"    from pathlib import Path as _P\n"
+                f"    base = _P(directory) if directory else _P(_workspace_dir)\n"
                 f"    found = []\n"
-                f"    for root, dirs, files in _os.walk(base):\n"
-                f"        for f in sorted(files):\n"
-                f"            full = _os.path.join(root, f)\n"
-                f"            found.append(_os.path.relpath(full, base))\n"
+                f"    for p in sorted(base.rglob('*')):\n"
+                f"        if p.is_file():\n"
+                f"            found.append(str(p.relative_to(base)))\n"
                 f"    return found\n"
                 f"\n"
-                f"# Auto-create parent dirs for writes\n"
+                f"# Auto-create parent dirs for writes (via pathlib, not os)\n"
+                f"import builtins as _builtins\n"
                 f"_orig_open = _builtins.open\n"
                 f"def _safe_open(path, mode='r', *args, **kwargs):\n"
-                f"    p = str(path)\n"
+                f"    from pathlib import Path as _P\n"
+                f"    p = _P(str(path))\n"
                 f"    if any(m in str(mode) for m in ('w', 'a', 'x')):\n"
-                f"        parent = _os.path.dirname(p)\n"
-                f"        if parent and not _os.path.isdir(parent):\n"
-                f"            _os.makedirs(parent, exist_ok=True)\n"
+                f"        p.parent.mkdir(parents=True, exist_ok=True)\n"
                 f"    return _orig_open(path, mode, *args, **kwargs)\n"
                 f"_builtins.open = _safe_open\n"
+                f"del _builtins  # don't expose builtins module to tool code\n"
                 f"\n"
-                f"# Matplotlib safety\n"
+                f"# Matplotlib safety (use pip.install tool to pre-install)\n"
                 f"try:\n"
                 f"    import matplotlib as _mpl\n"
                 f"    _mpl.use('Agg')\n"
                 f"except ImportError:\n"
-                f"    try:\n"
-                f"        import subprocess as _sp\n"
-                f"        _sp.check_call(\n"
-                f"            [_sys.executable, '-m', 'pip', 'install', '-q',\n"
-                f"             'matplotlib', 'reportlab'],\n"
-                f"            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)\n"
-                f"        import matplotlib as _mpl\n"
-                f"        _mpl.use('Agg')\n"
-                f"    except Exception:\n"
-                f"        pass\n"
+                f"    pass  # agent should use pip.install tool instead\n"
                 f"\n"
                 f"# PNG validation helper\n"
                 f"def _verify_png(path):\n"
                 f"    import struct as _struct\n"
+                f"    from pathlib import Path as _P\n"
                 f"    try:\n"
                 f"        with open(path, 'rb') as _f:\n"
                 f"            _header = _f.read(24)\n"
@@ -804,7 +859,7 @@ class DynamicToolFactory:
                 f"            return False\n"
                 f"        _w = _struct.unpack('>I', _header[16:20])[0]\n"
                 f"        _h = _struct.unpack('>I', _header[20:24])[0]\n"
-                f"        _size = _os.path.getsize(path)\n"
+                f"        _size = _P(path).stat().st_size\n"
                 f"        if _w < 10 or _h < 10 or _size < 500:\n"
                 f"            return False\n"
                 f"        return True\n"

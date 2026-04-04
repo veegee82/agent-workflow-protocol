@@ -87,25 +87,66 @@ class VenvExecutor(BaseExecutor):
         if self._packages:
             self._install_packages(self._packages)
 
-    def _install_packages(self, packages: list[str]) -> None:
-        """Install pip packages into the venv."""
+    def _install_packages(self, packages: list[str]) -> dict[str, Any]:
+        """Install pip packages into the venv.
+
+        Returns:
+            Standard AWP result format with installation status.
+        """
+        from .base_executor import sanitize_pip_specs
+
+        sanitized, rejected = sanitize_pip_specs(packages)
+        if rejected:
+            logger.warning("Rejected pip specs in venv: %s", "; ".join(rejected))
+        if not sanitized:
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {"rejected": rejected},
+                "error": (
+                    "No valid package names after sanitization. "
+                    f"Rejected: {'; '.join(rejected)}"
+                ),
+            }
+
         _bin = "Scripts" if sys.platform == "win32" else "bin"
         pip_path = self._venv_dir / _bin / "pip"
-        logger.info("Installing packages in venv: %s", ", ".join(packages))
+        logger.info("Installing packages in venv: %s", ", ".join(sanitized))
         try:
-            subprocess.run(
-                [str(pip_path), "install", "--quiet"] + packages,
+            result = subprocess.run(
+                [str(pip_path), "install", "--quiet"] + sanitized,
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 min for large packages
             )
             logger.info("Packages installed successfully")
+            return {
+                "ok": True,
+                "status": 200,
+                "data": {
+                    "installed": packages,
+                    "stderr": result.stderr[:500] if result.stderr else "",
+                },
+                "error": None,
+            }
         except subprocess.CalledProcessError as exc:
-            logger.warning(
-                "Failed to install packages: %s",
-                exc.stderr[:500] if exc.stderr else str(exc),
-            )
+            error_msg = exc.stderr[:500] if exc.stderr else str(exc)
+            logger.warning("Failed to install packages: %s", error_msg)
+            return {
+                "ok": False,
+                "status": 500,
+                "data": {},
+                "error": f"pip install failed in venv: {error_msg}",
+            }
+        except subprocess.TimeoutExpired:
+            logger.warning("pip install timed out after 300s")
+            return {
+                "ok": False,
+                "status": 408,
+                "data": {},
+                "error": "pip install timed out after 300s",
+            }
 
     def execute(
         self,
@@ -205,13 +246,14 @@ class VenvExecutor(BaseExecutor):
                 "data": {},
                 "error": "Runtime pip install is not enabled (set pip_install: true)",
             }
-        self._install_packages(packages)
-        return {
-            "ok": True,
-            "status": 200,
-            "data": {"installed": packages},
-            "error": None,
-        }
+        if not packages:
+            return {
+                "ok": True,
+                "status": 200,
+                "data": {"installed": []},
+                "error": None,
+            }
+        return self._install_packages(packages)
 
     def cleanup(self) -> None:
         """Remove the virtual environment directory."""

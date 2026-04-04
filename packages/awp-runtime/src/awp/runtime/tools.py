@@ -450,6 +450,64 @@ class ToolRegistry:
 
     # -- File tools ---------------------------------------------------
 
+    # Sensitive system paths that agents should never read/write
+    _SENSITIVE_PATHS: frozenset[str] = frozenset({
+        "/etc/shadow", "/etc/gshadow", "/etc/master.passwd",
+        "/etc/sudoers",
+        "/root/.ssh", "/root/.bash_history", "/root/.gnupg",
+    })
+
+    # Sensitive path prefixes — block entire directories
+    _SENSITIVE_PREFIXES: tuple[str, ...] = (
+        "/proc/", "/sys/", "/dev/",
+        "/root/.ssh/", "/root/.gnupg/",
+    )
+
+    def _is_path_allowed(self, resolved: Path) -> tuple[bool, str]:
+        """Check if a resolved path is allowed for file operations.
+
+        When a workflow_dir is set, file access is sandboxed to:
+        - The workflow directory tree
+        - /tmp and temp directories
+
+        Always blocked: sensitive system files regardless of sandbox.
+
+        Returns:
+            Tuple of (allowed, reason).
+        """
+        try:
+            resolved_str = str(resolved.resolve())
+        except (PermissionError, OSError):
+            resolved_str = str(resolved)
+
+        # Always block sensitive system files
+        for sensitive in self._SENSITIVE_PATHS:
+            if resolved_str == sensitive or resolved_str.startswith(sensitive + "/"):
+                return False, f"Access to '{sensitive}' is forbidden"
+
+        for prefix in self._SENSITIVE_PREFIXES:
+            if resolved_str.startswith(prefix):
+                return False, f"Access to '{prefix}' is forbidden"
+
+        # If workflow_dir is set, enforce sandbox
+        if self._workflow_dir:
+            workflow_root = str(self._workflow_dir.resolve())
+            # Allow access within workflow dir
+            if resolved_str.startswith(workflow_root):
+                return True, ""
+            # Allow /tmp and system temp dirs
+            import tempfile
+            tmp_dir = tempfile.gettempdir()
+            if resolved_str.startswith(tmp_dir) or resolved_str.startswith("/tmp"):
+                return True, ""
+            # Block everything else when sandboxed
+            return False, (
+                f"Path '{resolved_str}' is outside the workflow directory. "
+                f"File access is restricted to: {workflow_root}"
+            )
+
+        return True, ""
+
     def _resolve_path(self, path: str) -> Path:
         """Resolve a path, trying workspace-relative if the literal path doesn't exist.
 
@@ -477,8 +535,17 @@ class ToolRegistry:
         return p  # return original for error reporting
 
     def _file_read(self, *, path: str, encoding: str = "utf-8") -> dict[str, Any]:
+        # Early sandbox check on the raw path (before resolve, which may
+        # raise PermissionError on protected directories like /root/)
+        allowed, reason = self._is_path_allowed(Path(path))
+        if not allowed:
+            return _err(reason, 403)
         try:
             resolved = self._resolve_path(path)
+            # Re-check resolved path (in case resolve changed it)
+            allowed, reason = self._is_path_allowed(resolved)
+            if not allowed:
+                return _err(reason, 403)
             content = resolved.read_text(encoding=encoding)
             return _ok({"content": content, "size": len(content)})
         except FileNotFoundError:
@@ -491,6 +558,10 @@ class ToolRegistry:
     ) -> dict[str, Any]:
         try:
             p = Path(path)
+            # Path sandbox check
+            allowed, reason = self._is_path_allowed(p)
+            if not allowed:
+                return _err(reason, 403)
             p.parent.mkdir(parents=True, exist_ok=True)
             if mode == "append":
                 with p.open("a", encoding="utf-8") as f:
@@ -504,8 +575,16 @@ class ToolRegistry:
     def _file_list(
         self, *, path: str, pattern: str = "*", recursive: bool = False
     ) -> dict[str, Any]:
+        # Early sandbox check on raw path
+        allowed, reason = self._is_path_allowed(Path(path))
+        if not allowed:
+            return _err(reason, 403)
         try:
             p = self._resolve_path(path)
+            # Re-check resolved path
+            allowed, reason = self._is_path_allowed(p)
+            if not allowed:
+                return _err(reason, 403)
             if not p.exists():
                 return _err(f"Directory not found: {path}", 404)
             if recursive:
@@ -521,6 +600,14 @@ class ToolRegistry:
     def _shell_execute(
         self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
     ) -> dict[str, Any]:
+        # Block dangerous commands (fork bombs, rm -rf /, disk format, etc.)
+        is_dangerous, reason = self._is_dangerous_command(command)
+        if is_dangerous:
+            return _err(
+                f"shell.execute blocked: command matches dangerous pattern ({reason}). "
+                f"This command could cause irreversible damage.",
+                403,
+            )
         timeout = min(timeout, 120)  # hard cap
         try:
             result = subprocess.run(
@@ -560,7 +647,8 @@ class ToolRegistry:
     def _contains_sudo(command: str) -> bool:
         """Return True if *command* attempts to use sudo in any form."""
         # Also catch common evasion attempts:
-        #   sudo, /usr/bin/sudo, env sudo, command sudo, pkexec, doas
+        #   sudo, /usr/bin/sudo, env sudo, command sudo, pkexec, doas, su
+        #   $(sudo ...), bash -c 'sudo ...'
         for token in re.split(r"[;&|`\n]+", command):
             stripped = token.strip()
             # Direct sudo invocation
@@ -575,16 +663,82 @@ class ToolRegistry:
             # pkexec and doas are sudo-equivalents
             if re.match(r"^(pkexec|doas)\b", stripped):
                 return True
+            # su with -c flag (privilege escalation)
+            if re.match(r"^su\s+(-\w*c|.*-c)", stripped):
+                return True
+            # su to root (su without username or with "root")
+            if re.match(r"^su\s*$", stripped) or re.match(r"^su\s+root\b", stripped):
+                return True
+
+        # Check for sudo inside $(...) subshell substitution
+        if re.search(r"\$\([^)]*\bsudo\b", command):
+            return True
+
+        # Check for sudo inside nested shell invocations:
+        # bash -c 'sudo ...', sh -c "sudo ...", python -c "os.system('sudo ...')"
+        if re.search(r"(bash|sh|zsh|dash)\s+(-\w*c\s+['\"].*\bsudo\b)", command):
+            return True
+
         return False
+
+    # -- Dangerous command detection for shell.execute --------------------
+
+    # Patterns that indicate destructive or dangerous commands.
+    # These are blocked in both shell.execute and terminal.execute.
+    _DANGEROUS_COMMAND_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+        # Fork bombs
+        (re.compile(r":\(\)\s*\{.*\}"), "fork bomb"),
+        (re.compile(r"\.\(\)\s*\{.*\}"), "fork bomb"),
+        # Destructive rm patterns
+        (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r)\s+/\s*$"), "recursive delete of root"),
+        (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r)\s+/\*"), "recursive delete of root"),
+        (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r)\s+~\s*$"), "recursive delete of home"),
+        # Format/wipe disk
+        (re.compile(r"\bmkfs\b"), "filesystem format"),
+        (re.compile(r"\bdd\s+.*\bof=/dev/"), "raw disk write"),
+        # Shutdown/reboot
+        (re.compile(r"\b(shutdown|reboot|halt|poweroff|init\s+[06])\b"), "system shutdown/reboot"),
+        # Dangerous file overwrites
+        (re.compile(r">\s*/dev/sd[a-z]"), "raw device overwrite"),
+        (re.compile(r">\s*/etc/(passwd|shadow|sudoers)"), "critical system file overwrite"),
+        # Network exfiltration patterns (curl/wget piped to shell)
+        (re.compile(r"\b(curl|wget)\b.*\|\s*(ba)?sh\b"), "download-and-execute"),
+        # Python/perl one-liners that spawn reverse shells
+        (re.compile(r"python[23]?\s+-c\s+.*socket.*connect", re.IGNORECASE), "reverse shell"),
+        (re.compile(r"\bnc\s+.*-e\s+/bin/", re.IGNORECASE), "netcat reverse shell"),
+        # Crontab manipulation
+        (re.compile(r"\bcrontab\s+-r\b"), "crontab removal"),
+        # iptables flush (can lock out)
+        (re.compile(r"\biptables\s+-F\b"), "firewall flush"),
+    ]
+
+    @classmethod
+    def _is_dangerous_command(cls, command: str) -> tuple[bool, str]:
+        """Check if a shell command matches known dangerous patterns.
+
+        Returns:
+            Tuple of (is_dangerous, reason).
+        """
+        for pattern, reason in cls._DANGEROUS_COMMAND_PATTERNS:
+            if pattern.search(command):
+                return True, reason
+        return False, ""
 
     def _terminal_execute(
         self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
     ) -> dict[str, Any]:
-        """Execute a shell command, rejecting any command that uses sudo."""
+        """Execute a shell command, rejecting sudo and dangerous commands."""
         if self._contains_sudo(command):
             return _err(
                 "terminal.execute forbids sudo and privilege escalation commands. "
                 "Use shell.execute if elevated privileges are required.",
+                403,
+            )
+        is_dangerous, reason = self._is_dangerous_command(command)
+        if is_dangerous:
+            return _err(
+                f"terminal.execute blocked: command matches dangerous pattern ({reason}). "
+                f"This command could cause irreversible damage.",
                 403,
             )
         timeout = min(timeout, 120)  # hard cap

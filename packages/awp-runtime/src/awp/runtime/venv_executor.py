@@ -93,12 +93,28 @@ class VenvExecutor(BaseExecutor):
         Returns:
             Standard AWP result format with installation status.
         """
+        from .base_executor import sanitize_pip_specs
+
+        sanitized, rejected = sanitize_pip_specs(packages)
+        if rejected:
+            logger.warning("Rejected pip specs in venv: %s", "; ".join(rejected))
+        if not sanitized:
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {"rejected": rejected},
+                "error": (
+                    "No valid package names after sanitization. "
+                    f"Rejected: {'; '.join(rejected)}"
+                ),
+            }
+
         _bin = "Scripts" if sys.platform == "win32" else "bin"
         pip_path = self._venv_dir / _bin / "pip"
-        logger.info("Installing packages in venv: %s", ", ".join(packages))
+        logger.info("Installing packages in venv: %s", ", ".join(sanitized))
         try:
             result = subprocess.run(
-                [str(pip_path), "install", "--quiet"] + packages,
+                [str(pip_path), "install", "--quiet"] + sanitized,
                 check=True,
                 capture_output=True,
                 text=True,

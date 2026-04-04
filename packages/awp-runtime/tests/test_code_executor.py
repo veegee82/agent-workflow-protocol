@@ -1,6 +1,6 @@
 """Tests for the subprocess-based code executor."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from awp.runtime.code_executor import CodeExecutor
 
@@ -81,7 +81,9 @@ print("stderr line", file=sys.stderr)
     def test_install_runtime_packages_success(self):
         executor = CodeExecutor()
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = None
+            mock_obj = MagicMock()
+            mock_obj.stderr = ""
+            mock_run.return_value = mock_obj
             result = executor.install_runtime_packages(["some-pkg"])
         assert result["ok"] is True
         assert result["data"]["installed"] == ["some-pkg"]

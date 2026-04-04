@@ -205,3 +205,30 @@ When bumping versions, update ALL of these in one commit:
 ## Code Changes
 
 - When implementing multi-file changes, do a dry-run validation pass after all edits: check imports resolve, function signatures match callers, and config references exist. Do not wait for runtime errors.
+
+## Documentation Consistency (MANDATORY)
+
+### Pre-Commit MD Sync Check
+
+**Before every commit, all `.md` files MUST be checked for consistency with the current code.** This includes:
+
+- `CLAUDE.md` — architecture descriptions, file paths, CLI commands, and feature references must match actual code
+- `README.md` / `README_NERD.md` — installation instructions, examples, and API descriptions must reflect current behavior
+- `docs/` — layer documentation must match model fields, validation rules, and runtime behavior
+- `spec/` — normative spec must align with implemented features
+- `skill/SKILL.md` — see Skill Synchronization section above
+- `examples/` — YAML and README files must use current schema and valid field values
+
+If a code change invalidates any statement in an MD file, update the MD file in the same commit. Do not leave stale documentation behind.
+
+### Session Bootstrap — Read All MD Files
+
+**At the start of every new session, Claude MUST read the key documentation files** to build a mental model of the project's higher-level vision and current state before making any changes. At minimum, read:
+
+1. `CLAUDE.md` (this file)
+2. `README.md`
+3. `spec/` — at least the overview/index file
+4. `docs/` — scan the layer docs for current structure
+5. `skill/SKILL.md`
+
+This ensures that all changes are informed by the project's overarching design intent, not just local code context.

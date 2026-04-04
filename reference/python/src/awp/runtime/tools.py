@@ -450,6 +450,64 @@ class ToolRegistry:
 
     # -- File tools ---------------------------------------------------
 
+    # Sensitive system paths that agents should never read/write
+    _SENSITIVE_PATHS: frozenset[str] = frozenset({
+        "/etc/shadow", "/etc/gshadow", "/etc/master.passwd",
+        "/etc/sudoers",
+        "/root/.ssh", "/root/.bash_history", "/root/.gnupg",
+    })
+
+    # Sensitive path prefixes — block entire directories
+    _SENSITIVE_PREFIXES: tuple[str, ...] = (
+        "/proc/", "/sys/", "/dev/",
+        "/root/.ssh/", "/root/.gnupg/",
+    )
+
+    def _is_path_allowed(self, resolved: Path) -> tuple[bool, str]:
+        """Check if a resolved path is allowed for file operations.
+
+        When a workflow_dir is set, file access is sandboxed to:
+        - The workflow directory tree
+        - /tmp and temp directories
+
+        Always blocked: sensitive system files regardless of sandbox.
+
+        Returns:
+            Tuple of (allowed, reason).
+        """
+        try:
+            resolved_str = str(resolved.resolve())
+        except (PermissionError, OSError):
+            resolved_str = str(resolved)
+
+        # Always block sensitive system files
+        for sensitive in self._SENSITIVE_PATHS:
+            if resolved_str == sensitive or resolved_str.startswith(sensitive + "/"):
+                return False, f"Access to '{sensitive}' is forbidden"
+
+        for prefix in self._SENSITIVE_PREFIXES:
+            if resolved_str.startswith(prefix):
+                return False, f"Access to '{prefix}' is forbidden"
+
+        # If workflow_dir is set, enforce sandbox
+        if self._workflow_dir:
+            workflow_root = str(self._workflow_dir.resolve())
+            # Allow access within workflow dir
+            if resolved_str.startswith(workflow_root):
+                return True, ""
+            # Allow /tmp and system temp dirs
+            import tempfile
+            tmp_dir = tempfile.gettempdir()
+            if resolved_str.startswith(tmp_dir) or resolved_str.startswith("/tmp"):
+                return True, ""
+            # Block everything else when sandboxed
+            return False, (
+                f"Path '{resolved_str}' is outside the workflow directory. "
+                f"File access is restricted to: {workflow_root}"
+            )
+
+        return True, ""
+
     def _resolve_path(self, path: str) -> Path:
         """Resolve a path, trying workspace-relative if the literal path doesn't exist.
 
@@ -477,8 +535,17 @@ class ToolRegistry:
         return p  # return original for error reporting
 
     def _file_read(self, *, path: str, encoding: str = "utf-8") -> dict[str, Any]:
+        # Early sandbox check on the raw path (before resolve, which may
+        # raise PermissionError on protected directories like /root/)
+        allowed, reason = self._is_path_allowed(Path(path))
+        if not allowed:
+            return _err(reason, 403)
         try:
             resolved = self._resolve_path(path)
+            # Re-check resolved path (in case resolve changed it)
+            allowed, reason = self._is_path_allowed(resolved)
+            if not allowed:
+                return _err(reason, 403)
             content = resolved.read_text(encoding=encoding)
             return _ok({"content": content, "size": len(content)})
         except FileNotFoundError:
@@ -491,6 +558,10 @@ class ToolRegistry:
     ) -> dict[str, Any]:
         try:
             p = Path(path)
+            # Path sandbox check
+            allowed, reason = self._is_path_allowed(p)
+            if not allowed:
+                return _err(reason, 403)
             p.parent.mkdir(parents=True, exist_ok=True)
             if mode == "append":
                 with p.open("a", encoding="utf-8") as f:
@@ -504,8 +575,16 @@ class ToolRegistry:
     def _file_list(
         self, *, path: str, pattern: str = "*", recursive: bool = False
     ) -> dict[str, Any]:
+        # Early sandbox check on raw path
+        allowed, reason = self._is_path_allowed(Path(path))
+        if not allowed:
+            return _err(reason, 403)
         try:
             p = self._resolve_path(path)
+            # Re-check resolved path
+            allowed, reason = self._is_path_allowed(p)
+            if not allowed:
+                return _err(reason, 403)
             if not p.exists():
                 return _err(f"Directory not found: {path}", 404)
             if recursive:
@@ -521,6 +600,14 @@ class ToolRegistry:
     def _shell_execute(
         self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
     ) -> dict[str, Any]:
+        # Block dangerous commands (fork bombs, rm -rf /, disk format, etc.)
+        is_dangerous, reason = self._is_dangerous_command(command)
+        if is_dangerous:
+            return _err(
+                f"shell.execute blocked: command matches dangerous pattern ({reason}). "
+                f"This command could cause irreversible damage.",
+                403,
+            )
         timeout = min(timeout, 120)  # hard cap
         try:
             result = subprocess.run(
@@ -560,7 +647,8 @@ class ToolRegistry:
     def _contains_sudo(command: str) -> bool:
         """Return True if *command* attempts to use sudo in any form."""
         # Also catch common evasion attempts:
-        #   sudo, /usr/bin/sudo, env sudo, command sudo, pkexec, doas
+        #   sudo, /usr/bin/sudo, env sudo, command sudo, pkexec, doas, su
+        #   $(sudo ...), bash -c 'sudo ...'
         for token in re.split(r"[;&|`\n]+", command):
             stripped = token.strip()
             # Direct sudo invocation
@@ -575,16 +663,82 @@ class ToolRegistry:
             # pkexec and doas are sudo-equivalents
             if re.match(r"^(pkexec|doas)\b", stripped):
                 return True
+            # su with -c flag (privilege escalation)
+            if re.match(r"^su\s+(-\w*c|.*-c)", stripped):
+                return True
+            # su to root (su without username or with "root")
+            if re.match(r"^su\s*$", stripped) or re.match(r"^su\s+root\b", stripped):
+                return True
+
+        # Check for sudo inside $(...) subshell substitution
+        if re.search(r"\$\([^)]*\bsudo\b", command):
+            return True
+
+        # Check for sudo inside nested shell invocations:
+        # bash -c 'sudo ...', sh -c "sudo ...", python -c "os.system('sudo ...')"
+        if re.search(r"(bash|sh|zsh|dash)\s+(-\w*c\s+['\"].*\bsudo\b)", command):
+            return True
+
         return False
+
+    # -- Dangerous command detection for shell.execute --------------------
+
+    # Patterns that indicate destructive or dangerous commands.
+    # These are blocked in both shell.execute and terminal.execute.
+    _DANGEROUS_COMMAND_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+        # Fork bombs
+        (re.compile(r":\(\)\s*\{.*\}"), "fork bomb"),
+        (re.compile(r"\.\(\)\s*\{.*\}"), "fork bomb"),
+        # Destructive rm patterns
+        (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r)\s+/\s*$"), "recursive delete of root"),
+        (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r)\s+/\*"), "recursive delete of root"),
+        (re.compile(r"\brm\s+(-\w*r\w*f|-\w*f\w*r)\s+~\s*$"), "recursive delete of home"),
+        # Format/wipe disk
+        (re.compile(r"\bmkfs\b"), "filesystem format"),
+        (re.compile(r"\bdd\s+.*\bof=/dev/"), "raw disk write"),
+        # Shutdown/reboot
+        (re.compile(r"\b(shutdown|reboot|halt|poweroff|init\s+[06])\b"), "system shutdown/reboot"),
+        # Dangerous file overwrites
+        (re.compile(r">\s*/dev/sd[a-z]"), "raw device overwrite"),
+        (re.compile(r">\s*/etc/(passwd|shadow|sudoers)"), "critical system file overwrite"),
+        # Network exfiltration patterns (curl/wget piped to shell)
+        (re.compile(r"\b(curl|wget)\b.*\|\s*(ba)?sh\b"), "download-and-execute"),
+        # Python/perl one-liners that spawn reverse shells
+        (re.compile(r"python[23]?\s+-c\s+.*socket.*connect", re.IGNORECASE), "reverse shell"),
+        (re.compile(r"\bnc\s+.*-e\s+/bin/", re.IGNORECASE), "netcat reverse shell"),
+        # Crontab manipulation
+        (re.compile(r"\bcrontab\s+-r\b"), "crontab removal"),
+        # iptables flush (can lock out)
+        (re.compile(r"\biptables\s+-F\b"), "firewall flush"),
+    ]
+
+    @classmethod
+    def _is_dangerous_command(cls, command: str) -> tuple[bool, str]:
+        """Check if a shell command matches known dangerous patterns.
+
+        Returns:
+            Tuple of (is_dangerous, reason).
+        """
+        for pattern, reason in cls._DANGEROUS_COMMAND_PATTERNS:
+            if pattern.search(command):
+                return True, reason
+        return False, ""
 
     def _terminal_execute(
         self, *, command: str, timeout: int = 30, cwd: Optional[str] = None
     ) -> dict[str, Any]:
-        """Execute a shell command, rejecting any command that uses sudo."""
+        """Execute a shell command, rejecting sudo and dangerous commands."""
         if self._contains_sudo(command):
             return _err(
                 "terminal.execute forbids sudo and privilege escalation commands. "
                 "Use shell.execute if elevated privileges are required.",
+                403,
+            )
+        is_dangerous, reason = self._is_dangerous_command(command)
+        if is_dangerous:
+            return _err(
+                f"terminal.execute blocked: command matches dangerous pattern ({reason}). "
+                f"This command could cause irreversible damage.",
                 403,
             )
         timeout = min(timeout, 120)  # hard cap
@@ -789,8 +943,8 @@ class ToolRegistry:
         timeout: int = 30,
     ) -> dict[str, Any]:
         """Make an HTTP request using urllib (no external dependencies)."""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         timeout = min(timeout, 120)  # hard cap
         try:
@@ -1185,6 +1339,7 @@ class ToolRegistry:
             preamble = (
                 f"import os as _os\n"
                 f"import builtins as _builtins\n"
+                f"import sys as _sys\n"
                 f"_workspace_dir = {str(ws)!r}\n"
                 f"_output_dir = {str(out)!r}\n"
                 f"def _ensure_dir(path):\n"
@@ -1218,12 +1373,145 @@ class ToolRegistry:
                 f"    return _orig_open(path, mode, *args, **kwargs)\n"
                 f"_builtins.open = _safe_open\n"
                 f"\n"
+                f"# --- Matplotlib safety: auto-install and configure non-interactive backend ---\n"
+                f"_AWP_MATPLOTLIB_AVAILABLE = False\n"
+                f"try:\n"
+                f"    import matplotlib as _mpl\n"
+                f"    _mpl.use('Agg')\n"
+                f"    _AWP_MATPLOTLIB_AVAILABLE = True\n"
+                f"except ImportError:\n"
+                f"    # Auto-install matplotlib + reportlab so plots and PDFs work out of the box\n"
+                f"    try:\n"
+                f"        import subprocess as _sp\n"
+                f"        _sp.check_call([_sys.executable, '-m', 'pip', 'install', '-q',\n"
+                f"                        'matplotlib', 'reportlab'], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)\n"
+                f"        import matplotlib as _mpl\n"
+                f"        _mpl.use('Agg')\n"
+                f"        _AWP_MATPLOTLIB_AVAILABLE = True\n"
+                f"        print('INFO: Auto-installed matplotlib + reportlab for plotting/PDF support.', file=_sys.stderr)\n"
+                f"    except Exception:\n"
+                f"        print('WARNING: matplotlib is not installed and auto-install failed. Use pip.install tool.', file=_sys.stderr)\n"
+                f"\n"
+                f"# --- PNG validation helper: verify saved images are real ---\n"
+                f"def _verify_png(path):\n"
+                f"    \"\"\"Check if a saved PNG is a real image (not a placeholder). Call after savefig().\"\"\"\n"
+                f"    import struct as _struct\n"
+                f"    try:\n"
+                f"        with open(path, 'rb') as _f:\n"
+                f"            _header = _f.read(24)\n"
+                f"        if len(_header) < 24:\n"
+                f"            print(f'WARNING: {{path}} is too small ({{len(_header)}} bytes) — not a valid PNG', file=_sys.stderr)\n"
+                f"            return False\n"
+                f"        _w = _struct.unpack('>I', _header[16:20])[0]\n"
+                f"        _h = _struct.unpack('>I', _header[20:24])[0]\n"
+                f"        _size = _os.path.getsize(path)\n"
+                f"        if _w < 10 or _h < 10 or _size < 500:\n"
+                f"            print(f'WARNING: {{path}} is {{_w}}x{{_h}} ({{_size}} bytes) — placeholder, not a real chart', file=_sys.stderr)\n"
+                f"            return False\n"
+                f"        return True\n"
+                f"    except Exception as _e:\n"
+                f"        print(f'WARNING: Could not verify {{path}}: {{_e}}', file=_sys.stderr)\n"
+                f"        return False\n"
+                f"\n"
                 f"# === WORKSPACE FILE TREE (snapshot at execution time) ===\n"
                 f"{tree_comment}\n"
                 f"# === END FILE TREE ===\n"
             )
 
+        # Snapshot files before execution so we can detect new/changed files
+        from .file_validator import snapshot_file_state, validate_changed_files
+        dirs_to_watch = []
+        if self._workflow_dir:
+            dirs_to_watch = [
+                self._workflow_dir / "workspace",
+                self._workflow_dir / "output",
+            ]
+        snapshots_before = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
+
         result = self._code_executor.execute(preamble + code, timeout=timeout)
+
+        # --- File output validation (Phase 1: immediate feedback) ---
+        file_warnings: list[str] = []
+        changed_paths: list[Path] = []
+        if dirs_to_watch:
+            from .file_validator import (
+                build_repair_instructions,
+                classify_warning_severity,
+                find_changed_files,
+            )
+            snapshots_after = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
+            for d_str in snapshots_before:
+                w = validate_changed_files(snapshots_before[d_str], snapshots_after[d_str])
+                file_warnings.extend(w)
+                changed_paths.extend(
+                    find_changed_files(snapshots_before[d_str], snapshots_after[d_str])
+                )
+
+        if file_warnings:
+            # Build structured repair instructions with severity levels
+            warning_pairs = []
+            has_critical = False
+            for p in changed_paths:
+                from .file_validator import validate_file
+                w = validate_file(p)
+                if w:
+                    warning_pairs.append((p, w))
+                    severity = classify_warning_severity(p, w)
+                    if severity == "critical":
+                        has_critical = True
+
+            repair_instructions = build_repair_instructions(warning_pairs)
+            warning_block = (
+                "\n\n⚠ OUTPUT FILE VALIDATION WARNINGS:\n"
+                + "\n".join(f"  - {w}" for w in file_warnings)
+                + "\n\n" + repair_instructions
+            )
+
+            if has_critical:
+                warning_block += (
+                    "\n\n🛑 STOP: You have CRITICAL file errors. "
+                    "Do NOT proceed to the next task. Fix these files FIRST by "
+                    "re-running the code that generates them. "
+                    "Common fix pattern:\n"
+                    "1. Ensure matplotlib is installed: pip.install(packages=['matplotlib'])\n"
+                    "2. Import and configure: import matplotlib; matplotlib.use('Agg')\n"
+                    "3. Plot REAL data (not empty): plt.plot(x_data, y_data)\n"
+                    "4. Save: plt.savefig(path, dpi=150, bbox_inches='tight')\n"
+                    "5. Close: plt.close()\n"
+                    "NEVER write base64 placeholder images as a fallback."
+                )
+
+            if result["ok"] and has_critical:
+                # Critical file errors (placeholder PNGs, empty PDFs) →
+                # force the result to FAIL so the LLM MUST fix them before
+                # proceeding.  Without this, the LLM can ignore warnings.
+                data = result.get("data", {})
+                stdout = data.get("stdout", "") if isinstance(data, dict) else ""
+                if isinstance(data, dict):
+                    data["stdout"] = stdout + warning_block
+                    result["data"] = data
+                result["ok"] = False
+                result["status"] = 422  # Unprocessable — output files are broken
+                result["error"] = (
+                    "Code executed successfully but produced INVALID output files. "
+                    + warning_block
+                )
+                result["_file_warnings"] = file_warnings
+                result["_has_critical_file_errors"] = True
+            elif result["ok"]:
+                # Non-critical warnings — attach but don't fail
+                data = result.get("data", {})
+                stdout = data.get("stdout", "") if isinstance(data, dict) else ""
+                if isinstance(data, dict):
+                    data["stdout"] = stdout + warning_block
+                    result["data"] = data
+                result["_file_warnings"] = file_warnings
+                result["_has_critical_file_errors"] = False
+            else:
+                # Append to error so even failed executions report file issues
+                result["error"] = (result.get("error") or "") + warning_block
+                result["_file_warnings"] = file_warnings
+                result["_has_critical_file_errors"] = has_critical
 
         # Enhance error messages with actionable hints so the LLM can self-correct
         if not result["ok"]:
