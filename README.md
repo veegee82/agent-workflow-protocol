@@ -16,6 +16,7 @@
   <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/dm/awp-agents?color=green&label=Downloads" alt="Downloads"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
   <a href="https://github.com/veegee82/agent-workflow-protocol/stargazers"><img src="https://img.shields.io/github/stars/veegee82/agent-workflow-protocol?style=flat&color=orange" alt="GitHub stars"/></a>
+  <a href="https://github.com/sponsors/veegee82"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=github" alt="Sponsor"/></a>
 </p>
 
 <p align="center">
@@ -35,6 +36,12 @@
   <a href="README_NERD.md">Theory</a> &middot;
   <a href="README_SUPER_NERD.md">Deep Theory</a> &middot;
   <a href="docs/openclaw_integration.md">OpenClaw Integration</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/sponsors/veegee82">
+    <img src="https://img.shields.io/badge/Sponsor_this_Project-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github" alt="Sponsor this Project"/>
+  </a>
 </p>
 
 ---
@@ -1285,6 +1292,18 @@ agent-workflow-protocol/
 | ![Ruff](https://img.shields.io/badge/Ruff-Linting%20%26%20Formatting-D7FF64?logo=ruff&logoColor=black) | Fast Python linter and formatter |
 | ![mypy](https://img.shields.io/badge/mypy-Type%20Checking-1674B1) | Static type analysis |
 | ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF?logo=github-actions&logoColor=white) | Lint, test (Python 3.10-3.13 matrix), build, publish |
+
+### Sponsor this Project
+
+If AWP is useful to you or your team, please consider sponsoring the project. Your support helps cover infrastructure costs, keeps development active, and funds new features.
+
+<p align="center">
+  <a href="https://github.com/sponsors/veegee82">
+    <img src="https://img.shields.io/badge/Sponsor_on_GitHub-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github" alt="Sponsor on GitHub"/>
+  </a>
+</p>
+
+Sponsors get a shoutout in the README, early access to new features, and priority issue support depending on the tier. Even a small contribution makes a big difference.
 
 ### License
 

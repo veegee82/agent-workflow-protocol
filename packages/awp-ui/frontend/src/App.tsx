@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import {
   Play,
@@ -23,6 +23,7 @@ import {
   Users,
   Wrench,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Wifi,
   WifiOff,
@@ -320,6 +321,7 @@ function TaskInputBar() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -354,99 +356,122 @@ function TaskInputBar() {
   }, [config.task]);
 
   return (
-    <div className="border-t border-awp-border bg-awp-panel px-4 py-3 shrink-0">
-      {/* Attached files */}
-      {attachedFiles.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2 max-w-3xl mx-auto">
-          {attachedFiles.map((f, i) => (
-            <span
-              key={`${f.name}-${i}`}
-              className="inline-flex items-center gap-1 rounded-md bg-awp-bg border border-awp-border px-2 py-0.5 text-xs text-awp-text"
+    <div className="border-t border-awp-border bg-awp-panel shrink-0">
+      {/* Collapse toggle bar */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex w-full items-center justify-center gap-1.5 px-4 py-1 text-[10px] text-awp-muted hover:text-awp-text hover:bg-awp-border/30 transition-colors"
+      >
+        {collapsed ? (
+          <>
+            <ChevronUp className="h-3 w-3" />
+            <span>Show task input</span>
+          </>
+        ) : (
+          <>
+            <ChevronDown className="h-3 w-3" />
+            <span>Hide task input</span>
+          </>
+        )}
+      </button>
+
+      {!collapsed && (
+        <div className="px-4 pb-3">
+          {/* Attached files */}
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2 max-w-3xl mx-auto">
+              {attachedFiles.map((f, i) => (
+                <span
+                  key={`${f.name}-${i}`}
+                  className="inline-flex items-center gap-1 rounded-md bg-awp-bg border border-awp-border px-2 py-0.5 text-xs text-awp-text"
+                >
+                  <Upload className="h-3 w-3 text-awp-muted shrink-0" />
+                  <span className="truncate max-w-[120px]">{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    className="text-awp-muted hover:text-awp-red transition-colors ml-0.5 shrink-0"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Input row */}
+          <div className="flex items-end gap-2 max-w-3xl mx-auto">
+            {/* File attach button */}
+            <label
+              className={clsx(
+                'inline-flex items-center justify-center h-8 w-8 rounded-md transition-colors cursor-pointer shrink-0',
+                'text-awp-muted hover:text-awp-text hover:bg-awp-border/50',
+                isRunning && 'opacity-40 pointer-events-none',
+              )}
+              title="Attach files"
             >
-              <Upload className="h-3 w-3 text-awp-muted shrink-0" />
-              <span className="truncate max-w-[120px]">{f.name}</span>
+              <Upload className="h-4 w-4" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleFileChange}
+                disabled={isRunning}
+                className="sr-only"
+              />
+            </label>
+
+            {/* Textarea */}
+            <div className="flex-1 relative">
+              <textarea
+                ref={textareaRef}
+                value={config.task}
+                onChange={(e) => updateConfig({ task: e.target.value })}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe the task for the agent workflow..."
+                disabled={isRunning}
+                rows={3}
+                className={clsx(
+                  'w-full resize-none rounded-lg border border-awp-border bg-awp-bg px-3 py-2.5 pr-10',
+                  'text-sm text-awp-text placeholder:text-awp-muted/60',
+                  'focus:outline-none focus:ring-1 focus:ring-awp-blue focus:border-awp-blue',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+              />
+            </div>
+
+            {/* Run / Stop button */}
+            {isRunning ? (
               <button
                 type="button"
-                onClick={() => removeFile(i)}
-                className="text-awp-muted hover:text-awp-red transition-colors ml-0.5 shrink-0"
+                onClick={stopRun}
+                className="inline-flex items-center justify-center h-9 w-9 rounded-lg bg-awp-red/15 text-awp-red hover:bg-awp-red/25 transition-colors shrink-0"
               >
-                <Trash2 className="h-3 w-3" />
+                <Square className="h-4 w-4" />
               </button>
-            </span>
-          ))}
+            ) : (
+              <button
+                type="button"
+                onClick={startRun}
+                disabled={!canStart}
+                className={clsx(
+                  'inline-flex items-center justify-center h-9 w-9 rounded-lg transition-colors shrink-0',
+                  canStart
+                    ? 'bg-awp-blue/15 text-awp-blue hover:bg-awp-blue/25'
+                    : 'bg-awp-border/30 text-awp-muted cursor-not-allowed',
+                )}
+              >
+                <Play className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          <p className="text-center text-[10px] text-awp-muted/50 mt-1.5 max-w-3xl mx-auto">
+            Enter to run &middot; Shift+Enter for new line
+          </p>
         </div>
       )}
-
-      {/* Input row */}
-      <div className="flex items-end gap-2 max-w-3xl mx-auto">
-        {/* File attach button */}
-        <label
-          className={clsx(
-            'inline-flex items-center justify-center h-8 w-8 rounded-md transition-colors cursor-pointer shrink-0',
-            'text-awp-muted hover:text-awp-text hover:bg-awp-border/50',
-            isRunning && 'opacity-40 pointer-events-none',
-          )}
-          title="Attach files"
-        >
-          <Upload className="h-4 w-4" />
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={handleFileChange}
-            disabled={isRunning}
-            className="sr-only"
-          />
-        </label>
-
-        {/* Textarea */}
-        <div className="flex-1 relative">
-          <textarea
-            ref={textareaRef}
-            value={config.task}
-            onChange={(e) => updateConfig({ task: e.target.value })}
-            onKeyDown={handleKeyDown}
-            placeholder="Describe the task for the agent workflow..."
-            disabled={isRunning}
-            rows={3}
-            className={clsx(
-              'w-full resize-none rounded-lg border border-awp-border bg-awp-bg px-3 py-2.5 pr-10',
-              'text-sm text-awp-text placeholder:text-awp-muted/60',
-              'focus:outline-none focus:ring-1 focus:ring-awp-blue focus:border-awp-blue',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-            )}
-          />
-        </div>
-
-        {/* Run / Stop button */}
-        {isRunning ? (
-          <button
-            type="button"
-            onClick={stopRun}
-            className="inline-flex items-center justify-center h-9 w-9 rounded-lg bg-awp-red/15 text-awp-red hover:bg-awp-red/25 transition-colors shrink-0"
-          >
-            <Square className="h-4 w-4" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={startRun}
-            disabled={!canStart}
-            className={clsx(
-              'inline-flex items-center justify-center h-9 w-9 rounded-lg transition-colors shrink-0',
-              canStart
-                ? 'bg-awp-blue/15 text-awp-blue hover:bg-awp-blue/25'
-                : 'bg-awp-border/30 text-awp-muted cursor-not-allowed',
-            )}
-          >
-            <Play className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      <p className="text-center text-[10px] text-awp-muted/50 mt-1.5 max-w-3xl mx-auto">
-        Enter to run &middot; Shift+Enter for new line
-      </p>
     </div>
   );
 }
@@ -2119,11 +2144,13 @@ export function App() {
     config,
   } = useWorkflowStore();
 
-  // Load sessions, secrets, and persisted settings on mount
+  // Load sessions, secrets, and persisted settings on mount.
+  // Order matters: restore persisted settings first (including last session),
+  // then load session list. This avoids a race where loadSessions auto-creates
+  // a new session before the persisted last_session_id can be restored.
   useEffect(() => {
-    loadSessions();
     loadSecrets();
-    loadPersistedSettings();
+    loadPersistedSettings().then(() => loadSessions());
   }, [loadSessions, loadSecrets, loadPersistedSettings]);
 
   // Auto-save settings with debounce when config changes (excluding task)

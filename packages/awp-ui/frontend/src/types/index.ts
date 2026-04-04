@@ -240,3 +240,20 @@ export interface SecretEntry {
   created_at: string;
   updated_at: string;
 }
+
+/** Snapshot of per-session state for the in-memory session cache. */
+export interface CachedSessionState {
+  sessionId: string;
+  currentRunId: string | null;
+  runStatus: 'idle' | 'running' | 'complete' | 'error';
+  events: RunEvent[];
+  graphNodes: import('reactflow').Node[];
+  graphEdges: import('reactflow').Edge[];
+  outputBlocks: OutputBlock[];
+  budget: BudgetState;
+  sessionHistory: SessionHistoryItem[];
+  experimentMemory: MemoryEntry[];
+  config: WorkflowConfig;
+  runHistory: RunHistoryEntry[];
+  selectedNodeId: string | null;
+}

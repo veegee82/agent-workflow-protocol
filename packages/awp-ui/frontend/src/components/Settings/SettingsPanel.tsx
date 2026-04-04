@@ -205,21 +205,21 @@ const PRESETS: Preset[] = [
       max_loops: 5,
       max_total_tokens: 200_000,
       max_wall_time: 60,
-      max_total_workers: 2,
+      max_total_workers: 5,
       max_tool_calls: 20,
-      max_depth: 1,
+      max_depth: 2,
     },
   },
   {
     name: 'Standard',
     icon: <Zap className="h-3 w-3" />,
     values: {
-      max_loops: 20,
-      max_total_tokens: 500_000,
+      max_loops: 30,
+      max_total_tokens: 2_000_000,
       max_wall_time: 600,
-      max_total_workers: 30,
+      max_total_workers: 50,
       max_tool_calls: 200,
-      max_depth: 5,
+      max_depth: 10,
     },
   },
   {
@@ -228,22 +228,22 @@ const PRESETS: Preset[] = [
     values: {
       max_loops: 100,
       max_total_tokens: 10_000_000,
-      max_wall_time: 3600,
-      max_total_workers: 50,
+      max_wall_time: 7200,
+      max_total_workers: 1000,
       max_tool_calls: 1000,
-      max_depth: 5,
+      max_depth: 100,
     },
   },
   {
     name: 'Unlimited',
     icon: <Infinity className="h-3 w-3" />,
     values: {
-      max_loops: 999,
+      max_loops: 1000,
       max_total_tokens: 100_000_000,
       max_wall_time: 86400,
-      max_total_workers: 999,
+      max_total_workers: 10000,
       max_tool_calls: 99999,
-      max_depth: 10,
+      max_depth: 100,
     },
   },
 ];
@@ -891,25 +891,25 @@ export function SettingsPanel() {
         </div>
       </div>
 
-      {/* Budget */}
+      {/* Budget Limits */}
       <Panel
-        title="Budget"
+        title="Budget Limits"
         icon={<Gauge className="h-3.5 w-3.5 text-awp-blue" />}
         defaultOpen
       >
         <div className="space-y-4">
           <SliderInput
             label="Max Loops"
-            description="Maximum delegation loop iterations"
+            description="Manager delegation loop iterations (think → delegate → evaluate = 1 loop)"
             value={config.max_loops}
             min={1}
-            max={500}
+            max={1000}
             step={1}
             onChange={(v) => updateConfig({ max_loops: v })}
           />
           <SliderInput
             label="Max Tokens"
-            description="Total token budget across all workers"
+            description="Total LLM tokens (input + output) across all agents"
             value={config.max_total_tokens}
             min={100_000}
             max={100_000_000}
@@ -919,7 +919,7 @@ export function SettingsPanel() {
           />
           <SliderInput
             label="Max Wall Time"
-            description="Maximum execution time"
+            description="Maximum real-world execution time"
             value={config.max_wall_time}
             min={10}
             max={86400}
@@ -929,16 +929,16 @@ export function SettingsPanel() {
           />
           <SliderInput
             label="Max Workers"
-            description="Maximum total workers spawned"
+            description="Maximum total worker agents spawned across all iterations"
             value={config.max_total_workers}
             min={1}
-            max={1000}
+            max={10000}
             step={1}
             onChange={(v) => updateConfig({ max_total_workers: v })}
           />
           <SliderInput
             label="Max Tool Calls"
-            description="Total tool call budget"
+            description="Maximum total tool invocations (code.execute, file.write, etc.) per worker"
             value={config.max_tool_calls}
             min={1}
             max={10000}
@@ -947,10 +947,10 @@ export function SettingsPanel() {
           />
           <SliderInput
             label="Max Depth"
-            description="Maximum delegation depth"
+            description="Maximum recursive delegation depth (worker → sub-worker → sub-sub-worker...)"
             value={config.max_depth}
             min={1}
-            max={20}
+            max={100}
             step={1}
             onChange={(v) => updateConfig({ max_depth: v })}
           />

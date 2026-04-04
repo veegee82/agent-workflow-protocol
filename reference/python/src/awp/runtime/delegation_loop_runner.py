@@ -865,6 +865,36 @@ class DelegationLoopRunner:
                             result[key] = manager_decision[key]
                 if "confidence" not in result:
                     result["confidence"] = manager_decision.get("confidence", 0.8)
+
+                # --- Final output gate: reject completion if critical
+                # placeholder files exist (1x1 PNGs, empty PDFs, etc.)
+                file_warnings = self._validate_output_files()
+                if file_warnings:
+                    from .file_validator import classify_warning_severity
+                    critical = [
+                        w for w in file_warnings
+                        if self._classify_output_warning(w) == "critical"
+                    ]
+                    if critical and self._budget.can_continue()[0]:
+                        logger.warning(
+                            "Manager tried to COMPLETE but %d critical "
+                            "output files are broken: %s",
+                            len(critical),
+                            critical[:5],
+                        )
+                        # Inject the broken-file feedback into state so
+                        # the manager sees it on the next iteration and
+                        # delegates a repair worker.
+                        state["_file_repair_required"] = critical
+                        state["_last_manager_feedback"] = (
+                            f"COMPLETION REJECTED: {len(critical)} output "
+                            f"file(s) are placeholder/broken and MUST be "
+                            f"regenerated before the task can complete. "
+                            f"Broken files: "
+                            + "; ".join(critical[:10])
+                        )
+                        continue  # force another loop iteration
+
                 self._logger.log_iteration(
                     iteration,
                     manager_decision,
@@ -875,14 +905,39 @@ class DelegationLoopRunner:
                 return result, "complete"
 
             if decision_type == "fail":
+                reason = manager_decision.get("reason", "Manager decided to fail")
+                is_parse_failure = "missing 'decision' field" in reason
+                # If this is a parse failure (not an explicit manager fail)
+                # and we have accumulated work, return partial result instead
+                # of discarding everything.
+                if is_parse_failure and self._history:
+                    logger.warning(
+                        "Manager parse failure after %d iterations — "
+                        "returning partial result instead of hard fail",
+                        len(self._history),
+                    )
+                    partial = self._build_partial_result(f"manager_parse_failure: {reason}")
+                    partial["partial_result"] = manager_decision.get("partial_result", {})
+                    return partial, "partial_complete"
                 return {
-                    "error": manager_decision.get("reason", "Manager decided to fail"),
+                    "error": reason,
                     "partial_result": manager_decision.get("partial_result", {}),
                     "confidence": 0.0,
                 }, "fail"
 
+            if decision_type == "retry":
+                # Retry signal from _parse_manager_output (e.g. all
+                # delegations were truncated).  Just continue the loop so
+                # the manager gets another chance.
+                logger.warning("Manager requested retry — continuing loop")
+                continue
+
             if decision_type != "delegate":
                 logger.warning("Unknown decision: %s, treating as fail", decision_type)
+                if self._history:
+                    return self._build_partial_result(
+                        f"unknown_decision: {decision_type}"
+                    ), "partial_complete"
                 return {
                     "error": f"Unknown decision: {decision_type}",
                     "confidence": 0.0,
@@ -992,12 +1047,16 @@ class DelegationLoopRunner:
 
             parsed = self._parse_manager_output(manager_output)
 
-            # If parsing still failed, fall back to inline manager
-            if parsed.get(
-                "decision"
-            ) == "fail" and "missing 'decision' field" in parsed.get("reason", ""):
+            # If parsing failed or needs retry, fall back to inline manager
+            _needs_retry = (
+                (parsed.get("decision") == "fail"
+                 and "missing 'decision' field" in parsed.get("reason", ""))
+                or parsed.get("decision") == "retry"
+            )
+            if _needs_retry:
                 logger.warning(
-                    "Agent manager returned unparseable output, falling back to inline manager"
+                    "Agent manager returned unparseable output, "
+                    "falling back to inline manager"
                 )
                 return self._run_inline_manager(task, state, iteration)
 
@@ -1008,7 +1067,11 @@ class DelegationLoopRunner:
             return {"decision": "fail", "reason": str(exc)}
 
     def _run_inline_manager(self, task: str, state: dict, iteration: int) -> dict:
-        """Run manager with inline prompting (no agent.awp.yaml required)."""
+        """Run manager with inline prompting (no agent.awp.yaml required).
+
+        Retries once with a shorter prompt if the first attempt fails to
+        produce a parseable decision (truncated JSON is the #1 cause).
+        """
         llm = LLMClient(model=self._manager_model)
 
         system_prompt = self._build_manager_system_prompt()
@@ -1019,14 +1082,51 @@ class DelegationLoopRunner:
             {"role": "user", "content": user_message},
         ]
 
-        try:
-            result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
-            self._budget.tokens_consumed += llm.total_tokens_used
-            return self._parse_manager_output(result)
-        except Exception as exc:
-            self._budget.tokens_consumed += llm.total_tokens_used
-            logger.error("Inline manager failed: %s", exc)
-            return {"decision": "fail", "reason": str(exc)}
+        for attempt in range(2):
+            try:
+                result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
+                self._budget.tokens_consumed += llm.total_tokens_used
+                parsed = self._parse_manager_output(result)
+
+                _is_parse_fail = (
+                    parsed.get("decision") == "fail"
+                    and "missing 'decision' field" in parsed.get("reason", "")
+                ) or parsed.get("decision") == "retry"
+
+                if _is_parse_fail and attempt == 0:
+                    logger.warning(
+                        "Inline manager attempt %d returned unparseable "
+                        "output, retrying with clarification",
+                        attempt + 1,
+                    )
+                    # Add a clarification message to guide the LLM
+                    messages.append({"role": "assistant", "content": json.dumps(result, default=str)[:2000]})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Your previous response could not be parsed as a "
+                            "valid decision. Please respond with a SHORT JSON "
+                            "object containing exactly one of:\n"
+                            '- {"decision": "delegate", "delegations": [...]}\n'
+                            '- {"decision": "complete", "final_result": {...}}\n'
+                            '- {"decision": "fail", "reason": "..."}\n'
+                            "Keep delegations concise to avoid truncation."
+                        ),
+                    })
+                    continue
+
+                return parsed
+
+            except Exception as exc:
+                self._budget.tokens_consumed += llm.total_tokens_used
+                if attempt == 0:
+                    logger.warning("Inline manager attempt 1 failed: %s, retrying", exc)
+                    continue
+                logger.error("Inline manager failed after retry: %s", exc)
+                return {"decision": "fail", "reason": str(exc)}
+
+        # Should not reach here, but safety fallback
+        return {"decision": "fail", "reason": "Inline manager exhausted retries"}
 
     def _build_namespace_capabilities_section(self) -> str:
         """Build a section describing per-namespace capabilities for the manager prompt."""
@@ -1091,7 +1191,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
     {{
       "worker_id": "unique_snake_case_name",
       "instructions": "Detailed instructions for the worker",
-      "skills": ["Markdown domain knowledge injected into the worker's prompt"],
+      "skills": ["# Skill Name\\n\\n## Purpose\\n...\\n\\n## Concepts\\n...\\n\\n## Rules\\n1. ..."],
       "tools_allowed": ["web.search", "file.read"],
       "output_contract": {{
         "required_fields": ["findings", "confidence"],
@@ -1107,6 +1207,14 @@ You MUST respond with a JSON object containing ONE of these decisions:
   "confidence": 0.0
 }}
 ```
+
+**Skill structure:** Each skill in the `skills` array MUST be a Markdown string with these sections:
+- `# Name` — skill title
+- `## Purpose` — one sentence describing what the skill supports
+- `## Concepts` — 3-7 key terms as a definition list
+- `## Rules` — numbered, testable constraints
+- `## Procedure` (optional) — step-by-step sequence for multi-step tasks
+- `## Examples` (optional) — input/output pairs when correct application is non-obvious
 
 ### COMPLETE — Task is done
 ```json
@@ -1142,6 +1250,15 @@ You MUST respond with a JSON object containing ONE of these decisions:
 - Be specific in instructions — the worker only sees what you provide
 - Set `temperature` per worker to control creativity (0.0 = deterministic, 1.0 = creative). Choose based on the task: use low temperature for analysis/validation, higher for brainstorming/writing. If omitted, defaults to 0.2.
 - Respond ONLY with the JSON object, no other text
+
+## Output File Validation
+All output files (PNGs, CSVs, JSON, etc.) are automatically validated after each worker run.
+- PNG files must be real charts (>500 bytes, >=10×10 pixels). 1×1 placeholder PNGs are REJECTED.
+- CSV files must have at least one data row beyond the header.
+- 0-byte files are always REJECTED.
+If validation finds broken files, you will see a "FILE REPAIR REQUIRED" section in the next iteration.
+You MUST delegate a repair worker to fix those files before marking the task as complete.
+Do NOT accept "complete" if there are unresolved critical file errors.
 """
 
     def _build_manager_task(self, task: str, state: dict, iteration: int) -> str:
@@ -1177,10 +1294,59 @@ You MUST respond with a JSON object containing ONE of these decisions:
         # Validation feedback from last iteration
         if self._history and self._history[-1].get("validation"):
             parts.append("## Validation Feedback\n")
+            has_file_issues = False
             for v in self._history[-1]["validation"]:
                 parts.append(
                     f"- Worker {v.get('worker_id', '?')}: {v.get('feedback', 'ok')}\n"
                 )
+                # Check for file validation failures in deterministic results
+                det = v.get("deterministic", {})
+                file_warnings = det.get("file_warnings", [])
+                if file_warnings:
+                    has_file_issues = True
+
+            # Inject explicit file repair instructions if there were file issues
+            if has_file_issues:
+                from .file_validator import validate_directory, build_repair_instructions
+                all_warnings = []
+                workspace = self._dir / "workspace"
+                output = self._dir / "output"
+                if workspace.exists():
+                    ws_outputs = workspace / "outputs"
+                    if ws_outputs.exists():
+                        for p in sorted(ws_outputs.rglob("*")):
+                            if p.is_file() and not p.name.startswith("."):
+                                from .file_validator import validate_file
+                                w = validate_file(p)
+                                if w:
+                                    all_warnings.append((p, w))
+                if output.exists():
+                    for p in sorted(output.rglob("*")):
+                        if p.is_file() and not p.name.startswith("."):
+                            from .file_validator import validate_file
+                            w = validate_file(p)
+                            if w:
+                                all_warnings.append((p, w))
+                if all_warnings:
+                    repair = build_repair_instructions(all_warnings)
+                    parts.append(f"\n## ⚠ FILE REPAIR REQUIRED\n{repair}\n")
+                    parts.append(
+                        "**You MUST delegate a worker to fix these broken files "
+                        "before marking the task as complete.** "
+                        "Instruct the worker to re-generate the files with real data. "
+                        "Do NOT accept placeholder images or empty files as valid output.\n"
+                    )
+
+        # Inject completion-rejection feedback (from final output gate)
+        repair_feedback = state.get("_last_manager_feedback")
+        if repair_feedback:
+            parts.append(
+                f"## 🛑 COMPLETION REJECTED — FILE REPAIR REQUIRED\n"
+                f"{repair_feedback}\n\n"
+                f"You MUST delegate a worker to fix these broken output "
+                f"files before attempting to complete again. "
+                f"Do NOT mark the task as complete until all files are valid.\n"
+            )
 
         # State from previous workers
         worker_states = {
@@ -1207,6 +1373,22 @@ You MUST respond with a JSON object containing ONE of these decisions:
                 "reason": f"Invalid manager output type: {type(output)}",
             }
 
+        # Try to extract decision from a nested "result" string (LLMs
+        # sometimes double-wrap their JSON response)
+        if (
+            "decision" not in output
+            and "delegations" not in output
+            and "result" in output
+            and isinstance(output["result"], str)
+            and "{" in output["result"]
+        ):
+            extracted = self._parse_json_response(output["result"])
+            if "decision" in extracted or "delegations" in extracted or "final_result" in extracted:
+                # Preserve any metadata from outer dict, then overlay extracted
+                meta = {k: v for k, v in output.items() if k.startswith("_")}
+                output = extracted
+                output.update(meta)
+
         # Normalize "workers" key to "delegations" (both formats accepted)
         if "workers" in output and "delegations" not in output:
             workers = output.pop("workers")
@@ -1217,15 +1399,56 @@ You MUST respond with a JSON object containing ONE of these decisions:
                         w["worker_id"] = w.pop("id")
             output["delegations"] = workers
 
+        # Also accept "tasks" as an alias for "delegations"
+        if "tasks" in output and "delegations" not in output:
+            tasks = output.pop("tasks")
+            if isinstance(tasks, list):
+                for t in tasks:
+                    if isinstance(t, dict):
+                        if "id" in t and "worker_id" not in t:
+                            t["worker_id"] = t.pop("id")
+                        if "task" in t and "instructions" not in t:
+                            t["instructions"] = t.pop("task")
+            output["delegations"] = tasks
+
         # Normalize decision field
         if "decision" not in output:
             if "delegations" in output:
                 output["decision"] = "delegate"
-            elif "final_result" in output or "report_md" in output:
+            elif any(
+                k in output
+                for k in (
+                    "final_result", "report_md", "summary", "conclusion",
+                    "output", "deliverables",
+                )
+            ):
+                # LLMs often omit "decision" when they consider the task done
                 output["decision"] = "complete"
+                # Move the completion content into final_result if not already
+                if "final_result" not in output:
+                    for k in ("summary", "conclusion", "output", "deliverables"):
+                        if k in output:
+                            output["final_result"] = output[k]
+                            break
             else:
-                output["decision"] = "fail"
-                output["reason"] = "Manager output missing 'decision' field"
+                # Last resort: check if output has substantive content that
+                # looks like it could be a completion (many keys, no error)
+                _meta_keys = {"confidence", "reasoning", "reason", "_truncated",
+                              "_confidence_source", "_parse_failure", "result"}
+                content_keys = {k for k in output if k not in _meta_keys}
+                if len(content_keys) >= 2 and "error" not in output:
+                    logger.warning(
+                        "Manager output missing 'decision' field but has "
+                        "substantive content keys %s — treating as complete",
+                        content_keys,
+                    )
+                    output["decision"] = "complete"
+                    output["final_result"] = {
+                        k: v for k, v in output.items() if k not in _meta_keys
+                    }
+                else:
+                    output["decision"] = "fail"
+                    output["reason"] = "Manager output missing 'decision' field"
         else:
             # Normalize decision value — LLMs sometimes return verbose strings
             raw = str(output["decision"]).strip().lower()
@@ -1259,6 +1482,14 @@ You MUST respond with a JSON object containing ONE of these decisions:
                 else:
                     logger.warning("Dropping incomplete delegation entry: %s", d)
             output["delegations"] = valid
+            # If all delegations were dropped, fall back to retry (not fail)
+            if not valid:
+                logger.warning(
+                    "All delegations dropped after filtering — "
+                    "will retry manager call"
+                )
+                output["decision"] = "retry"
+                output["reason"] = "All delegations were incomplete/truncated"
 
         return output
 
@@ -1389,7 +1620,13 @@ You MUST respond with a JSON object containing ONE of these decisions:
             system_parts.append("## Domain Knowledge\n")
             for i, skill in enumerate(skills):
                 if isinstance(skill, str):
-                    system_parts.append(f"### Skill {i + 1}\n{skill}\n")
+                    # If the skill already has a top-level heading, use it as-is;
+                    # otherwise wrap it with a numbered heading for clarity.
+                    stripped = skill.lstrip()
+                    if stripped.startswith("# "):
+                        system_parts.append(f"{skill}\n")
+                    else:
+                        system_parts.append(f"### Skill {i + 1}\n{skill}\n")
 
         # If codemode is enabled, tell the worker about file I/O capabilities
         if isinstance(codemode, dict) and codemode.get("enabled", False):
@@ -1428,6 +1665,18 @@ You MUST use the `code.execute` tool to run Python code for:
 
 Do NOT try to compute results in your JSON response — use `code.execute` to run actual Python code.
 Do NOT use `file.write` for binary files (PNGs, images) — generate them via `code.execute` with matplotlib/PIL.
+
+## CRITICAL: Never Write Placeholder Files
+
+**NEVER write 1×1 pixel placeholder PNGs, empty files, or base64-encoded dummy images as a fallback.**
+If plotting fails (e.g. matplotlib not installed, empty data), you MUST:
+1. First install the missing package: `pip.install(packages=["matplotlib"])`
+2. Then re-run the plotting code with real data
+3. After saving, verify the file: `_verify_png(path)` (returns True if valid)
+
+All output files are automatically validated. Files that are empty, too small, or contain
+placeholder content will be flagged as CRITICAL errors, and your confidence score will be
+heavily penalized. The manager will require you to fix them before the task can complete.
 
 ## File I/O
 
@@ -1596,11 +1845,16 @@ print("Chart saved")
                     self._budget.tool_calls_used += 1
                     return result
 
+                # Code-mode workers need more rounds: install pkg → run
+                # code → handle file warnings → retry → final answer.
+                # 5 rounds was too tight and caused many premature failures.
+                _max_tool_rounds = 15 if codemode.get("enabled") else 5
+
                 final_msg = llm.chat_with_tools(
                     messages,
                     tools=tool_defs,
                     tool_executor=_tracking_call,
-                    max_rounds=5,
+                    max_rounds=_max_tool_rounds,
                     temperature=worker_temperature,
                     max_tokens=16384,
                 )
@@ -2047,6 +2301,11 @@ Rules:
                 validation_results.append(v)
                 continue
 
+            # Include deterministic warnings in feedback even when passed
+            det_warnings = det.get("warnings", [])
+            if det_warnings:
+                v["feedback_warnings"] = det_warnings
+
             # Tier 2: LLM (if enabled and conditions met)
             val_cfg = self._config.validation
             confidence = result.get("confidence", 0.0)
@@ -2074,10 +2333,11 @@ Rules:
     def _validate_deterministic(self, result: dict) -> dict:
         """Tier 1: Cheap deterministic checks."""
         errors = []
+        warnings = []
 
         # Must be a dict
         if not isinstance(result, dict):
-            return {"passed": False, "errors": ["Result is not a dict"]}
+            return {"passed": False, "errors": ["Result is not a dict"], "warnings": [], "file_warnings": []}
 
         # Must have confidence
         if "confidence" not in result:
@@ -2090,10 +2350,10 @@ Rules:
         elif not (0.0 <= conf <= 1.0):
             errors.append(f"Confidence out of range: {conf}")
 
-        # Flag derived/fallback confidence so manager knows
+        # Flag derived/fallback confidence as a warning (informational, not a failure)
         source = result.get("_confidence_source")
         if source:
-            errors.append(
+            warnings.append(
                 f"Confidence was not provided by worker (source: {source})"
             )
 
@@ -2101,7 +2361,82 @@ Rules:
         if "error" in result and len(result) <= 2:  # just error + confidence
             errors.append("Result contains only an error")
 
-        return {"passed": len(errors) == 0, "errors": errors}
+        # --- File output validation (Phase 3: safety net) ---
+        file_warnings = self._validate_output_files()
+        if file_warnings:
+            # Classify severity of each file warning
+            from .file_validator import classify_warning_severity
+            critical_count = 0
+            for w in file_warnings:
+                errors.append(f"Invalid output file: {w}")
+                # Try to extract path from warning for severity classification
+                # Warnings start with "filename.ext: ..."
+                fname = w.split(":")[0].strip() if ":" in w else ""
+                if fname:
+                    # Check candidate paths in output and workspace
+                    for search_dir in [self._dir / "output", self._dir / "workspace" / "outputs"]:
+                        candidates = list(search_dir.rglob(fname)) if search_dir.exists() else []
+                        for p in candidates:
+                            severity = classify_warning_severity(p, w)
+                            if severity == "critical":
+                                critical_count += 1
+                                break
+
+            # Penalize confidence — critical files get heavy penalty
+            if isinstance(conf, (int, float)) and conf > 0:
+                if critical_count > 0:
+                    # Critical files (0-byte, placeholder PNGs) → heavy penalty
+                    penalty = min(0.8, 0.2 * critical_count)
+                else:
+                    penalty = min(0.3, 0.1 * len(file_warnings))
+                result["confidence"] = max(0.0, conf - penalty)
+                result["_confidence_penalty_reason"] = (
+                    f"Reduced by {penalty:.1f} due to {len(file_warnings)} "
+                    f"invalid output file(s) ({critical_count} critical)"
+                )
+
+        return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings, "file_warnings": file_warnings}
+
+    def _validate_output_files(self) -> list[str]:
+        """Scan workspace and output dirs for invalid files."""
+        from .file_validator import validate_directory
+
+        warnings: list[str] = []
+        workspace = self._dir / "workspace"
+        output = self._dir / "output"
+        if workspace.exists():
+            # Only validate outputs subdir of workspace (not inputs, context, etc.)
+            ws_outputs = workspace / "outputs"
+            if ws_outputs.exists():
+                warnings.extend(validate_directory(ws_outputs))
+        if output.exists():
+            warnings.extend(validate_directory(output))
+        return warnings
+
+    def _classify_output_warning(self, warning: str) -> str:
+        """Classify a file warning string as critical/error/warning.
+
+        Extracts the filename from the warning (format: 'name.ext: ...'),
+        finds the actual file on disk, and uses classify_warning_severity.
+        Falls back to heuristic if the file can't be located.
+        """
+        from .file_validator import classify_warning_severity
+
+        fname = warning.split(":")[0].strip() if ":" in warning else ""
+        if fname:
+            for search_dir in [
+                self._dir / "output",
+                self._dir / "workspace" / "outputs",
+            ]:
+                if search_dir.exists():
+                    candidates = list(search_dir.rglob(fname))
+                    for p in candidates:
+                        return classify_warning_severity(p, warning)
+        # Heuristic fallback: placeholder keywords → critical
+        w_lower = warning.lower()
+        if "placeholder" in w_lower or "1×1" in w_lower or "0 bytes" in w_lower:
+            return "critical"
+        return "warning"
 
     def _validate_llm(self, result: dict, task: str, worker_id: str) -> dict:
         """Tier 2: LLM-based semantic validation."""
@@ -2146,33 +2481,43 @@ Rules:
         """Robustly parse an LLM response as JSON.
 
         Tries multiple strategies:
-        1. Direct JSON parse
+        1. Direct JSON parse (strict, then lenient)
         2. Strip markdown code fences and parse
         3. Extract the first {...} block from freetext via brace-matching
+        4. Repair truncated JSON
+
+        All json.loads calls use strict=False to tolerate literal control
+        characters (newlines, tabs) inside JSON string values — a common
+        LLM output quirk that causes strict parsing to fail.
         """
         if not text or not isinstance(text, str):
             return {"result": str(text), "_confidence_source": "parse_failure"}
         cleaned = text.strip()
 
+        def _try_parse(s: str) -> dict | None:
+            """Try parsing with strict=True first, then strict=False."""
+            for strict in (True, False):
+                try:
+                    parsed = json.loads(s, strict=strict)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return None
+
         # Strategy 1: direct parse
-        try:
-            parsed = json.loads(cleaned)
-            if isinstance(parsed, dict):
-                return parsed
-        except (json.JSONDecodeError, ValueError):
-            pass
+        result = _try_parse(cleaned)
+        if result is not None:
+            return result
 
         # Strategy 2: strip markdown code fences
         if "```" in cleaned:
             lines = cleaned.split("\n")
             lines = [line for line in lines if not line.strip().startswith("```")]
             fenced = "\n".join(lines).strip()
-            try:
-                parsed = json.loads(fenced)
-                if isinstance(parsed, dict):
-                    return parsed
-            except (json.JSONDecodeError, ValueError):
-                pass
+            result = _try_parse(fenced)
+            if result is not None:
+                return result
 
         # Strategy 3: find the first top-level {...} block via brace matching
         start = cleaned.find("{")
@@ -2206,12 +2551,9 @@ Rules:
                         stack.pop()
                     if depth == 0:
                         candidate = cleaned[start : i + 1]
-                        try:
-                            parsed = json.loads(candidate)
-                            if isinstance(parsed, dict):
-                                return parsed
-                        except (json.JSONDecodeError, ValueError):
-                            pass
+                        result = _try_parse(candidate)
+                        if result is not None:
+                            return result
                         break
                 elif ch == "]":
                     if stack and stack[-1] == "]":
@@ -2251,17 +2593,14 @@ Rules:
                     if _in_str:
                         continue
                     repaired = candidate + "".join(reversed(_stack))
-                    try:
-                        parsed = json.loads(repaired)
-                        if isinstance(parsed, dict):
-                            parsed["_truncated"] = True
-                            logger.warning(
-                                "Recovered truncated JSON (trimmed to %d/%d chars, closed %d delimiters)",
-                                trim_to, len(fragment), len(_stack),
-                            )
-                            return parsed
-                    except (json.JSONDecodeError, ValueError):
-                        continue
+                    result = _try_parse(repaired)
+                    if result is not None:
+                        result["_truncated"] = True
+                        logger.warning(
+                            "Recovered truncated JSON (trimmed to %d/%d chars, closed %d delimiters)",
+                            trim_to, len(fragment), len(_stack),
+                        )
+                        return result
 
         return {"result": text, "_confidence_source": "parse_failure"}
 
@@ -2319,6 +2658,7 @@ Rules:
             wid = dr.get("worker_id", "?")
             result = dr.get("result", {})
             # Try common field names
+            found_finding = False
             for key in (
                 "findings",
                 "result",
@@ -2329,16 +2669,33 @@ Rules:
             ):
                 if key in result:
                     val = result[key]
-                    if isinstance(val, str):
+                    if isinstance(val, str) and val.strip():
                         if len(val) > 150:
                             val = val[:150] + "..."
                         findings.append(f"{wid}: {val}")
-                    elif isinstance(val, list):
+                        found_finding = True
+                    elif isinstance(val, list) and val:
                         findings.append(f"{wid}: {len(val)} items")
+                        found_finding = True
                     break
-            else:
-                conf = result.get("confidence", "?")
-                findings.append(f"{wid}: confidence={conf}")
+
+            if not found_finding:
+                # Surface tool errors when result is empty
+                tool_calls = result.get("_tool_calls", [])
+                failed_tools = [
+                    tc for tc in tool_calls
+                    if isinstance(tc, dict)
+                    and isinstance(tc.get("result"), dict)
+                    and not tc["result"].get("ok", True)
+                ]
+                if failed_tools:
+                    err = failed_tools[0]["result"].get("error", "unknown error")
+                    if isinstance(err, str) and len(err) > 150:
+                        err = err[:150] + "..."
+                    findings.append(f"{wid}: TOOL ERROR — {err}")
+                else:
+                    conf = result.get("confidence", "?")
+                    findings.append(f"{wid}: confidence={conf}")
         return "; ".join(findings)
 
     def _build_partial_result(self, reason: str) -> dict:

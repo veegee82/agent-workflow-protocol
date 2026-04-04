@@ -819,7 +819,7 @@ class DynamicToolFactory:
                 f"    return str(_P(_output_dir).joinpath(*parts))\n"
                 f"def _input_file(*parts):\n"
                 f"    from pathlib import Path as _P\n"
-                f"    return str(_P(_workspace_dir) / 'inputs' / _P(*parts))\n"
+                f"    return str(_P(_workspace_dir, 'inputs', *parts))\n"
                 f"def _list_files(directory=None):\n"
                 f"    from pathlib import Path as _P\n"
                 f"    base = _P(directory) if directory else _P(_workspace_dir)\n"

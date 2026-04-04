@@ -67,7 +67,31 @@ Files are generated in this order:
 5. **Intro prompts** (`00_INTRO.md` per agent) -- Task introduction and context.
 6. **Output schemas** (`output_schema.json` and `output_schema_desc.json` per agent).
 7. **Custom tools** (if needed) -- In `mcp/` directory.
-8. **Project skills** (if needed) -- In `skills/` directory.
+8. **Project skills** (if needed) -- In `skills/` directory, following the standard skill structure.
+
+##### Skill Structure
+
+Every generated skill (project-level or agent-level) MUST follow this structure:
+
+```markdown
+---
+name: {skill_name}
+domain: {domain}
+scope: project|agent
+version: "1.0"
+---
+
+# {Skill Name}
+
+## Purpose           ← mandatory: one sentence
+## Concepts          ← mandatory: 3-7 key terms as definition list
+## Rules             ← mandatory: numbered, testable constraints
+## Procedure         ← conditional: step-by-step sequence (if multi-step)
+## Examples          ← conditional: input → output pairs (if non-obvious)
+## References        ← optional: external standards or sources
+```
+
+This applies equally to static project skills and dynamically generated delegation loop skills.
 
 #### Phase 3: Validation
 

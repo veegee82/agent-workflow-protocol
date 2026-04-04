@@ -49,9 +49,7 @@ The multi-agent ecosystem in 2024-2026 produced a wave of frameworks, each solvi
 Each framework makes a fundamental trade-off. They either give you **freedom without structure** (LangGraph, Google ADK) or **structure without freedom** (MetaGPT, Bedrock Agents). Some — like Google A2A — solve interoperability at the communication layer but leave orchestration and safety to the developer. AWP's thesis is that you don't have to choose.
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-framework-design-space.svg" alt="The Framework Design Space" width="100%"/>
-</p>
 </p>
 
 **AWP occupies a unique position**: maximum structural guarantees (formal validation, budget enforcement, safety layers) combined with maximum runtime freedom (agents create their own tools, skills, and sub-agents).
@@ -63,16 +61,14 @@ Each framework makes a fundamental trade-off. They either give you **freedom wit
 The central design decision in AWP is the **separation of workflow definition from workflow execution**.
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-separation-principle.svg" alt="The Separation Principle" width="100%"/>
-</p>
 </p>
 
 This separation has consequences that ripple through every design decision:
 
 **1. Portability.** A `workflow.awp.yaml` is a contract. Any runtime that speaks AWP can execute it. Today that runtime is Python. Tomorrow it could be Rust, Go, or a cloud service. The workflow doesn't change.
 
-**2. Validation before execution.** Because the intent is declarative, AWP can statically analyze a workflow *before any LLM call is made*. The 24 validation rules (R1-R24) catch structural errors, naming violations, missing dependencies, and unsafe configurations at parse time — not at runtime.
+**2. Validation before execution.** Because the intent is declarative, AWP can statically analyze a workflow *before any LLM call is made*. The 26 validation rules (R1-R26) catch structural errors, naming violations, missing dependencies, and unsafe configurations at parse time — not at runtime.
 
 **3. Reproducibility.** The same YAML produces the same execution plan. The LLM outputs vary, but the orchestration topology, budget constraints, and safety boundaries are deterministic.
 
@@ -104,9 +100,7 @@ The analogy is **Docker Compose vs. shell scripts**. Both can start containers. 
 Most frameworks organize agents as flat collections of objects. AWP structures the *entire system* into seven semantic layers:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-7-layer-comparison.svg" alt="7-Layer Model vs Flat Abstractions" width="100%"/>
-</p>
 </p>
 
 **Why layers matter:**
@@ -138,9 +132,7 @@ Every other framework commits to a single execution paradigm:
 AWP provides **two engines** optimized for different workflow topologies:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-two-engines.svg" alt="Two Engines vs One Paradigm" width="100%"/>
-</p>
 </p>
 
 **DAG Engine** (A0-A1): Topological execution of a predetermined graph. Agents run in dependency order. State flows along edges. Simple, fast, predictable. Use this when you know the exact workflow at design time.
@@ -176,9 +168,7 @@ The choice is a single YAML field: `engine: dag` or `engine: delegation_loop`. T
 Most frameworks give you a binary choice: either agents follow instructions, or they don't. AWP introduces a **graduated autonomy model** — five levels where safety requirements scale proportionally with agent freedom.
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-autonomy-spectrum.svg" alt="The Autonomy Spectrum" width="100%"/>
-</p>
 </p>
 
 **Why this matters for design:**
@@ -196,9 +186,7 @@ Most frameworks give you a binary choice: either agents follow instructions, or 
 No other framework provides formal autonomy governance:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-governance-gap.svg" alt="The Governance Gap" width="100%"/>
-</p>
 </p>
 
 ---
@@ -224,9 +212,7 @@ This creates the **competence dilemma**: you either give agents too many tools (
 AWP solves this with two mechanisms that work together:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-tool-factory.svg" alt="Code Mode and Dynamic Tool Factory" width="100%"/>
-</p>
 </p>
 
 **Code Mode** is the paradigm shift. Instead of agents making dozens of individual tool calls (search, extract, transform, analyze — one LLM round-trip each), an agent writes a **complete Python program** and executes it in a single round-trip. For data-heavy tasks, this reduces LLM calls from 50+ to 3-5.
@@ -242,9 +228,7 @@ AWP solves this with two mechanisms that work together:
 Tools handle computation. Skills handle *knowledge*. An agent can generate a Markdown skill at runtime that captures domain expertise:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-skill-generation.svg" alt="Skill Generation" width="100%"/>
-</p>
 </p>
 
 **No other framework supports runtime skill/knowledge generation.** CrewAI has "memory" but it's conversation history, not structured domain knowledge. LangGraph has no equivalent concept.
@@ -271,9 +255,7 @@ This distinction defines three fundamentally different paradigms for AI problem-
 ### 6.1 Three Paradigms of Agent Problem-Solving
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-problem-solving-paradigms.svg" alt="Three Paradigms of Agent Problem-Solving" width="100%"/>
-</p>
 </p>
 
 The difference is fundamental:
@@ -286,9 +268,7 @@ The difference is fundamental:
 When AWP encounters a problem it cannot solve with existing tools, it doesn't just retry harder. It identifies what's missing, builds it, validates it, and integrates it — under strict governance.
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-capability-evolution.svg" alt="The Capability Evolution Loop" width="100%"/>
-</p>
 </p>
 
 This is not a theoretical pattern. It's how AWP's delegation loop actually operates at A3+:
@@ -314,9 +294,7 @@ This is not a theoretical pattern. It's how AWP's delegation loop actually opera
 The capability evolution loop creates a fundamentally different relationship between the system and the problem:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-paradigm-shift.svg" alt="Why This Is a Paradigm Shift" width="100%"/>
-</p>
 </p>
 
 Traditional agents hit a ceiling because their capabilities are fixed. They can retry with different prompts, temperatures, or strategies — but the underlying toolkit doesn't change. When the problem requires a capability the agent doesn't have, it's stuck.
@@ -368,14 +346,12 @@ This keeps the manager slim, deterministic, and replaceable — while the comple
 
 ## 7. Solving Complex Problems: The Delegation Architecture
 
-### 6.1 The Problem with Flat Orchestration
+### 7.1 The Problem with Flat Orchestration
 
 Most frameworks orchestrate agents in a flat structure:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-flat-orchestration.svg" alt="The Problem with Flat Orchestration" width="100%"/>
-</p>
 </p>
 
 Flat orchestration breaks down when:
@@ -384,14 +360,12 @@ Flat orchestration breaks down when:
 - The approach itself needs to change mid-execution
 - Resource consumption must be bounded
 
-### 6.2 AWP's Delegation Loop: Adaptive Problem-Solving
+### 7.2 AWP's Delegation Loop: Adaptive Problem-Solving
 
 The delegation loop is a **feedback-driven orchestration pattern** that mirrors how expert teams actually work:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-delegation-loop.svg" alt="AWP Delegation Loop" width="100%"/>
-</p>
 </p>
 
 **Key differences from other frameworks:**
@@ -406,33 +380,29 @@ The delegation loop is a **feedback-driven orchestration pattern** that mirrors 
 
 5. **Budget is a first-class architectural concept.** Not an afterthought. Not a configuration option you might set. A *required* structural element at A2+.
 
-### 6.3 Recursive Delegation (A4): Hierarchical Problem Decomposition
+### 7.3 Recursive Delegation (A4): Hierarchical Problem Decomposition
 
 At A4, the architecture goes fractal. Workers can themselves become managers:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-recursive-delegation.svg" alt="Recursive Delegation A4" width="100%"/>
-</p>
 </p>
 
 **Budget flows down, results flow up.** Each level receives a subset of the parent's budget. A department manager cannot spend more than the CEO allocated. This hierarchical budget enforcement is unique to AWP.
 
 ---
 
-## 7. The Safety Architecture
+## 8. The Safety Architecture
 
 Safety in AWP is not a feature — it's a structural property. Every design decision supports the principle: **safety scales with autonomy**.
 
-### 7.1 Defense in Depth
+### 8.1 Defense in Depth
 
-<p align="center">
 <p align="center">
   <img src="diagrams/arch-defense-in-depth.svg" alt="Defense in Depth" width="100%"/>
 </p>
-</p>
 
-### 7.2 The Immutable Envelope
+### 8.2 The Immutable Envelope
 
 At A2+, the workflow author declares a **safety envelope** that the manager cannot modify:
 
@@ -459,23 +429,21 @@ worker_policy:
 
 **Why this matters:** In frameworks like CrewAI or AutoGen, if an agent "goes rogue" (hallucinated tool calls, infinite loops, excessive API usage), there's no structural barrier. AWP's immutable policy means the *workflow definition* — not the runtime agent — sets the safety boundaries.
 
-### 7.3 The Output Contract: Confidence as Universal Signal
+### 8.3 The Output Contract: Confidence as Universal Signal
 
 Every agent in AWP must return a confidence score (0.0-1.0). This is not optional — it's validation rule R17:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-output-contract.svg" alt="The Output Contract" width="100%"/>
-</p>
 </p>
 
 ---
 
-## 8. What Scientists Can Do Now
+## 9. What Scientists Can Do Now
 
 AWP was designed with a specific user in mind: the domain expert who needs multi-agent AI but shouldn't need to be a software engineer to use it. Here's what's now possible.
 
-### 8.1 Three Lines to Multi-Agent Analysis
+### 9.1 Three Lines to Multi-Agent Analysis
 
 ```python
 from awp.data import AgentWorkflow
@@ -496,15 +464,13 @@ Behind these three lines, the system:
 
 **No YAML. No agent configuration. No tool setup.** The `AgentWorkflow` API is a zero-configuration entry point that creates an A4 delegation loop internally.
 
-### 8.2 Research Workflows That Were Previously Impossible
+### 9.2 Research Workflows That Were Previously Impossible
 
-<p align="center">
 <p align="center">
   <img src="diagrams/arch-research-workflows.svg" alt="Research Workflows" width="100%"/>
 </p>
-</p>
 
-### 8.3 The Jupyter Integration
+### 9.3 The Jupyter Integration
 
 AWP's `AgentWorkflow` API is designed for notebook-first workflows:
 
@@ -539,19 +505,17 @@ print(result["final_answer"])
 
 ---
 
-## 9. From Abstract Idea to Running System
+## 10. From Abstract Idea to Running System
 
 Let's trace the journey of a single idea — "analyze this data" — from abstract intention through every architectural layer to concrete execution.
 
-### 9.1 The Full Stack: Idea to Execution
+### 10.1 The Full Stack: Idea to Execution
 
-<p align="center">
 <p align="center">
   <img src="diagrams/arch-implementation-pipeline.svg" alt="From Abstract Idea to Running System" width="100%"/>
 </p>
-</p>
 
-### 9.2 Concrete Example: Financial Time Series
+### 10.2 Concrete Example: Financial Time Series
 
 Let's follow a real workflow through the system:
 
@@ -611,19 +575,17 @@ Manager: All tasks complete. Aggregate confidence: 0.89. STOP.
 
 **Total: 4 iterations, 7 workers, ~180K tokens. Budget: well within limits.**
 
-### 9.3 The Architecture Map
+### 10.3 The Architecture Map
 
 Here is how the packages, layers, and runtime components relate:
 
 <p align="center">
-<p align="center">
   <img src="diagrams/arch-awp-studio.svg" alt="AWP Studio" width="100%"/>
-</p>
 </p>
 
 ---
 
-## 10. Conclusion: The Insight
+## 11. Conclusion: The Insight
 
 The journey through AWP's architecture reveals a single organizing principle:
 

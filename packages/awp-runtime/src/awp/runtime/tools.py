@@ -1481,32 +1481,20 @@ class ToolRegistry:
                     "NEVER write base64 placeholder images as a fallback."
                 )
 
-            if result["ok"] and has_critical:
-                # Critical file errors (placeholder PNGs, empty PDFs) →
-                # force the result to FAIL so the LLM MUST fix them before
-                # proceeding.  Without this, the LLM can ignore warnings.
-                data = result.get("data", {})
-                stdout = data.get("stdout", "") if isinstance(data, dict) else ""
-                if isinstance(data, dict):
-                    data["stdout"] = stdout + warning_block
-                    result["data"] = data
-                result["ok"] = False
-                result["status"] = 422  # Unprocessable — output files are broken
-                result["error"] = (
-                    "Code executed successfully but produced INVALID output files. "
-                    + warning_block
-                )
-                result["_file_warnings"] = file_warnings
-                result["_has_critical_file_errors"] = True
-            elif result["ok"]:
-                # Non-critical warnings — attach but don't fail
+            if result["ok"]:
+                # Attach file warnings to stdout so the LLM sees them,
+                # but do NOT flip ok to False.  Forcing failure caused
+                # workers to burn tool-call rounds on retries for
+                # legitimately small output files (scatter plots, summary
+                # CSVs, etc.).  The LLM can still read the warnings and
+                # self-correct if it deems them actionable.
                 data = result.get("data", {})
                 stdout = data.get("stdout", "") if isinstance(data, dict) else ""
                 if isinstance(data, dict):
                     data["stdout"] = stdout + warning_block
                     result["data"] = data
                 result["_file_warnings"] = file_warnings
-                result["_has_critical_file_errors"] = False
+                result["_has_critical_file_errors"] = has_critical
             else:
                 # Append to error so even failed executions report file issues
                 result["error"] = (result.get("error") or "") + warning_block

@@ -268,14 +268,19 @@ In `code.execute`, the variables `_workspace_dir` and `_output_dir` are automati
 
 ### Dynamic Skill Generation
 
-In the delegation loop, the manager generates domain-specific skills (Markdown) for each worker:
+In the delegation loop, the manager generates domain-specific skills (Markdown) for each worker.
+Each dynamically generated skill MUST follow the same structure as project skills:
+
 ```json
 {
   "skills": [
-    "## Market Analysis Framework\n\n### TAM/SAM/SOM\n- TAM: Total addressable market...\n- SAM: Serviceable...\n### Porter's Five Forces\n..."
+    "# Market Analysis\n\n## Purpose\nEvaluate market opportunity using quantitative frameworks.\n\n## Concepts\n- **TAM**: Total addressable market — the full revenue opportunity.\n- **SAM**: Serviceable addressable market — the segment you can reach.\n- **SOM**: Serviceable obtainable market — the realistic short-term capture.\n\n## Rules\n1. Always calculate all three tiers (TAM → SAM → SOM).\n2. State the source and year for every market-size figure.\n3. Express SOM as a percentage of SAM with justification.\n\n## Procedure\n1. Define the market boundaries.\n2. Calculate TAM from industry reports.\n3. Narrow to SAM based on geographic and segment filters.\n4. Estimate SOM based on competitive positioning.\n\n## Examples\n### Example 1: SaaS CRM\n**Input:** Global CRM market, mid-market segment, NA region\n**Output:** TAM $65B, SAM $12B, SOM $180M (1.5% — new entrant)\n"
   ]
 }
 ```
+
+**Required sections in every dynamic skill:** Purpose, Concepts, Rules.
+**Optional sections:** Procedure (for multi-step tasks), Examples (when correct application is non-obvious).
 
 Skills are persisted in workspace/runs/{run_id}/artifacts/skills/.
 
@@ -1047,7 +1052,43 @@ When generating a delegation_loop workflow:
 
 #### Step 8: Project Skills (if needed)
 
-If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`. See `templates/project-skill.md`.
+If the workflow needs shared domain knowledge, create `{workflow_dir}/skills/{skill_name}/SKILL.md`.
+
+Every generated skill MUST follow the standard skill structure (see `templates/project-skill.md`):
+
+```markdown
+---
+name: {skill_name}
+domain: {domain, e.g. finance, devops, nlp}
+scope: project          # or "agent" for agent-level skills
+version: "1.0"
+---
+
+# {Skill Name}
+
+## Purpose
+{One sentence: what decision or task does this skill support?}
+
+## Concepts
+{3-7 key terms/frameworks as definition list}
+
+## Rules
+{Numbered, testable constraints the agent MUST follow}
+
+## Procedure
+{Step-by-step sequence — omit if skill is purely declarative}
+
+## Examples
+{At least one input → output pair}
+
+## References
+{Optional: external standards or sources}
+```
+
+**Mandatory sections:** Purpose, Concepts, Rules.
+**Conditional sections:** Procedure (include when the skill describes a multi-step process), Examples (include when correct application is non-obvious), References (include when the skill draws from external standards).
+
+Do NOT generate skills that are just a flat list of bullet points — every skill must have the structured sections above so agents can reliably parse and apply the knowledge.
 
 #### Step 9: WORKFLOW.md (Project Overview)
 

@@ -14,6 +14,7 @@ import type {
   SessionHistoryItem,
   SecretEntry,
   MemoryEntry,
+  CachedSessionState,
 } from '@/types';
 import * as api from '@/api/client';
 import { connectToRun } from '@/api/websocket';
@@ -158,10 +159,10 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   api_key: undefined,
   max_loops: 100,
   max_total_tokens: 10_000_000,
-  max_wall_time: 5000,
+  max_wall_time: 7200,
   max_tool_calls: 250,
-  max_total_workers: 100,
-  max_depth: 10,
+  max_total_workers: 1000,
+  max_depth: 100,
   sandbox: 'subprocess',
   packages: [],
   code_mode: true,
@@ -180,9 +181,9 @@ const DEFAULT_BUDGET: BudgetState = {
   tokens_used: 0,
   tokens_max: 10_000_000,
   workers_used: 0,
-  workers_max: 500,
+  workers_max: 1000,
   wall_time_ms: 0,
-  wall_time_max_ms: 600_000,
+  wall_time_max_ms: 7_200_000,
   tool_calls_used: 0,
   tool_calls_max: 250,
 };
@@ -278,6 +279,11 @@ export interface WorkflowStore {
   // WebSocket handle (internal)
   _wsConnection: WebSocketConnection | null;
   _wsStatus: 'connecting' | 'open' | 'closed' | 'error';
+
+  // Session cache (internal)
+  _sessionCache: Map<string, CachedSessionState>;
+  _wsPool: Map<string, WebSocketConnection>;
+  _runToSession: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,8 +368,7 @@ function processEvent(
     }
 
     // ----- Agent start -----
-    case 'agent.start':
-    case 'delegation.start': {
+    case 'agent.start': {
       const id = nodeIdFromEvent(evt);
       store.addGraphNode({
         id,
@@ -373,8 +378,40 @@ function processEvent(
           label: (evt.data.agent_name as string) ?? evt.type,
           status: 'running',
           details: evt.data,
-          nodeType: evt.type === 'delegation.start' ? 'manager' : 'task',
+          nodeType: 'task',
         },
+      });
+      break;
+    }
+
+    // ----- Sub-manager (recursive delegation) -----
+    case 'delegation.start': {
+      const parentId = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
+      const depth = (evt.data.depth as number) ?? 1;
+      const model = (evt.data.model as string) ?? '?';
+      const subMgrId = `sub_mgr_${parentId}_d${depth}`;
+      store.addGraphNode({
+        id: subMgrId,
+        type: 'default',
+        position: { x: 0, y: store.graphNodes.length * 120 },
+        data: {
+          label: `Sub-Manager d${depth} (${model.split('/').pop()})`,
+          status: 'running',
+          nodeType: 'manager',
+          depth,
+          details: evt.data,
+        },
+      });
+      store.addGraphEdge({
+        id: `e-${parentId}-${subMgrId}`,
+        source: parentId,
+        target: subMgrId,
+        animated: true,
+      });
+      store.addOutputBlock({
+        type: 'markdown',
+        content: `**Sub-delegation** (depth ${depth}) — ${model}`,
+        title: 'Delegation',
       });
       break;
     }
@@ -383,6 +420,19 @@ function processEvent(
     case 'iteration.start': {
       const iterNum = evt.data.iteration ?? '?';
       const iterId = `iter_${iterNum}`;
+      const depth = (evt.data.depth as number) ?? 0;
+      // For sub-run iterations, link to the sub-manager; for root, link to 'manager'
+      const parentWorkerId = evt.data.parent_id as string | undefined;
+      let iterParent = 'manager';
+      if (parentWorkerId && depth > 0) {
+        // Find the sub-manager node for this parent worker
+        const subMgrId = `sub_mgr_${parentWorkerId}_d${depth}`;
+        if (store.graphNodes.some((n) => n.id === subMgrId)) {
+          iterParent = subMgrId;
+        } else {
+          iterParent = parentWorkerId;
+        }
+      }
       store.addGraphNode({
         id: iterId,
         type: 'default',
@@ -391,19 +441,20 @@ function processEvent(
           label: `Iteration ${iterNum}`,
           status: 'running',
           nodeType: 'iteration',
+          depth,
           details: evt.data,
         },
       });
-      // Link to manager
+      // Link to parent manager
       store.addGraphEdge({
-        id: `e-manager-${iterId}`,
-        source: 'manager',
+        id: `e-${iterParent}-${iterId}`,
+        source: iterParent,
         target: iterId,
         animated: true,
       });
       store.addOutputBlock({
         type: 'markdown',
-        content: `**Iteration ${iterNum}**`,
+        content: `**Iteration ${iterNum}**${depth > 0 ? ` (depth ${depth})` : ''}`,
         title: 'Iteration',
       });
       break;
@@ -697,10 +748,19 @@ function processEvent(
       store.updateGraphNode('manager', { status: isError ? 'error' : 'complete' });
       store.updateGraphNode('task_root', { status: isError ? 'error' : 'complete' });
 
-      set({
+      // Update run status and session status in sidebar
+      const completedSessionId = get().currentSessionId;
+      set((prev) => ({
         runStatus: isError ? 'error' : 'complete',
         activePanel: 'output',
-      });
+        sessions: completedSessionId
+          ? prev.sessions.map((sess) =>
+              sess.id === completedSessionId
+                ? { ...sess, status: (isError ? 'failed' : 'complete') as Session['status'], last_run_status: isError ? 'failed' : 'complete' }
+                : sess,
+            )
+          : prev.sessions,
+      }));
 
       if (isError && evt.data.result) {
         const result = evt.data.result as Record<string, unknown>;
@@ -760,6 +820,102 @@ function processEvent(
       });
       break;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session cache helpers
+// ---------------------------------------------------------------------------
+
+const MAX_CACHED_SESSIONS = 10;
+
+/** Snapshot current per-session state from the store into a CachedSessionState. */
+function snapshotSession(s: WorkflowStore): CachedSessionState | null {
+  if (!s.currentSessionId) return null;
+  return {
+    sessionId: s.currentSessionId,
+    currentRunId: s.currentRunId,
+    runStatus: s.runStatus,
+    events: s.events,
+    graphNodes: s.graphNodes,
+    graphEdges: s.graphEdges,
+    outputBlocks: s.outputBlocks,
+    budget: { ...s.budget },
+    sessionHistory: s.sessionHistory,
+    experimentMemory: s.experimentMemory,
+    config: { ...s.config },
+    runHistory: s.runHistory,
+    selectedNodeId: s.selectedNodeId,
+  };
+}
+
+/** Restore cached session state into a partial store update. */
+function restoreFromCache(cached: CachedSessionState): Partial<WorkflowStore> {
+  return {
+    currentSessionId: cached.sessionId,
+    currentRunId: cached.currentRunId,
+    runStatus: cached.runStatus,
+    events: cached.events,
+    graphNodes: cached.graphNodes,
+    graphEdges: cached.graphEdges,
+    outputBlocks: cached.outputBlocks,
+    budget: cached.budget,
+    sessionHistory: cached.sessionHistory,
+    experimentMemory: cached.experimentMemory,
+    config: cached.config,
+    runHistory: cached.runHistory,
+    selectedNodeId: cached.selectedNodeId,
+  };
+}
+
+/** Evict oldest entries from cache map to stay within size limit. */
+function evictCache(cache: Map<string, CachedSessionState>, maxSize: number) {
+  while (cache.size > maxSize) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) cache.delete(firstKey);
+  }
+}
+
+/** Route a WebSocket event to a background (non-active) session's cache. */
+function routeBackgroundEvent(
+  event: RunEvent,
+  sessionId: string,
+  get: () => WorkflowStore,
+  set: (partial: Partial<WorkflowStore> | ((s: WorkflowStore) => Partial<WorkflowStore>)) => void,
+) {
+  const s = get();
+  const cached = s._sessionCache.get(sessionId);
+  if (!cached) return;
+
+  // Append event
+  cached.events = [...cached.events, event];
+
+  // Update status on run lifecycle events
+  if (event.type === 'run.complete') {
+    const status = (event.data.status as string) ?? 'complete';
+    cached.runStatus = (status === 'error' || status === 'failed') ? 'error' : 'complete';
+  } else if (event.type === 'error') {
+    cached.runStatus = 'error';
+  }
+
+  // Update budget
+  if (event.type === 'budget.update') {
+    const d = event.data;
+    if (typeof d.loops_used === 'number') cached.budget.loops_used = d.loops_used;
+    if (typeof d.tokens_used === 'number') cached.budget.tokens_used = d.tokens_used;
+    if (typeof d.workers_used === 'number') cached.budget.workers_used = d.workers_used;
+  }
+
+  // Update session list status on completion
+  if (event.type === 'run.complete' || event.type === 'error') {
+    const runStatus = event.type === 'error' ? 'failed' : ((event.data.status as string) ?? 'complete');
+    set((prev) => ({
+      sessions: prev.sessions.map((sess) =>
+        sess.id === sessionId
+          ? { ...sess, status: (runStatus === 'error' || runStatus === 'failed') ? 'failed' as const : 'complete' as const, last_run_status: runStatus }
+          : sess,
+      ),
+    }));
   }
 }
 
@@ -964,28 +1120,52 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }
       set({ currentRunId: run_id });
 
-      // Open WebSocket
+      // Update session status to 'running' in sidebar
+      if (sessionId) {
+        set((prev) => ({
+          sessions: prev.sessions.map((sess) =>
+            sess.id === sessionId
+              ? { ...sess, status: 'running' as const, last_run_status: 'running' }
+              : sess,
+          ),
+        }));
+      }
+
+      // Open WebSocket — route events to active store or background cache
+      const runSessionId = get().currentSessionId;
       const conn = connectToRun(run_id, (event) => {
-        get().addEvent(event);
-        // On run complete/error, reload session history
-        if (
-          (event.type === 'run.complete' || event.type === 'error') &&
-          get().currentSessionId
-        ) {
-          const sid = get().currentSessionId!;
-          api
-            .getSessionHistory(sid)
-            .then((history) => set({ sessionHistory: history }))
-            .catch(() => {});
-          // Also reload sessions to update run_count and status
-          api
-            .listSessions()
-            .then((sessions) => set({ sessions }))
-            .catch(() => {});
+        const current = get();
+        if (current.currentSessionId === runSessionId) {
+          // Active session — process normally
+          current.addEvent(event);
+          if (
+            (event.type === 'run.complete' || event.type === 'error') &&
+            current.currentSessionId
+          ) {
+            const sid = current.currentSessionId!;
+            api
+              .getSessionHistory(sid)
+              .then((history) => set({ sessionHistory: history }))
+              .catch(() => {});
+            api
+              .listSessions()
+              .then((sessions) => set({ sessions }))
+              .catch(() => {});
+          }
+        } else if (runSessionId) {
+          // Session switched — route to background cache
+          routeBackgroundEvent(event, runSessionId, get, set);
         }
       }, {
-        onStateChange: (ws) => set({ _wsStatus: ws }),
+        onStateChange: (ws) => {
+          if (get().currentSessionId === runSessionId) set({ _wsStatus: ws });
+        },
       });
+      // Store in WS pool for multi-experiment support
+      if (runSessionId) {
+        get()._wsPool.set(run_id, conn);
+        get()._runToSession.set(run_id, runSessionId);
+      }
       set({ _wsConnection: conn });
     } catch (err) {
       set({
@@ -1012,6 +1192,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       // best-effort
     }
 
+    // Clean up from WS pool
+    const runId = state.currentRunId;
+    const pooledWs = state._wsPool.get(runId);
+    if (pooledWs) {
+      pooledWs.close();
+      state._wsPool.delete(runId);
+    }
+    state._runToSession.delete(runId);
+
     state._wsConnection?.close();
     set({
       runStatus: 'complete',
@@ -1023,6 +1212,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   reset: () => {
     const state = get();
     state._wsConnection?.close();
+    // Close all pooled WebSocket connections
+    for (const ws of state._wsPool.values()) {
+      ws.close();
+    }
+    state._wsPool.clear();
+    state._runToSession.clear();
+    state._sessionCache.clear();
     set({
       currentRunId: null,
       runStatus: 'idle',
@@ -1057,9 +1253,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const sessionTitle =
         title ?? `Experiment ${new Date().toLocaleString()}`;
       const session = await api.createSession(sessionTitle);
-      // Close any open WebSocket before switching
+
+      // Snapshot current session state to cache (preserves background WS)
       const prev = get();
-      prev._wsConnection?.close();
+      const snapshot = snapshotSession(prev);
+      if (snapshot) {
+        prev._sessionCache.set(snapshot.sessionId, snapshot);
+        evictCache(prev._sessionCache, MAX_CACHED_SESSIONS);
+      }
+
+      // If the current session has a running WS, keep it alive in the pool
+      if (prev._wsConnection && prev.currentRunId) {
+        prev._wsPool.set(prev.currentRunId, prev._wsConnection);
+        prev._runToSession.set(prev.currentRunId, prev.currentSessionId!);
+      }
 
       set((s) => ({
         currentSessionId: session.id,
@@ -1090,7 +1297,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const sessions = await api.listSessions();
       set({ sessions });
       // Auto-create a first experiment so the user can start immediately
-      if (sessions.length === 0) {
+      // (only if no session was already restored by loadPersistedSettings)
+      if (sessions.length === 0 && !get().currentSessionId) {
         const store = get() as ReturnType<typeof useWorkflowStore.getState>;
         await store.createSession('Experiment 1');
       }
@@ -1100,6 +1308,53 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   selectSession: async (sessionId) => {
+    const s = get();
+    // Don't re-select the current session
+    if (s.currentSessionId === sessionId) return;
+
+    // Snapshot current session state into cache before switching
+    const snapshot = snapshotSession(s);
+    if (snapshot) {
+      s._sessionCache.set(snapshot.sessionId, snapshot);
+      evictCache(s._sessionCache, MAX_CACHED_SESSIONS);
+    }
+
+    // If the current session has a running WS, rewire it to background mode
+    if (s._wsConnection && s.currentRunId) {
+      const bgRunId = s.currentRunId;
+      const bgSessionId = s.currentSessionId!;
+      // The WS stays alive in the pool — its events will update the cache
+      // via the onEvent callback that was set up in startRun
+      s._wsPool.set(bgRunId, s._wsConnection);
+      s._runToSession.set(bgRunId, bgSessionId);
+    }
+
+    // Check if the target session is already in cache
+    const cached = s._sessionCache.get(sessionId);
+    if (cached) {
+      // Remove from cache (it becomes the active session)
+      s._sessionCache.delete(sessionId);
+      // Restore from cache — instant, no API call
+      const restored = restoreFromCache(cached);
+      // If the restored session has a running run, reconnect _wsConnection
+      let wsConn: WebSocketConnection | null = null;
+      let wsStatus: 'connecting' | 'open' | 'closed' | 'error' = 'closed';
+      if (cached.currentRunId && cached.runStatus === 'running') {
+        const pooledWs = s._wsPool.get(cached.currentRunId);
+        if (pooledWs) {
+          wsConn = pooledWs;
+          wsStatus = pooledWs.readyState() === WebSocket.OPEN ? 'open' : 'connecting';
+        }
+      }
+      set({
+        ...restored,
+        _wsConnection: wsConn,
+        _wsStatus: wsStatus,
+      });
+      return;
+    }
+
+    // Not cached — fetch from API
     try {
       const full = await api.getSessionFull(sessionId);
 
@@ -1213,10 +1468,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         }
       }
 
-      // Build graph from last run
+      // Build graph from last run's backend data, or reconstruct from events
       let graphNodes: Node[] = [];
       let graphEdges: Edge[] = [];
-      if (lastRun?.graph) {
+      if (lastRun?.graph?.nodes?.length) {
         graphNodes = lastRun.graph.nodes.map((n: Record<string, unknown>, i: number) => ({
           id: n.id as string,
           type: 'default',
@@ -1228,6 +1483,103 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           source: e.source as string,
           target: e.target as string,
         }));
+      } else if (lastRun && allEvents.length > 0) {
+        // No backend graph available (e.g. run still in progress) — rebuild from events
+        graphNodes = [];
+        graphEdges = [];
+        const addNode = (node: Node) => {
+          if (!graphNodes.some((n) => n.id === node.id)) graphNodes.push(node);
+        };
+        const addEdge = (edge: Edge) => {
+          if (!graphEdges.some((e) => e.id === edge.id)) graphEdges.push(edge);
+        };
+        const lastManagerId = () => {
+          for (let i = graphNodes.length - 1; i >= 0; i--) {
+            const nt = (graphNodes[i].data as Record<string, unknown>).nodeType ?? graphNodes[i].type;
+            if (nt === 'manager' || nt === 'iteration') return graphNodes[i].id;
+          }
+          return null;
+        };
+
+        for (const evt of allEvents) {
+          const d = evt.data;
+          switch (evt.type) {
+            case 'run.start': {
+              const model = (d.model as string) ?? ((d.models as Record<string, string>)?.manager) ?? lastRun.model;
+              addNode({ id: 'task_root', type: 'default', position: { x: 0, y: 0 }, data: { label: lastRun.task.slice(0, 60) || 'Task', status: 'running', nodeType: 'task', details: { model } } });
+              addNode({ id: 'manager', type: 'default', position: { x: 0, y: 120 }, data: { label: `Manager (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', details: d } });
+              addEdge({ id: 'e-task-manager', source: 'task_root', target: 'manager' });
+              break;
+            }
+            case 'delegation.start': {
+              const parentId = (d.parent_id as string) ?? lastManagerId() ?? 'manager';
+              const evtDepth = (d.depth as number) ?? 1;
+              const model = (d.model as string) ?? '?';
+              const subMgrId = `sub_mgr_${parentId}_d${evtDepth}`;
+              addNode({ id: subMgrId, type: 'default', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Sub-Manager d${evtDepth} (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', depth: evtDepth, details: d } });
+              addEdge({ id: `e-${parentId}-${subMgrId}`, source: parentId, target: subMgrId });
+              break;
+            }
+            case 'iteration.start': {
+              const iterId = `iter_${d.iteration ?? '?'}`;
+              const evtDepth = (d.depth as number) ?? 0;
+              const parentWorkerId = d.parent_id as string | undefined;
+              let iterParent = 'manager';
+              if (parentWorkerId && evtDepth > 0) {
+                const subMgrId = `sub_mgr_${parentWorkerId}_d${evtDepth}`;
+                if (graphNodes.some((n) => n.id === subMgrId)) iterParent = subMgrId;
+                else iterParent = parentWorkerId;
+              }
+              addNode({ id: iterId, type: 'default', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Iteration ${d.iteration ?? '?'}`, status: 'running', nodeType: 'iteration', depth: evtDepth, details: d } });
+              addEdge({ id: `e-${iterParent}-${iterId}`, source: iterParent, target: iterId });
+              break;
+            }
+            case 'iteration.decision': {
+              const iterId = `iter_${d.iteration ?? '?'}`;
+              const existing = graphNodes.find((n) => n.id === iterId);
+              if (existing) {
+                existing.data = { ...existing.data, status: (d.decision as string) === 'complete' ? 'complete' : 'running', label: `Iter ${d.iteration}: ${(d.decision as string ?? '').toUpperCase()}`, confidence: d.confidence, details: d };
+              }
+              break;
+            }
+            case 'worker.spawn': {
+              const workerId = (d.worker_id as string) ?? nodeIdFromEvent(evt);
+              const iteration = (d.iteration as string) ?? '';
+              const iterNodeId = iteration ? `iter_${iteration}` : null;
+              const iterExists = iterNodeId && graphNodes.some((n) => n.id === iterNodeId);
+              const parentId = (d.parent_id as string) ?? (iterExists ? iterNodeId! : lastManagerId() ?? 'manager');
+              addNode({ id: workerId, type: 'default', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', details: d } });
+              addEdge({ id: `e-${parentId}-${workerId}`, source: parentId, target: workerId });
+              break;
+            }
+            case 'worker.complete': {
+              const workerId = (d.worker_id as string) ?? nodeIdFromEvent(evt);
+              const existing = graphNodes.find((n) => n.id === workerId);
+              if (existing) {
+                existing.data = { ...existing.data, status: (d.error || d.has_error) ? 'error' : 'complete', confidence: d.confidence as number | undefined };
+              }
+              break;
+            }
+            case 'tool.call': {
+              const toolName = (d.tool_name as string) ?? (d.tool as string) ?? 'Tool';
+              const callerId = (d.worker_id as string) ?? (d.agent_id as string) ?? (d.caller_id as string) ?? '';
+              const callIndex = d.call_index as number | undefined;
+              const toolId = `tool-${callerId}-${toolName}-${callIndex ?? graphNodes.length}`;
+              addNode({ id: toolId, type: 'default', position: { x: 450, y: graphNodes.length * 120 }, data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
+              if (callerId) addEdge({ id: `e-${callerId}-${toolId}`, source: callerId, target: toolId });
+              break;
+            }
+            case 'run.complete': {
+              const status = (d.status as string) ?? 'complete';
+              const isError = status === 'error' || status === 'failed';
+              const mgr = graphNodes.find((n) => n.id === 'manager');
+              if (mgr) mgr.data = { ...mgr.data, status: isError ? 'error' : 'complete' };
+              const root = graphNodes.find((n) => n.id === 'task_root');
+              if (root) root.data = { ...root.data, status: isError ? 'error' : 'complete' };
+              break;
+            }
+          }
+        }
       }
 
       // Build session history for sidebar
@@ -1249,7 +1601,39 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         },
       ]);
 
-      set((s) => ({
+      // If this session has a running run, reconnect WebSocket
+      let wsConn: WebSocketConnection | null = null;
+      let wsStatus: 'connecting' | 'open' | 'closed' | 'error' = 'closed';
+      if (lastRunId && runStatus === 'running') {
+        const pooledWs = s._wsPool.get(lastRunId);
+        if (pooledWs) {
+          wsConn = pooledWs;
+          wsStatus = pooledWs.readyState() === WebSocket.OPEN ? 'open' : 'connecting';
+        } else {
+          // Reconnect WS for a running experiment (e.g. after page refresh)
+          const conn = connectToRun(lastRunId, (event) => {
+            const current = get();
+            if (current.currentSessionId === sessionId) {
+              current.addEvent(event);
+            } else {
+              routeBackgroundEvent(event, sessionId, get, set);
+            }
+            if (event.type === 'run.complete' || event.type === 'error') {
+              api.listSessions().then((sessions) => set({ sessions })).catch(() => {});
+            }
+          }, {
+            onStateChange: (ws) => {
+              if (get().currentSessionId === sessionId) set({ _wsStatus: ws });
+            },
+          });
+          s._wsPool.set(lastRunId, conn);
+          s._runToSession.set(lastRunId, sessionId);
+          wsConn = conn;
+          wsStatus = 'connecting';
+        }
+      }
+
+      set((prev) => ({
         currentSessionId: sessionId,
         currentRunId: lastRunId,
         runStatus,
@@ -1260,10 +1644,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         graphEdges,
         selectedNodeId: null,
         activePanel: lastRun ? 'protocol' : 'protocol',
-        config: { ...s.config, ...configUpdate },
+        config: { ...prev.config, ...configUpdate },
         budget: { ...DEFAULT_BUDGET },
         experimentMemory: full.memory ?? [],
+        _wsConnection: wsConn,
+        _wsStatus: wsStatus,
       }));
+
+      // Fallback: if graph is still empty for a completed run, try loading from backend
+      if (graphNodes.length === 0 && lastRunId && runStatus !== 'running') {
+        get().loadRunGraph(lastRunId);
+      }
     } catch (err) {
       // If full load fails, try basic load
       try {
@@ -1278,6 +1669,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           currentRunId: null,
           runStatus: 'idle',
           experimentMemory: [],
+          _wsConnection: null,
+          _wsStatus: 'closed',
         });
       } catch {
         set({ currentSessionId: sessionId, sessionHistory: [], experimentMemory: [] });
@@ -1288,6 +1681,23 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   deleteSession: async (sessionId) => {
     try {
       await api.deleteSession(sessionId);
+      const state = get();
+
+      // Clean up cache
+      state._sessionCache.delete(sessionId);
+
+      // Close and remove any WS connections for this session's runs
+      for (const [runId, sid] of state._runToSession.entries()) {
+        if (sid === sessionId) {
+          const ws = state._wsPool.get(runId);
+          if (ws) {
+            ws.close();
+            state._wsPool.delete(runId);
+          }
+          state._runToSession.delete(runId);
+        }
+      }
+
       set((s) => {
         const sessions = s.sessions.filter((sess) => sess.id !== sessionId);
         const isCurrentDeleted = s.currentSessionId === sessionId;
@@ -1301,6 +1711,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 events: [],
                 graphNodes: [],
                 graphEdges: [],
+                _wsConnection: null,
+                _wsStatus: 'closed' as const,
               }
             : {}),
         };
@@ -1456,13 +1868,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         if (typeof inspector_open === 'boolean') stateUpdate.inspectorOpen = inspector_open;
         if (typeof active_panel === 'string') stateUpdate.activePanel = active_panel;
         if (typeof last_session_id === 'string' && last_session_id) {
-          stateUpdate.currentSessionId = last_session_id;
-          // Load the last session
-          api.getSession(last_session_id).then((detail) => {
-            if (detail) {
-              set({ currentSessionId: last_session_id });
-            }
-          }).catch(() => {});
+          // Do NOT set currentSessionId here — let selectSession handle it
+          // so the guard (currentSessionId === sessionId) won't block the full restore.
+          get().selectSession(last_session_id).catch(() => {});
         }
 
         set(stateUpdate as Partial<WorkflowStore>);
@@ -1494,4 +1902,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   // -- Internal WebSocket ---------------------------------------------------
   _wsConnection: null,
   _wsStatus: 'closed',
+
+  // -- Session cache -------------------------------------------------------
+  _sessionCache: new Map(),
+  _wsPool: new Map(),
+  _runToSession: new Map(),
 }));

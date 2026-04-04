@@ -905,14 +905,39 @@ class DelegationLoopRunner:
                 return result, "complete"
 
             if decision_type == "fail":
+                reason = manager_decision.get("reason", "Manager decided to fail")
+                is_parse_failure = "missing 'decision' field" in reason
+                # If this is a parse failure (not an explicit manager fail)
+                # and we have accumulated work, return partial result instead
+                # of discarding everything.
+                if is_parse_failure and self._history:
+                    logger.warning(
+                        "Manager parse failure after %d iterations — "
+                        "returning partial result instead of hard fail",
+                        len(self._history),
+                    )
+                    partial = self._build_partial_result(f"manager_parse_failure: {reason}")
+                    partial["partial_result"] = manager_decision.get("partial_result", {})
+                    return partial, "partial_complete"
                 return {
-                    "error": manager_decision.get("reason", "Manager decided to fail"),
+                    "error": reason,
                     "partial_result": manager_decision.get("partial_result", {}),
                     "confidence": 0.0,
                 }, "fail"
 
+            if decision_type == "retry":
+                # Retry signal from _parse_manager_output (e.g. all
+                # delegations were truncated).  Just continue the loop so
+                # the manager gets another chance.
+                logger.warning("Manager requested retry — continuing loop")
+                continue
+
             if decision_type != "delegate":
                 logger.warning("Unknown decision: %s, treating as fail", decision_type)
+                if self._history:
+                    return self._build_partial_result(
+                        f"unknown_decision: {decision_type}"
+                    ), "partial_complete"
                 return {
                     "error": f"Unknown decision: {decision_type}",
                     "confidence": 0.0,
@@ -1022,12 +1047,16 @@ class DelegationLoopRunner:
 
             parsed = self._parse_manager_output(manager_output)
 
-            # If parsing still failed, fall back to inline manager
-            if parsed.get(
-                "decision"
-            ) == "fail" and "missing 'decision' field" in parsed.get("reason", ""):
+            # If parsing failed or needs retry, fall back to inline manager
+            _needs_retry = (
+                (parsed.get("decision") == "fail"
+                 and "missing 'decision' field" in parsed.get("reason", ""))
+                or parsed.get("decision") == "retry"
+            )
+            if _needs_retry:
                 logger.warning(
-                    "Agent manager returned unparseable output, falling back to inline manager"
+                    "Agent manager returned unparseable output, "
+                    "falling back to inline manager"
                 )
                 return self._run_inline_manager(task, state, iteration)
 
@@ -1038,7 +1067,11 @@ class DelegationLoopRunner:
             return {"decision": "fail", "reason": str(exc)}
 
     def _run_inline_manager(self, task: str, state: dict, iteration: int) -> dict:
-        """Run manager with inline prompting (no agent.awp.yaml required)."""
+        """Run manager with inline prompting (no agent.awp.yaml required).
+
+        Retries once with a shorter prompt if the first attempt fails to
+        produce a parseable decision (truncated JSON is the #1 cause).
+        """
         llm = LLMClient(model=self._manager_model)
 
         system_prompt = self._build_manager_system_prompt()
@@ -1049,14 +1082,51 @@ class DelegationLoopRunner:
             {"role": "user", "content": user_message},
         ]
 
-        try:
-            result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
-            self._budget.tokens_consumed += llm.total_tokens_used
-            return self._parse_manager_output(result)
-        except Exception as exc:
-            self._budget.tokens_consumed += llm.total_tokens_used
-            logger.error("Inline manager failed: %s", exc)
-            return {"decision": "fail", "reason": str(exc)}
+        for attempt in range(2):
+            try:
+                result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
+                self._budget.tokens_consumed += llm.total_tokens_used
+                parsed = self._parse_manager_output(result)
+
+                _is_parse_fail = (
+                    parsed.get("decision") == "fail"
+                    and "missing 'decision' field" in parsed.get("reason", "")
+                ) or parsed.get("decision") == "retry"
+
+                if _is_parse_fail and attempt == 0:
+                    logger.warning(
+                        "Inline manager attempt %d returned unparseable "
+                        "output, retrying with clarification",
+                        attempt + 1,
+                    )
+                    # Add a clarification message to guide the LLM
+                    messages.append({"role": "assistant", "content": json.dumps(result, default=str)[:2000]})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Your previous response could not be parsed as a "
+                            "valid decision. Please respond with a SHORT JSON "
+                            "object containing exactly one of:\n"
+                            '- {"decision": "delegate", "delegations": [...]}\n'
+                            '- {"decision": "complete", "final_result": {...}}\n'
+                            '- {"decision": "fail", "reason": "..."}\n'
+                            "Keep delegations concise to avoid truncation."
+                        ),
+                    })
+                    continue
+
+                return parsed
+
+            except Exception as exc:
+                self._budget.tokens_consumed += llm.total_tokens_used
+                if attempt == 0:
+                    logger.warning("Inline manager attempt 1 failed: %s, retrying", exc)
+                    continue
+                logger.error("Inline manager failed after retry: %s", exc)
+                return {"decision": "fail", "reason": str(exc)}
+
+        # Should not reach here, but safety fallback
+        return {"decision": "fail", "reason": "Inline manager exhausted retries"}
 
     def _build_namespace_capabilities_section(self) -> str:
         """Build a section describing per-namespace capabilities for the manager prompt."""
@@ -1121,7 +1191,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
     {{
       "worker_id": "unique_snake_case_name",
       "instructions": "Detailed instructions for the worker",
-      "skills": ["Markdown domain knowledge injected into the worker's prompt"],
+      "skills": ["# Skill Name\\n\\n## Purpose\\n...\\n\\n## Concepts\\n...\\n\\n## Rules\\n1. ..."],
       "tools_allowed": ["web.search", "file.read"],
       "output_contract": {{
         "required_fields": ["findings", "confidence"],
@@ -1137,6 +1207,14 @@ You MUST respond with a JSON object containing ONE of these decisions:
   "confidence": 0.0
 }}
 ```
+
+**Skill structure:** Each skill in the `skills` array MUST be a Markdown string with these sections:
+- `# Name` — skill title
+- `## Purpose` — one sentence describing what the skill supports
+- `## Concepts` — 3-7 key terms as a definition list
+- `## Rules` — numbered, testable constraints
+- `## Procedure` (optional) — step-by-step sequence for multi-step tasks
+- `## Examples` (optional) — input/output pairs when correct application is non-obvious
 
 ### COMPLETE — Task is done
 ```json
@@ -1295,6 +1373,22 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 "reason": f"Invalid manager output type: {type(output)}",
             }
 
+        # Try to extract decision from a nested "result" string (LLMs
+        # sometimes double-wrap their JSON response)
+        if (
+            "decision" not in output
+            and "delegations" not in output
+            and "result" in output
+            and isinstance(output["result"], str)
+            and "{" in output["result"]
+        ):
+            extracted = self._parse_json_response(output["result"])
+            if "decision" in extracted or "delegations" in extracted or "final_result" in extracted:
+                # Preserve any metadata from outer dict, then overlay extracted
+                meta = {k: v for k, v in output.items() if k.startswith("_")}
+                output = extracted
+                output.update(meta)
+
         # Normalize "workers" key to "delegations" (both formats accepted)
         if "workers" in output and "delegations" not in output:
             workers = output.pop("workers")
@@ -1305,15 +1399,56 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         w["worker_id"] = w.pop("id")
             output["delegations"] = workers
 
+        # Also accept "tasks" as an alias for "delegations"
+        if "tasks" in output and "delegations" not in output:
+            tasks = output.pop("tasks")
+            if isinstance(tasks, list):
+                for t in tasks:
+                    if isinstance(t, dict):
+                        if "id" in t and "worker_id" not in t:
+                            t["worker_id"] = t.pop("id")
+                        if "task" in t and "instructions" not in t:
+                            t["instructions"] = t.pop("task")
+            output["delegations"] = tasks
+
         # Normalize decision field
         if "decision" not in output:
             if "delegations" in output:
                 output["decision"] = "delegate"
-            elif "final_result" in output or "report_md" in output:
+            elif any(
+                k in output
+                for k in (
+                    "final_result", "report_md", "summary", "conclusion",
+                    "output", "deliverables",
+                )
+            ):
+                # LLMs often omit "decision" when they consider the task done
                 output["decision"] = "complete"
+                # Move the completion content into final_result if not already
+                if "final_result" not in output:
+                    for k in ("summary", "conclusion", "output", "deliverables"):
+                        if k in output:
+                            output["final_result"] = output[k]
+                            break
             else:
-                output["decision"] = "fail"
-                output["reason"] = "Manager output missing 'decision' field"
+                # Last resort: check if output has substantive content that
+                # looks like it could be a completion (many keys, no error)
+                _meta_keys = {"confidence", "reasoning", "reason", "_truncated",
+                              "_confidence_source", "_parse_failure", "result"}
+                content_keys = {k for k in output if k not in _meta_keys}
+                if len(content_keys) >= 2 and "error" not in output:
+                    logger.warning(
+                        "Manager output missing 'decision' field but has "
+                        "substantive content keys %s — treating as complete",
+                        content_keys,
+                    )
+                    output["decision"] = "complete"
+                    output["final_result"] = {
+                        k: v for k, v in output.items() if k not in _meta_keys
+                    }
+                else:
+                    output["decision"] = "fail"
+                    output["reason"] = "Manager output missing 'decision' field"
         else:
             # Normalize decision value — LLMs sometimes return verbose strings
             raw = str(output["decision"]).strip().lower()
@@ -1347,6 +1482,14 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 else:
                     logger.warning("Dropping incomplete delegation entry: %s", d)
             output["delegations"] = valid
+            # If all delegations were dropped, fall back to retry (not fail)
+            if not valid:
+                logger.warning(
+                    "All delegations dropped after filtering — "
+                    "will retry manager call"
+                )
+                output["decision"] = "retry"
+                output["reason"] = "All delegations were incomplete/truncated"
 
         return output
 
@@ -1477,7 +1620,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             system_parts.append("## Domain Knowledge\n")
             for i, skill in enumerate(skills):
                 if isinstance(skill, str):
-                    system_parts.append(f"### Skill {i + 1}\n{skill}\n")
+                    # If the skill already has a top-level heading, use it as-is;
+                    # otherwise wrap it with a numbered heading for clarity.
+                    stripped = skill.lstrip()
+                    if stripped.startswith("# "):
+                        system_parts.append(f"{skill}\n")
+                    else:
+                        system_parts.append(f"### Skill {i + 1}\n{skill}\n")
 
         # If codemode is enabled, tell the worker about file I/O capabilities
         if isinstance(codemode, dict) and codemode.get("enabled", False):
@@ -1696,11 +1845,16 @@ print("Chart saved")
                     self._budget.tool_calls_used += 1
                     return result
 
+                # Code-mode workers need more rounds: install pkg → run
+                # code → handle file warnings → retry → final answer.
+                # 5 rounds was too tight and caused many premature failures.
+                _max_tool_rounds = 15 if codemode.get("enabled") else 5
+
                 final_msg = llm.chat_with_tools(
                     messages,
                     tools=tool_defs,
                     tool_executor=_tracking_call,
-                    max_rounds=5,
+                    max_rounds=_max_tool_rounds,
                     temperature=worker_temperature,
                     max_tokens=16384,
                 )
@@ -2327,33 +2481,43 @@ Rules:
         """Robustly parse an LLM response as JSON.
 
         Tries multiple strategies:
-        1. Direct JSON parse
+        1. Direct JSON parse (strict, then lenient)
         2. Strip markdown code fences and parse
         3. Extract the first {...} block from freetext via brace-matching
+        4. Repair truncated JSON
+
+        All json.loads calls use strict=False to tolerate literal control
+        characters (newlines, tabs) inside JSON string values — a common
+        LLM output quirk that causes strict parsing to fail.
         """
         if not text or not isinstance(text, str):
             return {"result": str(text), "_confidence_source": "parse_failure"}
         cleaned = text.strip()
 
+        def _try_parse(s: str) -> dict | None:
+            """Try parsing with strict=True first, then strict=False."""
+            for strict in (True, False):
+                try:
+                    parsed = json.loads(s, strict=strict)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return None
+
         # Strategy 1: direct parse
-        try:
-            parsed = json.loads(cleaned)
-            if isinstance(parsed, dict):
-                return parsed
-        except (json.JSONDecodeError, ValueError):
-            pass
+        result = _try_parse(cleaned)
+        if result is not None:
+            return result
 
         # Strategy 2: strip markdown code fences
         if "```" in cleaned:
             lines = cleaned.split("\n")
             lines = [line for line in lines if not line.strip().startswith("```")]
             fenced = "\n".join(lines).strip()
-            try:
-                parsed = json.loads(fenced)
-                if isinstance(parsed, dict):
-                    return parsed
-            except (json.JSONDecodeError, ValueError):
-                pass
+            result = _try_parse(fenced)
+            if result is not None:
+                return result
 
         # Strategy 3: find the first top-level {...} block via brace matching
         start = cleaned.find("{")
@@ -2387,12 +2551,9 @@ Rules:
                         stack.pop()
                     if depth == 0:
                         candidate = cleaned[start : i + 1]
-                        try:
-                            parsed = json.loads(candidate)
-                            if isinstance(parsed, dict):
-                                return parsed
-                        except (json.JSONDecodeError, ValueError):
-                            pass
+                        result = _try_parse(candidate)
+                        if result is not None:
+                            return result
                         break
                 elif ch == "]":
                     if stack and stack[-1] == "]":
@@ -2432,17 +2593,14 @@ Rules:
                     if _in_str:
                         continue
                     repaired = candidate + "".join(reversed(_stack))
-                    try:
-                        parsed = json.loads(repaired)
-                        if isinstance(parsed, dict):
-                            parsed["_truncated"] = True
-                            logger.warning(
-                                "Recovered truncated JSON (trimmed to %d/%d chars, closed %d delimiters)",
-                                trim_to, len(fragment), len(_stack),
-                            )
-                            return parsed
-                    except (json.JSONDecodeError, ValueError):
-                        continue
+                    result = _try_parse(repaired)
+                    if result is not None:
+                        result["_truncated"] = True
+                        logger.warning(
+                            "Recovered truncated JSON (trimmed to %d/%d chars, closed %d delimiters)",
+                            trim_to, len(fragment), len(_stack),
+                        )
+                        return result
 
         return {"result": text, "_confidence_source": "parse_failure"}
 

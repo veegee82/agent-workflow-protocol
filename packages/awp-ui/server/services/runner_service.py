@@ -282,6 +282,23 @@ class _RunDirWatcher:
         except (FileNotFoundError, OSError):
             return None
 
+    @staticmethod
+    def _parse_depth(parts: list[str]) -> tuple[int, str | None]:
+        """Return (depth, parent_worker_id) from path parts.
+
+        depth=0 for the root run, depth=1 for a sub-run inside a worker, etc.
+        parent_worker_id is the worker directory name that owns the sub-run.
+        """
+        depth = 0
+        parent_worker: str | None = None
+        for i, p in enumerate(parts):
+            if p == "runs" and i >= 2:
+                depth += 1
+                # The worker dir is 2 levels up: .../delegations/<worker>/runs/...
+                if i >= 1:
+                    parent_worker = parts[i - 1]
+        return depth, parent_worker
+
     def _process_file(self, path: Path, rel: str) -> None:
         """Translate a newly-observed file into one or more events."""
         if rel in self._seen_files:
@@ -289,23 +306,55 @@ class _RunDirWatcher:
         self._seen_files.add(rel)
 
         parts = rel.replace("\\", "/").split("/")
+        depth, parent_worker_id = self._parse_depth(parts)
 
-        # run_manifest.json -> run.start
-        if rel == "run_manifest.json":
+        # run_manifest.json -> run.start (or delegation.start for sub-runs)
+        if parts[-1] == "run_manifest.json":
             data = self._read_json(path)
             if data:
-                event_bus.emit_threadsafe(
-                    self._run_id,
-                    _make_event(self._run_id, EventType.RUN_START, data),
-                )
+                if depth == 0:
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(self._run_id, EventType.RUN_START, data),
+                    )
+                else:
+                    # Sub-run: emit as delegation.start so the frontend
+                    # creates a sub-manager node linked to the parent worker
+                    models = data.get("models", {})
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(
+                            self._run_id,
+                            EventType.DELEGATION_START,
+                            {
+                                "parent_id": parent_worker_id,
+                                "depth": depth,
+                                "model": models.get("manager", "?"),
+                                "models": models,
+                                "task": data.get("task", ""),
+                                **{k: v for k, v in data.items()
+                                   if k not in ("models", "task")},
+                            },
+                        ),
+                    )
+            return
 
         # iterations/NNN/manager_decision.json -> iteration.start + iteration.decision
         elif "manager_decision.json" in rel:
             data = self._read_json(path)
             if data:
-                iteration = parts[1] if len(parts) >= 3 else "?"
+                # For sub-runs, find the iteration number from the correct
+                # "iterations/NNN" segment (the last one in the path)
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                # Prefix iteration with parent worker for uniqueness in sub-runs
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 # Emit iteration.start for this iteration (if not already emitted)
-                iter_start_key = f"_iter_start_{iteration}"
+                iter_start_key = f"_iter_start_{unique_iter}"
                 if iter_start_key not in self._seen_files:
                     self._seen_files.add(iter_start_key)
                     event_bus.emit_threadsafe(
@@ -313,7 +362,11 @@ class _RunDirWatcher:
                         _make_event(
                             self._run_id,
                             EventType.ITERATION_START,
-                            {"iteration": iteration},
+                            {
+                                "iteration": unique_iter,
+                                "depth": depth,
+                                "parent_id": parent_worker_id,
+                            },
                         ),
                     )
                 # Extract delegations info for richer detail
@@ -332,7 +385,9 @@ class _RunDirWatcher:
                         self._run_id,
                         EventType.ITERATION_DECISION,
                         {
-                            "iteration": iteration,
+                            "iteration": unique_iter,
+                            "depth": depth,
+                            "parent_id": parent_worker_id,
                             "delegations": delegation_summaries,
                             **data,
                         },
@@ -377,7 +432,14 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if data:
                 worker_id = path.parent.name
-                iteration = parts[1] if len(parts) >= 3 else "?"
+                # Find the iteration number from the nearest iterations/NNN ancestor
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
@@ -385,7 +447,9 @@ class _RunDirWatcher:
                         EventType.WORKER_SPAWN,
                         {
                             "worker_id": worker_id,
-                            "iteration": iteration,
+                            "iteration": unique_iter,
+                            "depth": depth,
+                            "parent_id": parent_worker_id,
                             "instructions": str(data.get("instructions", "")),
                             "tools_allowed": data.get("tools_allowed", []),
                             "skills": [
@@ -403,7 +467,13 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if data:
                 worker_id = path.parent.name
-                iteration = parts[1] if len(parts) >= 3 else "?"
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 # Extract all findings
                 findings = data.get("findings", data.get("result", data))
                 tools_created = data.get("tools_created", [])
@@ -414,7 +484,8 @@ class _RunDirWatcher:
                         EventType.WORKER_COMPLETE,
                         {
                             "worker_id": worker_id,
-                            "iteration": iteration,
+                            "iteration": unique_iter,
+                            "depth": depth,
                             "confidence": data.get("confidence"),
                             "error": data.get("error"),
                             "has_error": bool(data.get("error")),
@@ -443,6 +514,7 @@ class _RunDirWatcher:
                                 EventType.TOOL_CALL,
                                 {
                                     "worker_id": worker_id,
+                                    "depth": depth,
                                     "call_index": i,
                                     "tool": tc.get("tool", "unknown"),
                                     "arguments": tc.get("arguments", tc.get("args", {})),

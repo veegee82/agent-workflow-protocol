@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -84,9 +84,99 @@ function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
 
   // Collect iterations ordered under each manager, and workers under each iteration
   // For each iteration, compute how many "sub-rows" it needs (1 if no tools, 2 if tools)
+  /**
+   * Lay out a manager node and all its iterations/workers/tools/sub-managers.
+   * Returns the next available row after the subtree.
+   */
+  function layoutManager(mgrId: string, startRow: number, xCenter: number): number {
+    let row = startRow;
+    positions.set(mgrId, { x: xCenter, y: row * ROW_GAP });
+    row++;
+
+    const iterChildren = (childrenMap.get(mgrId) ?? []).filter((c) => nodeMap.has(c));
+    const iterIds = iterChildren.filter((c) => nt(c) === 'iteration');
+    const mgrOther = iterChildren.filter((c) => nt(c) !== 'iteration');
+
+    for (const iterId of iterIds) {
+      const iterKids = (childrenMap.get(iterId) ?? []).filter((c) => nodeMap.has(c));
+      const workerIds = iterKids.filter((c) => nt(c) === 'worker');
+      const otherIterKids = iterKids.filter((c) => nt(c) !== 'worker');
+
+      const iterY = row * ROW_GAP;
+      positions.set(iterId, { x: xCenter, y: iterY });
+
+      let col = 1;
+      let hasToolRow = false;
+      let maxSubRow = row + 1;
+      for (const wId of workerIds) {
+        const wx = xCenter + col * COL_GAP;
+        positions.set(wId, { x: wx, y: iterY });
+
+        const wKids = (childrenMap.get(wId) ?? []).filter((c) => nodeMap.has(c));
+        const toolIds = wKids.filter((c) => nt(c) === 'toolCall');
+        const subMgrIds = wKids.filter((c) => nt(c) === 'manager');
+        const otherKids = wKids.filter((c) => nt(c) !== 'toolCall' && nt(c) !== 'manager');
+
+        if (toolIds.length > 0) {
+          hasToolRow = true;
+          const toolSpacing = Math.min(COL_GAP * 0.55, COL_GAP / Math.max(1, toolIds.length));
+          for (let ti = 0; ti < toolIds.length; ti++) {
+            positions.set(toolIds[ti], {
+              x: wx + ti * toolSpacing,
+              y: iterY + TOOL_Y_OFFSET,
+            });
+          }
+          const toolSpread = (toolIds.length - 1) * toolSpacing;
+          col += Math.max(1, Math.ceil((toolSpread + COL_GAP * 0.3) / COL_GAP));
+        } else {
+          col++;
+        }
+
+        // Sub-managers (A4 recursive delegation) — layout recursively below
+        if (subMgrIds.length > 0) {
+          let subRow = row + (hasToolRow ? 2 : 1);
+          for (const subMgrId of subMgrIds) {
+            subRow = layoutManager(subMgrId, subRow, wx);
+          }
+          maxSubRow = Math.max(maxSubRow, subRow);
+        }
+
+        // Other non-tool, non-manager children
+        for (const otherId of otherKids) {
+          if (!positions.has(otherId)) {
+            const subRow = row + (hasToolRow ? 2 : 1);
+            maxSubRow = Math.max(maxSubRow, collectSubtree(otherId, subRow, wx));
+          }
+        }
+      }
+
+      for (const otherId of otherIterKids) {
+        positions.set(otherId, { x: xCenter + col * COL_GAP, y: iterY });
+        col++;
+      }
+
+      row = Math.max(row + (hasToolRow ? 2 : 1), maxSubRow);
+    }
+
+    // Non-iteration children of manager (e.g. completion)
+    for (const otherId of mgrOther) {
+      if (!positions.has(otherId)) {
+        positions.set(otherId, { x: xCenter, y: row * ROW_GAP });
+        row++;
+      }
+    }
+
+    return row;
+  }
+
   function collectSubtree(rootId: string, startRow: number, xCenter: number): number {
     const type = nt(rootId);
     let row = startRow;
+
+    // If root is a manager (e.g. sub-manager), layout it and its subtree
+    if (type === 'manager') {
+      return layoutManager(rootId, startRow, xCenter);
+    }
 
     // Place root (task node)
     if (type === 'task' || type === 'completion' || (!type && !parentMap.has(rootId))) {
@@ -96,83 +186,12 @@ function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
 
     const rootChildren = (childrenMap.get(rootId) ?? []).filter((c) => nodeMap.has(c));
 
-    // Find manager child
+    // Find manager children
     const managerIds = rootChildren.filter((c) => nt(c) === 'manager');
     const otherChildren = rootChildren.filter((c) => nt(c) !== 'manager');
 
     for (const mgrId of managerIds) {
-      positions.set(mgrId, { x: xCenter, y: row * ROW_GAP });
-      row++;
-
-      // Iterations under this manager
-      const iterChildren = (childrenMap.get(mgrId) ?? []).filter((c) => nodeMap.has(c));
-      const iterIds = iterChildren.filter((c) => nt(c) === 'iteration');
-      const mgrOther = iterChildren.filter((c) => nt(c) !== 'iteration');
-
-      for (const iterId of iterIds) {
-        // Workers under this iteration
-        const iterKids = (childrenMap.get(iterId) ?? []).filter((c) => nodeMap.has(c));
-        const workerIds = iterKids.filter((c) => nt(c) === 'worker');
-        const otherIterKids = iterKids.filter((c) => nt(c) !== 'worker');
-
-        // Compute column count: each worker is a column, plus tool columns
-        // Place iteration node at x=xCenter (left column, col 0)
-        // Workers start at col 1, 2, 3, ...
-        const iterY = row * ROW_GAP;
-        positions.set(iterId, { x: xCenter, y: iterY });
-
-        let col = 1;
-        let hasToolRow = false;
-        for (const wId of workerIds) {
-          const wx = xCenter + col * COL_GAP;
-          positions.set(wId, { x: wx, y: iterY });
-
-          // Tool calls under this worker
-          const wKids = (childrenMap.get(wId) ?? []).filter((c) => nodeMap.has(c));
-          const toolIds = wKids.filter((c) => nt(c) === 'toolCall');
-          const subRunIds = wKids.filter((c) => nt(c) !== 'toolCall');
-
-          if (toolIds.length > 0) {
-            hasToolRow = true;
-            const toolSpacing = Math.min(COL_GAP * 0.55, COL_GAP / Math.max(1, toolIds.length));
-            for (let ti = 0; ti < toolIds.length; ti++) {
-              positions.set(toolIds[ti], {
-                x: wx + ti * toolSpacing,
-                y: iterY + TOOL_Y_OFFSET,
-              });
-            }
-            // Advance col to cover the full tool spread + 1 column gap
-            const toolSpread = (toolIds.length - 1) * toolSpacing;
-            col += Math.max(1, Math.ceil((toolSpread + COL_GAP * 0.3) / COL_GAP));
-          } else {
-            col++;
-          }
-
-          // Sub-runs (A4 recursive delegation) — place below
-          if (subRunIds.length > 0) {
-            let subRow = row + (hasToolRow ? 2 : 1);
-            for (const subId of subRunIds) {
-              subRow = collectSubtree(subId, subRow, wx);
-            }
-          }
-        }
-
-        // Other non-worker children of iteration (e.g. completion, misc)
-        for (const otherId of otherIterKids) {
-          positions.set(otherId, { x: xCenter + col * COL_GAP, y: iterY });
-          col++;
-        }
-
-        row += hasToolRow ? 2 : 1;
-      }
-
-      // Non-iteration children of manager
-      for (const otherId of mgrOther) {
-        if (!positions.has(otherId)) {
-          positions.set(otherId, { x: xCenter, y: row * ROW_GAP });
-          row++;
-        }
-      }
+      row = layoutManager(mgrId, row, xCenter);
     }
 
     // Non-manager children of root (e.g. completion node)
@@ -255,6 +274,7 @@ interface GraphStats {
   total: number;
   tasks: number;
   managers: number;
+  subManagers: number;
   iterations: number;
   workers: number;
   toolCalls: number;
@@ -266,13 +286,15 @@ interface GraphStats {
 
 function computeStats(nodes: Node[]): GraphStats {
   const stats: GraphStats = {
-    total: nodes.length, tasks: 0, managers: 0, iterations: 0,
+    total: nodes.length, tasks: 0, managers: 0, subManagers: 0, iterations: 0,
     workers: 0, toolCalls: 0, completions: 0, running: 0, complete: 0, errors: 0,
   };
   for (const n of nodes) {
     const nt = n.data?.nodeType ?? n.type;
     const st = n.data?.status;
+    const depth = n.data?.depth as number | undefined;
     if (nt === 'task') stats.tasks++;
+    else if (nt === 'manager' && depth && depth > 0) stats.subManagers++;
     else if (nt === 'manager') stats.managers++;
     else if (nt === 'iteration') stats.iterations++;
     else if (nt === 'worker') stats.workers++;
@@ -292,6 +314,9 @@ function StatsBar({ stats }: { stats: GraphStats }) {
       <Separator />
       <StatPill icon={<RefreshCw className="h-3 w-3" />} value={stats.iterations} label="iter" color="text-awp-yellow" />
       <StatPill icon={<Users className="h-3 w-3" />} value={stats.workers} label="workers" color="text-awp-cyan" />
+      {stats.subManagers > 0 && (
+        <StatPill icon={<GitBranch className="h-3 w-3" />} value={stats.subManagers} label="sub-mgr" color="text-awp-purple" />
+      )}
       <StatPill icon={<Wrench className="h-3 w-3" />} value={stats.toolCalls} label="tools" color="text-awp-green" />
       <Separator />
       {stats.running > 0 && (
@@ -334,10 +359,14 @@ function FilterToolbar({
   filters,
   setFilters,
   onFitView,
+  autoFit,
+  onToggleAutoFit,
 }: {
   filters: FilterState;
   setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
   onFitView: () => void;
+  autoFit: boolean;
+  onToggleAutoFit: () => void;
 }) {
   return (
     <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
@@ -347,6 +376,13 @@ function FilterToolbar({
           tooltip="Fit to view"
           onClick={onFitView}
           icon={<Maximize className="h-4 w-4" />}
+        />
+        <ToolbarToggle
+          tooltip="Auto-fit on new nodes"
+          active={autoFit}
+          onClick={onToggleAutoFit}
+          icon={<GitBranch className="h-3.5 w-3.5" />}
+          color="text-awp-blue"
         />
       </div>
 
@@ -421,6 +457,7 @@ function Legend() {
   const items = [
     { icon: <Diamond className="h-3 w-3 text-awp-blue" />, label: 'Task', color: 'bg-awp-blue' },
     { icon: <Star className="h-3 w-3 text-awp-purple fill-awp-purple/30" />, label: 'Manager', color: 'bg-awp-purple' },
+    { icon: <GitBranch className="h-3 w-3 text-awp-purple" />, label: 'Sub-Manager', color: 'bg-awp-purple' },
     { icon: <RefreshCw className="h-3 w-3 text-awp-yellow" />, label: 'Iteration', color: 'bg-awp-yellow' },
     { icon: <Circle className="h-3 w-3 text-awp-cyan" />, label: 'Worker', color: 'bg-awp-cyan' },
     { icon: <Wrench className="h-3 w-3 text-awp-green" />, label: 'Tool Call', color: 'bg-awp-green' },
@@ -899,6 +936,8 @@ export function GraphVisPanel() {
     showIterations: true,
   });
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  const [autoFit, setAutoFit] = useState(true);
+  const prevNodeCountRef = useRef(0);
 
   // Load graph from backend if needed
   useEffect(() => {
@@ -926,7 +965,7 @@ export function GraphVisPanel() {
     return { nodes: visibleNodes, edges: visibleEdges };
   }, [storeNodes, storeEdges, filters]);
 
-  // Layout and style
+  // Layout and style — auto-fit when new nodes arrive
   useEffect(() => {
     const mapped = filteredData.nodes.map((n) => ({
       ...n,
@@ -935,7 +974,17 @@ export function GraphVisPanel() {
     const laid = layoutNodes(mapped, filteredData.edges);
     setNodes(laid);
     setEdges(styledEdges(filteredData.edges, laid));
-  }, [filteredData, setNodes, setEdges]);
+
+    // Auto-fit view when node count changes (new nodes added)
+    const nodeCount = filteredData.nodes.length;
+    if (autoFit && reactFlowInstance && nodeCount > 0 && nodeCount !== prevNodeCountRef.current) {
+      // Small delay to let ReactFlow render the new nodes before fitting
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.3, duration: 300 });
+      }, 50);
+    }
+    prevNodeCountRef.current = nodeCount;
+  }, [filteredData, setNodes, setEdges, autoFit, reactFlowInstance]);
 
   const stats = useMemo(() => computeStats(storeNodes), [storeNodes]);
 
@@ -985,6 +1034,8 @@ export function GraphVisPanel() {
         filters={filters}
         setFilters={setFilters}
         onFitView={handleFitView}
+        autoFit={autoFit}
+        onToggleAutoFit={() => setAutoFit((v) => !v)}
       />
 
       {/* Legend */}
