@@ -88,15 +88,26 @@
   }
 
   .prose table {
-    @apply border-collapse;
+    @apply border-collapse w-auto;
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
   }
 
   .prose th {
-    @apply bg-awp-panel border border-awp-border px-3 py-2 text-left text-awp-text font-medium;
+    @apply bg-awp-panel border border-awp-border px-3 py-2 text-left text-awp-text font-medium whitespace-nowrap;
   }
 
   .prose td {
     @apply border border-awp-border px-3 py-2 text-awp-text;
+  }
+
+  .prose tr:nth-child(even) {
+    @apply bg-awp-panel/30;
+  }
+
+  .prose tr:hover {
+    @apply bg-awp-blue/5;
   }
 
   .prose hr {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -21,6 +21,7 @@ import {
   Clock,
   Wrench,
 } from 'lucide-react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import type { OutputBlock } from '@/types';
 import clsx from 'clsx';
@@ -105,7 +106,7 @@ function ImageModal({
 // Markdown renderer (hoisted for use in JsonNode)
 // ---------------------------------------------------------------------------
 
-function MarkdownBlock({ content }: { content: string }) {
+const MarkdownBlock = memo(function MarkdownBlock({ content }: { content: string }) {
   return (
     <div className="prose prose-invert prose-sm max-w-none prose-headings:text-awp-text prose-p:text-awp-text prose-a:text-awp-blue prose-strong:text-awp-text prose-code:text-awp-cyan prose-code:bg-awp-bg prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0">
       <ReactMarkdown
@@ -152,7 +153,7 @@ function MarkdownBlock({ content }: { content: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Collapsible JSON tree (paginated for large arrays/objects)
@@ -214,6 +215,8 @@ function JsonCollapsibleNode<T>({
   );
 }
 
+const MAX_JSON_DEPTH = 20;
+
 function JsonNode({
   name,
   value,
@@ -224,6 +227,16 @@ function JsonNode({
   depth?: number;
 }) {
   const [open, setOpen] = useState(depth < 2);
+
+  // Prevent infinite recursion on deeply nested data
+  if (depth > MAX_JSON_DEPTH) {
+    return (
+      <div className="flex items-center gap-1 text-awp-muted italic" style={{ paddingLeft: depth * 16 }}>
+        {name && <span className="text-awp-purple">{name}:</span>}
+        <span>... (max depth)</span>
+      </div>
+    );
+  }
 
   if (value === null || value === undefined) {
     return (
@@ -389,7 +402,7 @@ function JsonNode({
 // Individual block renderers
 // ---------------------------------------------------------------------------
 
-function CodeBlock({ content, language }: { content: string; language?: string }) {
+const CodeBlock = memo(function CodeBlock({ content, language }: { content: string; language?: string }) {
   return (
     <div className="relative group">
       <div className="absolute right-2 top-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -415,9 +428,9 @@ function CodeBlock({ content, language }: { content: string; language?: string }
       </SyntaxHighlighter>
     </div>
   );
-}
+});
 
-function ImageBlock({ content, title }: { content: string; title?: string }) {
+const ImageBlock = memo(function ImageBlock({ content, title }: { content: string; title?: string }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -445,9 +458,9 @@ function ImageBlock({ content, title }: { content: string; title?: string }) {
       )}
     </>
   );
-}
+});
 
-function TableBlock({ content }: { content: string }) {
+const TableBlock = memo(function TableBlock({ content }: { content: string }) {
   let rows: string[][] = [];
   try {
     const parsed = JSON.parse(content);
@@ -470,7 +483,7 @@ function TableBlock({ content }: { content: string }) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-awp-border">
-      <table className="w-full text-xs text-awp-text">
+      <table className="text-xs text-awp-text" style={{ minWidth: 'max-content' }}>
         <thead className="sticky top-0 bg-awp-panel">
           <tr>
             {header.map((cell, i) => (
@@ -503,24 +516,23 @@ function TableBlock({ content }: { content: string }) {
       </table>
     </div>
   );
-}
+});
 
-function JsonBlock({ content }: { content: string }) {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return <CodeBlock content={content} language="json" />;
-  }
+const JsonBlock = memo(function JsonBlock({ content }: { content: string }) {
+  const parsed = useMemo(() => {
+    try { return JSON.parse(content); } catch { return null; }
+  }, [content]);
+
+  if (parsed === null) return <CodeBlock content={content} language="json" />;
 
   return (
     <div className="rounded-lg border border-awp-border bg-awp-bg p-3 font-mono text-xs leading-relaxed overflow-x-auto">
       <JsonNode value={parsed} />
     </div>
   );
-}
+});
 
-function ErrorBlock({ content, title }: { content: string; title?: string }) {
+const ErrorBlock = memo(function ErrorBlock({ content, title }: { content: string; title?: string }) {
   return (
     <div className="rounded-lg border border-awp-red/40 bg-awp-red/5 px-4 py-3">
       <div className="flex items-start gap-2">
@@ -544,9 +556,9 @@ function ErrorBlock({ content, title }: { content: string; title?: string }) {
       </div>
     </div>
   );
-}
+});
 
-function FileBlock({ content, title }: { content: string; title?: string }) {
+const FileBlock = memo(function FileBlock({ content, title }: { content: string; title?: string }) {
   return (
     <a
       href={content}
@@ -557,13 +569,13 @@ function FileBlock({ content, title }: { content: string; title?: string }) {
       <span className="truncate">{title ?? content}</span>
     </a>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Single output block card
 // ---------------------------------------------------------------------------
 
-function OutputBlockCard({ block, index }: { block: OutputBlock; index: number }) {
+const OutputBlockCard = memo(function OutputBlockCard({ block, index }: { block: OutputBlock; index: number }) {
   const agentName = block.metadata?.agent as string | undefined;
 
   return (
@@ -609,7 +621,7 @@ function OutputBlockCard({ block, index }: { block: OutputBlock; index: number }
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Budget State Bar — live auto-updating budget display
@@ -663,26 +675,28 @@ function BudgetStateBar() {
 // ---------------------------------------------------------------------------
 
 export function OutputPanel() {
-  const { outputBlocks } = useWorkflowStore();
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const outputBlocks = useWorkflowStore((s) => s.outputBlocks);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const blockCount = outputBlocks.length;
 
-  // Auto-scroll to bottom when new blocks arrive
+  // Follow output: scroll to bottom when new blocks arrive
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (autoScroll && blockCount > 0) {
+      virtuosoRef.current?.scrollToIndex({ index: blockCount - 1, align: 'end', behavior: 'smooth' });
     }
-  }, [outputBlocks.length, autoScroll]);
+  }, [blockCount, autoScroll]);
 
-  // Detect if user scrolled up
-  const handleScroll = useCallback(() => {
-    if (!scrollRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 80;
-    setAutoScroll(isAtBottom);
+  const handleAtBottomChange = useCallback((atBottom: boolean) => {
+    setAutoScroll(atBottom);
   }, []);
 
-  if (outputBlocks.length === 0) {
+  const renderItem = useCallback(
+    (index: number) => <OutputBlockCard block={outputBlocks[index]} index={index} />,
+    [outputBlocks],
+  );
+
+  if (blockCount === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-awp-muted">
         <Inbox className="h-12 w-12 opacity-40" />
@@ -694,29 +708,30 @@ export function OutputPanel() {
   return (
     <div className="flex h-full flex-col">
       <BudgetStateBar />
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4 scroll-smooth"
-      >
-      {outputBlocks.map((block, i) => (
-        <OutputBlockCard key={i} block={block} index={i} />
-      ))}
-
-      {/* Scroll-to-bottom pill */}
-      {!autoScroll && (
-        <button
-          onClick={() => {
-            if (scrollRef.current) {
-              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      <div className="flex-1 relative">
+        <Virtuoso
+          ref={virtuosoRef}
+          totalCount={blockCount}
+          itemContent={renderItem}
+          atBottomStateChange={handleAtBottomChange}
+          atBottomThreshold={80}
+          overscan={400}
+          className="px-6 py-4"
+          itemSize={(el) => el.getBoundingClientRect().height + 16}
+          defaultItemHeight={120}
+        />
+        {/* Scroll-to-bottom pill */}
+        {!autoScroll && (
+          <button
+            onClick={() => {
+              virtuosoRef.current?.scrollToIndex({ index: blockCount - 1, align: 'end', behavior: 'smooth' });
               setAutoScroll(true);
-            }
-          }}
-          className="sticky bottom-4 mx-auto rounded-full border border-awp-border bg-awp-panel px-3 py-1.5 text-xs text-awp-muted shadow-lg hover:text-awp-text transition-colors"
-        >
-          Scroll to bottom
-        </button>
-      )}
+            }}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 rounded-full border border-awp-border bg-awp-panel px-3 py-1.5 text-xs text-awp-muted shadow-lg hover:text-awp-text transition-colors"
+          >
+            Scroll to bottom
+          </button>
+        )}
       </div>
     </div>
   );

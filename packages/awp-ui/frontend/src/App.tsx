@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import {
   Play,
@@ -38,6 +38,7 @@ import {
   X,
   Tag,
   FlaskConical,
+  Sparkles,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -197,18 +198,16 @@ function statusIcon(status: string) {
 // ---------------------------------------------------------------------------
 
 function TopBar() {
-  const {
-    runStatus,
-    budget,
-    activePanel,
-    setActivePanel,
-    sidebarOpen,
-    toggleSidebar,
-    inspectorOpen,
-    toggleInspector,
-    currentSessionId,
-    sessions,
-  } = useWorkflowStore();
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const budget = useWorkflowStore((s) => s.budget);
+  const activePanel = useWorkflowStore((s) => s.activePanel);
+  const setActivePanel = useWorkflowStore((s) => s.setActivePanel);
+  const sidebarOpen = useWorkflowStore((s) => s.sidebarOpen);
+  const toggleSidebar = useWorkflowStore((s) => s.toggleSidebar);
+  const inspectorOpen = useWorkflowStore((s) => s.inspectorOpen);
+  const toggleInspector = useWorkflowStore((s) => s.toggleInspector);
+  const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
+  const sessions = useWorkflowStore((s) => s.sessions);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -308,20 +307,51 @@ import type { WorkflowConfig } from '@/types';
 // ---------------------------------------------------------------------------
 
 function TaskInputBar() {
-  const {
-    config,
-    updateConfig,
-    attachedFiles,
-    addFiles,
-    removeFile,
-    runStatus,
-    startRun,
-    stopRun,
-  } = useWorkflowStore();
+  const config = useWorkflowStore((s) => s.config);
+  const updateConfig = useWorkflowStore((s) => s.updateConfig);
+  const attachedFiles = useWorkflowStore((s) => s.attachedFiles);
+  const addFiles = useWorkflowStore((s) => s.addFiles);
+  const removeFile = useWorkflowStore((s) => s.removeFile);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const startRun = useWorkflowStore((s) => s.startRun);
+  const stopRun = useWorkflowStore((s) => s.stopRun);
+  const isRefactoring = useWorkflowStore((s) => s.isRefactoring);
+  const refactorTask = useWorkflowStore((s) => s.refactorTask);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [collapsed, setCollapsed] = useState(false);
+
+  // Use local state for fast, lag-free typing; debounce store updates
+  const [localTask, setLocalTask] = useState(config.task);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Sync store → local when store changes externally (e.g. loading a workflow)
+  useEffect(() => {
+    setLocalTask(config.task);
+  }, [config.task]);
+
+  const handleTaskChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const val = e.target.value;
+      setLocalTask(val);
+
+      // Auto-resize immediately using the DOM element
+      const el = e.target;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 300)}px`;
+
+      // Debounce the store update
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        updateConfig({ task: val });
+      }, 300);
+    },
+    [updateConfig],
+  );
+
+  // Flush pending debounce on unmount
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,26 +364,20 @@ function TaskInputBar() {
   );
 
   const isRunning = runStatus === 'running';
-  const canStart = config.task.trim().length > 0 && !isRunning;
+  const canStart = localTask.trim().length > 0 && !isRunning;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey && canStart) {
         e.preventDefault();
+        // Flush the latest local value to store before starting
+        clearTimeout(debounceRef.current);
+        updateConfig({ task: localTask });
         startRun();
       }
     },
-    [canStart, startRun],
+    [canStart, startRun, localTask, updateConfig],
   );
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 300) + 'px';
-    }
-  }, [config.task]);
 
   return (
     <div className="border-t border-awp-border bg-awp-panel shrink-0">
@@ -422,12 +446,32 @@ function TaskInputBar() {
               />
             </label>
 
+            {/* Refactor button */}
+            <button
+              type="button"
+              onClick={refactorTask}
+              disabled={!localTask.trim() || isRefactoring || isRunning}
+              title="Refactor task into structured prompt"
+              className={clsx(
+                'inline-flex items-center justify-center h-8 w-8 rounded-md transition-colors shrink-0',
+                localTask.trim() && !isRefactoring && !isRunning
+                  ? 'text-awp-purple hover:bg-awp-purple/15 hover:text-awp-purple'
+                  : 'text-awp-muted/40 cursor-not-allowed',
+              )}
+            >
+              {isRefactoring ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+            </button>
+
             {/* Textarea */}
             <div className="flex-1 relative">
               <textarea
                 ref={textareaRef}
-                value={config.task}
-                onChange={(e) => updateConfig({ task: e.target.value })}
+                value={localTask}
+                onChange={handleTaskChange}
                 onKeyDown={handleKeyDown}
                 placeholder="Describe the task for the agent workflow..."
                 disabled={isRunning}
@@ -472,6 +516,7 @@ function TaskInputBar() {
           </p>
         </div>
       )}
+
     </div>
   );
 }
@@ -481,16 +526,14 @@ function TaskInputBar() {
 // ---------------------------------------------------------------------------
 
 function RightSidebar() {
-  const {
-    config,
-    updateConfig,
-    runStatus,
-    secrets,
-    addSecret,
-    removeSecret,
-    selectedNodeId,
-    graphNodes,
-  } = useWorkflowStore();
+  const config = useWorkflowStore((s) => s.config);
+  const updateConfig = useWorkflowStore((s) => s.updateConfig);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const secrets = useWorkflowStore((s) => s.secrets);
+  const addSecret = useWorkflowStore((s) => s.addSecret);
+  const removeSecret = useWorkflowStore((s) => s.removeSecret);
+  const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
+  const graphNodes = useWorkflowStore((s) => s.graphNodes);
 
   const isRunning = runStatus === 'running';
   const selectedNode = graphNodes.find((n) => n.id === selectedNodeId);
@@ -787,16 +830,14 @@ function useAutoSave(sessionId: string | null, field: string, value: string, del
 }
 
 function ProtocolPanel() {
-  const {
-    currentSessionId,
-    sessions,
-    runStatus,
-    outputBlocks,
-    budget,
-    config,
-    runHistory,
-    updateSessionMetadata,
-  } = useWorkflowStore();
+  const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
+  const sessions = useWorkflowStore((s) => s.sessions);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const outputBlocks = useWorkflowStore((s) => s.outputBlocks);
+  const budget = useWorkflowStore((s) => s.budget);
+  const config = useWorkflowStore((s) => s.config);
+  const runHistory = useWorkflowStore((s) => s.runHistory);
+  const updateSessionMetadata = useWorkflowStore((s) => s.updateSessionMetadata);
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -1185,21 +1226,88 @@ function LazyTextArtifact({
   return <>{render(content)}</>;
 }
 
+/** Shared run selector strip for Output/Results panels */
+const RunSelector = memo(function RunSelector({
+  selectedRunId,
+  onSelect,
+}: {
+  selectedRunId: string | null;
+  onSelect: (runId: string | null) => void;
+}) {
+  const runHistory = useWorkflowStore((s) => s.runHistory);
+  const currentRunId = useWorkflowStore((s) => s.currentRunId);
+
+  if (runHistory.length <= 1) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2 border-b border-awp-border">
+      <span className="text-[10px] text-awp-muted uppercase tracking-wider shrink-0 mr-1">Runs</span>
+      {/* "Latest" button = current live run */}
+      <button
+        type="button"
+        onClick={() => onSelect(null)}
+        className={clsx(
+          'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
+          selectedRunId === null
+            ? 'bg-awp-blue/15 text-awp-blue border border-awp-blue/30'
+            : 'text-awp-muted hover:text-awp-text hover:bg-awp-border/40 border border-transparent',
+        )}
+      >
+        Latest
+      </button>
+      {/* Individual runs in chronological order */}
+      {[...runHistory].reverse().map((run, i) => {
+        const isActive = run.run_id === selectedRunId;
+        const isCurrent = run.run_id === currentRunId;
+        const label = run.task.length > 30 ? run.task.slice(0, 30) + '...' : run.task;
+        const runNum = runHistory.length - i;
+        return (
+          <button
+            key={run.run_id}
+            type="button"
+            onClick={() => onSelect(isCurrent ? null : run.run_id)}
+            title={run.task}
+            className={clsx(
+              'shrink-0 px-2.5 py-1 rounded-md text-[11px] transition-colors flex items-center gap-1.5',
+              isActive
+                ? 'bg-awp-blue/15 text-awp-blue border border-awp-blue/30'
+                : 'text-awp-muted hover:text-awp-text hover:bg-awp-border/40 border border-transparent',
+            )}
+          >
+            <span className="font-mono text-[10px] opacity-60">#{runNum}</span>
+            <span className="truncate max-w-[120px]">{label || 'Untitled'}</span>
+            {run.status === 'running' && <Loader2 className="h-3 w-3 animate-spin shrink-0" />}
+            {run.status === 'complete' && <CheckCircle2 className="h-3 w-3 text-awp-green shrink-0" />}
+            {(run.status === 'error' || run.status === 'failed') && <AlertCircle className="h-3 w-3 text-awp-red shrink-0" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
 function ResultsPanel() {
-  const { currentRunId, runStatus } = useWorkflowStore();
+  const currentRunId = useWorkflowStore((s) => s.currentRunId);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const selectedRunId = useWorkflowStore((s) => s.selectedRunId);
+  const selectRun = useWorkflowStore((s) => s.selectRun);
+
+  // The effective run ID: selected past run or the current live run
+  const effectiveRunId = selectedRunId ?? currentRunId;
+
   const [artifacts, setArtifacts] = React.useState<Array<{
     name: string; path: string; relative: string; kind: string; size: number;
   }>>([]);
   const [loading, setLoading] = React.useState(false);
 
   useEffect(() => {
-    if (!currentRunId) return;
+    if (!effectiveRunId) return;
     setLoading(true);
-    api.getRunArtifacts(currentRunId)
+    api.getRunArtifacts(effectiveRunId)
       .then(setArtifacts)
-      .catch(() => {})
+      .catch(() => setArtifacts([]))
       .finally(() => setLoading(false));
-  }, [currentRunId, runStatus]);
+  }, [effectiveRunId, runStatus]);
 
   if (!currentRunId) {
     return (
@@ -1223,6 +1331,9 @@ function ResultsPanel() {
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
+      {/* Run selector */}
+      <RunSelector selectedRunId={selectedRunId} onSelect={selectRun} />
+
       {/* Header with open-in-explorer button */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-awp-muted uppercase tracking-wider">
@@ -1281,36 +1392,38 @@ function ResultsPanel() {
       <ArtifactSection title="Tables" count={tables.length}>
         <PaginatedList items={tables} pageSize={5} renderItem={(f) => (
           <LazyTextArtifact key={f.path} artifact={f} render={(content) => {
-            const rows = content.split('\n').filter(Boolean);
-            const header = rows[0]?.split(',') ?? [];
+            const lines = content.split('\n').filter(Boolean);
+            const delimiter = lines[0]?.includes('\t') ? '\t' : ',';
+            const rows = lines.map((line) => line.split(delimiter));
+            const header = rows[0] ?? [];
             const dataRows = rows.slice(1, 101);
             return (
               <div className="rounded-lg border border-awp-border bg-awp-bg overflow-hidden mb-3">
                 <div className="px-3 py-1.5 border-b border-awp-border">
-                  <span className="text-xs text-awp-muted">{f.name} ({rows.length - 1} rows)</span>
+                  <span className="text-xs text-awp-muted">{f.name} ({lines.length - 1} rows)</span>
                 </div>
                 <div className="overflow-x-auto max-h-96">
-                  <table className="w-full text-xs">
+                  <table className="text-xs" style={{ minWidth: 'max-content' }}>
                     <thead className="bg-awp-panel sticky top-0">
                       <tr>
                         {header.map((h, i) => (
-                          <th key={i} className="px-2 py-1.5 text-left text-awp-muted font-medium border-b border-awp-border whitespace-nowrap">{h.trim()}</th>
+                          <th key={i} className="px-3 py-2 text-left text-awp-muted font-semibold uppercase tracking-wide border-b border-awp-border whitespace-nowrap">{h.trim()}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {dataRows.map((row, i) => (
-                        <tr key={i} className="hover:bg-awp-bg/60">
-                          {row.split(',').map((cell, j) => (
-                            <td key={j} className="px-2 py-1 text-awp-text border-b border-awp-border/50 whitespace-nowrap">{cell.trim()}</td>
+                      {dataRows.map((row, ri) => (
+                        <tr key={ri} className={clsx(ri % 2 === 0 ? 'bg-awp-bg/30' : 'bg-awp-panel/30', 'hover:bg-awp-blue/5 transition-colors')}>
+                          {row.map((cell, j) => (
+                            <td key={j} className="px-3 py-1.5 text-awp-text border-b border-awp-border/50 whitespace-nowrap">{cell.trim()}</td>
                           ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {rows.length > 101 ? (
-                  <div className="px-3 py-1 text-[10px] text-awp-muted border-t border-awp-border">Showing first 100 of {rows.length - 1} rows</div>
+                {lines.length > 101 ? (
+                  <div className="px-3 py-1 text-[10px] text-awp-muted border-t border-awp-border">Showing first 100 of {lines.length - 1} rows</div>
                 ) : null}
               </div>
             );
@@ -1329,7 +1442,7 @@ function ResultsPanel() {
               <div className="rounded-lg border border-awp-border bg-awp-bg p-3 mb-3">
                 <span className="text-xs text-awp-muted block mb-2">{f.relative}</span>
                 {isMd ? (
-                  <div className="prose prose-sm prose-invert max-w-none break-words">
+                  <div className="prose prose-sm prose-invert max-w-none break-words overflow-x-auto">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
                       {content}
                     </ReactMarkdown>
@@ -1371,19 +1484,40 @@ function ResultsPanel() {
 // ---------------------------------------------------------------------------
 
 function OutputPanel() {
-  const { outputBlocks, runStatus } = useWorkflowStore();
+  const outputBlocks = useWorkflowStore((s) => s.outputBlocks);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const currentRunId = useWorkflowStore((s) => s.currentRunId);
+  const selectedRunId = useWorkflowStore((s) => s.selectedRunId);
+  const selectRun = useWorkflowStore((s) => s.selectRun);
+  const selectedRunBlocks = useWorkflowStore((s) => s.selectedRunBlocks);
+  const loadRunBlocks = useWorkflowStore((s) => s.loadRunBlocks);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const INITIAL_VISIBLE = 30;
   const [showAll, setShowAll] = React.useState(false);
 
+  // Load output blocks when selecting a past run
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [outputBlocks.length]);
+    if (selectedRunId && selectedRunId !== currentRunId) {
+      loadRunBlocks(selectedRunId);
+    }
+  }, [selectedRunId, currentRunId, loadRunBlocks]);
+
+  // Use selected run's blocks or current live blocks
+  const effectiveBlocks = (selectedRunId && selectedRunId !== currentRunId)
+    ? selectedRunBlocks
+    : outputBlocks;
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [effectiveBlocks.length, selectedRunId]);
 
   // Reset showAll when switching runs
-  useEffect(() => { setShowAll(false); }, [runStatus]);
+  useEffect(() => { setShowAll(false); }, [runStatus, selectedRunId]);
 
-  if (outputBlocks.length === 0 && runStatus === 'idle') {
+  if (effectiveBlocks.length === 0 && runStatus === 'idle' && !selectedRunId) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-awp-muted gap-3">
         <Zap className="h-12 w-12 text-awp-border" />
@@ -1392,11 +1526,14 @@ function OutputPanel() {
     );
   }
 
-  const hiddenCount = showAll ? 0 : Math.max(0, outputBlocks.length - INITIAL_VISIBLE);
-  const visibleBlocks = showAll ? outputBlocks : outputBlocks.slice(hiddenCount);
+  const hiddenCount = showAll ? 0 : Math.max(0, effectiveBlocks.length - INITIAL_VISIBLE);
+  const visibleBlocks = showAll ? effectiveBlocks : effectiveBlocks.slice(hiddenCount);
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
+      {/* Run selector */}
+      <RunSelector selectedRunId={selectedRunId} onSelect={selectRun} />
+
       {hiddenCount > 0 && (
         <button
           type="button"
@@ -1409,12 +1546,69 @@ function OutputPanel() {
       {visibleBlocks.map((block, i) => (
         <OutputBlockCard key={showAll ? i : hiddenCount + i} block={block} />
       ))}
+      {effectiveBlocks.length === 0 && selectedRunId && (
+        <div className="text-center text-awp-muted text-sm mt-8">
+          No output blocks for this run
+        </div>
+      )}
       <div ref={bottomRef} />
     </div>
   );
 }
 
-function OutputBlockCard({ block }: { block: OutputBlock }) {
+/** Parse CSV/TSV/JSON table content into rows and render as HTML table */
+function InlineTable({ content }: { content: string }) {
+  let rows: string[][] = [];
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed[0])) {
+        rows = parsed.map((r: unknown[]) => r.map(String));
+      } else if (typeof parsed[0] === 'object') {
+        const headers = Object.keys(parsed[0]);
+        rows = [headers, ...parsed.map((r: Record<string, unknown>) => headers.map((h) => String(r[h] ?? '')))];
+      }
+    }
+  } catch {
+    // CSV / TSV fallback
+    const lines = content.split('\n').filter(Boolean);
+    const delimiter = lines[0]?.includes('\t') ? '\t' : ',';
+    rows = lines.map((line) => line.split(delimiter));
+  }
+
+  if (rows.length === 0) return <pre className="text-xs text-awp-muted whitespace-pre-wrap">{content}</pre>;
+
+  const [header, ...body] = rows;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-awp-border">
+      <table className="text-xs text-awp-text" style={{ minWidth: 'max-content' }}>
+        <thead className="sticky top-0 bg-awp-panel">
+          <tr>
+            {header.map((cell, i) => (
+              <th key={i} className="border-b border-awp-border px-3 py-2 text-left font-semibold text-awp-muted uppercase tracking-wide whitespace-nowrap">
+                {cell.trim()}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, ri) => (
+            <tr key={ri} className={clsx(ri % 2 === 0 ? 'bg-awp-bg/30' : 'bg-awp-panel/30', 'hover:bg-awp-blue/5 transition-colors')}>
+              {row.map((cell, ci) => (
+                <td key={ci} className="border-b border-awp-border/50 px-3 py-1.5 whitespace-nowrap">
+                  {cell.trim()}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const OutputBlockCard = memo(function OutputBlockCard({ block }: { block: OutputBlock }) {
   const bgClass =
     block.type === 'error'
       ? 'border-awp-red/30 bg-awp-red/5'
@@ -1438,14 +1632,14 @@ function OutputBlockCard({ block }: { block: OutputBlock }) {
         </div>
       )}
       {block.type === 'markdown' && (
-        <div className="prose prose-sm prose-invert max-w-none break-words">
+        <div className="prose prose-sm prose-invert max-w-none break-words overflow-x-auto">
           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
             {block.content}
           </ReactMarkdown>
         </div>
       )}
       {block.type === 'code' && (
-        <CodeBlock content={block.content} />
+        <CodeBlock content={block.content} language={block.language} />
       )}
       {block.type === 'json' && (
         <JsonViewer data={block.content} />
@@ -1462,12 +1656,20 @@ function OutputBlockCard({ block }: { block: OutputBlock }) {
           className="max-w-full rounded"
         />
       )}
-      {(block.type === 'table' || block.type === 'chart' || block.type === 'file') && (
+      {block.type === 'table' && (
+        <InlineTable content={block.content} />
+      )}
+      {block.type === 'chart' && (
+        block.content.trim().startsWith('<svg')
+          ? <div dangerouslySetInnerHTML={{ __html: block.content }} className="overflow-x-auto" />
+          : <img src={block.content} alt={block.title ?? 'chart'} className="max-w-full rounded" />
+      )}
+      {block.type === 'file' && (
         <CodeBlock content={block.content} maxHeight="none" />
       )}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Graph Panel — hierarchical agent tree
@@ -1723,7 +1925,11 @@ function GraphTreeNode({
 }
 
 function GraphPanel() {
-  const { graphNodes, graphEdges, currentRunId, loadRunGraph, runStatus } = useWorkflowStore();
+  const graphNodes = useWorkflowStore((s) => s.graphNodes);
+  const graphEdges = useWorkflowStore((s) => s.graphEdges);
+  const currentRunId = useWorkflowStore((s) => s.currentRunId);
+  const loadRunGraph = useWorkflowStore((s) => s.loadRunGraph);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
 
   // Load graph from backend if we have a run but no nodes yet
   useEffect(() => {
@@ -1788,14 +1994,12 @@ const MEMORY_TYPE_CONFIG: Record<string, { label: string; color: string; dotColo
 };
 
 function MemoryPanel() {
-  const {
-    currentSessionId,
-    experimentMemory,
-    addMemoryEntry,
-    updateMemoryEntry: storeUpdateMemory,
-    deleteMemoryEntry: storeDeleteMemory,
-    loadExperimentMemory,
-  } = useWorkflowStore();
+  const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
+  const experimentMemory = useWorkflowStore((s) => s.experimentMemory);
+  const addMemoryEntry = useWorkflowStore((s) => s.addMemoryEntry);
+  const storeUpdateMemory = useWorkflowStore((s) => s.updateMemoryEntry);
+  const storeDeleteMemory = useWorkflowStore((s) => s.deleteMemoryEntry);
+  const loadExperimentMemory = useWorkflowStore((s) => s.loadExperimentMemory);
 
   const [showAdd, setShowAdd] = React.useState(false);
   const [newType, setNewType] = React.useState<string>('note');
@@ -2003,7 +2207,11 @@ function MemoryPanel() {
 // ---------------------------------------------------------------------------
 
 function HistoryPanel() {
-  const { runHistory, loadHistory, currentRunId, currentSessionId, loadRunGraph } = useWorkflowStore();
+  const runHistory = useWorkflowStore((s) => s.runHistory);
+  const loadHistory = useWorkflowStore((s) => s.loadHistory);
+  const currentRunId = useWorkflowStore((s) => s.currentRunId);
+  const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
+  const loadRunGraph = useWorkflowStore((s) => s.loadRunGraph);
 
   useEffect(() => {
     loadHistory();
@@ -2127,22 +2335,20 @@ function BottomBar() {
 // ---------------------------------------------------------------------------
 
 export function App() {
-  const {
-    sidebarOpen,
-    inspectorOpen,
-    activePanel,
-    sessions,
-    currentSessionId,
-    selectSession,
-    createSession,
-    deleteSession,
-    renameSession,
-    loadSessions,
-    loadSecrets,
-    loadPersistedSettings,
-    saveCurrentSettings,
-    config,
-  } = useWorkflowStore();
+  const sidebarOpen = useWorkflowStore((s) => s.sidebarOpen);
+  const inspectorOpen = useWorkflowStore((s) => s.inspectorOpen);
+  const activePanel = useWorkflowStore((s) => s.activePanel);
+  const sessions = useWorkflowStore((s) => s.sessions);
+  const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
+  const selectSession = useWorkflowStore((s) => s.selectSession);
+  const createSession = useWorkflowStore((s) => s.createSession);
+  const deleteSession = useWorkflowStore((s) => s.deleteSession);
+  const renameSession = useWorkflowStore((s) => s.renameSession);
+  const loadSessions = useWorkflowStore((s) => s.loadSessions);
+  const loadSecrets = useWorkflowStore((s) => s.loadSecrets);
+  const loadPersistedSettings = useWorkflowStore((s) => s.loadPersistedSettings);
+  const saveCurrentSettings = useWorkflowStore((s) => s.saveCurrentSettings);
+  const config = useWorkflowStore((s) => s.config);
 
   // Load sessions, secrets, and persisted settings on mount.
   // Order matters: restore persisted settings first (including last session),

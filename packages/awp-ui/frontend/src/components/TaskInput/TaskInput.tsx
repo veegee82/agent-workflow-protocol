@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play,
   Square,
@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Circle,
+  Sparkles,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import clsx from 'clsx';
@@ -63,31 +64,41 @@ const statusConfig: Record<
 };
 
 export function TaskInput() {
-  const {
-    config,
-    updateConfig,
-    startRun,
-    stopRun,
-    runStatus,
-    attachedFiles,
-    addFiles,
-    removeFile,
-  } = useWorkflowStore();
+  const config = useWorkflowStore((s) => s.config);
+  const updateConfig = useWorkflowStore((s) => s.updateConfig);
+  const startRun = useWorkflowStore((s) => s.startRun);
+  const stopRun = useWorkflowStore((s) => s.stopRun);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const attachedFiles = useWorkflowStore((s) => s.attachedFiles);
+  const addFiles = useWorkflowStore((s) => s.addFiles);
+  const removeFile = useWorkflowStore((s) => s.removeFile);
+  const isRefactoring = useWorkflowStore((s) => s.isRefactoring);
+  const refactorTask = useWorkflowStore((s) => s.refactorTask);
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Local state for lag-free typing; debounce store updates
+  const [localTask, setLocalTask] = useState(config.task);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => { setLocalTask(config.task); }, [config.task]);
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
   const isRunning = runStatus === 'running';
   const status = statusConfig[runStatus] ?? statusConfig.idle;
 
   const handleTextChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      updateConfig({ task: e.target.value });
+      const val = e.target.value;
+      setLocalTask(val);
       const el = e.target;
       el.style.height = 'auto';
       el.style.height = `${Math.min(el.scrollHeight, 300)}px`;
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => updateConfig({ task: val }), 300);
     },
     [updateConfig],
   );
@@ -131,12 +142,32 @@ export function TaskInput() {
 
       {/* Task description */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-awp-muted uppercase tracking-wide">
-          Task
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-awp-muted uppercase tracking-wide">
+            Task
+          </label>
+          <button
+            onClick={refactorTask}
+            disabled={!localTask.trim() || isRefactoring || isRunning}
+            title="Refactor task into structured prompt"
+            className={clsx(
+              'flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-all',
+              localTask.trim() && !isRefactoring && !isRunning
+                ? 'text-awp-purple hover:bg-awp-purple/10 hover:text-awp-purple'
+                : 'cursor-not-allowed text-awp-muted/40',
+            )}
+          >
+            {isRefactoring ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            Refactor
+          </button>
+        </div>
         <textarea
           ref={textareaRef}
-          value={config.task}
+          value={localTask}
           onChange={handleTextChange}
           placeholder="Describe the task for your agent workflow..."
           rows={4}
@@ -277,10 +308,10 @@ export function TaskInput() {
         ) : (
           <button
             onClick={startRun}
-            disabled={!config.task.trim()}
+            disabled={!localTask.trim()}
             className={clsx(
               'flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-all',
-              config.task.trim()
+              localTask.trim()
                 ? 'bg-gradient-to-r from-awp-blue to-awp-purple hover:shadow-awp-blue/25 hover:shadow-xl active:scale-[0.98]'
                 : 'cursor-not-allowed bg-awp-border text-awp-muted',
               isRunning && 'animate-pulse-slow',
@@ -291,6 +322,7 @@ export function TaskInput() {
           </button>
         )}
       </div>
+
     </div>
   );
 }

@@ -1145,6 +1145,162 @@ class DelegationLoopRunner:
         lines.append("")
         return "\n".join(lines)
 
+    def _build_dynamic_tools_section(self) -> str:
+        """Build a section listing all registered dynamic tools for the manager prompt."""
+        if not self._tools:
+            return ""
+        dynamic = getattr(self._tools, "_dynamic_tools", {})
+        if not dynamic:
+            return ""
+
+        lines = ["\n## Available Dynamic Tools (from previous runs)\n"]
+        lines.append(
+            "These tools are already registered and can be added to any worker's "
+            "`tools_allowed` list. Use `\"dynamic.*\"` to give a worker ALL dynamic tools, "
+            "or list specific ones like `\"dynamic.my_tool\"`.\n"
+        )
+        for fqn in sorted(dynamic.keys()):
+            defn = self._tools._definitions.get(fqn)
+            desc = ""
+            if defn and "function" in defn:
+                desc = defn["function"].get("description", "")[:120]
+            creator = dynamic[fqn].get("creator", "")
+            lines.append(f"- **`{fqn}`**: {desc}")
+            if creator:
+                lines.append(f"  _(created by: {creator})_")
+        lines.append("")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Skill Registry — persist, catalog, lazy-load
+    # ------------------------------------------------------------------
+
+    @property
+    def _skills_dir(self) -> Path:
+        return self._dir / "workspace" / "skills"
+
+    @staticmethod
+    def _skill_name_from_content(content: str) -> str:
+        """Extract a slug name from the first heading of a skill markdown."""
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith("# "):
+                title = line.lstrip("# ").strip()
+                # Remove "Skill:" prefix if present
+                if title.lower().startswith("skill:"):
+                    title = title[6:].strip()
+                # Slugify
+                import re as _re
+                slug = _re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+                return slug[:60] if slug else "unnamed_skill"
+        return "unnamed_skill"
+
+    @staticmethod
+    def _skill_description_from_content(content: str) -> str:
+        """Extract a one-line description from the Purpose section."""
+        in_purpose = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("## purpose"):
+                in_purpose = True
+                continue
+            if in_purpose:
+                if stripped.startswith("##"):
+                    break
+                if stripped:
+                    return stripped[:150]
+        # Fallback: first non-heading non-empty line
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                return stripped[:150]
+        return ""
+
+    def _persist_skill(self, name: str, content: str) -> None:
+        """Save a skill to workspace/skills/{name}.md (latest wins)."""
+        self._skills_dir.mkdir(parents=True, exist_ok=True)
+        path = self._skills_dir / f"{name}.md"
+        path.write_text(content, encoding="utf-8")
+        logger.info("Persisted skill: %s (%d chars)", name, len(content))
+
+    def _load_skill_catalog(self) -> dict[str, str]:
+        """Return {name: one-line description} for all persisted skills."""
+        catalog: dict[str, str] = {}
+        if not self._skills_dir.is_dir():
+            return catalog
+        for path in sorted(self._skills_dir.glob("*.md")):
+            name = path.stem
+            try:
+                content = path.read_text(encoding="utf-8")
+                desc = self._skill_description_from_content(content)
+                catalog[name] = desc
+            except OSError:
+                catalog[name] = ""
+        return catalog
+
+    def _resolve_skills(self, skills: list) -> list[str]:
+        """Resolve skill entries: short names → load from disk, full markdown → pass through.
+
+        Also persists any new/updated inline skills.
+        """
+        resolved: list[str] = []
+        for entry in skills:
+            if not isinstance(entry, str) or not entry.strip():
+                continue
+            stripped = entry.strip()
+            # Full markdown skill (has heading or >80 chars) → use as-is + persist
+            if stripped.startswith("#") or len(stripped) > 80:
+                name = self._skill_name_from_content(stripped)
+                self._persist_skill(name, stripped)
+                resolved.append(stripped)
+            else:
+                # Short name reference → load from disk
+                slug = stripped.replace(" ", "_").lower()
+                path = self._skills_dir / f"{slug}.md"
+                if path.is_file():
+                    content = path.read_text(encoding="utf-8")
+                    resolved.append(content)
+                    logger.info("Loaded skill by name: %s", slug)
+                else:
+                    # Not found — treat as inline skill fragment
+                    logger.warning("Skill '%s' not found in registry, passing as-is", slug)
+                    resolved.append(stripped)
+        return resolved
+
+    def _persist_worker_result_skills(self, worker_result: dict, worker_id: str) -> None:
+        """Persist skills from a worker's result to the skill registry."""
+        result_skills = worker_result.get(
+            "skills_created", worker_result.get("skills", [])
+        )
+        if not isinstance(result_skills, list):
+            return
+        for skill in result_skills:
+            content = ""
+            if isinstance(skill, str) and skill.strip():
+                content = skill.strip()
+            elif isinstance(skill, dict):
+                content = skill.get("content", skill.get("text", ""))
+            if content and len(content.split()) >= 30:
+                name = self._skill_name_from_content(content)
+                self._persist_skill(name, content)
+
+    def _build_skill_catalog_section(self) -> str:
+        """Build a section listing all persisted skills for the manager prompt."""
+        catalog = self._load_skill_catalog()
+        if not catalog:
+            return ""
+        lines = ["\n## Available Skills (reusable from previous runs)\n"]
+        lines.append(
+            "Reference these by name in a worker's `skills` array instead of writing "
+            "them inline. The runtime will load the full content automatically.\n"
+            "To **update** a skill, provide the full markdown with the same `# Skill: Name` "
+            "heading — it will overwrite the previous version.\n"
+        )
+        for name, desc in catalog.items():
+            lines.append(f"- **`{name}`**: {desc}" if desc else f"- **`{name}`**")
+        lines.append("")
+        return "\n".join(lines)
+
     def _build_namespace_import_rules(self, namespace: str) -> str:
         """Build import rules for a namespace, reflecting its capabilities."""
         factory = getattr(self._tools, "_dynamic_tool_factory", None) if self._tools else None
@@ -1242,8 +1398,11 @@ You MUST respond with a JSON object containing ONE of these decisions:
 - Sandbox: {enforced.sandbox.type}, max {enforced.sandbox.max_memory_mb}MB RAM, {enforced.sandbox.max_cpu_seconds}s CPU
 - Max tools per worker: {enforced.codemode.max_tools_per_worker}
 - Forbidden tools: {", ".join(enforced.forbidden_tools)}
-{self._build_namespace_capabilities_section()}
+{self._build_namespace_capabilities_section()}{self._build_dynamic_tools_section()}{self._build_skill_catalog_section()}
 ## Rules
+- **Reuse existing skills** — reference them by name in `skills` array instead of rewriting
+- **Update skills** — to improve a skill, provide updated full markdown with the same heading
+- **Reuse existing dynamic tools** — add them to workers' `tools_allowed` instead of recreating
 - Give each worker a unique, descriptive worker_id (snake_case)
 - Workers can only use tools from their tools_allowed list
 - Include relevant domain knowledge in the skills array as Markdown strings
@@ -1310,7 +1469,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 from .file_validator import validate_directory, build_repair_instructions
                 all_warnings = []
                 workspace = self._dir / "workspace"
-                output = self._dir / "output"
+                run_output = self._dir / "output" / self._run_id
                 if workspace.exists():
                     ws_outputs = workspace / "outputs"
                     if ws_outputs.exists():
@@ -1320,8 +1479,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                                 w = validate_file(p)
                                 if w:
                                     all_warnings.append((p, w))
-                if output.exists():
-                    for p in sorted(output.rglob("*")):
+                if run_output.exists():
+                    for p in sorted(run_output.rglob("*")):
                         if p.is_file() and not p.name.startswith("."):
                             from .file_validator import validate_file
                             w = validate_file(p)
@@ -1491,7 +1650,61 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 output["decision"] = "retry"
                 output["reason"] = "All delegations were incomplete/truncated"
 
+            # Enforce skill quality — replace shallow tags with empty list
+            # so the worker doesn't receive useless noise.  Log warnings
+            # so the manager output can be diagnosed.
+            if valid:
+                for d in valid:
+                    self._enforce_skill_quality(d)
+
         return output
+
+    # -- Skill quality enforcement -----------------------------------------
+
+    _MIN_SKILL_WORDS = 30  # minimum word count for a valid skill
+
+    def _enforce_skill_quality(self, delegation: dict) -> None:
+        """Validate and filter skills in a delegation envelope.
+
+        Skills that are too short (tags/labels like "CSV parsing") are dropped
+        and a warning is logged.  The delegation dict is mutated in-place.
+        """
+        wid = delegation.get("worker_id", "unknown")
+        raw_skills = delegation.get("skills", [])
+        if not isinstance(raw_skills, list):
+            return
+
+        quality_skills: list[str] = []
+        for i, skill in enumerate(raw_skills):
+            if not isinstance(skill, str):
+                continue
+            stripped = skill.strip()
+            if not stripped:
+                continue
+            word_count = len(stripped.split())
+            if word_count < self._MIN_SKILL_WORDS:
+                logger.warning(
+                    "Worker %s: dropping shallow skill[%d] (%d words): %r — "
+                    "skills must be detailed Markdown documents, not tags",
+                    wid,
+                    i,
+                    word_count,
+                    stripped[:80],
+                )
+            else:
+                quality_skills.append(stripped)
+
+        if len(quality_skills) < len(raw_skills):
+            dropped = len(raw_skills) - len(quality_skills)
+            logger.info(
+                "Worker %s: kept %d/%d skills (%d dropped for low quality)",
+                wid,
+                len(quality_skills),
+                len(raw_skills),
+                dropped,
+            )
+
+        delegation["skills"] = quality_skills
 
     # -- Worker execution -------------------------------------------------
 
@@ -1513,6 +1726,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
             try:
                 result = self._run_ephemeral_worker(worker_id, envelope, task, state)
+                # Persist any skills the worker created to the skill registry
+                self._persist_worker_result_skills(result, worker_id)
                 # Write result to disk immediately (for file watchers)
                 self._logger.log_worker_result(iteration, worker_id, result)
                 return {
@@ -1546,7 +1761,10 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     ) -> dict:
         """Run an ephemeral worker configured entirely by the delegation envelope."""
         instructions = envelope.get("instructions", "")
-        skills = envelope.get("skills", [])
+        raw_skills = envelope.get("skills", [])
+        # Resolve skill names to full content (lazy loading from skill registry)
+        skills = self._resolve_skills(raw_skills) if raw_skills else []
+        envelope["skills"] = skills  # Update envelope for logging
         tools_allowed = envelope.get("tools_allowed", [])
         output_contract = envelope.get("output_contract", {})
         codemode = envelope.get("codemode", {})
@@ -1631,7 +1849,10 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # If codemode is enabled, tell the worker about file I/O capabilities
         if isinstance(codemode, dict) and codemode.get("enabled", False):
             workspace_path = str(self._dir / "workspace")
-            output_path = str(self._dir / "output")
+            # Always use run_id-isolated output directory
+            run_output_dir = self._dir / "output" / self._run_id
+            run_output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = str(run_output_dir)
 
             # Build input registry with schema previews for data files
             workspace_path_obj = self._dir / "workspace"
@@ -1650,9 +1871,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     "- Save generated data to `_workspace_dir + \"/inputs/\"` for reuse\n\n"
                 )
 
-            # Build live directory tree so worker knows ALL existing files
-            output_path_obj = self._dir / "output"
-            dir_tree = self._build_directory_tree(workspace_path_obj, output_path_obj)
+            # Build live directory tree showing only this run's output
+            dir_tree = self._build_directory_tree(workspace_path_obj, run_output_dir)
 
             system_parts.append(f"""{input_registry_block}
 {no_inputs_hint}{dir_tree}## IMPORTANT: Use `code.execute` for All Computation
@@ -2374,7 +2594,7 @@ Rules:
                 fname = w.split(":")[0].strip() if ":" in w else ""
                 if fname:
                     # Check candidate paths in output and workspace
-                    for search_dir in [self._dir / "output", self._dir / "workspace" / "outputs"]:
+                    for search_dir in [self._dir / "output" / self._run_id, self._dir / "workspace" / "outputs"]:
                         candidates = list(search_dir.rglob(fname)) if search_dir.exists() else []
                         for p in candidates:
                             severity = classify_warning_severity(p, w)
@@ -2403,14 +2623,14 @@ Rules:
 
         warnings: list[str] = []
         workspace = self._dir / "workspace"
-        output = self._dir / "output"
+        run_output = self._dir / "output" / self._run_id
         if workspace.exists():
             # Only validate outputs subdir of workspace (not inputs, context, etc.)
             ws_outputs = workspace / "outputs"
             if ws_outputs.exists():
                 warnings.extend(validate_directory(ws_outputs))
-        if output.exists():
-            warnings.extend(validate_directory(output))
+        if run_output.exists():
+            warnings.extend(validate_directory(run_output))
         return warnings
 
     def _classify_output_warning(self, warning: str) -> str:
@@ -2425,7 +2645,7 @@ Rules:
         fname = warning.split(":")[0].strip() if ":" in warning else ""
         if fname:
             for search_dir in [
-                self._dir / "output",
+                self._dir / "output" / self._run_id,
                 self._dir / "workspace" / "outputs",
             ]:
                 if search_dir.exists():

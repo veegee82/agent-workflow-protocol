@@ -14,15 +14,39 @@ def _build_experiment_context_hint(has_context: bool) -> str:
         return ""
     return (
         "\n## Experiment History (Previous Runs)\n\n"
-        "This run is part of an ongoing experiment. The `_experiment_context/` directory "
-        "in the workspace contains detailed results from previous runs:\n"
-        "- `experiment.json` — experiment metadata (title, hypothesis, description)\n"
-        "- `run_NNN_summary.json` — per-run task, result, and metadata\n"
+        "This run is part of an ongoing experiment. Previous run results and output "
+        "files are available for you to build upon.\n\n"
+        "### Accessing Prior Results\n\n"
+        "**Structured data** — the `_experiment_context/` directory in the workspace contains:\n"
+        "- `experiment_brief.md` — complete human-readable summary of all previous work\n"
+        "- `run_NNN_summary.json` — per-run task, full result, model, status, and output file listings\n"
         "- `memory.json` — accumulated findings, observations, and decisions\n"
-        "- `experiment_brief.md` — human-readable summary of all previous work\n\n"
-        "Workers can read these files via `code.execute` or `file.read` to access "
-        "detailed prior results. Use them to build upon previous work and avoid "
-        "repeating analyses that have already been done.\n"
+        "- `experiment.json` — experiment metadata (title, hypothesis, description)\n\n"
+        "**Output files from prior runs** — previous runs may have produced CSV tables, "
+        "images, code files, and other artifacts. Their absolute paths are listed in the "
+        "experiment context below and in each `run_NNN_summary.json` under `output_files`. "
+        "Workers can read these files directly via `code.execute` (e.g. `pd.read_csv(path)`) "
+        "or `file.read`.\n\n"
+        "### Reusing Dynamic Tools from Prior Runs\n\n"
+        "Dynamic tools created by workers in previous runs are **automatically persisted** "
+        "in `workspace/dynamic_tools/` and loaded for the current run. Workers can call them "
+        "directly — there is no need to recreate tools that already exist. The experiment "
+        "context below lists all available dynamic tools with their descriptions.\n\n"
+        "### Reusing Skills from Prior Runs\n\n"
+        "Skills generated in prior runs are persisted in `workspace/skills/` and listed "
+        "in the manager prompt. Reference them by name in a worker's `skills` array — the "
+        "runtime loads the full content automatically. To update a skill, provide new "
+        "markdown with the same `# Skill: Name` heading.\n\n"
+        "### How to Use Prior Results\n\n"
+        "- **Reuse tools**: Dynamic tools from previous runs are already registered — "
+        "just use them, don't recreate\n"
+        "- **Reuse data**: If a previous run produced a CSV, dataframe, or analysis result, "
+        "load it directly instead of recomputing\n"
+        "- **Reuse skills**: Provide relevant prior skills to workers for continuity\n"
+        "- **Iterate**: Refine, extend, or correct prior outputs — each run should advance "
+        "the experiment\n"
+        "- **Avoid repetition**: Check what has already been done before spawning workers\n"
+        "- **Reference**: When building on prior work, note which run you are extending\n"
     )
 
 
@@ -226,7 +250,7 @@ Respond with a JSON object containing ONE of these decisions:
     {{
       "worker_id": "unique_snake_case_name",
       "instructions": "Detailed instructions — MUST include exact file paths from Available Inputs (e.g. inputs/data.csv) and expected output format",
-      "skills": ["Domain knowledge as Markdown strings"],
+      "skills": ["Each skill MUST be a full Markdown document — see Skill Format below"],
       "tools_allowed": ["code.execute", "file.read", "file.write", "file.list"],
       "output_contract": {{
         "required_fields": ["findings", "confidence"],
@@ -264,6 +288,77 @@ Respond with a JSON object containing ONE of these decisions:
 }}
 ```
 
+## Skill Format (MANDATORY)
+
+Each entry in a worker's `skills` array MUST be a **full Markdown document** — NOT a tag, label, or short phrase.
+Skills are the worker's only source of domain knowledge. A 2-word label like "CSV parsing" is USELESS.
+Every skill MUST follow this exact structure:
+
+```
+# Skill: <Descriptive Name>
+
+## Purpose
+What this skill enables the worker to do (1-2 sentences).
+
+## Key Knowledge
+- Concrete facts, formulas, domain rules, data schemas, column meanings, units
+- Known gotchas, edge cases, or failure modes
+- Specific parameter ranges, thresholds, or constraints relevant to the task
+
+## Implementation Guidance
+- Recommended approach or algorithm steps
+- Library recommendations with example code patterns
+- Reference code snippets the worker can adapt
+
+## Validation Criteria
+- How to verify the output is correct
+- Expected value ranges, sanity checks, row counts
+```
+
+### Skill Quality Rules
+- **Minimum 150 words per skill** — anything shorter is rejected
+- **1-2 skills per worker** (quality over quantity — do NOT create 4+ shallow skills)
+- Each skill must contain **actionable knowledge** the worker cannot infer from the instructions alone
+- Include **concrete code snippets** where applicable (e.g. pandas patterns, validation checks)
+- Include **specific values** from the task context (file schemas, expected ranges, column names)
+- Do NOT repeat the worker instructions inside the skill — skills provide complementary domain expertise
+
+### Example of a GOOD skill:
+```
+# Skill: BTC Trade CSV Processing
+
+## Purpose
+Parse and validate BTC trade CSV files with the standard schema used in this experiment.
+
+## Key Knowledge
+- CSV schema: entry_time, exit_time, entry_price, exit_price, pnl
+- Times are ISO 8601 UTC, chronologically increasing
+- Prices are USD floats (BTC typically 60,000-100,000 range in current data)
+- PnL = exit_price - entry_price for long positions
+- Empty or header-only CSVs are a known failure mode — always validate row count after writing
+
+## Implementation Guidance
+```python
+import pandas as pd
+df = pd.read_csv(path, parse_dates=["entry_time", "exit_time"])
+assert len(df) > 0, "CSV has no data rows"
+assert df["entry_price"].between(50000, 100000).all(), "Price out of expected range"
+assert (df["exit_time"] > df["entry_time"]).all(), "exit must be after entry"
+```
+
+## Validation Criteria
+- File must have the exact number of data rows specified in the task
+- All numeric columns must be parseable as float with 2 decimal places
+- entry_time < exit_time for every row
+- No NaN or empty values in any column
+```
+
+### Example of a BAD skill (DO NOT generate these):
+- "CSV parsing" ← useless tag, not a skill
+- "Data analysis" ← meaningless label
+- "Pandas/NumPy" ← just library names
+- "Risk management" ← too vague, no actionable content
+
 ## MANDATORY Rules
 - **NEVER ask for clarification or say information is missing** — work with what is available. If no input files are provided, instruct workers to generate or fetch the required data programmatically as the first step.
 - Give each worker a unique, descriptive worker_id (snake_case)
@@ -274,5 +369,6 @@ Respond with a JSON object containing ONE of these decisions:
 - Workers can read files via `code.execute` with `pd.read_csv(_workspace_dir + "/inputs/sales_data.csv")` or via `file.read` with path `inputs/sales_data.csv`
 - Be specific in instructions — workers only see what you provide
 - Tell workers to save output files to `_output_dir`
+- **Skills MUST follow the Skill Format above** — short tags or labels will be rejected
 - Respond ONLY with the JSON object, no other text
 {skills_section}{ext_tools_section}{_build_experiment_context_hint(has_experiment_context)}"""

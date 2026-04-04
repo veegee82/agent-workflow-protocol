@@ -423,6 +423,18 @@ export async function loadSettings(): Promise<Record<string, unknown> | null> {
   }
 }
 
+/** Refactor a task using the manager LLM. */
+export async function refactorTask(
+  task: string,
+  model: string,
+  apiKey?: string,
+): Promise<{ original_task: string; refactored_task: string }> {
+  return request('/api/refactor-task', {
+    method: 'POST',
+    body: JSON.stringify({ task, model, api_key: apiKey }),
+  });
+}
+
 /** Get server version from health endpoint. */
 export async function getVersion(): Promise<string> {
   try {

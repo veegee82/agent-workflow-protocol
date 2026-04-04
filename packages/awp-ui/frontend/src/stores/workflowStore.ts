@@ -217,6 +217,12 @@ export interface WorkflowStore {
   outputBlocks: OutputBlock[];
   addOutputBlock: (block: OutputBlock) => void;
 
+  // Run selection (for viewing past runs in Output/Results panels)
+  selectedRunId: string | null;
+  selectRun: (runId: string | null) => void;
+  selectedRunBlocks: OutputBlock[];
+  loadRunBlocks: (runId: string) => Promise<void>;
+
   // Budget
   budget: BudgetState;
   updateBudget: (budget: Partial<BudgetState>) => void;
@@ -270,6 +276,10 @@ export interface WorkflowStore {
   loadSecrets: () => Promise<void>;
   addSecret: (key: string, value: string) => Promise<void>;
   removeSecret: (key: string) => Promise<void>;
+
+  // Task refactoring
+  isRefactoring: boolean;
+  refactorTask: () => Promise<void>;
 
   // Persistent settings
   settingsLoaded: boolean;
@@ -998,6 +1008,132 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   addOutputBlock: (block) =>
     set((s) => ({ outputBlocks: [...s.outputBlocks, block] })),
 
+  // -- Run selection --------------------------------------------------------
+  selectedRunId: null,
+  selectRun: (runId) => set({ selectedRunId: runId, selectedRunBlocks: [] }),
+  selectedRunBlocks: [],
+  loadRunBlocks: async (runId: string) => {
+    try {
+      const run = await api.getRun(runId);
+      const events = run.events ?? [];
+      const blocks: OutputBlock[] = [];
+
+      blocks.push({
+        type: 'markdown',
+        content: `**Run started** — ${run.model}`,
+        title: 'Run',
+      });
+
+      for (const evt of events) {
+        const d = evt.data as Record<string, unknown>;
+        switch (evt.type) {
+          case 'iteration.start':
+            blocks.push({ type: 'markdown', content: `**Iteration ${d.iteration ?? '?'}**`, title: 'Iteration' });
+            break;
+          case 'iteration.decision': {
+            const decision = (d.decision as string) ?? '';
+            const reasoning = (d.reasoning as string) ?? '';
+            const conf = d.confidence;
+            blocks.push(reasoning
+              ? { type: 'markdown', content: `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`, title: `Iteration ${d.iteration ?? '?'}` }
+              : { type: 'json', content: JSON.stringify(d, null, 2), title: `Iteration ${d.iteration ?? '?'}` }
+            );
+            break;
+          }
+          case 'worker.spawn':
+            blocks.push({ type: 'markdown', content: `**Worker spawned:** \`${((d.worker_id as string) ?? '?').slice(0, 8)}\`\n\n${((d.instructions as string) ?? '').slice(0, 500)}`, title: 'Worker' });
+            break;
+          case 'worker.complete': {
+            const hasErr = Boolean(d.error || d.has_error);
+            blocks.push({
+              type: hasErr ? 'error' : 'json',
+              content: hasErr ? `Worker failed: ${d.error}` : JSON.stringify(d.result ?? d, null, 2),
+              title: `Worker ${((d.worker_id as string) ?? '?').slice(0, 8)}`,
+            });
+            break;
+          }
+          case 'tool.call': {
+            const toolName = (d.tool_name as string) ?? (d.tool as string) ?? 'Tool';
+            const toolArgs = d.arguments as Record<string, unknown> | undefined;
+            const toolOutput = (d.output as string) ?? '';
+            const toolError = (d.error as string) ?? '';
+
+            if (toolName === 'code.execute' && toolArgs?.code && typeof toolArgs.code === 'string') {
+              blocks.push({
+                type: 'code',
+                content: toolArgs.code as string,
+                language: 'python',
+                title: `Code Execution${d.ok === false ? ' (FAILED)' : ''}`,
+              });
+              if (toolOutput) {
+                blocks.push({ type: 'code', content: toolOutput, language: 'text', title: 'Output' });
+                // Detect image file paths in output
+                const imgPattern = /(\/tmp\/[^\s'"]+\.(?:png|jpg|jpeg|gif|svg))/gi;
+                const imgMatches = toolOutput.match(imgPattern);
+                if (imgMatches) {
+                  for (const imgPath of [...new Set(imgMatches)]) {
+                    blocks.push({
+                      type: 'image',
+                      content: `/api/files/serve?path=${encodeURIComponent(imgPath)}`,
+                      title: imgPath.split('/').pop() ?? 'Chart',
+                    });
+                  }
+                }
+              }
+              if (toolError) {
+                blocks.push({ type: 'error', content: toolError, title: 'Execution Error' });
+              }
+            } else if (toolName === 'file.write' && d.ok !== false) {
+              const writePath = (toolArgs?.path as string) ?? '';
+              if (/\.(png|jpg|jpeg|gif|svg)$/i.test(writePath)) {
+                blocks.push({
+                  type: 'image',
+                  content: `/api/files/serve?path=${encodeURIComponent(writePath)}`,
+                  title: writePath.split('/').pop() ?? 'Image',
+                });
+              }
+            }
+            break;
+          }
+          case 'delegation.start': {
+            const model = (d.model as string) ?? '?';
+            const depth = (d.depth as number) ?? 1;
+            blocks.push({ type: 'markdown', content: `**Sub-delegation** (depth ${depth}, model: ${model})`, title: 'Delegation' });
+            break;
+          }
+          case 'run.complete': {
+            const status = (d.status as string) ?? 'complete';
+            if (status === 'error' || status === 'failed') {
+              blocks.push({ type: 'error', content: (d.error as string) ?? 'Run failed', title: 'Run Error' });
+            }
+            break;
+          }
+          case 'error':
+            blocks.push({ type: 'error', content: (d.message as string) ?? (d.error as string) ?? 'Unknown error', title: 'Error' });
+            break;
+        }
+      }
+
+      // Add final result
+      if (run.result) {
+        const r = run.result as Record<string, unknown>;
+        const isErr = r.status === 'error' || r.status === 'failed';
+        if (isErr) {
+          const resultData = r.result as Record<string, unknown> | undefined;
+          blocks.push({ type: 'error', content: (resultData?.error as string) ?? JSON.stringify(r, null, 2), title: 'Error' });
+        } else {
+          for (const block of resultToOutputBlocks(r.result, 'Final Result')) {
+            blocks.push(block);
+          }
+        }
+      }
+
+      set({ selectedRunBlocks: blocks });
+    } catch {
+      set({ selectedRunBlocks: [] });
+    }
+  },
+
   // -- Budget ---------------------------------------------------------------
   budget: { ...DEFAULT_BUDGET },
   updateBudget: (partial) =>
@@ -1046,6 +1182,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       graphNodes: [],
       graphEdges: [],
       outputBlocks: [],
+      selectedRunId: null,
+      selectedRunBlocks: [],
       budget: {
         ...DEFAULT_BUDGET,
         loops_max: state.config.max_loops,
@@ -1879,6 +2017,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }
     } catch {
       set({ settingsLoaded: true });
+    }
+  },
+
+  // -- Task Refactoring -----------------------------------------------------
+  isRefactoring: false,
+  refactorTask: async () => {
+    const state = get();
+    const task = state.config.task?.trim();
+    if (!task || state.isRefactoring) return;
+    set({ isRefactoring: true });
+    try {
+      const result = await api.refactorTask(task, state.config.model, state.config.api_key);
+      set((s) => ({ config: { ...s.config, task: result.refactored_task } }));
+    } catch (err) {
+      const store = get() as ReturnType<typeof useWorkflowStore.getState>;
+      store.addOutputBlock({
+        type: 'error',
+        content: `Task refactoring failed: ${err instanceof Error ? err.message : String(err)}`,
+        title: 'Refactor Error',
+      });
+    } finally {
+      set({ isRefactoring: false });
     }
   },
 

@@ -8,10 +8,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .inputs import prepare_workspace
-from .prompts import build_manager_system_prompt
-from ..models.capabilities import SandboxConfig
-from ..models.orchestration import (
+from awp.data.inputs import prepare_workspace
+from awp.data.prompts import build_manager_system_prompt
+from awp.models.capabilities import SandboxConfig
+from awp.models.orchestration import (
     CodeModeEnforcement,
     DelegationBudget,
     DelegationLoggingConfig,
@@ -25,11 +25,11 @@ from ..models.orchestration import (
     WorkerPolicy,
     WorkerPolicyEnforced,
 )
-from ..runtime.delegation_loop_runner import DelegationLoopRunner
-from ..runtime.executor_factory import create_executor
-from ..runtime.external_tools import ExternalToolSpec, normalize_external_tools
-from ..runtime.skill_loader import SkillBundle, load_external_skills
-from ..runtime.tools import ToolRegistry
+from awp.runtime.delegation_loop_runner import DelegationLoopRunner
+from awp.runtime.executor_factory import create_executor
+from awp.runtime.external_tools import ExternalToolSpec, normalize_external_tools
+from awp.runtime.skill_loader import SkillBundle, load_external_skills
+from awp.runtime.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,19 @@ class AgentWorkflow:
         else:
             logging.basicConfig(level=logging.INFO)
 
-        # Set API key if provided
+        # Load secrets from ~/.awp/.env into os.environ so the LLM client
+        # can find API keys even when invoked via the programmatic API
+        # (the CLI sources this file, but AgentWorkflow() callers may not)
+        from awp.runtime.secrets import load_secrets
+        loaded = load_secrets(Path(self.output_dir) if self.output_dir else Path.cwd())
+        for key in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                     "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_PROVIDER",
+                     "GROQ_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY",
+                     "MISTRAL_API_KEY"):
+            if key in loaded and key not in os.environ:
+                os.environ[key] = loaded[key]
+
+        # Set API key if provided (explicit override takes priority)
         if self.api_key:
             os.environ["LLM_API_KEY"] = self.api_key
 
@@ -295,12 +307,24 @@ class AgentWorkflow:
         )
         tool_registry.set_code_executor(code_executor)
 
-        # 4b. Inject secrets
+        # 4b. Set up dynamic tool factory with persistence enabled
+        from awp.runtime.dynamic_tool_factory import DynamicToolFactory
+
+        dynamic_tool_factory = DynamicToolFactory(
+            registry=tool_registry,
+            code_executor=code_executor,
+            config={"enabled": self.tool_creation, "persist": True, "max_total": 50},
+            workflow_dir=workspace_dir,
+            sandbox_type=self.sandbox,
+        )
+        tool_registry.set_dynamic_tool_factory(dynamic_tool_factory)
+
+        # 4c. Inject secrets
         if self.secrets:
             tool_registry.inject_secrets(self.secrets)
             logger.info("Injected %d secrets into tool registry", len(self.secrets))
 
-        # 4c. Register external tools
+        # 4d. Register external tools
         for spec in ext_tool_specs:
             tool_registry._register(
                 spec.name,
@@ -328,11 +352,9 @@ class AgentWorkflow:
         if self.verbose:
             self._print_debug_report(workspace_dir, runner)
 
-        # 6. Collect artifacts (run_id-isolated output directory)
+        # 6. Collect artifacts (always run_id-isolated)
         output_dir = workspace_dir / "output" / run_id
-        if not output_dir.exists():
-            # Fallback to flat output/ for backwards compatibility
-            output_dir = workspace_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
         artifacts = self._collect_artifacts(output_dir)
 
         # 7. Build response
