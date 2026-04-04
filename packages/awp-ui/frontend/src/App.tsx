@@ -2204,16 +2204,17 @@ export function App() {
         {/* Main content + task input */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <main className="flex-1 min-h-0 overflow-hidden relative">
-            {/* Use CSS visibility instead of conditional rendering so that
-                stateful panels (GraphVisPanel, etc.) keep their internal
-                state (layout, zoom, filters) across tab switches. */}
-            <div className={`absolute inset-0 ${activePanel === 'protocol' ? '' : 'invisible pointer-events-none'}`}><ProtocolPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'output' ? '' : 'invisible pointer-events-none'}`}><OutputPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'results' ? '' : 'invisible pointer-events-none'}`}><ResultsPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'graph' ? '' : 'invisible pointer-events-none'}`}><GraphPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'graphvis' ? '' : 'invisible pointer-events-none'}`}><GraphVisPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'memory' ? '' : 'invisible pointer-events-none'}`}><MemoryPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'invisible pointer-events-none'}`}><HistoryPanel /></div>
+            {/* Use display:none (hidden) instead of visibility:hidden to
+                fully remove inactive panels from the rendering layer.
+                ReactFlow's canvas bleeds through with visibility:hidden.
+                Components stay mounted so React state is preserved. */}
+            <div className={`absolute inset-0 ${activePanel === 'protocol' ? '' : 'hidden'}`}><ProtocolPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'output' ? '' : 'hidden'}`}><OutputPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'results' ? '' : 'hidden'}`}><ResultsPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'graph' ? '' : 'hidden'}`}><GraphPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'graphvis' ? '' : 'hidden'}`}><GraphVisPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'memory' ? '' : 'hidden'}`}><MemoryPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'hidden'}`}><HistoryPanel /></div>
           </main>
           <TaskInputBar />
         </div>
