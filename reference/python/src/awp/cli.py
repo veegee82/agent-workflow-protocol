@@ -400,6 +400,44 @@ def _auto_update_awp() -> None:
         print(f"  Update check failed ({exc}), continuing with current version.")
 
 
+def _kill_port_processes(port: int) -> None:
+    """Kill any process listening on *port* (Linux/macOS)."""
+    import os as _os
+    import signal as _sig
+    import subprocess as _sp
+
+    try:
+        result = _sp.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+        )
+        pids = [p for p in result.stdout.strip().split() if p.isdigit()]
+        for pid in pids:
+            try:
+                _os.kill(int(pid), _sig.SIGTERM)
+            except ProcessLookupError:
+                pass
+        if pids:
+            import time as _t
+
+            _t.sleep(0.5)
+            for pid in pids:
+                try:
+                    _os.kill(int(pid), _sig.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+    except FileNotFoundError:
+        pass
+
+
+def _flush_awp_modules() -> None:
+    """Remove cached awp.* and server.* modules to guarantee fresh code on reload."""
+    stale = [name for name in sys.modules if name.startswith("awp") or name.startswith("server")]
+    for name in stale:
+        del sys.modules[name]
+
+
 def cmd_studio(args: argparse.Namespace) -> int:
     """Launch AWP Workflow Studio (browser-based UI)."""
     import socket
@@ -409,23 +447,54 @@ def cmd_studio(args: argparse.Namespace) -> int:
         print("  Checking for updates...")
         _auto_update_awp()
 
-    # --- Pre-flight: check server module is importable ---
+    # --- Pre-flight: add awp-ui/server to path if running from source ---
+    # When running `python -m awp studio` from a dev checkout, the awp-ui
+    # server package may not be on sys.path.  Try known locations.
+    _flush_awp_modules()  # clear stale modules before importing
     try:
         from server.app import create_app  # noqa: F401
     except ImportError:
-        print(
-            "Error: The AWP Studio server module could not be loaded.\n"
-            "\n"
-            "If you installed awp-core only, install the UI package:\n"
-            "\n"
-            "    pip install -e packages/awp-ui/\n"
-            "\n"
-            "Or install the all-in-one PyPI package:\n"
-            "\n"
-            "    pip install awp-agents\n",
-            file=sys.stderr,
-        )
-        return 1
+        # Try to locate packages/awp-ui relative to the awp package or CWD
+        _cli_file = Path(__file__).resolve()
+        _candidates = [
+            _cli_file.parent.parent.parent.parent / "awp-ui",       # packages/awp-core/src/awp → packages/awp-ui
+            Path.cwd() / "packages" / "awp-ui",                     # repo root
+            _cli_file.parent.parent.parent.parent.parent / "awp-ui",
+        ]
+        _found = False
+        for _c in _candidates:
+            if (_c / "server" / "app.py").exists():
+                if str(_c) not in sys.path:
+                    sys.path.insert(0, str(_c))
+                # Force Python to re-discover 'server' from the new path
+                # by clearing the namespace package from the module cache
+                for _k in [k for k in sys.modules if k == "server" or k.startswith("server.")]:
+                    del sys.modules[_k]
+                # Also invalidate the import finder caches
+                import importlib
+                importlib.invalidate_caches()
+                _found = True
+                break
+        if not _found:
+            print(
+                "Error: The AWP Studio server module could not be loaded.\n"
+                "\n"
+                "If you installed awp-core only, install the UI package:\n"
+                "\n"
+                "    pip install -e packages/awp-ui/\n"
+                "\n"
+                "Or install the all-in-one PyPI package:\n"
+                "\n"
+                "    pip install awp-agents\n",
+                file=sys.stderr,
+            )
+            return 1
+        # Re-try the import
+        try:
+            from server.app import create_app  # noqa: F401
+        except ImportError as exc:
+            print(f"Error: Could not import server.app: {exc}", file=sys.stderr)
+            return 1
 
     # --- Pre-flight: check uvicorn is available ---
     try:
@@ -455,18 +524,28 @@ def cmd_studio(args: argparse.Namespace) -> int:
     port = args.port
     url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
 
-    # --- Pre-flight: check port is available ---
+    # --- Pre-flight: kill existing server on this port ---
+    bind_addr = host if host != "0.0.0.0" else "127.0.0.1"
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        if sock.connect_ex((host if host != "0.0.0.0" else "127.0.0.1", port)) == 0:
-            print(
-                f"Error: Port {port} is already in use.\n"
-                f"\n"
-                f"Either stop the other process or use a different port:\n"
-                f"\n"
-                f"    awp studio --port {port + 1}\n",
-                file=sys.stderr,
-            )
-            return 1
+        if sock.connect_ex((bind_addr, port)) == 0:
+            print(f"  Port {port} in use — stopping existing server...")
+            _kill_port_processes(port)
+            import time as _t
+            for _ in range(10):
+                _t.sleep(0.3)
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s2:
+                    if s2.connect_ex((bind_addr, port)) != 0:
+                        break
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s3:
+                if s3.connect_ex((bind_addr, port)) == 0:
+                    print(
+                        f"Error: Could not free port {port}.\n"
+                        f"Stop the process manually or use:\n"
+                        f"    awp studio --port {port + 1}\n",
+                        file=sys.stderr,
+                    )
+                    return 1
+            print(f"  Port {port} freed.")
 
     # Resolve version dynamically
     try:
@@ -520,13 +599,40 @@ def cmd_studio(args: argparse.Namespace) -> int:
         t = threading.Thread(target=_open_browser, daemon=True)
         t.start()
 
+    # Flush cached modules so uvicorn loads the latest code
+    _flush_awp_modules()
+
+    # Build reload_dirs: watch awp-core/src, awp-runtime/src, and awp-ui/server.
+    # Discover via editable install locations and known relative paths.
+    reload_dirs: list[str] = []
+    _cli_path = Path(__file__).resolve()
+    # awp-core/src/awp/cli.py → packages/awp-core/src
+    _core_src = _cli_path.parent.parent
+    if (_core_src / "awp").is_dir():
+        reload_dirs.append(str(_core_src))
+    # packages/awp-runtime/src (sibling of awp-core)
+    _runtime_src = _core_src.parent.parent / "awp-runtime" / "src"
+    if (_runtime_src / "awp").is_dir():
+        reload_dirs.append(str(_runtime_src))
+    # server dir (already on sys.path from earlier)
+    try:
+        import server as _srv
+        _srv_file = getattr(_srv, "__file__", None)
+        if _srv_file:
+            _srv_dir = str(Path(_srv_file).resolve().parent)
+            if _srv_dir not in reload_dirs:
+                reload_dirs.append(_srv_dir)
+    except Exception:
+        pass
+
     try:
         uvicorn.run(
             "server.app:create_app",
             factory=True,
             host=host,
             port=port,
-            reload=args.dev,
+            reload=True,
+            reload_dirs=reload_dirs or None,
             log_level="info",
         )
     except KeyboardInterrupt:
