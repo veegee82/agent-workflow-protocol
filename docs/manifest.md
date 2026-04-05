@@ -218,7 +218,7 @@ workflow:
       default_provider: openrouter
       default_model: "anthropic/claude-sonnet-4"
       temperature: 0.0
-      max_tokens: 4096
+      max_tokens: 32768
     custom:
       output_format: markdown
       max_report_length: 5000

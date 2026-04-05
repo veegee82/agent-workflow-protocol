@@ -6,17 +6,28 @@ The AWP skill system enables AI assistants to generate complete AWP workflows fr
 
 The skill system has three components:
 
-```
-skill/SKILL.md                  <-- Base skill (protocol + generation rules)
-       |
-       +-- adapters/            <-- Platform layer (HOW agent.py is written)
-       |     standalone.md
-       |     clawhub.md
-       |
-       +-- extensions/           <-- Domain layer (WHAT gets generated)
-             financial.md
-             devops.md
-```
+<svg viewBox="0 0 520 170" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+  <defs><marker id="sk" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#666"/></marker></defs>
+  <!-- Base skill -->
+  <rect x="160" y="10" width="200" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="260" y="25" text-anchor="middle" font-weight="700" fill="#2a3f5f" font-size="13">skill/SKILL.md</text>
+  <text x="260" y="40" text-anchor="middle" fill="#5a7aa5" font-size="10">Base skill — protocol + generation rules</text>
+  <!-- Adapters -->
+  <rect x="20" y="85" width="200" height="70" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="120" y="103" text-anchor="middle" font-weight="600" fill="#2d5a2d">adapters/</text>
+  <text x="120" y="118" text-anchor="middle" fill="#5a8c5a" font-size="10">Platform layer</text>
+  <text x="120" y="133" text-anchor="middle" fill="#888" font-size="10">standalone.md, clawhub.md</text>
+  <text x="120" y="148" text-anchor="middle" fill="#aaa" font-size="10" font-style="italic">HOW agent.py is written</text>
+  <!-- Extensions -->
+  <rect x="280" y="85" width="220" height="70" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <text x="390" y="103" text-anchor="middle" font-weight="600" fill="#5a2d82">extensions/</text>
+  <text x="390" y="118" text-anchor="middle" fill="#7b4ea3" font-size="10">Domain layer</text>
+  <text x="390" y="133" text-anchor="middle" fill="#888" font-size="10">financial.md, devops.md</text>
+  <text x="390" y="148" text-anchor="middle" fill="#aaa" font-size="10" font-style="italic">WHAT gets generated</text>
+  <!-- Connections -->
+  <line x1="220" y1="48" x2="120" y2="83" stroke="#666" stroke-width="1.2" marker-end="url(#sk)"/>
+  <line x1="300" y1="48" x2="390" y2="83" stroke="#666" stroke-width="1.2" marker-end="url(#sk)"/>
+</svg>
 
 An AI assistant loads these files and uses them to generate a complete AWP workflow from a user's natural language description.
 
@@ -26,7 +37,7 @@ The base skill defines:
 
 - The AWP 7-layer model overview
 - [Autonomy levels](compliance.md) and when to use each
-- [Validation rules](validation.md) R1-R24 (the strict rules)
+- [Validation rules](validation.md) R1-R30 (the strict rules)
 - The generation process (5 phases)
 - References to templates for every file type
 
@@ -95,7 +106,7 @@ This applies equally to static project skills and dynamically generated delegati
 
 #### Phase 3: Validation
 
-After generating all files, the AI verifies compliance with rules R1-R24:
+After generating all files, the AI verifies compliance with rules R1-R30:
 
 - R1: `workflow.name` matches directory name.
 - R2: All agent IDs are snake_case.
@@ -218,7 +229,7 @@ tools:
 
 When an extension is loaded alongside the base skill:
 
-- **Rules are additive.** Extension rules (F1, D1, etc.) apply on top of R1-R24.
+- **Rules are additive.** Extension rules (F1, D1, etc.) apply on top of R1-R30.
 - **Defaults use last-wins.** The extension overrides base defaults.
 - **Required agents are merged.** Union of all required agents, no duplicates by ID.
 - **Constraints are additive.** Denied tools from extension are added to the deny list.
@@ -349,6 +360,6 @@ The `skill/references/` directory contains condensed documentation for AI contex
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification. |
 | `compliance-levels.md` | Quick reference for A0-A4 autonomy levels. |
-| `validation-rules.md` | R1-R24 checklist format. |
+| `validation-rules.md` | R1-R30 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |

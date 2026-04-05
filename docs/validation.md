@@ -1,4 +1,4 @@
-# Validation Rules R1-R24
+# Validation Rules R1-R30
 
 AWP runtimes must enforce these validation rules when loading a workflow. Each rule has a unique identifier, category, and description. Rules marked RECOMMENDED apply primarily to the Python reference implementation; other runtimes may adapt them.
 

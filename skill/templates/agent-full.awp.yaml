@@ -20,7 +20,7 @@ model:
   fallback: ""                                     # Set at runtime via LLM_MODEL env var or run wizard
   parameters:
     temperature: 0.2
-    max_tokens: 4096
+    max_tokens: 32768
     top_p: 1.0
   reasoning:
     enabled: true

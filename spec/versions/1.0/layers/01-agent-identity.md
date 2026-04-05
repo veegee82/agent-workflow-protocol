@@ -253,7 +253,7 @@ The AIC is informational and MUST NOT affect agent execution behavior.
 | `model.name` | string | REQUIRED | Provider-specific format |
 | `model.fallback` | list | OPTIONAL | — |
 | `model.parameters.temperature` | float | OPTIONAL | 0.0–2.0, default: 0.0 |
-| `model.parameters.max_tokens` | integer | OPTIONAL | Default: 4096 |
+| `model.parameters.max_tokens` | integer | OPTIONAL | Default: 32768 |
 | `model.parameters.top_p` | float | OPTIONAL | 0.0–1.0, default: 1.0 |
 | `model.reasoning.enabled` | boolean | OPTIONAL | Default: `false` |
 | `model.reasoning.effort` | string | OPTIONAL | `"low"`, `"medium"`, `"high"` |
@@ -301,7 +301,7 @@ model:
     - "qwen/qwen3-235b-a22b:free"
   parameters:
     temperature: 0.0
-    max_tokens: 4096
+    max_tokens: 32768
     top_p: 1.0
   reasoning:
     enabled: true

@@ -113,11 +113,30 @@ The runtime dynamically determines execution order based on state. The DAG serve
 
 The runtime sorts agents topologically into batches. Agents within the same batch have no mutual dependencies and may execute in parallel (in `parallel` or `conditional` mode).
 
-```
-Batch 0:  [research_analyst, data_collector]    -- no dependencies
-Batch 1:  [report_writer]                       -- depends on batch 0
-Batch 2:  [quality_reviewer]                    -- depends on batch 1
-```
+<svg viewBox="0 0 560 100" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="ba" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
+  <!-- Batch 0 -->
+  <rect x="5" y="5" width="185" height="85" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="97" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Batch 0 (parallel)</text>
+  <rect x="15" y="28" width="78" height="26" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1"/>
+  <text x="54" y="45" text-anchor="middle" fill="#2a3f5f" font-size="10">research_analyst</text>
+  <rect x="103" y="28" width="78" height="26" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1"/>
+  <text x="142" y="45" text-anchor="middle" fill="#2a3f5f" font-size="10">data_collector</text>
+  <text x="97" y="75" text-anchor="middle" fill="#aaa" font-size="9">no dependencies</text>
+  <!-- Batch 1 -->
+  <rect x="220" y="20" width="120" height="55" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="280" y="35" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Batch 1</text>
+  <rect x="235" y="43" width="90" height="26" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="280" y="60" text-anchor="middle" fill="#2d5a2d" font-size="10">report_writer</text>
+  <!-- Batch 2 -->
+  <rect x="375" y="20" width="140" height="55" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="445" y="35" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Batch 2</text>
+  <rect x="390" y="43" width="110" height="26" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1"/>
+  <text x="445" y="60" text-anchor="middle" fill="#856404" font-size="10">quality_reviewer</text>
+  <!-- Arrows -->
+  <line x1="192" y1="47" x2="218" y2="47" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ba)"/>
+  <line x1="342" y1="56" x2="373" y2="56" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ba)"/>
+</svg>
 
 ## Timeouts
 

@@ -534,7 +534,7 @@ class AgentWorkflow:
             "model": {
                 "name": self.model,
                 "temperature": 0.2,
-                "max_tokens": 4096,
+                "max_tokens": 32768,
             },
             "prompt": {
                 "system": "system_prompt.md",

@@ -370,4 +370,4 @@ The AI will:
 7. Enable memory for incident knowledge (cross-cutting feature)
 8. Place `infra.health_check` and `infra.run_command` tools in `mcp/`
 9. Place `incident_response` and `infrastructure_patterns` skills in `skills/`
-10. Validate against R1-R24 + D1-D7
+10. Validate against R1-R30 + D1-D7

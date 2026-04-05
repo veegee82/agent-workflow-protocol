@@ -19,7 +19,7 @@ AWP does not exist in a vacuum. It builds on lessons from existing protocols and
 | Runtime-Agnostic | Yes | Yes | Yes | Yes | No | No |
 | Declarative Config | Yes (YAML) | Yes (JSON) | Yes (JSON) | Yes (YAML/JSON) | Partial | Yes (YAML) |
 | Versioning | SemVer | No | No | Yes | No | No |
-| Validation Rules | 26 rules (R1-R26) | No | No | Yes | No | No |
+| Validation Rules | 30 rules (R1-R30) | No | No | Yes | No | No |
 | Sub-Workflows | Yes | No | No | No | Yes | No |
 
 ## Detailed Comparisons

@@ -4,46 +4,101 @@ AWP organizes workflow concerns into seven layers. Each layer answers one questi
 
 ## Layer Diagram
 
-```
-+---------------------------------------------+
-|  Layer 6: OBSERVABILITY                     |  How do I monitor this workflow?
-|  metrics, tracing, logging, audit           |
-+---------------------------------------------+
-|  Layer 5: ORCHESTRATION                     |  In what order and under what conditions?
-|  DAG, execution modes, control flow         |
-+---------------------------------------------+
-|  Layer 4: MEMORY & STATE                    |  What does the workflow remember?
-|  state model, memory tiers, sharing         |
-+---------------------------------------------+
-|  Layer 3: COMMUNICATION                     |  How do agents talk to each other?
-|  message bus, channels, envelopes           |
-+---------------------------------------------+
-|  Layer 2: CAPABILITIES                      |  What can an agent do?
-|  tools, skills, data sources, sandbox       |
-+---------------------------------------------+
-|  Layer 1: AGENT IDENTITY                    |  Who is this agent?
-|  identity, model, prompt, output            |
-+---------------------------------------------+
-|  Layer 0: MANIFEST                          |  What is this workflow?
-|  workflow metadata, dependencies, env       |
-+---------------------------------------------+
+<svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+  <defs>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+  <rect x="20" y="5" width="660" height="40" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="22" font-weight="700" fill="#2a3f5f" font-size="11">Layer 6</text>
+  <text x="100" y="22" font-weight="600" fill="#2a3f5f">OBSERVABILITY</text>
+  <text x="32" y="37" fill="#5a7aa5" font-size="11">metrics, tracing, logging, audit, evaluation</text>
+  <text x="670" y="30" text-anchor="end" fill="#888" font-size="11" font-style="italic">How do I monitor?</text>
 
-Cross-cutting: SECURITY (circuit breaker, rate limiting, access control, secrets, audit)
-```
+  <rect x="20" y="50" width="660" height="40" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="67" font-weight="700" fill="#2d5a2d" font-size="11">Layer 5</text>
+  <text x="100" y="67" font-weight="600" fill="#2d5a2d">ORCHESTRATION</text>
+  <text x="32" y="82" fill="#5a8c5a" font-size="11">DAG engine, delegation loop, critique, control flow</text>
+  <text x="670" y="75" text-anchor="end" fill="#888" font-size="11" font-style="italic">In what order?</text>
+
+  <rect x="20" y="95" width="660" height="40" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="112" font-weight="700" fill="#856404" font-size="11">Layer 4</text>
+  <text x="100" y="112" font-weight="600" fill="#856404">MEMORY &amp; STATE</text>
+  <text x="32" y="127" fill="#a88a04" font-size="11">state model, memory tiers, sharing</text>
+  <text x="670" y="120" text-anchor="end" fill="#888" font-size="11" font-style="italic">What does it remember?</text>
+
+  <rect x="20" y="140" width="660" height="40" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="157" font-weight="700" fill="#5a2d82" font-size="11">Layer 3</text>
+  <text x="100" y="157" font-weight="600" fill="#5a2d82">COMMUNICATION</text>
+  <text x="32" y="172" fill="#7b4ea3" font-size="11">message bus, channels, envelopes</text>
+  <text x="670" y="165" text-anchor="end" fill="#888" font-size="11" font-style="italic">How do agents talk?</text>
+
+  <rect x="20" y="185" width="660" height="40" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="202" font-weight="700" fill="#922b21" font-size="11">Layer 2</text>
+  <text x="100" y="202" font-weight="600" fill="#922b21">CAPABILITIES</text>
+  <text x="32" y="217" fill="#c0392b" font-size="11">tools, skills, data sources, sandbox</text>
+  <text x="670" y="210" text-anchor="end" fill="#888" font-size="11" font-style="italic">What can it do?</text>
+
+  <rect x="20" y="230" width="660" height="40" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="247" font-weight="700" fill="#1a6b3c" font-size="11">Layer 1</text>
+  <text x="100" y="247" font-weight="600" fill="#1a6b3c">AGENT IDENTITY</text>
+  <text x="32" y="262" fill="#27ae60" font-size="11">identity, model, prompt, output</text>
+  <text x="670" y="255" text-anchor="end" fill="#888" font-size="11" font-style="italic">Who is this agent?</text>
+
+  <rect x="20" y="275" width="660" height="40" rx="6" fill="#f0f0f0" stroke="#888" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="32" y="292" font-weight="700" fill="#333" font-size="11">Layer 0</text>
+  <text x="100" y="292" font-weight="600" fill="#333">MANIFEST</text>
+  <text x="32" y="307" fill="#666" font-size="11">workflow metadata, dependencies, env</text>
+  <text x="670" y="300" text-anchor="end" fill="#888" font-size="11" font-style="italic">What is this workflow?</text>
+
+  <rect x="20" y="322" width="660" height="16" rx="3" fill="#fff3e0" stroke="#e65100" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="350" y="334" text-anchor="middle" fill="#e65100" font-size="10" font-weight="600">SECURITY — cross-cutting: circuit breaker, rate limiting, access control, secrets, audit</text>
+</svg>
 
 ## Layer Dependency Diagram
 
 Layers form a dependency graph, not a strict stack. Each layer depends only on the layers it needs:
 
-```
-Layer 6 (Observability) ----depends----> Layer 5 (Orchestration)
-Layer 5 (Orchestration) ----depends----> Layer 1 (Agent Identity)
-Layer 4 (Memory & State) ---depends----> Layer 1 (Agent Identity)
-Layer 3 (Communication) ----depends----> Layer 1 (Agent Identity)
-Layer 2 (Capabilities) -----depends----> Layer 1 (Agent Identity)
-Layer 1 (Agent Identity) ---depends----> Layer 0 (Manifest)
-Security -------------------cross-cuts-> All Layers
-```
+<svg viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#666"/></marker>
+  </defs>
+  <!-- Nodes -->
+  <rect x="10" y="10" width="140" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="80" y="30" text-anchor="middle" fill="#2a3f5f" font-weight="600" font-size="11">L6 Observability</text>
+
+  <rect x="230" y="10" width="140" height="30" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="300" y="30" text-anchor="middle" fill="#2d5a2d" font-weight="600" font-size="11">L5 Orchestration</text>
+
+  <rect x="10" y="80" width="120" height="30" rx="5" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="70" y="100" text-anchor="middle" fill="#856404" font-weight="600" font-size="11">L4 Memory</text>
+
+  <rect x="150" y="80" width="120" height="30" rx="5" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <text x="210" y="100" text-anchor="middle" fill="#5a2d82" font-weight="600" font-size="11">L3 Communication</text>
+
+  <rect x="290" y="80" width="120" height="30" rx="5" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
+  <text x="350" y="100" text-anchor="middle" fill="#922b21" font-weight="600" font-size="11">L2 Capabilities</text>
+
+  <rect x="150" y="150" width="140" height="30" rx="5" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2"/>
+  <text x="220" y="170" text-anchor="middle" fill="#1a6b3c" font-weight="600" font-size="11">L1 Agent Identity</text>
+
+  <rect x="150" y="210" width="140" height="30" rx="5" fill="#f0f0f0" stroke="#888" stroke-width="1.2"/>
+  <text x="220" y="230" text-anchor="middle" fill="#333" font-weight="600" font-size="11">L0 Manifest</text>
+
+  <!-- Security -->
+  <rect x="440" y="70" width="140" height="30" rx="5" fill="#fff3e0" stroke="#e65100" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="510" y="90" text-anchor="middle" fill="#e65100" font-weight="600" font-size="11">Security</text>
+  <text x="510" y="118" text-anchor="middle" fill="#999" font-size="10" font-style="italic">cross-cuts all layers</text>
+
+  <!-- Edges -->
+  <line x1="150" y1="25" x2="228" y2="25" stroke="#666" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="300" y1="42" x2="230" y2="148" stroke="#666" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="70" y1="112" x2="185" y2="148" stroke="#666" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="210" y1="112" x2="215" y2="148" stroke="#666" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="350" y1="112" x2="255" y2="148" stroke="#666" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="220" y1="182" x2="220" y2="208" stroke="#666" stroke-width="1.2" marker-end="url(#arr)"/>
+</svg>
 
 Key observations:
 

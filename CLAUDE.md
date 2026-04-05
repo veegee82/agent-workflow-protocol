@@ -99,7 +99,7 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 | Changed defaults (token budget, timeouts, etc.) | SKILL.md reference values + templates |
 | New/removed tools (`code.execute`, etc.) | SKILL.md tool reference + templates + adapters |
 | Changed forbidden_tools or security policy | SKILL.md delegation loop section + templates |
-| New validation rules (R1-R26+) | SKILL.md Phase 4 checklist |
+| New validation rules (R1-R30+) | SKILL.md Phase 4 checklist |
 | Changed delegation loop behavior | SKILL.md delegation loop section + Step 7d |
 | New debug/observability features | SKILL.md relevant sections |
 

@@ -307,7 +307,7 @@ orchestration:
 
 ```bash
 awp studio                                     # Launch browser UI
-awp validate my-workflow/                      # Validate (R1-R26)
+awp validate my-workflow/                      # Validate (R1-R30)
 awp compliance my-workflow/ --level A2         # Check autonomy level
 awp visualize my-workflow/ --format mermaid    # Render DAG
 awp run my-workflow/ --task "..."              # Execute
@@ -358,7 +358,7 @@ AWP organizes agent configuration into 7 semantic layers:
 awp-agents
 ├── awp.models      — Pydantic models for all 7 layers
 ├── awp.parser      — YAML → typed Python objects
-├── awp.validator   — Rule engine (R1-R26)
+├── awp.validator   — Rule engine (R1-R30)
 ├── awp.runtime     — DAG engine + delegation loop + code executors
 ├── awp.data        — Programmatic API (AgentWorkflow, Source, ExternalTool)
 ├── awp.cli         — Command-line interface (incl. `awp studio`)

@@ -92,7 +92,7 @@ Agents operate under the principle of least privilege. Tools must be explicitly 
 | Memory | Custom per-project | 4-tier standard (long-term, daily, episodic, semantic) |
 | Communication | Not standardized | Message bus with typed channels |
 | Observability | Manual logging | OpenTelemetry-compatible tracing and metrics |
-| Validation | None (runtime errors) | 24 rules checked before execution (R1-R24) |
+| Validation | None (runtime errors) | 30 rules checked before execution (R1-R30) |
 | Portability | Zero | `.awp.zip` and ClawHub registry |
 
 ## Next Steps

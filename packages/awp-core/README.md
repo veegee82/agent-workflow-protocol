@@ -14,7 +14,7 @@ pip install awp-core
 
 - **Models** (`awp.models`) -- Pydantic models for all 7 AWP layers (manifest, identity, capabilities, communication, memory, orchestration, observability)
 - **Parser** (`awp.parser`) -- Parse `workflow.awp.yaml` and `agent.awp.yaml` into typed models
-- **Validator** (`awp.validator`) -- Rule engine (R1-R26) covering naming, graph structure, confidence, tool namespaces, budgets
+- **Validator** (`awp.validator`) -- Rule engine (R1-R30) covering naming, graph structure, confidence, tool namespaces, budgets
 - **Visualizer** (`awp.visualizer`) -- Render workflow DAGs as Mermaid diagrams
 - **Packager** (`awp.packager`) -- Pack/unpack workflows as `.awp.zip` archives
 - **CLI** -- `awp validate`, `awp compliance`, `awp visualize`, `awp pack`

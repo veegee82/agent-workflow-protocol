@@ -5,7 +5,7 @@ identity:
   role: Data Workflow Manager
   version: 1.0.0
 model:
-  max_tokens: 4096
+  max_tokens: 32768
   name: openrouter/google/gemini-2.5-flash
   temperature: 0.2
 output:

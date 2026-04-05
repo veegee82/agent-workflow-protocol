@@ -1,6 +1,6 @@
 # Evaluation Layer
 
-AWP's evaluation layer provides **quality scoring** for workflow results. While validation (R1-R26) checks whether a workflow is structurally correct and safe, evaluation measures **how well the workflow solved the problem**.
+AWP's evaluation layer provides **quality scoring** for workflow results. While validation (R1-R30) checks whether a workflow is structurally correct and safe, evaluation measures **how well the workflow solved the problem**.
 
 ## Evaluation vs Validation
 

@@ -53,7 +53,7 @@ The LLM doesn't just template-fill. It:
 2. **Asks** targeted questions (pre-filled with smart defaults you can accept or override)
 3. **Plans** the full architecture — agents, data flow, tools, budget — and presents it for approval
 4. **Generates** every file: YAML configs, Python agents, system prompts, output schemas, tool implementations
-5. **Validates** the result against rules R1-R26
+5. **Validates** the result against rules R1-R30
 
 The output is a directory you can `awp run` immediately.
 
@@ -139,7 +139,7 @@ Files are generated in dependency order: manifest → agent configs → implemen
 ### Phase 4: Validation
 
 ```bash
-awp validate ./competitor_analysis/    # R1-R26 pass
+awp validate ./competitor_analysis/    # R1-R30 pass
 awp compliance ./competitor_analysis/ --level A1  # Autonomy check
 ```
 
@@ -356,32 +356,37 @@ Understanding how data flows from `inputs={}` to worker code execution is critic
 
 ### The Path from Python to Worker
 
-```
-AgentWorkflow(inputs={"data": df})
-       │
-       ▼
-  prepare_workspace()
-       │  Serializes each input to workspace/inputs/
-       │  Returns manifest with relative paths
-       ▼
-  Manager Prompt
-       │  Shows: "data (dataframe) — file: inputs/data.csv"
-       │  Shows: DataFrame schema, columns, head
-       ▼
-  Manager LLM Decision
-       │  Creates delegation envelope with worker instructions
-       ▼
-  Worker System Prompt
-       │  Lists available input files:
-       │    - _workspace_dir + "/inputs/data.csv"
-       │  Injects _workspace_dir and _output_dir as Python variables
-       ▼
-  code.execute
-       │  import pandas as pd
-       │  df = pd.read_csv(_workspace_dir + "/inputs/data.csv")
-       │  # Process, analyze, save results
-       │  plt.savefig(_output_dir + "/chart.png")
-```
+<svg viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="gf" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
+  <rect x="110" y="5" width="300" height="28" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="260" y="24" text-anchor="middle" font-weight="600" fill="#5a2d82" font-size="12">AgentWorkflow(inputs={"data": df})</text>
+
+  <rect x="130" y="53" width="260" height="40" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="260" y="68" text-anchor="middle" font-weight="600" fill="#2a3f5f">prepare_workspace()</text>
+  <text x="260" y="84" text-anchor="middle" fill="#5a7aa5" font-size="10">Serialize inputs → workspace/inputs/</text>
+
+  <rect x="130" y="113" width="260" height="40" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="260" y="128" text-anchor="middle" font-weight="600" fill="#2a3f5f">Manager Prompt</text>
+  <text x="260" y="144" text-anchor="middle" fill="#5a7aa5" font-size="10">"data (dataframe) — inputs/data.csv" + schema</text>
+
+  <rect x="130" y="173" width="260" height="40" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="260" y="188" text-anchor="middle" font-weight="600" fill="#856404">Manager LLM Decision</text>
+  <text x="260" y="204" text-anchor="middle" fill="#a88a04" font-size="10">Creates delegation envelope</text>
+
+  <rect x="130" y="233" width="260" height="40" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="260" y="248" text-anchor="middle" font-weight="600" fill="#2d5a2d">Worker System Prompt</text>
+  <text x="260" y="264" text-anchor="middle" fill="#5a8c5a" font-size="10">_workspace_dir + _output_dir injected</text>
+
+  <rect x="130" y="293" width="260" height="40" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="260" y="308" text-anchor="middle" font-weight="700" fill="#1a6b3c">code.execute</text>
+  <text x="260" y="324" text-anchor="middle" fill="#27ae60" font-size="10">df = pd.read_csv(...) → plt.savefig(...)</text>
+
+  <line x1="260" y1="35" x2="260" y2="51" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
+  <line x1="260" y1="95" x2="260" y2="111" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
+  <line x1="260" y1="155" x2="260" y2="171" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
+  <line x1="260" y1="215" x2="260" y2="231" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
+  <line x1="260" y1="275" x2="260" y2="291" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
+</svg>
 
 ### Path Resolution
 
@@ -458,24 +463,26 @@ The manager LLM controls *what* workers do (instructions, skills, output contrac
 
 ### The Enforcement Flow
 
-```
-Manager LLM sends envelope:
-  { "codemode": {"enabled": false}, "tools_allowed": ["file.read"] }
-         │
-         ▼
-  Runtime policy check:
-    "codemode.enabled" in manager_controlled? YES
-      → Force codemode.enabled = true
-    "codemode.tool_creation" in manager_controlled? YES
-      → Force codemode.tool_creation = true
-    codemode.enabled=true but "code.execute" missing?
-      → Auto-inject "code.execute" into tools_allowed
-         │
-         ▼
-  Actual worker envelope:
-  { "codemode": {"enabled": true, "tool_creation": true},
-    "tools_allowed": ["file.read", "code.execute"] }
-```
+<svg viewBox="0 0 560 220" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="ef" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
+  <!-- Manager envelope -->
+  <rect x="60" y="5" width="440" height="45" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
+  <text x="280" y="22" text-anchor="middle" font-weight="600" fill="#922b21">Manager LLM sends envelope</text>
+  <text x="280" y="40" text-anchor="middle" fill="#c0392b" font-size="10" font-family="monospace">codemode.enabled: false, tools_allowed: [file.read]</text>
+  <!-- Policy check -->
+  <rect x="60" y="70" width="440" height="80" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="280" y="88" text-anchor="middle" font-weight="700" fill="#856404">Runtime Policy Check</text>
+  <text x="80" y="106" fill="#666" font-size="10">codemode.enabled in manager_controlled? → Force = true</text>
+  <text x="80" y="121" fill="#666" font-size="10">codemode.tool_creation in manager_controlled? → Force = true</text>
+  <text x="80" y="136" fill="#666" font-size="10">codemode.enabled=true but code.execute missing? → Auto-inject</text>
+  <!-- Actual envelope -->
+  <rect x="60" y="170" width="440" height="45" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="280" y="187" text-anchor="middle" font-weight="600" fill="#1a6b3c">Actual Worker Envelope</text>
+  <text x="280" y="205" text-anchor="middle" fill="#27ae60" font-size="10" font-family="monospace">codemode: {enabled: true, tool_creation: true}, tools: [file.read, code.execute]</text>
+  <!-- Arrows -->
+  <line x1="280" y1="52" x2="280" y2="68" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ef)"/>
+  <line x1="280" y1="152" x2="280" y2="168" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ef)"/>
+</svg>
 
 This enforcement happens transparently. The manager LLM is never informed that its choices were overridden — it simply sees the worker succeed where it would have failed without code execution.
 
@@ -532,7 +539,7 @@ Three properties of AWP enable LLM-driven generation:
 
 1. **Layered architecture** — The 7-layer model gives the LLM a structured decision space. It doesn't face a blank canvas; it fills in layers bottom-up, each constrained by the previous.
 
-2. **Validation rules** — R1-R26 are checkable constraints. The LLM can verify its own output against them during generation, catching errors before the user sees them.
+2. **Validation rules** — R1-R30 are checkable constraints. The LLM can verify its own output against them during generation, catching errors before the user sees them.
 
 3. **Separation of definition and execution** — The LLM generates YAML and Markdown, never runtime code beyond thin `StandaloneAgent` subclasses. The runtime engine handles execution. This keeps the generated surface area small and auditable.
 

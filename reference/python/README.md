@@ -19,7 +19,7 @@ pip install awp-protocol[data]
 ### CLI — Validate & Run Workflows
 
 ```bash
-# Validate a workflow (rules R1-R26)
+# Validate a workflow (rules R1-R30)
 awp validate path/to/workflow/
 
 # Check autonomy level (A0-A4)
@@ -109,7 +109,7 @@ result = AgentWorkflow(
 awp/
   models/     — Pydantic models for all 7 layers
   parser/     — YAML parser for workflow.awp.yaml and agent.awp.yaml
-  validator/  — Rule engine (R1-R26)
+  validator/  — Rule engine (R1-R30)
   runtime/    — Execution engines, agents, tools, LLM client
   data/       — Programmatic AgentWorkflow API (no YAML required)
   cli.py      — CLI entry point

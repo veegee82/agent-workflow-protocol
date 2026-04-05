@@ -179,7 +179,7 @@ model:
   name: "openrouter/anthropic/claude-sonnet-4"
   parameters:
     temperature: 0.2    # 0.0 = deterministic, 1.0 = creative
-    max_tokens: 4096
+    max_tokens: 32768
 ```
 
 **Defaults:** Manager = `0.2`, YAML agent definition = `0.0`, delegation workers = `0.2` (overridable by manager). Validation gates always use `0.1` for consistency.
@@ -1276,7 +1276,7 @@ agent-workflow-protocol/
     awp-ui/                     Workflow Studio: FastAPI backend + React frontend
   spec/versions/1.0/          Normative specification (RFC 2119)
   schemas/                    JSON Schemas
-  docs/                       Complete protocol reference (17 files)
+  docs/                       Complete protocol reference
   examples/                   15 workflows (A0-A4) + Jupyter
     workflows/
       01-hello-world/         A0: Minimal workflow

@@ -270,7 +270,7 @@ The AIC is an auto-generated summary derived from the `agent.awp.yaml` file. Run
 | `model.name` | string | Yes | Provider-specific format |
 | `model.fallback` | list | No | -- |
 | `model.parameters.temperature` | float | No | 0.0-2.0, default: 0.0 |
-| `model.parameters.max_tokens` | integer | No | Default: 4096 |
+| `model.parameters.max_tokens` | integer | No | Default: 32768 |
 | `model.parameters.top_p` | float | No | 0.0-1.0, default: 1.0 |
 | `model.reasoning.enabled` | boolean | No | Default: `false` |
 | `model.reasoning.effort` | string | No | `"low"`, `"medium"`, `"high"` |
@@ -316,7 +316,7 @@ model:
     - "qwen/qwen3-235b-a22b:free"
   parameters:
     temperature: 0.0
-    max_tokens: 4096
+    max_tokens: 32768
     top_p: 1.0
   reasoning:
     enabled: true
