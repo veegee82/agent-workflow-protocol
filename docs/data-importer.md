@@ -592,53 +592,54 @@ Resolvers are checked in registration order. The first resolver whose `can_handl
 
 ### Data Flow
 
-```
-AgentWorkflow(inputs={...}, secrets={...})
-       |
-       v
- +---------------------+
- | Input Classification |  Separate Source objects from raw values
- +---------------------+
-       |                \
-       v                 v
- +-----------+    +----------------+
- | Raw values|    | Source objects  |
- | (as before)|   |                |
- +-----------+    +----------------+
-       |                 |
-       v                 v
- +----------+    +------------------+
- | Serialize |   | InputResolver    |
- | to files  |   | (ThreadPool)     |
- +----------+    +------------------+
-       |                 |
-       |          +------+------+------+
-       |          |      |      |      |
-       |          v      v      v      v
-       |       Resolver Resolver ... Resolver
-       |          |      |      |      |
-       |          +------+------+------+
-       |                 |
-       |                 v
-       |          +-------------+
-       |          | Resolved    |
-       |          | data values |
-       |          +-------------+
-       |                 |
-       v                 v
- +----------------------------+
- | prepare_workspace()        |
- | Write all to workspace/    |
- | Build input_manifest.json  |
- +----------------------------+
-       |
-       v
- +----------------------------+
- | Manager agent receives     |
- | manifest with file paths   |
- | and metadata               |
- +----------------------------+
-```
+<svg viewBox="0 0 560 410" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="di" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
+  <!-- Input -->
+  <rect x="120" y="5" width="320" height="28" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="280" y="24" text-anchor="middle" font-weight="600" fill="#5a2d82">AgentWorkflow(inputs={...}, secrets={...})</text>
+  <!-- Classification -->
+  <rect x="160" y="50" width="240" height="34" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="280" y="65" text-anchor="middle" font-weight="600" fill="#2a3f5f">Input Classification</text>
+  <text x="280" y="78" text-anchor="middle" fill="#5a7aa5" font-size="10">Separate Sources from raw values</text>
+  <!-- Two branches -->
+  <rect x="50" y="110" width="160" height="34" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="130" y="125" text-anchor="middle" font-weight="600" fill="#2d5a2d">Raw values</text>
+  <text x="130" y="138" text-anchor="middle" fill="#5a8c5a" font-size="10">Serialize to files</text>
+  <rect x="310" y="110" width="200" height="34" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="410" y="125" text-anchor="middle" font-weight="600" fill="#856404">Source objects</text>
+  <text x="410" y="138" text-anchor="middle" fill="#a88a04" font-size="10">InputResolver (ThreadPool)</text>
+  <!-- Resolvers fan-out -->
+  <rect x="320" y="165" width="56" height="22" rx="3" fill="#fffbe6" stroke="#d4a017" stroke-width="0.8"/>
+  <text x="348" y="180" text-anchor="middle" fill="#856404" font-size="9">URL</text>
+  <rect x="384" y="165" width="56" height="22" rx="3" fill="#fffbe6" stroke="#d4a017" stroke-width="0.8"/>
+  <text x="412" y="180" text-anchor="middle" fill="#856404" font-size="9">SQL</text>
+  <rect x="448" y="165" width="56" height="22" rx="3" fill="#fffbe6" stroke="#d4a017" stroke-width="0.8"/>
+  <text x="476" y="180" text-anchor="middle" fill="#856404" font-size="9">S3</text>
+  <!-- Resolved -->
+  <rect x="310" y="210" width="200" height="28" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2"/>
+  <text x="410" y="229" text-anchor="middle" fill="#1a6b3c" font-size="11">Resolved data values</text>
+  <!-- Workspace -->
+  <rect x="100" y="270" width="360" height="50" rx="8" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="280" y="290" text-anchor="middle" font-weight="700" fill="#2a3f5f">prepare_workspace()</text>
+  <text x="280" y="306" text-anchor="middle" fill="#5a7aa5" font-size="10">Write all to workspace/ + build input_manifest.json</text>
+  <!-- Manager -->
+  <rect x="100" y="340" width="360" height="50" rx="8" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="280" y="360" text-anchor="middle" font-weight="700" fill="#1a6b3c">Manager agent receives</text>
+  <text x="280" y="376" text-anchor="middle" fill="#27ae60" font-size="10">manifest with file paths and metadata</text>
+  <!-- Arrows -->
+  <line x1="280" y1="35" x2="280" y2="48" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#di)"/>
+  <line x1="230" y1="86" x2="130" y2="108" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="330" y1="86" x2="410" y2="108" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="348" y1="146" x2="348" y2="163" stroke="#d4a017" stroke-width="1" marker-end="url(#di)"/>
+  <line x1="412" y1="146" x2="412" y2="163" stroke="#d4a017" stroke-width="1" marker-end="url(#di)"/>
+  <line x1="476" y1="146" x2="476" y2="163" stroke="#d4a017" stroke-width="1" marker-end="url(#di)"/>
+  <line x1="410" y1="189" x2="410" y2="208" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="130" y1="146" x2="130" y2="255" stroke="#4a6fa5" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <line x1="130" y1="255" x2="200" y2="268" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="410" y1="240" x2="410" y2="255" stroke="#4a6fa5" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <line x1="410" y1="255" x2="360" y2="268" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="280" y1="322" x2="280" y2="338" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#di)"/>
+</svg>
 
 ### Key Classes
 

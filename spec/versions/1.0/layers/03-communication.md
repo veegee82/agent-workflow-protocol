@@ -169,14 +169,19 @@ Every message on the bus MUST conform to the AWP Message Envelope format.
 
 Synchronous-style interaction between two agents.
 
-```
-Agent A                          Agent B
-   │                                │
-   │──── request (reply_to=A) ────▶│
-   │                                │
-   │◀─── response (corr_id=req) ───│
-   │                                │
-```
+<svg viewBox="0 0 420 120" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+  <defs><marker id="s1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4a6fa5"/></marker><marker id="s2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#27ae60"/></marker></defs>
+  <rect x="30" y="10" width="100" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="80" y="33" text-anchor="middle" font-weight="600" fill="#2a3f5f">Agent A</text>
+  <rect x="280" y="10" width="100" height="36" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
+  <text x="330" y="33" text-anchor="middle" font-weight="600" fill="#2d5a2d">Agent B</text>
+  <line x1="80" y1="48" x2="80" y2="110" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="330" y1="48" x2="330" y2="110" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="82" y1="65" x2="326" y2="65" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s1)"/>
+  <text x="205" y="60" text-anchor="middle" fill="#4a6fa5" font-size="11">request (reply_to=A)</text>
+  <line x1="328" y1="90" x2="84" y2="90" stroke="#27ae60" stroke-width="1.5" marker-end="url(#s2)"/>
+  <text x="205" y="85" text-anchor="middle" fill="#27ae60" font-size="11">response (corr_id=req)</text>
+</svg>
 
 - The requesting agent MUST set `type: "request"` and `reply_to`.
 - The responding agent MUST set `type: "response"` and `correlation_id` matching the request `id`.
@@ -186,12 +191,24 @@ Agent A                          Agent B
 
 One-to-many event distribution.
 
-```
-Agent A                   Channel "events"              Agent B, C, D
-   │                          │                             │
-   │──── event ─────────────▶ │ ─── deliver ──────────────▶ │
-   │                          │                             │
-```
+<svg viewBox="0 0 500 100" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+  <defs><marker id="s3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#7b4ea3"/></marker></defs>
+  <rect x="15" y="30" width="90" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="60" y="53" text-anchor="middle" font-weight="600" fill="#2a3f5f">Agent A</text>
+  <rect x="165" y="20" width="140" height="56" rx="8" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+  <text x="235" y="45" text-anchor="middle" font-weight="600" fill="#5a2d82">Channel</text>
+  <text x="235" y="62" text-anchor="middle" fill="#7b4ea3" font-size="11">"events"</text>
+  <rect x="365" y="12" width="110" height="20" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="420" y="26" text-anchor="middle" fill="#2d5a2d" font-size="11">Agent B</text>
+  <rect x="365" y="38" width="110" height="20" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="420" y="52" text-anchor="middle" fill="#2d5a2d" font-size="11">Agent C</text>
+  <rect x="365" y="64" width="110" height="20" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="420" y="78" text-anchor="middle" fill="#2d5a2d" font-size="11">Agent D</text>
+  <line x1="107" y1="48" x2="163" y2="48" stroke="#7b4ea3" stroke-width="1.5" marker-end="url(#s3)"/>
+  <line x1="307" y1="35" x2="363" y2="22" stroke="#7b4ea3" stroke-width="1.2" marker-end="url(#s3)"/>
+  <line x1="307" y1="48" x2="363" y2="48" stroke="#7b4ea3" stroke-width="1.2" marker-end="url(#s3)"/>
+  <line x1="307" y1="60" x2="363" y2="74" stroke="#7b4ea3" stroke-width="1.2" marker-end="url(#s3)"/>
+</svg>
 
 - The publisher sets `to` to the channel name.
 - All subscribers receive the message.
@@ -201,9 +218,20 @@ Agent A                   Channel "events"              Agent B, C, D
 
 Sequential message passing through a chain of agents.
 
-```
-Agent A ──▶ Agent B ──▶ Agent C ──▶ Agent D
-```
+<svg viewBox="0 0 500 50" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+  <defs><marker id="s4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4a6fa5"/></marker></defs>
+  <rect x="10" y="10" width="80" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="50" y="30" text-anchor="middle" font-weight="600" fill="#2a3f5f" font-size="11">Agent A</text>
+  <rect x="130" y="10" width="80" height="30" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="170" y="30" text-anchor="middle" font-weight="600" fill="#2d5a2d" font-size="11">Agent B</text>
+  <rect x="250" y="10" width="80" height="30" rx="5" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="290" y="30" text-anchor="middle" font-weight="600" fill="#856404" font-size="11">Agent C</text>
+  <rect x="370" y="10" width="80" height="30" rx="5" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <text x="410" y="30" text-anchor="middle" font-weight="600" fill="#5a2d82" font-size="11">Agent D</text>
+  <line x1="92" y1="25" x2="128" y2="25" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s4)"/>
+  <line x1="212" y1="25" x2="248" y2="25" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s4)"/>
+  <line x1="332" y1="25" x2="368" y2="25" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s4)"/>
+</svg>
 
 - Each agent in the pipeline receives output from the previous agent.
 - Messages flow through named channels or direct addressing.
@@ -213,11 +241,25 @@ Agent A ──▶ Agent B ──▶ Agent C ──▶ Agent D
 
 Fan-out a request to multiple agents, then aggregate responses.
 
-```
-                    ┌──▶ Agent B ──┐
-Agent A ────────────┼──▶ Agent C ──┼──▶ Agent A (aggregate)
-                    └──▶ Agent D ──┘
-```
+<svg viewBox="0 0 480 120" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="s5" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
+  <rect x="10" y="40" width="80" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="50" y="60" text-anchor="middle" font-weight="600" fill="#2a3f5f">Agent A</text>
+  <rect x="160" y="5" width="80" height="26" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="200" y="22" text-anchor="middle" fill="#2d5a2d">Agent B</text>
+  <rect x="160" y="42" width="80" height="26" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="200" y="59" text-anchor="middle" fill="#2d5a2d">Agent C</text>
+  <rect x="160" y="80" width="80" height="26" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="200" y="97" text-anchor="middle" fill="#2d5a2d">Agent D</text>
+  <rect x="320" y="40" width="130" height="30" rx="5" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="385" y="60" text-anchor="middle" font-weight="600" fill="#856404">A (aggregate)</text>
+  <line x1="92" y1="50" x2="158" y2="18" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#s5)"/>
+  <line x1="92" y1="55" x2="158" y2="55" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#s5)"/>
+  <line x1="92" y1="60" x2="158" y2="93" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#s5)"/>
+  <line x1="242" y1="18" x2="318" y2="50" stroke="#27ae60" stroke-width="1.2" marker-end="url(#s5)"/>
+  <line x1="242" y1="55" x2="318" y2="55" stroke="#27ae60" stroke-width="1.2" marker-end="url(#s5)"/>
+  <line x1="242" y1="93" x2="318" y2="60" stroke="#27ae60" stroke-width="1.2" marker-end="url(#s5)"/>
+</svg>
 
 - The coordinator sends requests to multiple agents using `type: "request"`.
 - Each target responds independently.

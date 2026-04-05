@@ -62,21 +62,36 @@ The observability layer defines metrics collection, distributed tracing (OpenTel
 
 The layers form a dependency graph, not a strict stack. Each layer declares what it needs from below:
 
-```
-Layer 6 (Observability) -- optional, can instrument any layer below
-  |
-Layer 5 (Orchestration) -- needs Layer 1 (agent IDs) + Layer 4 (state)
-  |
-Layer 4 (Memory & State) -- needs Layer 1 (agent IDs for output contracts)
-  |
-Layer 3 (Communication) -- needs Layer 1 (agent IDs as sender/receiver)
-  |
-Layer 2 (Capabilities) -- independent, extends Layer 1 agents with tools
-  |
-Layer 1 (Agent Identity) -- needs Layer 0 (workflow context)
-  |
-Layer 0 (Manifest) -- independent, root document
-```
+<svg viewBox="0 0 580 310" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="ld" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><path d="M0,0 L6,2 L0,4" fill="#888"/></marker></defs>
+  <rect x="10" y="5" width="560" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="20" y="24" font-weight="600" fill="#2a3f5f">L6 Observability</text>
+  <text x="560" y="24" text-anchor="end" fill="#888" font-size="10">optional, instruments any layer</text>
+  <rect x="10" y="45" width="560" height="30" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="20" y="64" font-weight="600" fill="#2d5a2d">L5 Orchestration</text>
+  <text x="560" y="64" text-anchor="end" fill="#888" font-size="10">needs L1 (agent IDs) + L4 (state)</text>
+  <rect x="10" y="85" width="560" height="30" rx="5" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="20" y="104" font-weight="600" fill="#856404">L4 Memory &amp; State</text>
+  <text x="560" y="104" text-anchor="end" fill="#888" font-size="10">needs L1 (output contracts)</text>
+  <rect x="10" y="125" width="560" height="30" rx="5" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <text x="20" y="144" font-weight="600" fill="#5a2d82">L3 Communication</text>
+  <text x="560" y="144" text-anchor="end" fill="#888" font-size="10">needs L1 (sender/receiver)</text>
+  <rect x="10" y="165" width="560" height="30" rx="5" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
+  <text x="20" y="184" font-weight="600" fill="#922b21">L2 Capabilities</text>
+  <text x="560" y="184" text-anchor="end" fill="#888" font-size="10">extends L1 with tools</text>
+  <rect x="10" y="205" width="560" height="30" rx="5" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2"/>
+  <text x="20" y="224" font-weight="600" fill="#1a6b3c">L1 Agent Identity</text>
+  <text x="560" y="224" text-anchor="end" fill="#888" font-size="10">needs L0 (workflow context)</text>
+  <rect x="10" y="245" width="560" height="30" rx="5" fill="#f0f0f0" stroke="#888" stroke-width="1.2"/>
+  <text x="20" y="264" font-weight="600" fill="#333">L0 Manifest</text>
+  <text x="560" y="264" text-anchor="end" fill="#888" font-size="10">independent, root document</text>
+  <line x1="290" y1="37" x2="290" y2="43" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+  <line x1="290" y1="77" x2="290" y2="83" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+  <line x1="290" y1="117" x2="290" y2="123" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+  <line x1="290" y1="157" x2="290" y2="163" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+  <line x1="290" y1="197" x2="290" y2="203" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+  <line x1="290" y1="237" x2="290" y2="243" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+</svg>
 
 Key observations:
 

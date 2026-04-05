@@ -51,11 +51,23 @@ orchestration:
 
 ### Execution Model
 
-```
-Level 0:  [planner]           # No dependencies → runs first
-Level 1:  [researcher]        # Depends on planner
-Level 2:  [writer]            # Depends on researcher
-```
+<svg viewBox="0 0 480 80" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <defs><marker id="oe" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
+  <rect x="5" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="60" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 0</text>
+  <rect x="15" y="30" width="90" height="26" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1"/>
+  <text x="60" y="47" text-anchor="middle" fill="#2a3f5f" font-size="10">planner</text>
+  <rect x="155" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="210" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 1</text>
+  <rect x="165" y="30" width="90" height="26" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="210" y="47" text-anchor="middle" fill="#2d5a2d" font-size="10">researcher</text>
+  <rect x="305" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="360" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 2</text>
+  <rect x="315" y="30" width="90" height="26" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1"/>
+  <text x="360" y="47" text-anchor="middle" fill="#856404" font-size="10">writer</text>
+  <line x1="117" y1="43" x2="153" y2="43" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#oe)"/>
+  <line x1="267" y1="43" x2="303" y2="43" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#oe)"/>
+</svg>
 
 Agents at the same level with no mutual dependencies run in parallel.
 
