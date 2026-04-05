@@ -63,8 +63,7 @@ The observability layer defines metrics collection, distributed tracing (OpenTel
 The layers form a dependency graph, not a strict stack. Each layer declares what it needs from below:
 
 <svg viewBox="0 0 580 310" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="ld" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><path d="M0,0 L6,2 L0,4" fill="#888"/></marker></defs>
-  <rect x="10" y="5" width="560" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+<rect x="10" y="5" width="560" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
   <text x="20" y="24" font-weight="600" fill="#2a3f5f">L6 Observability</text>
   <text x="560" y="24" text-anchor="end" fill="#888" font-size="10">optional, instruments any layer</text>
   <rect x="10" y="45" width="560" height="30" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
@@ -85,12 +84,18 @@ The layers form a dependency graph, not a strict stack. Each layer declares what
   <rect x="10" y="245" width="560" height="30" rx="5" fill="#f0f0f0" stroke="#888" stroke-width="1.2"/>
   <text x="20" y="264" font-weight="600" fill="#333">L0 Manifest</text>
   <text x="560" y="264" text-anchor="end" fill="#888" font-size="10">independent, root document</text>
-  <line x1="290" y1="37" x2="290" y2="43" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
-  <line x1="290" y1="77" x2="290" y2="83" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
-  <line x1="290" y1="117" x2="290" y2="123" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
-  <line x1="290" y1="157" x2="290" y2="163" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
-  <line x1="290" y1="197" x2="290" y2="203" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
-  <line x1="290" y1="237" x2="290" y2="243" stroke="#888" stroke-width="1" marker-end="url(#ld)"/>
+  <line x1="290" y1="37" x2="290.0" y2="41.0" stroke="#888" stroke-width="1"/>
+  <polygon points="290.0,43.0 287.0,37.0 293.0,37.0" fill="#888"/>
+  <line x1="290" y1="77" x2="290.0" y2="81.0" stroke="#888" stroke-width="1"/>
+  <polygon points="290.0,83.0 287.0,77.0 293.0,77.0" fill="#888"/>
+  <line x1="290" y1="117" x2="290.0" y2="121.0" stroke="#888" stroke-width="1"/>
+  <polygon points="290.0,123.0 287.0,117.0 293.0,117.0" fill="#888"/>
+  <line x1="290" y1="157" x2="290.0" y2="161.0" stroke="#888" stroke-width="1"/>
+  <polygon points="290.0,163.0 287.0,157.0 293.0,157.0" fill="#888"/>
+  <line x1="290" y1="197" x2="290.0" y2="201.0" stroke="#888" stroke-width="1"/>
+  <polygon points="290.0,203.0 287.0,197.0 293.0,197.0" fill="#888"/>
+  <line x1="290" y1="237" x2="290.0" y2="241.0" stroke="#888" stroke-width="1"/>
+  <polygon points="290.0,243.0 287.0,237.0 293.0,237.0" fill="#888"/>
 </svg>
 
 Key observations:

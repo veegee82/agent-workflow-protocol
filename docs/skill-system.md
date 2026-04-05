@@ -7,8 +7,7 @@ The AWP skill system enables AI assistants to generate complete AWP workflows fr
 The skill system has three components:
 
 <svg viewBox="0 0 520 170" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
-  <defs><marker id="sk" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#666"/></marker></defs>
-  <!-- Base skill -->
+<!-- Base skill -->
   <rect x="160" y="10" width="200" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
   <text x="260" y="25" text-anchor="middle" font-weight="700" fill="#2a3f5f" font-size="13">skill/SKILL.md</text>
   <text x="260" y="40" text-anchor="middle" fill="#5a7aa5" font-size="10">Base skill — protocol + generation rules</text>
@@ -25,8 +24,10 @@ The skill system has three components:
   <text x="390" y="133" text-anchor="middle" fill="#888" font-size="10">financial.md, devops.md</text>
   <text x="390" y="148" text-anchor="middle" fill="#aaa" font-size="10" font-style="italic">WHAT gets generated</text>
   <!-- Connections -->
-  <line x1="220" y1="48" x2="120" y2="83" stroke="#666" stroke-width="1.2" marker-end="url(#sk)"/>
-  <line x1="300" y1="48" x2="390" y2="83" stroke="#666" stroke-width="1.2" marker-end="url(#sk)"/>
+  <line x1="220" y1="48" x2="121.9" y2="82.3" stroke="#666" stroke-width="1.2"/>
+  <polygon points="120.0,83.0 124.7,78.2 126.7,83.8" fill="#666"/>
+  <line x1="300" y1="48" x2="388.1" y2="82.3" stroke="#666" stroke-width="1.2"/>
+  <polygon points="390.0,83.0 383.3,83.6 385.5,78.0" fill="#666"/>
 </svg>
 
 An AI assistant loads these files and uses them to generate a complete AWP workflow from a user's natural language description.

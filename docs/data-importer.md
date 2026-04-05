@@ -593,8 +593,7 @@ Resolvers are checked in registration order. The first resolver whose `can_handl
 ### Data Flow
 
 <svg viewBox="0 0 560 410" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="di" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
-  <!-- Input -->
+<!-- Input -->
   <rect x="120" y="5" width="320" height="28" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
   <text x="280" y="24" text-anchor="middle" font-weight="600" fill="#5a2d82">AgentWorkflow(inputs={...}, secrets={...})</text>
   <!-- Classification -->
@@ -627,18 +626,28 @@ Resolvers are checked in registration order. The first resolver whose `can_handl
   <text x="280" y="360" text-anchor="middle" font-weight="700" fill="#1a6b3c">Manager agent receives</text>
   <text x="280" y="376" text-anchor="middle" fill="#27ae60" font-size="10">manifest with file paths and metadata</text>
   <!-- Arrows -->
-  <line x1="280" y1="35" x2="280" y2="48" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#di)"/>
-  <line x1="230" y1="86" x2="130" y2="108" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
-  <line x1="330" y1="86" x2="410" y2="108" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
-  <line x1="348" y1="146" x2="348" y2="163" stroke="#d4a017" stroke-width="1" marker-end="url(#di)"/>
-  <line x1="412" y1="146" x2="412" y2="163" stroke="#d4a017" stroke-width="1" marker-end="url(#di)"/>
-  <line x1="476" y1="146" x2="476" y2="163" stroke="#d4a017" stroke-width="1" marker-end="url(#di)"/>
-  <line x1="410" y1="189" x2="410" y2="208" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="280" y1="35" x2="280.0" y2="46.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="280.0,48.0 277.0,42.0 283.0,42.0" fill="#4a6fa5"/>
+  <line x1="230" y1="86" x2="132.0" y2="107.6" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="130.0,108.0 135.2,103.8 136.5,109.6" fill="#4a6fa5"/>
+  <line x1="330" y1="86" x2="408.1" y2="107.5" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="410.0,108.0 403.4,109.3 405.0,103.5" fill="#4a6fa5"/>
+  <line x1="348" y1="146" x2="348.0" y2="161.0" stroke="#d4a017" stroke-width="1"/>
+  <polygon points="348.0,163.0 345.0,157.0 351.0,157.0" fill="#d4a017"/>
+  <line x1="412" y1="146" x2="412.0" y2="161.0" stroke="#d4a017" stroke-width="1"/>
+  <polygon points="412.0,163.0 409.0,157.0 415.0,157.0" fill="#d4a017"/>
+  <line x1="476" y1="146" x2="476.0" y2="161.0" stroke="#d4a017" stroke-width="1"/>
+  <polygon points="476.0,163.0 473.0,157.0 479.0,157.0" fill="#d4a017"/>
+  <line x1="410" y1="189" x2="410.0" y2="206.0" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="410.0,208.0 407.0,202.0 413.0,202.0" fill="#4a6fa5"/>
   <line x1="130" y1="146" x2="130" y2="255" stroke="#4a6fa5" stroke-width="1.2" stroke-dasharray="4,2"/>
-  <line x1="130" y1="255" x2="200" y2="268" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
+  <line x1="130" y1="255" x2="198.0" y2="267.6" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="200.0,268.0 193.6,269.9 194.6,264.0" fill="#4a6fa5"/>
   <line x1="410" y1="240" x2="410" y2="255" stroke="#4a6fa5" stroke-width="1.2" stroke-dasharray="4,2"/>
-  <line x1="410" y1="255" x2="360" y2="268" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#di)"/>
-  <line x1="280" y1="322" x2="280" y2="338" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#di)"/>
+  <line x1="410" y1="255" x2="361.9" y2="267.5" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="360.0,268.0 365.1,263.6 366.6,269.4" fill="#4a6fa5"/>
+  <line x1="280" y1="322" x2="280.0" y2="336.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="280.0,338.0 277.0,332.0 283.0,332.0" fill="#4a6fa5"/>
 </svg>
 
 ### Key Classes

@@ -58,12 +58,7 @@ When `enabled: false` (the default), critique is completely disabled and has zer
 ### Critique Flow
 
 <svg viewBox="0 0 620 520" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs>
-    <marker id="ca" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker>
-    <marker id="cg" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#27ae60"/></marker>
-    <marker id="cr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#c0392b"/></marker>
-  </defs>
-  <!-- Worker result -->
+<!-- Worker result -->
   <rect x="180" y="5" width="220" height="30" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
   <text x="290" y="25" text-anchor="middle" font-weight="600" fill="#2a3f5f">Worker produces result</text>
   <!-- Critic -->
@@ -100,17 +95,24 @@ When `enabled: false` (the default), critique is completely disabled and has zer
   <rect x="120" y="495" width="340" height="24" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
   <text x="290" y="512" text-anchor="middle" font-weight="600" fill="#1a6b3c">Next workers receive "Known Pitfalls"</text>
   <!-- Arrows -->
-  <line x1="290" y1="37" x2="290" y2="53" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#ca)"/>
-  <line x1="290" y1="97" x2="290" y2="113" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#ca)"/>
-  <line x1="290" y1="177" x2="290" y2="193" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#ca)"/>
-  <line x1="362" y1="220" x2="418" y2="220" stroke="#27ae60" stroke-width="1.3" marker-end="url(#cg)"/>
+  <line x1="290" y1="37" x2="290.0" y2="51.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="290.0,53.0 287.0,47.0 293.0,47.0" fill="#4a6fa5"/>
+  <line x1="290" y1="97" x2="290.0" y2="111.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="290.0,113.0 287.0,107.0 293.0,107.0" fill="#4a6fa5"/>
+  <line x1="290" y1="177" x2="290.0" y2="191.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="290.0,193.0 287.0,187.0 293.0,187.0" fill="#4a6fa5"/>
+  <line x1="362" y1="220" x2="416.0" y2="220.0" stroke="#27ae60" stroke-width="1.3"/>
+  <polygon points="418.0,220.0 412.0,223.0 412.0,217.0" fill="#27ae60"/>
   <text x="390" y="214" fill="#27ae60" font-size="10">No</text>
-  <line x1="290" y1="247" x2="290" y2="263" stroke="#c0392b" stroke-width="1.3" marker-end="url(#cr)"/>
+  <line x1="290" y1="247" x2="290.0" y2="261.0" stroke="#c0392b" stroke-width="1.3"/>
+  <polygon points="290.0,263.0 287.0,257.0 293.0,257.0" fill="#c0392b"/>
   <text x="305" y="258" fill="#c0392b" font-size="10">Yes</text>
-  <line x1="290" y1="427" x2="290" y2="443" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#ca)"/>
-  <line x1="290" y1="477" x2="290" y2="493" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#ca)"/>
+  <line x1="290" y1="427" x2="290.0" y2="441.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="290.0,443.0 287.0,437.0 293.0,437.0" fill="#4a6fa5"/>
+  <line x1="290" y1="477" x2="290.0" y2="491.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="290.0,493.0 287.0,487.0 293.0,487.0" fill="#4a6fa5"/>
   <!-- Accept also goes to pattern memory -->
-  <path d="M510,237 Q510,460 432,460" fill="none" stroke="#27ae60" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#cg)"/>
+  <path d="M510,237 Q510,460 432,460" fill="none" stroke="#27ae60" stroke-width="1" stroke-dasharray="4,2"/>
 </svg>
 
 ### Defect Categories

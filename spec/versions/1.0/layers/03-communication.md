@@ -170,16 +170,17 @@ Every message on the bus MUST conform to the AWP Message Envelope format.
 Synchronous-style interaction between two agents.
 
 <svg viewBox="0 0 420 120" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
-  <defs><marker id="s1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4a6fa5"/></marker><marker id="s2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#27ae60"/></marker></defs>
-  <rect x="30" y="10" width="100" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+<rect x="30" y="10" width="100" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
   <text x="80" y="33" text-anchor="middle" font-weight="600" fill="#2a3f5f">Agent A</text>
   <rect x="280" y="10" width="100" height="36" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
   <text x="330" y="33" text-anchor="middle" font-weight="600" fill="#2d5a2d">Agent B</text>
   <line x1="80" y1="48" x2="80" y2="110" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
   <line x1="330" y1="48" x2="330" y2="110" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
-  <line x1="82" y1="65" x2="326" y2="65" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s1)"/>
+  <line x1="82" y1="65" x2="324.0" y2="65.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="326.0,65.0 320.0,68.0 320.0,62.0" fill="#4a6fa5"/>
   <text x="205" y="60" text-anchor="middle" fill="#4a6fa5" font-size="11">request (reply_to=A)</text>
-  <line x1="328" y1="90" x2="84" y2="90" stroke="#27ae60" stroke-width="1.5" marker-end="url(#s2)"/>
+  <line x1="328" y1="90" x2="86.0" y2="90.0" stroke="#27ae60" stroke-width="1.5"/>
+  <polygon points="84.0,90.0 90.0,87.0 90.0,93.0" fill="#27ae60"/>
   <text x="205" y="85" text-anchor="middle" fill="#27ae60" font-size="11">response (corr_id=req)</text>
 </svg>
 
@@ -192,8 +193,7 @@ Synchronous-style interaction between two agents.
 One-to-many event distribution.
 
 <svg viewBox="0 0 500 100" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
-  <defs><marker id="s3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#7b4ea3"/></marker></defs>
-  <rect x="15" y="30" width="90" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
+<rect x="15" y="30" width="90" height="36" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
   <text x="60" y="53" text-anchor="middle" font-weight="600" fill="#2a3f5f">Agent A</text>
   <rect x="165" y="20" width="140" height="56" rx="8" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
   <text x="235" y="45" text-anchor="middle" font-weight="600" fill="#5a2d82">Channel</text>
@@ -204,10 +204,14 @@ One-to-many event distribution.
   <text x="420" y="52" text-anchor="middle" fill="#2d5a2d" font-size="11">Agent C</text>
   <rect x="365" y="64" width="110" height="20" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
   <text x="420" y="78" text-anchor="middle" fill="#2d5a2d" font-size="11">Agent D</text>
-  <line x1="107" y1="48" x2="163" y2="48" stroke="#7b4ea3" stroke-width="1.5" marker-end="url(#s3)"/>
-  <line x1="307" y1="35" x2="363" y2="22" stroke="#7b4ea3" stroke-width="1.2" marker-end="url(#s3)"/>
-  <line x1="307" y1="48" x2="363" y2="48" stroke="#7b4ea3" stroke-width="1.2" marker-end="url(#s3)"/>
-  <line x1="307" y1="60" x2="363" y2="74" stroke="#7b4ea3" stroke-width="1.2" marker-end="url(#s3)"/>
+  <line x1="107" y1="48" x2="161.0" y2="48.0" stroke="#7b4ea3" stroke-width="1.5"/>
+  <polygon points="163.0,48.0 157.0,51.0 157.0,45.0" fill="#7b4ea3"/>
+  <line x1="307" y1="35" x2="361.1" y2="22.5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <polygon points="363.0,22.0 357.8,26.3 356.5,20.4" fill="#7b4ea3"/>
+  <line x1="307" y1="48" x2="361.0" y2="48.0" stroke="#7b4ea3" stroke-width="1.2"/>
+  <polygon points="363.0,48.0 357.0,51.0 357.0,45.0" fill="#7b4ea3"/>
+  <line x1="307" y1="60" x2="361.1" y2="73.5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <polygon points="363.0,74.0 356.5,75.5 357.9,69.6" fill="#7b4ea3"/>
 </svg>
 
 - The publisher sets `to` to the channel name.
@@ -219,8 +223,7 @@ One-to-many event distribution.
 Sequential message passing through a chain of agents.
 
 <svg viewBox="0 0 500 50" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
-  <defs><marker id="s4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4a6fa5"/></marker></defs>
-  <rect x="10" y="10" width="80" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+<rect x="10" y="10" width="80" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
   <text x="50" y="30" text-anchor="middle" font-weight="600" fill="#2a3f5f" font-size="11">Agent A</text>
   <rect x="130" y="10" width="80" height="30" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
   <text x="170" y="30" text-anchor="middle" font-weight="600" fill="#2d5a2d" font-size="11">Agent B</text>
@@ -228,9 +231,12 @@ Sequential message passing through a chain of agents.
   <text x="290" y="30" text-anchor="middle" font-weight="600" fill="#856404" font-size="11">Agent C</text>
   <rect x="370" y="10" width="80" height="30" rx="5" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
   <text x="410" y="30" text-anchor="middle" font-weight="600" fill="#5a2d82" font-size="11">Agent D</text>
-  <line x1="92" y1="25" x2="128" y2="25" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s4)"/>
-  <line x1="212" y1="25" x2="248" y2="25" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s4)"/>
-  <line x1="332" y1="25" x2="368" y2="25" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#s4)"/>
+  <line x1="92" y1="25" x2="126.0" y2="25.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="128.0,25.0 122.0,28.0 122.0,22.0" fill="#4a6fa5"/>
+  <line x1="212" y1="25" x2="246.0" y2="25.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="248.0,25.0 242.0,28.0 242.0,22.0" fill="#4a6fa5"/>
+  <line x1="332" y1="25" x2="366.0" y2="25.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="368.0,25.0 362.0,28.0 362.0,22.0" fill="#4a6fa5"/>
 </svg>
 
 - Each agent in the pipeline receives output from the previous agent.
@@ -242,8 +248,7 @@ Sequential message passing through a chain of agents.
 Fan-out a request to multiple agents, then aggregate responses.
 
 <svg viewBox="0 0 480 120" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="s5" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
-  <rect x="10" y="40" width="80" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+<rect x="10" y="40" width="80" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
   <text x="50" y="60" text-anchor="middle" font-weight="600" fill="#2a3f5f">Agent A</text>
   <rect x="160" y="5" width="80" height="26" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
   <text x="200" y="22" text-anchor="middle" fill="#2d5a2d">Agent B</text>
@@ -253,12 +258,18 @@ Fan-out a request to multiple agents, then aggregate responses.
   <text x="200" y="97" text-anchor="middle" fill="#2d5a2d">Agent D</text>
   <rect x="320" y="40" width="130" height="30" rx="5" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
   <text x="385" y="60" text-anchor="middle" font-weight="600" fill="#856404">A (aggregate)</text>
-  <line x1="92" y1="50" x2="158" y2="18" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#s5)"/>
-  <line x1="92" y1="55" x2="158" y2="55" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#s5)"/>
-  <line x1="92" y1="60" x2="158" y2="93" stroke="#4a6fa5" stroke-width="1.2" marker-end="url(#s5)"/>
-  <line x1="242" y1="18" x2="318" y2="50" stroke="#27ae60" stroke-width="1.2" marker-end="url(#s5)"/>
-  <line x1="242" y1="55" x2="318" y2="55" stroke="#27ae60" stroke-width="1.2" marker-end="url(#s5)"/>
-  <line x1="242" y1="93" x2="318" y2="60" stroke="#27ae60" stroke-width="1.2" marker-end="url(#s5)"/>
+  <line x1="92" y1="50" x2="156.2" y2="18.9" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="158.0,18.0 153.9,23.3 151.3,17.9" fill="#4a6fa5"/>
+  <line x1="92" y1="55" x2="156.0" y2="55.0" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="158.0,55.0 152.0,58.0 152.0,52.0" fill="#4a6fa5"/>
+  <line x1="92" y1="60" x2="156.2" y2="92.1" stroke="#4a6fa5" stroke-width="1.2"/>
+  <polygon points="158.0,93.0 151.3,93.0 154.0,87.6" fill="#4a6fa5"/>
+  <line x1="242" y1="18" x2="316.2" y2="49.2" stroke="#27ae60" stroke-width="1.2"/>
+  <polygon points="318.0,50.0 311.3,50.4 313.6,44.9" fill="#27ae60"/>
+  <line x1="242" y1="55" x2="316.0" y2="55.0" stroke="#27ae60" stroke-width="1.2"/>
+  <polygon points="318.0,55.0 312.0,58.0 312.0,52.0" fill="#27ae60"/>
+  <line x1="242" y1="93" x2="316.2" y2="60.8" stroke="#27ae60" stroke-width="1.2"/>
+  <polygon points="318.0,60.0 313.7,65.1 311.3,59.6" fill="#27ae60"/>
 </svg>
 
 - The coordinator sends requests to multiple agents using `type: "request"`.

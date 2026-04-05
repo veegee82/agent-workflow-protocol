@@ -51,13 +51,7 @@ awp: "1.0.0"
 AWP is organized into seven layers, each addressing a distinct concern. Layers are additive: higher layers depend on lower layers but not vice versa.
 
 <svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="14">
-  <defs>
-    <linearGradient id="layerGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#e8edf5"/>
-      <stop offset="100%" stop-color="#f5f7fc"/>
-    </linearGradient>
-  </defs>
-  <!-- Layer 6 -->
+<!-- Layer 6 -->
   <rect x="20" y="10" width="660" height="38" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
   <text x="30" y="34" font-weight="bold" fill="#2a3f5f">Layer 6: Observability</text>
   <text x="680" y="34" text-anchor="end" fill="#666">metrics, tracing, logging, audit</text>
@@ -93,15 +87,7 @@ AWP is organized into seven layers, each addressing a distinct concern. Layers a
 ### Dependency Diagram
 
 <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
-  <defs>
-    <marker id="depArrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#4a6fa5"/>
-    </marker>
-    <marker id="secArrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b"/>
-    </marker>
-  </defs>
-  <!-- Nodes -->
+<!-- Nodes -->
   <rect x="180" y="5" width="180" height="28" rx="14" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
   <text x="270" y="24" text-anchor="middle" fill="#2a3f5f" font-weight="bold">Layer 6: Observability</text>
   <rect x="180" y="50" width="180" height="28" rx="14" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.5"/>
@@ -117,12 +103,18 @@ AWP is organized into seven layers, each addressing a distinct concern. Layers a
   <rect x="180" y="215" width="180" height="28" rx="14" fill="#f0f0f0" stroke="#888" stroke-width="1.5"/>
   <text x="270" y="234" text-anchor="middle" fill="#333" font-weight="bold">Layer 0: Manifest</text>
   <!-- Dependency arrows -->
-  <line x1="270" y1="33" x2="270" y2="50" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
-  <line x1="270" y1="78" x2="270" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
-  <line x1="95" y1="138" x2="220" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
-  <line x1="275" y1="138" x2="270" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
-  <line x1="455" y1="138" x2="320" y2="165" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
-  <line x1="270" y1="193" x2="270" y2="215" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#depArrow)"/>
+  <line x1="270" y1="33" x2="270.0" y2="48.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="270.0,50.0 267.0,44.0 273.0,44.0" fill="#4a6fa5"/>
+  <line x1="270" y1="78" x2="270.0" y2="163.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="270.0,165.0 267.0,159.0 273.0,159.0" fill="#4a6fa5"/>
+  <line x1="95" y1="138" x2="218.0" y2="164.6" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="220.0,165.0 213.5,166.7 214.8,160.8" fill="#4a6fa5"/>
+  <line x1="275" y1="138" x2="270.4" y2="163.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="270.0,165.0 268.1,158.6 274.0,159.6" fill="#4a6fa5"/>
+  <line x1="455" y1="138" x2="322.0" y2="164.6" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="320.0,165.0 325.3,160.9 326.5,166.8" fill="#4a6fa5"/>
+  <line x1="270" y1="193" x2="270.0" y2="213.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="270.0,215.0 267.0,209.0 273.0,209.0" fill="#4a6fa5"/>
   <!-- Security cross-cut -->
   <rect x="170" y="258" width="200" height="22" rx="11" fill="#c0392b" stroke="none"/>
   <text x="270" y="274" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">Security — cross-cuts all layers</text>

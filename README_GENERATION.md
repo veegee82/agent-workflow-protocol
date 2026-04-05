@@ -357,8 +357,7 @@ Understanding how data flows from `inputs={}` to worker code execution is critic
 ### The Path from Python to Worker
 
 <svg viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="gf" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
-  <rect x="110" y="5" width="300" height="28" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
+<rect x="110" y="5" width="300" height="28" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
   <text x="260" y="24" text-anchor="middle" font-weight="600" fill="#5a2d82" font-size="12">AgentWorkflow(inputs={"data": df})</text>
 
   <rect x="130" y="53" width="260" height="40" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
@@ -381,11 +380,16 @@ Understanding how data flows from `inputs={}` to worker code execution is critic
   <text x="260" y="308" text-anchor="middle" font-weight="700" fill="#1a6b3c">code.execute</text>
   <text x="260" y="324" text-anchor="middle" fill="#27ae60" font-size="10">df = pd.read_csv(...) → plt.savefig(...)</text>
 
-  <line x1="260" y1="35" x2="260" y2="51" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
-  <line x1="260" y1="95" x2="260" y2="111" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
-  <line x1="260" y1="155" x2="260" y2="171" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
-  <line x1="260" y1="215" x2="260" y2="231" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
-  <line x1="260" y1="275" x2="260" y2="291" stroke="#4a6fa5" stroke-width="1.3" marker-end="url(#gf)"/>
+  <line x1="260" y1="35" x2="260.0" y2="49.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="260.0,51.0 257.0,45.0 263.0,45.0" fill="#4a6fa5"/>
+  <line x1="260" y1="95" x2="260.0" y2="109.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="260.0,111.0 257.0,105.0 263.0,105.0" fill="#4a6fa5"/>
+  <line x1="260" y1="155" x2="260.0" y2="169.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="260.0,171.0 257.0,165.0 263.0,165.0" fill="#4a6fa5"/>
+  <line x1="260" y1="215" x2="260.0" y2="229.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="260.0,231.0 257.0,225.0 263.0,225.0" fill="#4a6fa5"/>
+  <line x1="260" y1="275" x2="260.0" y2="289.0" stroke="#4a6fa5" stroke-width="1.3"/>
+  <polygon points="260.0,291.0 257.0,285.0 263.0,285.0" fill="#4a6fa5"/>
 </svg>
 
 ### Path Resolution
@@ -464,8 +468,7 @@ The manager LLM controls *what* workers do (instructions, skills, output contrac
 ### The Enforcement Flow
 
 <svg viewBox="0 0 560 220" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="ef" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
-  <!-- Manager envelope -->
+<!-- Manager envelope -->
   <rect x="60" y="5" width="440" height="45" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
   <text x="280" y="22" text-anchor="middle" font-weight="600" fill="#922b21">Manager LLM sends envelope</text>
   <text x="280" y="40" text-anchor="middle" fill="#c0392b" font-size="10" font-family="monospace">codemode.enabled: false, tools_allowed: [file.read]</text>
@@ -480,8 +483,10 @@ The manager LLM controls *what* workers do (instructions, skills, output contrac
   <text x="280" y="187" text-anchor="middle" font-weight="600" fill="#1a6b3c">Actual Worker Envelope</text>
   <text x="280" y="205" text-anchor="middle" fill="#27ae60" font-size="10" font-family="monospace">codemode: {enabled: true, tool_creation: true}, tools: [file.read, code.execute]</text>
   <!-- Arrows -->
-  <line x1="280" y1="52" x2="280" y2="68" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ef)"/>
-  <line x1="280" y1="152" x2="280" y2="168" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ef)"/>
+  <line x1="280" y1="52" x2="280.0" y2="66.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="280.0,68.0 277.0,62.0 283.0,62.0" fill="#4a6fa5"/>
+  <line x1="280" y1="152" x2="280.0" y2="166.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="280.0,168.0 277.0,162.0 283.0,162.0" fill="#4a6fa5"/>
 </svg>
 
 This enforcement happens transparently. The manager LLM is never informed that its choices were overridden — it simply sees the worker succeed where it would have failed without code execution.

@@ -114,8 +114,7 @@ The runtime dynamically determines execution order based on state. The DAG serve
 The runtime sorts agents topologically into batches. Agents within the same batch have no mutual dependencies and may execute in parallel (in `parallel` or `conditional` mode).
 
 <svg viewBox="0 0 560 100" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="ba" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
-  <!-- Batch 0 -->
+<!-- Batch 0 -->
   <rect x="5" y="5" width="185" height="85" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
   <text x="97" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Batch 0 (parallel)</text>
   <rect x="15" y="28" width="78" height="26" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1"/>
@@ -134,8 +133,10 @@ The runtime sorts agents topologically into batches. Agents within the same batc
   <rect x="390" y="43" width="110" height="26" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1"/>
   <text x="445" y="60" text-anchor="middle" fill="#856404" font-size="10">quality_reviewer</text>
   <!-- Arrows -->
-  <line x1="192" y1="47" x2="218" y2="47" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ba)"/>
-  <line x1="342" y1="56" x2="373" y2="56" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#ba)"/>
+  <line x1="192" y1="47" x2="216.0" y2="47.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="218.0,47.0 212.0,50.0 212.0,44.0" fill="#4a6fa5"/>
+  <line x1="342" y1="56" x2="371.0" y2="56.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="373.0,56.0 367.0,59.0 367.0,53.0" fill="#4a6fa5"/>
 </svg>
 
 ## Timeouts

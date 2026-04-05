@@ -52,8 +52,7 @@ orchestration:
 ### Execution Model
 
 <svg viewBox="0 0 480 80" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-  <defs><marker id="oe" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#4a6fa5"/></marker></defs>
-  <rect x="5" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
+<rect x="5" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
   <text x="60" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 0</text>
   <rect x="15" y="30" width="90" height="26" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1"/>
   <text x="60" y="47" text-anchor="middle" fill="#2a3f5f" font-size="10">planner</text>
@@ -65,8 +64,10 @@ orchestration:
   <text x="360" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 2</text>
   <rect x="315" y="30" width="90" height="26" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1"/>
   <text x="360" y="47" text-anchor="middle" fill="#856404" font-size="10">writer</text>
-  <line x1="117" y1="43" x2="153" y2="43" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#oe)"/>
-  <line x1="267" y1="43" x2="303" y2="43" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#oe)"/>
+  <line x1="117" y1="43" x2="151.0" y2="43.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="153.0,43.0 147.0,46.0 147.0,40.0" fill="#4a6fa5"/>
+  <line x1="267" y1="43" x2="301.0" y2="43.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="303.0,43.0 297.0,46.0 297.0,40.0" fill="#4a6fa5"/>
 </svg>
 
 Agents at the same level with no mutual dependencies run in parallel.
@@ -149,14 +150,18 @@ allowed tools, and output contract.
   <text x="280" y="88" text-anchor="middle" fill="#555">Receives: Task + Rolling Summary</text>
   <text x="280" y="108" text-anchor="middle" fill="#555">Decides: DELEGATE | COMPLETE | FAIL</text>
   <!-- Arrow down -->
-  <line x1="280" y1="125" x2="280" y2="150" stroke="#4a6fa5" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="280" y1="125" x2="280.0" y2="148.0" stroke="#4a6fa5" stroke-width="2"/>
+  <polygon points="280.0,150.0 277.0,144.0 283.0,144.0" fill="#4a6fa5"/>
   <!-- DELEGATE box -->
   <rect x="220" y="150" width="120" height="30" rx="4" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
   <text x="280" y="170" text-anchor="middle" font-weight="bold" fill="#5a2d82">DELEGATE</text>
   <!-- Fan-out arrows -->
-  <line x1="280" y1="180" x2="120" y2="220" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="280" y1="180" x2="280" y2="220" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="280" y1="180" x2="440" y2="220" stroke="#4a6fa5" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="280" y1="180" x2="121.9" y2="219.5" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="120.0,220.0 125.1,215.6 126.5,221.5" fill="#4a6fa5"/>
+  <line x1="280" y1="180" x2="280.0" y2="218.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="280.0,220.0 277.0,214.0 283.0,214.0" fill="#4a6fa5"/>
+  <line x1="280" y1="180" x2="438.1" y2="219.5" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="440.0,220.0 433.5,221.5 434.9,215.6" fill="#4a6fa5"/>
   <text x="490" y="210" fill="#888" font-size="12">Fan-Out</text>
   <!-- Workers -->
   <rect x="80" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
@@ -176,21 +181,18 @@ allowed tools, and output contract.
   <text x="280" y="330" text-anchor="middle" fill="#666">S1: Deterministic — Schema, confidence, budget</text>
   <text x="280" y="346" text-anchor="middle" fill="#666">S2: LLM Semantic — "Does this make sense?"</text>
   <!-- Arrow down -->
-  <line x1="280" y1="355" x2="280" y2="380" stroke="#4a6fa5" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="280" y1="355" x2="280.0" y2="378.0" stroke="#4a6fa5" stroke-width="2"/>
+  <polygon points="280.0,380.0 277.0,374.0 283.0,374.0" fill="#4a6fa5"/>
   <!-- Termination Check -->
   <rect x="150" y="380" width="260" height="50" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5"/>
   <text x="280" y="402" text-anchor="middle" font-weight="bold" fill="#922b21">TERMINATION CHECK</text>
   <text x="280" y="420" text-anchor="middle" fill="#666">Budget? Stall? Loops?</text>
   <!-- Arrow to Next Iteration -->
-  <line x1="280" y1="430" x2="280" y2="460" stroke="#4a6fa5" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="280" y1="430" x2="280.0" y2="458.0" stroke="#4a6fa5" stroke-width="2"/>
+  <polygon points="280.0,460.0 277.0,454.0 283.0,454.0" fill="#4a6fa5"/>
   <rect x="210" y="460" width="140" height="30" rx="15" fill="#4a6fa5" stroke="none"/>
   <text x="280" y="480" text-anchor="middle" fill="#fff" font-weight="bold">Next Iteration</text>
   <!-- Arrow marker -->
-  <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#4a6fa5"/>
-    </marker>
-  </defs>
 </svg>
 
 ### The Delegation Envelope
