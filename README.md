@@ -50,20 +50,26 @@
 
 ## Key Features
 
-| Feature | What It Does | Details |
-|---------|-------------|---------|
-| **Autonomy Spectrum (A0-A4)** | Five graduated levels from static DAG to self-organizing recursive delegation. Safety scales proportionally with autonomy. | [Autonomy Levels](#9-the-autonomy-spectrum-a0-a4) |
-| **Runtime Tool Creation (A3+)** | Agents build domain-specific tools at runtime — validated via AST, sandboxed, namespace-restricted. No pre-built tooling needed. | [Runtime Adaptation](#runtime-adaptation-skills-and-tools-a3) |
-| **Delegation Loop Engine** | Manager-worker loop with parallel fan-out, rolling summaries, stall detection, and two-tier validation. Powers A2-A4 workflows. | [Delegation Loop](#7-the-delegation-loop-in-detail) |
-| **Reflective Critique Loop** | Built-in critic analyzes worker outputs for defects, triggers targeted repairs, and accumulates cross-worker failure patterns to prevent repeated mistakes. | [docs/critique.md](docs/critique.md) |
-| **Evaluation Layer** | Quality scoring with 5 metric kinds (deterministic, LLM-as-judge, budget utility, policy), weighted aggregation, threshold-based retry/repair, and persistent artifacts. | [docs/evaluation.md](docs/evaluation.md) |
-| **6-Limit Budget System** | Hard limits on loops, workers, tokens, wall time, tool calls, and recursion depth. The manager cannot override the safety envelope. | [Budget & Safety](#8-budget-safety-validation) |
-| **7-Layer Architecture** | Manifest, Identity, Capabilities, Communication, Memory, Orchestration, Observability — opt-in from 5 lines of YAML to full enterprise. | [7-Layer Model](#10-the-7-layer-model) |
-| **YAML-First Protocol** | Workflow definition is pure YAML, decoupled from implementation. Version in Git, validate in CI, run anywhere. | [YAML Workflows](#6-yaml-workflows--cli) |
-| **Workflow Studio** | Browser-based UI for running, monitoring, and inspecting agent workflows in real time. No code required. | [Workflow Studio](#3-workflow-studio-ui) |
-| **Data Science Integration** | Native support for DataFrames, numpy arrays, images, SQL, S3, REST APIs as workflow inputs. Jupyter-friendly. | [Data Science](#2-data-science-integration) |
-| **30 Validation Rules** | Deterministic rule engine (R1-R30) covering naming, graph structure, budgets, confidence, tools, evaluation metrics, and thresholds. | [Validation](#8-budget-safety-validation) |
-| **Infrastructure Benchmarking** | Same workflow, different backends — objectively compare LLMs, vector DBs, sandboxes, and tracing platforms. | [Benchmarking](#5-infrastructure-benchmarking) |
+### The Core Idea: Agents That Build What They Need
+
+Most agent frameworks give agents a fixed set of tools and hope the problem fits. AWP takes a fundamentally different approach: **agents analyze the problem, construct domain-specific tools and knowledge at runtime, and wire them together** — all inside validated sandboxes with hard budget limits. A financial analysis creates a custom VaR calculator. A genomics pipeline builds a sequence aligner. A supply chain workflow constructs demand forecasters. None of these tools existed before the workflow started — agents created exactly what the problem required.
+
+This makes AWP uniquely suited for **deep data science and engineering problems** where the right tooling depends on the data: custom scorers, domain-specific transformers, statistical tests tailored to the dataset's structure, visualization pipelines built for the specific distributions found. Instead of writing one-off scripts, you describe the problem and let agents build the solution.
+
+### Feature Overview
+
+- :brain: **Runtime Tool & Skill Creation (A3+)** — Agents build domain-specific Python tools and Markdown skills at runtime. Each tool is AST-validated, namespace-restricted, and sandboxed. Workers compose tools from earlier iterations into pipelines — no pre-registration needed. *[Learn more](#runtime-adaptation-skills-and-tools-a3)*
+- :chart_with_upwards_trend: **Deep Data Science Integration** — Native support for DataFrames, numpy arrays, images, SQL queries, S3 objects, REST APIs, and clipboard as workflow inputs. Workers write full Python programs in sandboxes with pip-installable packages. *[Learn more](#2-data-science-integration)*
+- :arrows_counterclockwise: **Delegation Loop Engine** — Manager-worker loop with parallel fan-out, rolling context summaries, stall detection, and two-tier validation. The manager decomposes problems, workers solve subtasks, results aggregate iteratively. *[Learn more](#7-the-delegation-loop-in-detail)*
+- :mag: **Reflective Critique Loop** — Built-in critic analyzes every worker output for defects (missing data, hallucinations, format errors), triggers targeted repairs with specific fix instructions, and accumulates failure patterns across workers so later iterations avoid earlier mistakes. *[Learn more](docs/critique.md)*
+- :bar_chart: **Evaluation Layer** — Quality scoring with 5 metric kinds: deterministic tests, assertion lists, LLM-as-judge, budget utility, and policy checks. Weighted aggregation maps scores to accept/retry/fail actions. Persistent artifacts for audit and comparison. *[Learn more](docs/evaluation.md)*
+- :shield: **6-Limit Budget System** — Hard limits on loops, workers, tokens, wall time, tool calls, and recursion depth. The manager cannot override the safety envelope — graceful termination on any limit breach. *[Learn more](#8-budget-safety-validation)*
+- :ladder: **Autonomy Spectrum (A0-A4)** — Five graduated levels from static DAG to self-organizing recursive delegation. Each level adds capabilities and proportionally more safety requirements. *[Learn more](#9-the-autonomy-spectrum-a0-a4)*
+- :bricks: **7-Layer Architecture** — Manifest, Identity, Capabilities, Communication, Memory, Orchestration, Observability — opt-in from 5 lines of YAML to full enterprise stack. *[Learn more](#10-the-7-layer-model)*
+- :page_facing_up: **YAML-First Protocol** — Workflow definition is pure YAML, decoupled from implementation. Version in Git, validate in CI, run on any conformant runtime. *[Learn more](#6-yaml-workflows--cli)*
+- :desktop_computer: **Workflow Studio** — Browser-based UI for running, monitoring, and inspecting agent workflows in real time. Agent graph, live output streaming, artifact viewer, session persistence. *[Learn more](#3-workflow-studio-ui)*
+- :white_check_mark: **30 Validation Rules** — Deterministic rule engine (R1-R30) covering naming, graph structure, budgets, confidence, tools, evaluation metrics, and thresholds. Run as CI/CD gate. *[Learn more](#8-budget-safety-validation)*
+- :test_tube: **Infrastructure Benchmarking** — Same workflow, different backends — objectively compare LLMs, vector DBs, sandboxes, and tracing platforms on real tasks. *[Learn more](#5-infrastructure-benchmarking)*
 
 ---
 
