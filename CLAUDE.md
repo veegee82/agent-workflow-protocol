@@ -30,7 +30,7 @@ pytest packages/awp-runtime/tests/ -k "not e2e"
 pytest packages/awp-core/tests/test_validator.py::test_function_name -v
 
 # CLI commands (after install)
-awp validate <path>              # Validate workflow (rules R1-R26)
+awp validate <path>              # Validate workflow (rules R1-R30)
 awp compliance <path> --level A2 # Check autonomy level (A0-A4)
 awp visualize <path> --format mermaid  # Render DAG
 awp pack <path>                  # Archive as .awp.zip
@@ -57,15 +57,15 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 ### awp-core Source Layout (`packages/awp-core/src/awp/`)
 
-- `models/` — Pydantic models for all 7 layers (manifest, agent, orchestration, capabilities, communication, memory, security, observability)
+- `models/` — Pydantic models for all 7 layers (manifest, agent, orchestration, capabilities, communication, memory, security, observability, evaluation)
 - `parser/` — Parses `workflow.awp.yaml` and `agent.awp.yaml` into Pydantic models, resolves imports
-- `validator/` — Rule engine (R1-R26) covering naming, graph structure, confidence, tool namespaces, budgets. Key file: `rules.py`
+- `validator/` — Rule engine (R1-R30) covering naming, graph structure, confidence, tool namespaces, budgets, evaluation. Key file: `rules.py`
 - `agent.py` — Abstract `AWPAgent` interface: agents must return `{self.name: {result_dict}}` with a `confidence` float (R17)
 - `cli.py` — CLI entry point (`awp` command)
 
 ### awp-runtime Source Layout (`packages/awp-runtime/src/awp/`)
 
-- `runtime/` — Execution engines, `StandaloneAgent` base class, `LLMClient`, `ToolRegistry`, code executors (Docker, venv)
+- `runtime/` — Execution engines, `StandaloneAgent` base class, `LLMClient`, `ToolRegistry`, code executors (Docker, venv), evaluation engine, critique engine
 - `data/` — Programmatic API (`AgentWorkflow`) for running workflows from Python
 
 ### Key Protocols
@@ -73,13 +73,15 @@ The Python code lives in `packages/` as two independent, publishable packages:
 - **Agent output contract**: Every agent `run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. This is validation rule R17.
 - **State sharing**: DAG nodes declare `share_output` fields; downstream agents receive them in the `state` dict.
 - **Budget system** (A2+): Hard limits (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`) enforce termination. Manager cannot override the safety envelope.
-- **Validation tiers**: Deterministic validation (schema, rules) runs always; LLM-based semantic validation is optional (skipped when confidence exceeds threshold).
+- **Validation tiers**: Deterministic validation (schema, rules R1-R30) runs always; LLM-based semantic validation is optional (skipped when confidence exceeds threshold).
+- **Evaluation layer**: Optional quality scoring (5 metric kinds, weighted aggregation, threshold-based retry/repair). Configured under `observability.evaluation`.
+- **Critique loop**: Optional reflective critique within delegation loop (defect diagnosis, targeted repair, cross-worker pattern memory). Configured under `delegation_loop.critique`.
 
 ### Other Key Directories
 
 - `spec/` — Normative specification (RFC 2119 language)
 - `docs/` — Protocol documentation for each layer
-- `examples/` — 12 runnable examples progressing A0→A4
+- `examples/` — 15 runnable examples progressing A0→A4 (including evaluation and critique)
 - `conformance/` — Test fixtures for spec compliance
 - `schemas/` — JSON schemas
 - `skill/` — AWP Skill for Claude Desktop (templates, adapters)
@@ -105,34 +107,62 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 
 ## PyPI Build Rules (MANDATORY)
 
-### All-Package Build Policy
+### Architecture: What Gets Published
 
-**Every PyPI build MUST build ALL three packages together, in order:**
+Only **one package** is published to PyPI: **`awp-agents`** (built from `reference/python/`). It is a meta-package that bundles everything: core models, runtime, UI server, and the **pre-built frontend assets**. The `awp-core` and `awp-runtime` packages are NOT published separately — their code is vendored into `reference/python/src/`.
 
-1. `awp-core` (`packages/awp-core/`)
-2. `awp-runtime` (`packages/awp-runtime/`)
-3. `awp-agents` (`reference/python/`) — the meta-package that bundles everything for end users
+The PyPI token in `~/.pypirc` is scoped to `awp-agents` only.
 
-**Never build only one package.** Even if only one package changed, build all three. Version numbers must stay in sync across all three `pyproject.toml` files. When bumping versions, bump all three at once.
+### Source of Truth for Code
 
-### Build + Smoke Test Sequence
+| Component | Developed in | Copied/mirrored to (for PyPI bundle) |
+|-----------|-------------|--------------------------------------|
+| Core (models, parser, validator) | `packages/awp-core/src/awp/` | `reference/python/src/awp/` (same namespace) |
+| Runtime (engines, LLM, tools) | `packages/awp-runtime/src/awp/` | `reference/python/src/awp/` (same namespace) |
+| UI server (FastAPI, routes) | `packages/awp-ui/server/` | `reference/python/src/server/` |
+| **Frontend (Vite/React)** | `packages/awp-ui/frontend/` | `reference/python/src/server/frontend/dist/` |
 
-After building, the following command sequence **MUST succeed before considering the build done**:
+**CRITICAL**: The frontend is a **built artifact**. The source lives in `packages/awp-ui/frontend/src/`, the build output goes to `packages/awp-ui/frontend/dist/`, and it must be **manually copied** to `reference/python/src/server/frontend/dist/` before building the PyPI package. If you skip this step, the published package ships with stale frontend assets.
+
+### Full Build + Publish Sequence
+
+Follow these steps **in exact order** every time you publish to PyPI:
 
 ```bash
-# 1. Build all three packages
-cd packages/awp-core && rm -rf dist/ build/ && python -m build
-cd packages/awp-runtime && rm -rf dist/ build/ && python -m build
+# 0. Bump versions (see Version Sync Checklist below)
+
+# 1. Rebuild the frontend
+cd packages/awp-ui/frontend && npm run build
+
+# 2. Copy fresh frontend build into the PyPI bundle source
+rm -rf reference/python/src/server/frontend/dist/
+cp -r packages/awp-ui/frontend/dist/ reference/python/src/server/frontend/dist/
+
+# 3. Sync any changed Python files from packages/ → reference/python/src/
+#    (prompts.py, workflow.py, delegation_loop_runner.py, routes.py, etc.)
+#    Ensure reference/python/src/ mirrors the latest packages/ code.
+
+# 4. Build the awp-agents wheel
 cd reference/python && rm -rf dist/ build/ && python -m build
 
-# 2. Install the meta-package (pulls in core + runtime + UI)
-pip install awp-agents
+# 5. Verify the wheel contains new frontend assets
+python -c "import zipfile, glob; z = zipfile.ZipFile(glob.glob('dist/*.whl')[0]); [print(f) for f in z.namelist() if 'frontend/dist/assets/index' in f]"
+# → Should show the NEW hash-named index-*.js and index-*.css files
 
-# 3. Smoke test — this MUST launch without errors
+# 6. Upload to PyPI
+twine upload dist/*
+
+# 7. Smoke test from PyPI
+pip install --no-cache-dir awp-agents==<NEW_VERSION>
 awp studio
 ```
 
-`pip install awp-agents && awp studio` is the **golden path**. If this command fails at any point (import errors, missing dependencies, missing frontend assets, version mismatches), the build is broken. Do not push or publish until it works.
+### Common Mistakes
+
+- **Forgetting to rebuild frontend**: The most common error. If you only change frontend code but skip `npm run build` + copy, the PyPI package ships the old JS/CSS.
+- **Forgetting to copy frontend to reference/python/**: Even after `npm run build`, the output is in `packages/awp-ui/frontend/dist/` — it does NOT automatically appear in `reference/python/src/server/frontend/dist/`.
+- **Python file drift**: Changes to `packages/awp-runtime/src/` or `packages/awp-ui/server/` must also be reflected in `reference/python/src/`. These directories are **not symlinked** — they are independent copies.
+- **Version already uploaded**: PyPI does not allow re-uploading the same version. If you uploaded a broken build, you must bump the version again.
 
 ### Version Sync Checklist
 
@@ -142,7 +172,7 @@ When bumping versions, update ALL of these in one commit:
 |------|-------|
 | `packages/awp-core/pyproject.toml` | `version` |
 | `packages/awp-runtime/pyproject.toml` | `version` + `awp-core>=` dependency |
-| `packages/awp-ui/pyproject.toml` | `version` + `awp-core>=` and `awp-runtime>=` in `[project.optional-dependencies]` |
+| `packages/awp-ui/pyproject.toml` | `version` + `awp-core>=` and `awp-runtime>=` dependencies |
 | `reference/python/pyproject.toml` | `version` (awp-agents meta-package) |
 
 ## Code Style

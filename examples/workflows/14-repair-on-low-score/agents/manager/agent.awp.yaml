@@ -1,0 +1,31 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: manager
+  role: manager
+  description: "Manager agent that delegates analysis tasks to workers"
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.1
+    max_tokens: 2048
+
+prompt:
+  system: "workflow/instructions/SYSTEM_PROMPT.md"
+  user_template: "workflow/prompt/00_INTRO.md"
+
+output:
+  format: json
+  schema: "workflow/output_schema/output_schema.json"
+  contract:
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Overall confidence"
+      required: true
+    report_md:
+      type: string
+      description: "Markdown report"
+      required: true

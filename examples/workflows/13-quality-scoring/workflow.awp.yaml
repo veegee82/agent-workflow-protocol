@@ -1,0 +1,54 @@
+awp: "1.0.0"
+
+workflow:
+  name: quality-scoring
+  version: "1.0.0"
+  description: "Demonstrates AWP evaluation layer with quality scoring on a simple analysis task"
+  author: "AWP Examples"
+  tags: ["example", "a0", "evaluation", "quality-scoring"]
+
+orchestration:
+  execution:
+    mode: sequential
+  graph:
+    - id: analyzer
+      agent: analyzer
+      depends_on: []
+      share_output:
+        - analysis
+        - confidence
+
+state:
+  sharing:
+    strategy: merge
+
+observability:
+  logging:
+    level: INFO
+  evaluation:
+    enabled: true
+    metrics:
+      - name: has_analysis
+        kind: deterministic_test
+        weight: 2.0
+        params:
+          expr: "'analysis' in result.analyzer and result.analyzer.analysis != ''"
+      - name: confidence_check
+        kind: deterministic_assertion
+        weight: 1.5
+        params:
+          assertions:
+            - "result.analyzer.confidence > 0.3"
+            - "result.analyzer.confidence <= 1.0"
+      - name: efficiency
+        kind: budget_utility
+        weight: 0.5
+    thresholds:
+      accept: 0.75
+      retry: 0.45
+      fail: 0.20
+    step_scores:
+      enabled: true
+      hooks:
+        - worker_result
+        - final_answer

@@ -18,11 +18,13 @@ Complete documentation for the Agent Workflow Protocol (AWP) v1.0.0.
 | 10 | [observability.md](observability.md) | Metrics, tracing, audit trails, health checks |
 | 11 | [security.md](security.md) | Circuit breaker, rate limiting, access control |
 | 12 | [compliance.md](compliance.md) | Autonomy levels A0 through A4 |
-| 13 | [validation.md](validation.md) | Validation rules R1 through R18 |
+| 13 | [validation.md](validation.md) | Validation rules R1 through R30 |
 | 14 | [file-structure.md](file-structure.md) | Required directory layout |
 | 15 | [packaging.md](packaging.md) | `.awp.zip` format and ClawHub publishing |
 | 16 | [runtime.md](runtime.md) | AWPAgent interface, standalone runtime, WorkflowRunner |
 | 17 | [skill-system.md](skill-system.md) | Build skill, adapters, extensions, ClawHub |
+| 18 | [evaluation.md](evaluation.md) | Quality scoring: metrics, thresholds, retry policy, artifacts |
+| 19 | [critique.md](critique.md) | Reflective Critique Loop: defect diagnosis, repair, pattern memory |
 
 ## Quick Start
 

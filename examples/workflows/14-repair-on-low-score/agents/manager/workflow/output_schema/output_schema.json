@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "confidence": { "type": "number" },
+    "report_md": { "type": "string" }
+  },
+  "required": ["confidence", "report_md"]
+}

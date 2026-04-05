@@ -1,10 +1,12 @@
-"""AWP Observability models (Layer 6) — Metrics, Tracing, Audit, Health."""
+"""AWP Observability models (Layer 6) — Metrics, Tracing, Audit, Health, Evaluation."""
 
 from __future__ import annotations
 
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from .evaluation import EvaluationConfig
 
 
 class LoggingConfig(BaseModel):
@@ -140,5 +142,6 @@ class ObservabilityConfig(BaseModel):
     tracing: TracingConfig = Field(default_factory=TracingConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     health: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+    evaluation: Optional[EvaluationConfig] = None
 
     model_config = {"extra": "allow"}

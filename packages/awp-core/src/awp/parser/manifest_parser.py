@@ -7,15 +7,15 @@ from typing import Any
 
 import yaml
 
-from ..models.manifest import AWPManifest
-from ..models.orchestration import AWPOrchestrationConfig, DelegationLoopConfig
-from ..models.state import StateModel
-from ..models.memory import MemoryConfig
 from ..models.communication import CommunicationConfig
-from ..models.observability import ObservabilityConfig
 from ..models.custom_tools import CustomToolsConfig
-from ..models.manifest import DynamicToolsConfig
+from ..models.evaluation import EvaluationConfig
+from ..models.manifest import AWPManifest, DynamicToolsConfig
+from ..models.memory import MemoryConfig
+from ..models.observability import ObservabilityConfig
+from ..models.orchestration import AWPOrchestrationConfig, DelegationLoopConfig
 from ..models.security import SecurityConfig
+from ..models.state import StateModel
 from .template import resolve_templates
 
 
@@ -87,7 +87,10 @@ def _extract_manifest_data(resolved: dict[str, Any]) -> dict[str, Any]:
     if "communication" in resolved:
         data["communication"] = CommunicationConfig(**resolved["communication"])
     if "observability" in resolved:
-        data["observability"] = ObservabilityConfig(**resolved["observability"])
+        obs_data = dict(resolved["observability"])
+        if "evaluation" in obs_data and isinstance(obs_data["evaluation"], dict):
+            obs_data["evaluation"] = EvaluationConfig(**obs_data["evaluation"])
+        data["observability"] = ObservabilityConfig(**obs_data)
     if "custom_tools" in resolved:
         data["custom_tools"] = CustomToolsConfig(**resolved["custom_tools"])
     if "dynamic_tools" in resolved:

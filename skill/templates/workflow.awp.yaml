@@ -109,6 +109,20 @@ orchestration:
 #     logging:
 #       format: dual                           # dual | json | md
 #       persist_artifacts: true
+#
+#     # --- Critique (optional, per-worker defect analysis + repair) ---
+#     critique:
+#       enabled: false                         # set true for reflective critique loop
+#       mode: inline                           # "inline" (worker model) or "dedicated"
+#       max_repair_attempts: 2                 # per-worker repair cycles
+#       repair_budget_fraction: 0.15           # max 15% of budget for repairs
+#       pattern_memory: true                   # learn from failures across workers
+#       defect_categories:
+#         - missing_data
+#         - wrong_format
+#         - incomplete
+#         - hallucinated
+#         - policy_violation
 
 # --- State ---
 state:
@@ -171,6 +185,43 @@ state:
 #   audit:
 #     enabled: true
 #     hash_chain: true
+
+# --- Evaluation / Quality Scoring (optional, any level) ---
+# Enable to score workflow results on problem-solving quality.
+# observability:
+#   evaluation:
+#     enabled: true
+#     metrics:
+#       - name: correctness
+#         kind: deterministic_test              # safe expression eval
+#         weight: 2.0
+#         params:
+#           expr: "result.confidence > 0.7 and 'error' not in result"
+#       - name: completeness
+#         kind: deterministic_assertion         # fraction of assertions passing
+#         weight: 1.0
+#         params:
+#           assertions:
+#             - "'data' in result"
+#             - "result.confidence > 0"
+#       - name: efficiency
+#         kind: budget_utility                  # quality relative to resource usage
+#         weight: 0.5
+#     thresholds:
+#       accept: 0.85                            # score >= accept: pass
+#       retry: 0.65                             # retry <= score < accept: warn/retry
+#       fail: 0.40                              # score < fail: fail workflow
+#     step_scores:
+#       enabled: true
+#       hooks:                                  # NOTE: use "hooks" not "on" (YAML boolean)
+#         - worker_result
+#         - final_answer
+#     retry_policy:
+#       enabled: false                          # set true for score-driven repair
+#       max_repairs: 2
+#       actions:
+#         below_retry: retry_with_repair
+#         below_fail: fail_workflow
 
 # --- Dynamic Tools (A2+ Code Mode — runtime tool creation) ---
 # Required when workers should create reusable tools via Code Mode.

@@ -235,6 +235,18 @@ export const IterationNode = memo(function IterationNode({ id, data }: NodeProps
             {(data.confidence * 100).toFixed(0)}%
           </span>
         )}
+        {typeof data.eval_score === 'number' && (
+          <span
+            className={clsx(
+              'mt-0.5 text-[9px] font-mono px-1.5 rounded-full',
+              data.eval_score >= 0.75 ? 'bg-emerald-500/20 text-emerald-400'
+                : data.eval_score >= 0.5 ? 'bg-yellow-500/20 text-yellow-400'
+                  : 'bg-red-500/20 text-red-400',
+            )}
+          >
+            eval {(data.eval_score * 100).toFixed(0)}%
+          </span>
+        )}
       </div>
 
       <Handle type="source" position={Position.Bottom} className="!bg-awp-yellow !border-awp-panel !w-2 !h-2" />
@@ -285,6 +297,33 @@ export const WorkerNode = memo(function WorkerNode({ id, data }: NodeProps<NodeD
         {data.toolCount !== undefined && (
           <span className="mt-0.5 text-[9px] text-awp-muted">
             {data.toolCount} tool{Number(data.toolCount) !== 1 ? 's' : ''}
+          </span>
+        )}
+        {typeof data.eval_score === 'number' && (
+          <span
+            className={clsx(
+              'mt-0.5 text-[9px] font-mono px-1 rounded',
+              data.eval_score >= 0.75 ? 'bg-emerald-500/20 text-emerald-400'
+                : data.eval_score >= 0.5 ? 'bg-yellow-500/20 text-yellow-400'
+                  : 'bg-red-500/20 text-red-400',
+            )}
+          >
+            eval {(data.eval_score * 100).toFixed(0)}%
+          </span>
+        )}
+        {typeof data.critique_score === 'number' && (
+          <span
+            className={clsx(
+              'mt-0.5 text-[9px] font-mono px-1 rounded flex items-center gap-0.5',
+              data.critique_score >= 0.8 ? 'bg-emerald-500/20 text-emerald-400'
+                : data.critique_score >= 0.5 ? 'bg-amber-500/20 text-amber-400'
+                  : 'bg-rose-500/20 text-rose-400',
+            )}
+          >
+            {Array.isArray(data.critique_repairs) && data.critique_repairs.length > 0 && (
+              <RefreshCw className="h-2.5 w-2.5" />
+            )}
+            critique {(data.critique_score * 100).toFixed(0)}%
           </span>
         )}
       </div>

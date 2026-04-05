@@ -147,7 +147,7 @@ class ContextBudget(BaseModel):
     characters.
     """
 
-    total_chars: int = 64_000   # ~16K tokens total context budget
+    total_chars: int = 64_000  # ~16K tokens total context budget
     min_per_entry: int = 4_000  # floor per entry even with many workers
     preview_chars: int = 2_000  # preview length for spilled results
 
@@ -247,6 +247,32 @@ class ValidationConfig(BaseModel):
     llm: LLMValidationConfig = Field(default_factory=LLMValidationConfig)
 
 
+class CritiqueConfig(BaseModel):
+    """Reflective Critique Loop configuration.
+
+    When enabled, worker results pass through a critique phase before
+    returning to the manager. The critic diagnoses defects, prescribes
+    targeted repairs, and accumulates cross-worker failure patterns.
+    """
+
+    enabled: bool = False
+    mode: str = "inline"  # "inline" (uses worker model) | "dedicated" (separate agent)
+    model: Optional[str] = None  # None = use worker model
+    max_repair_attempts: int = 2  # per worker, before escalating to manager
+    repair_budget_fraction: float = 0.15  # max fraction of total budget for repairs
+    pattern_memory: bool = True  # accumulate cross-worker failure patterns
+    defect_categories: list[str] = Field(
+        default_factory=lambda: [
+            "missing_data",
+            "wrong_format",
+            "incomplete",
+            "hallucinated",
+            "stale",
+            "policy_violation",
+        ]
+    )
+
+
 class HistoryConfig(BaseModel):
     """Rolling summary and history configuration."""
 
@@ -286,12 +312,11 @@ class DelegationLoopConfig(BaseModel):
     worker_policy: WorkerPolicy = Field(default_factory=WorkerPolicy)
     budget: DelegationBudget = Field(default_factory=DelegationBudget)
     context_budget: ContextBudget = Field(default_factory=ContextBudget)
-    termination: Optional[StallDetectionConfig] = Field(
-        default_factory=StallDetectionConfig
-    )
+    termination: Optional[StallDetectionConfig] = Field(default_factory=StallDetectionConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     history: HistoryConfig = Field(default_factory=HistoryConfig)
     logging: DelegationLoggingConfig = Field(default_factory=DelegationLoggingConfig)
+    critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
 
     model_config = {"extra": "allow"}
 

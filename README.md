@@ -26,6 +26,8 @@
 <p align="center">
   <a href="docs/">Docs</a> &middot;
   <a href="docs/architecture.md">Architecture</a> &middot;
+  <a href="docs/evaluation.md">Evaluation</a> &middot;
+  <a href="docs/critique.md">Critique</a> &middot;
   <a href="examples/">Examples</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
@@ -43,6 +45,25 @@
     <img src="https://img.shields.io/badge/Sponsor_this_Project-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github" alt="Sponsor this Project"/>
   </a>
 </p>
+
+---
+
+## Key Features
+
+| Feature | What It Does | Details |
+|---------|-------------|---------|
+| **Autonomy Spectrum (A0-A4)** | Five graduated levels from static DAG to self-organizing recursive delegation. Safety scales proportionally with autonomy. | [Autonomy Levels](#9-the-autonomy-spectrum-a0-a4) |
+| **Runtime Tool Creation (A3+)** | Agents build domain-specific tools at runtime — validated via AST, sandboxed, namespace-restricted. No pre-built tooling needed. | [Runtime Adaptation](#runtime-adaptation-skills-and-tools-a3) |
+| **Delegation Loop Engine** | Manager-worker loop with parallel fan-out, rolling summaries, stall detection, and two-tier validation. Powers A2-A4 workflows. | [Delegation Loop](#7-the-delegation-loop-in-detail) |
+| **Reflective Critique Loop** | Built-in critic analyzes worker outputs for defects, triggers targeted repairs, and accumulates cross-worker failure patterns to prevent repeated mistakes. | [docs/critique.md](docs/critique.md) |
+| **Evaluation Layer** | Quality scoring with 5 metric kinds (deterministic, LLM-as-judge, budget utility, policy), weighted aggregation, threshold-based retry/repair, and persistent artifacts. | [docs/evaluation.md](docs/evaluation.md) |
+| **6-Limit Budget System** | Hard limits on loops, workers, tokens, wall time, tool calls, and recursion depth. The manager cannot override the safety envelope. | [Budget & Safety](#8-budget-safety-validation) |
+| **7-Layer Architecture** | Manifest, Identity, Capabilities, Communication, Memory, Orchestration, Observability — opt-in from 5 lines of YAML to full enterprise. | [7-Layer Model](#10-the-7-layer-model) |
+| **YAML-First Protocol** | Workflow definition is pure YAML, decoupled from implementation. Version in Git, validate in CI, run anywhere. | [YAML Workflows](#6-yaml-workflows--cli) |
+| **Workflow Studio** | Browser-based UI for running, monitoring, and inspecting agent workflows in real time. No code required. | [Workflow Studio](#3-workflow-studio-ui) |
+| **Data Science Integration** | Native support for DataFrames, numpy arrays, images, SQL, S3, REST APIs as workflow inputs. Jupyter-friendly. | [Data Science](#2-data-science-integration) |
+| **30 Validation Rules** | Deterministic rule engine (R1-R30) covering naming, graph structure, budgets, confidence, tools, evaluation metrics, and thresholds. | [Validation](#8-budget-safety-validation) |
+| **Infrastructure Benchmarking** | Same workflow, different backends — objectively compare LLMs, vector DBs, sandboxes, and tracing platforms. | [Benchmarking](#5-infrastructure-benchmarking) |
 
 ---
 
@@ -109,8 +130,8 @@ pip install -e "reference/python/"
 |--------|------------------|
 | `awp.models` | Pydantic models for all 7 AWP layers |
 | `awp.parser` | Parse `workflow.awp.yaml` and `agent.awp.yaml` into typed objects |
-| `awp.validator` | Rule engine (R1-R26): naming, graph structure, budgets |
-| `awp.runtime` | DAG engine + delegation loop engine, LLM client, tool registry, code executors |
+| `awp.validator` | Rule engine (R1-R30): naming, graph structure, budgets, evaluation |
+| `awp.runtime` | DAG engine + delegation loop engine, evaluation engine, critique engine, LLM client, tool registry, code executors |
 | `awp.data` | Programmatic API — `AgentWorkflow` for 3-line workflows |
 | `awp.cli` | CLI: `awp studio`, `awp validate`, `awp compliance`, `awp visualize`, `awp run` |
 
@@ -642,7 +663,7 @@ The YAML never changes -- only the backend behind the MCP tool interface.
 | **Audit Trail** | Dual logging: JSON (machines) + Markdown (humans) per iteration |
 | **Cost Control** | Budget system: 6 hard limits (tokens, time, workers, loops, tools, depth) |
 | **Isolation** | Sandbox: subprocess, Docker, venv -- code never runs directly on the host |
-| **Compliance** | `awp validate` (R1-R26) + `awp compliance --level A2` as CI/CD gate |
+| **Compliance** | `awp validate` (R1-R30) + `awp compliance --level A2` as CI/CD gate |
 | **Versioning** | YAML in Git, `.awp.zip` for registry and distribution |
 | **Secrets** | `required_secrets` mechanism, never stored in YAML |
 | **Traceability** | Every manager decision, worker delegation, and tool call documented |
@@ -894,7 +915,7 @@ orchestration:
 ```bash
 awp run <dir> --task "..."                        # Execute workflow
 awp run <dir> --task "..." --manager-model opus   # Model split
-awp validate <dir>                                # Check rules R1-R26
+awp validate <dir>                                # Check rules R1-R30
 awp compliance <dir> --level A2                   # Check autonomy level
 awp visualize <dir> --format mermaid              # Visualize DAG
 awp pack <dir>                                    # Create .awp.zip
@@ -933,8 +954,71 @@ The delegation loop is the engine behind A2-A4 -- and behind `AgentWorkflow`:
 4. **Two-Tier Validation**:
    - Tier 1: Deterministic (schema, required fields, types) -- always runs
    - Tier 2: Semantic (LLM checks plausibility) -- only at low confidence
-5. **Budget check** + **stall detection**
-6. **Update rolling summary** -> next iteration
+5. **Critique** (optional): Analyze worker outputs for defects, trigger targeted repairs
+6. **Evaluation** (optional): Score results against metrics, trigger retry if below threshold
+7. **Budget check** + **stall detection**
+8. **Update rolling summary** -> next iteration
+
+### Reflective Critique Loop (Optional)
+
+When `delegation_loop.critique.enabled: true`, a built-in critic analyzes every worker result:
+
+```yaml
+delegation_loop:
+  critique:
+    enabled: true
+    mode: inline              # "inline" (uses worker model) or "dedicated"
+    max_repair_attempts: 2    # Per-worker repair cycles
+    repair_budget_fraction: 0.15  # Max 15% of budget for repairs
+    pattern_memory: true      # Learn from failures across workers
+    defect_categories:
+      - missing_data
+      - wrong_format
+      - incomplete
+      - hallucinated
+      - policy_violation
+```
+
+**How it works:**
+
+1. Each worker result is critiqued -- defects are categorized by severity (critical, warning, info)
+2. Critical defects trigger **targeted repair**: the worker re-runs with specific fix instructions
+3. Repair attempts are budget-capped (`repair_budget_fraction`) and limited (`max_repair_attempts`)
+4. **Pattern memory** accumulates cross-worker failure patterns -- next workers receive "Known Pitfalls" to prevent repeated mistakes
+5. A heuristic fallback runs when no LLM is available
+
+See [docs/critique.md](docs/critique.md) for the full reference and [Example 15](examples/workflows/15-critique-loop/) for a working demonstration.
+
+### Evaluation-Driven Retry (Optional)
+
+When `observability.evaluation.enabled: true`, workflow results are scored against configurable metrics:
+
+```yaml
+observability:
+  evaluation:
+    enabled: true
+    metrics:
+      - name: correctness
+        kind: deterministic_test
+        weight: 2.0
+        params:
+          expr: "result.confidence > 0.7"
+      - name: quality
+        kind: rubric_judge
+        weight: 1.0
+      - name: efficiency
+        kind: budget_utility
+        weight: 0.5
+    thresholds:
+      accept: 0.85
+      retry: 0.65
+      fail: 0.40
+    retry_policy:
+      enabled: true
+      max_repairs: 2
+```
+
+Five metric kinds: `deterministic_test`, `deterministic_assertion`, `rubric_judge` (LLM-as-judge), `budget_utility`, `policy_score`. Scores are weighted-averaged and mapped to actions via thresholds. See [docs/evaluation.md](docs/evaluation.md) for details and [Example 14](examples/workflows/14-repair-on-low-score/) for a working demonstration.
 
 ### Fan-Out: Parallel Workers
 
@@ -1035,10 +1119,10 @@ termination:
   action: warn_then_stop
 ```
 
-### Validation Rules R1-R26
+### Validation Rules R1-R30
 
 ```bash
-awp validate ./my-workflow/    # Checks all 26 rules
+awp validate ./my-workflow/    # Checks all 30 rules
 ```
 
 | Category | Rules | Checks |
@@ -1048,6 +1132,7 @@ awp validate ./my-workflow/    # Checks all 26 rules
 | Graph | R11-R13 | No cycles, dependencies, state sharing |
 | Tools & Output | R14-R18 | Tool references, **confidence (R17)**, JSON schema |
 | Budget & Security | R19-R26 | Budget limits, memory, namespaces, sandbox |
+| Evaluation | R27-R30 | Metric kinds, thresholds, weights, hooks, retry actions |
 
 ### Two-Tier Validation
 
@@ -1185,8 +1270,8 @@ agent-workflow-protocol/
     awp-ui/                     Workflow Studio: FastAPI backend + React frontend
   spec/versions/1.0/          Normative specification (RFC 2119)
   schemas/                    JSON Schemas
-  docs/                       Complete protocol reference (16 files)
-  examples/                   12 workflows (A0-A4) + Jupyter
+  docs/                       Complete protocol reference (17 files)
+  examples/                   15 workflows (A0-A4) + Jupyter
     workflows/
       01-hello-world/         A0: Minimal workflow
       02-research-pipeline/   A1: 3-agent DAG with state sharing
@@ -1200,6 +1285,9 @@ agent-workflow-protocol/
       10-skill-and-tool-gen/  A3: Skill Generation
       11-tool-creation-loop/  A3: Iterative Tool Creation
       12-full-autonomy-test/  A4: Full A4 Test
+      13-quality-scoring/     Evaluation: Quality scoring on DAG
+      14-repair-on-low-score/ Evaluation: Retry/repair on low score
+      15-critique-loop/       Critique: Reflective critique with pattern memory
     jupyter/                  Programmatic API (Notebook)
   skill/                      AWP Skill for Claude
   conformance/                Conformance tests
@@ -1233,6 +1321,8 @@ agent-workflow-protocol/
 | Resource | When you... |
 |-----------|------------|
 | [Docs](docs/) | need the complete protocol reference |
+| [Evaluation](docs/evaluation.md) | want to score and retry workflow results |
+| [Critique](docs/critique.md) | want reflective critique with defect repair and pattern learning |
 | [Workflow Generation](README_GENERATION.md) | want to understand how skills generate workflows |
 | [Theory Reference](README_NERD.md) | want to understand the conceptual foundations |
 | [Orchestration Engines](docs/ORCHESTRATION_ENGINES.md) | want to compare DAG vs. Delegation Loop |

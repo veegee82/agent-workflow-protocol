@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "analysis": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+  },
+  "required": ["analysis", "confidence"]
+}

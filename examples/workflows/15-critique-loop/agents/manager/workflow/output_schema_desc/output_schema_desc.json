@@ -1,0 +1,7 @@
+{
+  "decision": "One of: delegate (assign work), complete (task done), fail (cannot complete)",
+  "confidence": "Current confidence in overall task completion (0.0-1.0)",
+  "delegations": "Array of worker delegation envelopes (when decision=delegate)",
+  "final_result": "Final output (when decision=complete)",
+  "reasoning": "Brief explanation of the decision"
+}

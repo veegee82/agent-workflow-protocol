@@ -10,7 +10,10 @@ Orchestration defines the execution graph, modes, control flow, error handling, 
 - **Required:** Yes
 - **Allowed values:** `"dag"`
 
-Currently, `dag` (Directed Acyclic Graph) is the only defined engine. Future AWP versions may introduce additional engine types.
+Two engines are available:
+
+- `dag` — Directed Acyclic Graph for A0-A1 workflows (described below)
+- `delegation_loop` — Manager-worker loop for A2-A4 workflows (see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md))
 
 ```yaml
 orchestration:
@@ -372,3 +375,39 @@ orchestration:
     - agent: quality_reviewer
       fallback: skip
 ```
+
+## Delegation Loop Engine
+
+The delegation loop engine powers A2-A4 workflows. For the complete engine comparison, see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+
+### Critique Configuration
+
+The delegation loop supports an optional **Reflective Critique Loop** that analyzes worker outputs for defects and triggers targeted repairs. See [critique.md](critique.md) for the full reference.
+
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    critique:
+      enabled: true
+      mode: inline
+      max_repair_attempts: 2
+      repair_budget_fraction: 0.15
+      pattern_memory: true
+      defect_categories:
+        - missing_data
+        - wrong_format
+        - incomplete
+        - hallucinated
+        - policy_violation
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `critique.enabled` | bool | `false` | Enable reflective critique loop |
+| `critique.mode` | string | `"inline"` | `"inline"` (worker model) or `"dedicated"` (separate critic) |
+| `critique.model` | string | `null` | LLM for critic. `null` = inherit worker model |
+| `critique.max_repair_attempts` | int | `2` | Max repair cycles per worker |
+| `critique.repair_budget_fraction` | float | `0.15` | Max budget fraction for repairs |
+| `critique.pattern_memory` | bool | `true` | Accumulate cross-worker failure patterns |
+| `critique.defect_categories` | list | 6 defaults | Defect types to diagnose |

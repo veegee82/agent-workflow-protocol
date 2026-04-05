@@ -33,6 +33,8 @@ export type RunEventType =
   | 'budget.update'
   | 'worker.spawn'
   | 'worker.complete'
+  | 'critique.result'
+  | 'worker.repair'
   | 'delegation.start'
   | 'run.start'
   | 'run.complete'
@@ -127,7 +129,8 @@ export type OutputBlockType =
   | 'table'
   | 'json'
   | 'error'
-  | 'file';
+  | 'file'
+  | 'evaluation';
 
 export interface OutputBlock {
   type: OutputBlockType;

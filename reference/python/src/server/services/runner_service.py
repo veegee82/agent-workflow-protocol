@@ -42,8 +42,25 @@ def _make_event(
     )
 
 
-_FULL_DETAIL_RUNS = 5  # Show last N runs with full results in prompt
-_MAX_RESULT_CHARS = 500  # Truncate individual result summaries
+_FULL_DETAIL_RUNS = 10  # Show last N runs with full results in prompt
+_MAX_RESULT_CHARS = 2000  # Truncate individual result summaries
+
+
+def _list_output_artifacts(output_dir: str) -> list[str]:
+    """List output artifact files from a prior run's output directory."""
+    p = Path(output_dir)
+    if not p.is_dir():
+        return []
+    artifacts: list[str] = []
+    for f in sorted(p.rglob("*")):
+        if f.is_file() and not f.name.startswith("."):
+            try:
+                rel = str(f.relative_to(p))
+                size_kb = f.stat().st_size / 1024
+                artifacts.append(f"{rel} ({size_kb:.1f} KB)")
+            except (ValueError, OSError):
+                pass
+    return artifacts
 
 
 def _build_experiment_context(
@@ -61,25 +78,31 @@ def _build_experiment_context(
 
     from server.services.store import StoreService
 
-    async def _fetch() -> tuple[dict | None, list, list]:
+    async def _fetch() -> tuple[dict | None, list, list, list]:
         store = StoreService()
         await store.init_db()
         try:
             session = await store.get_session(session_id)
             history = await store.get_session_history(session_id)
             memory = await store.get_memory_entries(session_id)
-            return session, history, memory
+            runs = await store.get_session_runs(session_id)
+            return session, history, memory, runs
         finally:
             await store.close()
 
     loop = asyncio.new_event_loop()
     try:
-        session, history, memory = loop.run_until_complete(_fetch())
+        session, history, memory, runs = loop.run_until_complete(_fetch())
     finally:
         loop.close()
 
     if not session:
         return "", {}
+
+    # Build a run_id→run_data map for artifact lookup
+    run_map: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        run_map[run["run_id"]] = run
 
     # ── Approach 1: Build prompt context string ──────────────────────
     parts: list[str] = ["## Experiment Context\n"]
@@ -91,16 +114,27 @@ def _build_experiment_context(
     parts.append("")
 
     # Group history into (task, result) pairs
-    run_pairs: list[dict[str, str]] = []
+    run_pairs: list[dict[str, Any]] = []
     i = 0
     while i < len(history) - 1:
         if history[i]["role"] == "user" and history[i + 1]["role"] == "assistant":
+            rid = history[i].get("run_id", "")
+            run_data = run_map.get(rid, {})
+            # Extract output paths from run result metadata
+            result_meta = run_data.get("result") or {}
+            metadata = result_meta.get("metadata", {}) if isinstance(result_meta, dict) else {}
+            output_dir = metadata.get("output_dir", "")
+            workspace = metadata.get("workspace", "")
+
             run_pairs.append({
                 "task": history[i]["content"],
                 "result": history[i + 1]["content"],
-                "run_id": history[i].get("run_id", ""),
+                "run_id": rid,
                 "timestamp": history[i].get("timestamp", ""),
-                "status": history[i + 1].get("status", ""),
+                "status": run_data.get("status", ""),
+                "model": run_data.get("model", ""),
+                "output_dir": output_dir,
+                "workspace": workspace,
             })
             i += 2
         else:
@@ -110,26 +144,37 @@ def _build_experiment_context(
         total = len(run_pairs)
         parts.append(f"### Previous Run Results ({total} total, most recent first)\n")
 
-        # Recent runs: full detail
+        # Recent runs: full detail with output artifacts
         recent = list(reversed(run_pairs[-_FULL_DETAIL_RUNS:]))
         for idx, pair in enumerate(recent):
             run_num = total - idx
-            task_preview = pair["task"][:100]
+            task_preview = pair["task"][:200]
             result_preview = pair["result"][:_MAX_RESULT_CHARS]
             if len(pair["result"]) > _MAX_RESULT_CHARS:
-                result_preview += "... (truncated, full result in _experiment_context/)"
+                result_preview += "\n... (truncated — full result in `_experiment_context/` files)"
             parts.append(f"#### Run {run_num} — \"{task_preview}\"")
             if pair.get("timestamp"):
-                parts.append(f"*{pair['timestamp']}*")
-            parts.append(f"**Result:** {result_preview}\n")
+                parts.append(f"*{pair['timestamp']}* | model: {pair.get('model', '?')} | status: {pair.get('status', '?')}")
+            parts.append(f"\n**Result:**\n{result_preview}\n")
 
-        # Older runs: one-line summaries
+            # List output artifacts from this run
+            if pair.get("output_dir"):
+                artifacts = _list_output_artifacts(pair["output_dir"])
+                if artifacts:
+                    parts.append(f"**Output files** (`{pair['output_dir']}`):")
+                    for a in artifacts[:20]:
+                        parts.append(f"  - {a}")
+                    if len(artifacts) > 20:
+                        parts.append(f"  - ... and {len(artifacts) - 20} more files")
+                    parts.append("")
+
+        # Older runs: compact summaries
         older = list(reversed(run_pairs[:-_FULL_DETAIL_RUNS])) if total > _FULL_DETAIL_RUNS else []
         if older:
             parts.append("### Earlier Runs (summary)\n")
             for idx, pair in enumerate(older):
                 run_num = total - _FULL_DETAIL_RUNS - idx
-                parts.append(f"- Run {run_num}: \"{pair['task'][:60]}\"")
+                parts.append(f"- Run {run_num}: \"{pair['task'][:80]}\" — {pair.get('status', '?')}")
 
     parts.append("")
 
@@ -137,18 +182,79 @@ def _build_experiment_context(
     if memory:
         parts.append("### Experiment Memory\n")
         for entry in memory:
-            parts.append(f"- [{entry['type']}] {entry['content'][:200]}")
+            parts.append(f"- [{entry['type']}] {entry['content'][:300]}")
         parts.append("")
 
     # Instructions for the manager
     parts.append("### Instructions for Continuing This Experiment\n")
     parts.append(
         "You are continuing an existing experiment. Use the previous results to:\n"
-        "- Build upon successful findings rather than repeating work\n"
-        "- Refine or correct earlier results if the current task asks for it\n"
-        "- Reference specific previous runs when relevant\n"
-        "- Full previous results are available in `_experiment_context/` workspace files\n"
+        "- **Build upon successful findings** — do not repeat work that has already been done\n"
+        "- **Reference and reuse prior output files** — CSV tables, code, images from previous runs "
+        "are available on disk (paths listed above). Read them via `code.execute` or `file.read`\n"
+        "- **Refine or correct** earlier results if the current task asks for it\n"
+        "- **Accumulate knowledge** across runs — each run should advance the experiment\n"
+        "- Full previous results and structured run data are in `_experiment_context/` workspace files:\n"
+        "  - `experiment_brief.md` — complete human-readable summary of all runs\n"
+        "  - `run_NNN_summary.json` — per-run task, full result, and output file listings\n"
+        "  - `memory.json` — accumulated findings from the experiment\n"
+        "  - `experiment.json` — experiment metadata\n"
     )
+
+    # List persisted dynamic tools from prior runs
+    # Dynamic tools persist in workspace/dynamic_tools/ and are automatically
+    # loaded by the DynamicToolFactory. Tell the manager about them.
+    workspace_base = run_pairs[0].get("workspace", "") if run_pairs else ""
+    if workspace_base:
+        dynamic_tools_dir = Path(workspace_base) / "workspace" / "dynamic_tools"
+        if dynamic_tools_dir.is_dir():
+            tool_files = sorted(dynamic_tools_dir.glob("*.json"))
+            if tool_files:
+                parts.append("### Available Dynamic Tools from Previous Runs\n")
+                parts.append(
+                    "These tools were created in previous runs and are **automatically "
+                    "available** to workers in the current run. Workers can call them "
+                    "directly without recreating them.\n"
+                )
+                for tf in tool_files[:30]:
+                    try:
+                        tool_data = json.loads(tf.read_text(encoding="utf-8"))
+                        fqn = tool_data.get("fqn", tf.stem)
+                        desc = tool_data.get("description", "")[:120]
+                        creator = tool_data.get("provenance", {}).get("creator_agent", "")
+                        parts.append(f"- **`{fqn}`**: {desc}")
+                        if creator:
+                            parts.append(f"  (created by: {creator})")
+                    except (json.JSONDecodeError, OSError):
+                        parts.append(f"- `{tf.stem}`")
+                parts.append("")
+
+    # List persisted skills from the skill registry
+    if workspace_base:
+        skills_dir = Path(workspace_base) / "workspace" / "skills"
+        if skills_dir.is_dir():
+            skill_files = sorted(skills_dir.glob("*.md"))
+            if skill_files:
+                parts.append("### Available Skills (from previous runs)\n")
+                parts.append(
+                    "These skills are persisted in `workspace/skills/` and automatically "
+                    "loaded by name when referenced in a worker's `skills` array. The "
+                    "manager can also update them by providing new content with the same heading.\n"
+                )
+                for sf in skill_files[:30]:
+                    try:
+                        content = sf.read_text(encoding="utf-8")
+                        # Extract first non-empty line as description
+                        desc = ""
+                        for line in content.splitlines():
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                desc = line[:150]
+                                break
+                        parts.append(f"- **`{sf.stem}`**: {desc}" if desc else f"- **`{sf.stem}`**")
+                    except OSError:
+                        parts.append(f"- **`{sf.stem}`**")
+                parts.append("")
 
     prompt_context = "\n".join(parts)
 
@@ -168,13 +274,20 @@ def _build_experiment_context(
 
     # Build per-run summaries for file output (all runs, not truncated)
     for idx, pair in enumerate(run_pairs):
-        state_files["runs"].append({
+        run_summary: dict[str, Any] = {
             "run_number": idx + 1,
             "run_id": pair.get("run_id", ""),
             "task": pair["task"],
-            "result": pair["result"],
+            "result": pair["result"],  # Full result, not truncated
+            "model": pair.get("model", ""),
+            "status": pair.get("status", ""),
             "timestamp": pair.get("timestamp", ""),
-        })
+        }
+        # Include output artifact listings
+        if pair.get("output_dir"):
+            run_summary["output_dir"] = pair["output_dir"]
+            run_summary["output_files"] = _list_output_artifacts(pair["output_dir"])
+        state_files["runs"].append(run_summary)
 
     # Build the markdown brief (complete, not truncated)
     brief_parts = [f"# Experiment: {session.get('title', 'Untitled')}\n"]
@@ -184,8 +297,16 @@ def _build_experiment_context(
         brief_parts.append(f"**Description:** {session['description']}\n")
     brief_parts.append(f"## Runs ({len(run_pairs)} total)\n")
     for idx, pair in enumerate(run_pairs):
-        brief_parts.append(f"### Run {idx + 1}: {pair['task'][:120]}\n")
+        brief_parts.append(f"### Run {idx + 1}: {pair['task'][:120]}")
+        brief_parts.append(f"*Model: {pair.get('model', '?')} | Status: {pair.get('status', '?')}*\n")
         brief_parts.append(f"{pair['result']}\n")
+        if pair.get("output_dir"):
+            artifacts = _list_output_artifacts(pair["output_dir"])
+            if artifacts:
+                brief_parts.append("**Output files:**")
+                for a in artifacts:
+                    brief_parts.append(f"- `{a}`")
+                brief_parts.append("")
     if memory:
         brief_parts.append("## Memory\n")
         for entry in memory:
@@ -227,6 +348,28 @@ def _write_experiment_state_files(
     brief = state_files.get("experiment_brief.md", "")
     if brief:
         (ctx_dir / "experiment_brief.md").write_text(brief, encoding="utf-8")
+
+    # Symlink prior run output directories for easy worker access
+    prior_outputs_dir = ctx_dir / "prior_outputs"
+    prior_outputs_dir.mkdir(exist_ok=True)
+    for run_data in state_files.get("runs", []):
+        output_dir = run_data.get("output_dir", "")
+        if output_dir and Path(output_dir).is_dir():
+            num = run_data.get("run_number", 0)
+            link_name = prior_outputs_dir / f"run_{num:03d}"
+            if not link_name.exists():
+                try:
+                    link_name.symlink_to(Path(output_dir).resolve())
+                except OSError:
+                    # Symlinks may not be supported; copy a manifest instead
+                    artifacts = _list_output_artifacts(output_dir)
+                    if artifacts:
+                        (prior_outputs_dir / f"run_{num:03d}_files.txt").write_text(
+                            f"# Output files from run {num}\n"
+                            f"# Directory: {output_dir}\n\n"
+                            + "\n".join(artifacts),
+                            encoding="utf-8",
+                        )
 
     logger.info(
         "Wrote experiment context to %s (%d runs, %d memory entries)",
@@ -282,6 +425,23 @@ class _RunDirWatcher:
         except (FileNotFoundError, OSError):
             return None
 
+    @staticmethod
+    def _parse_depth(parts: list[str]) -> tuple[int, str | None]:
+        """Return (depth, parent_worker_id) from path parts.
+
+        depth=0 for the root run, depth=1 for a sub-run inside a worker, etc.
+        parent_worker_id is the worker directory name that owns the sub-run.
+        """
+        depth = 0
+        parent_worker: str | None = None
+        for i, p in enumerate(parts):
+            if p == "runs" and i >= 2:
+                depth += 1
+                # The worker dir is 2 levels up: .../delegations/<worker>/runs/...
+                if i >= 1:
+                    parent_worker = parts[i - 1]
+        return depth, parent_worker
+
     def _process_file(self, path: Path, rel: str) -> None:
         """Translate a newly-observed file into one or more events."""
         if rel in self._seen_files:
@@ -289,23 +449,55 @@ class _RunDirWatcher:
         self._seen_files.add(rel)
 
         parts = rel.replace("\\", "/").split("/")
+        depth, parent_worker_id = self._parse_depth(parts)
 
-        # run_manifest.json -> run.start
-        if rel == "run_manifest.json":
+        # run_manifest.json -> run.start (or delegation.start for sub-runs)
+        if parts[-1] == "run_manifest.json":
             data = self._read_json(path)
             if data:
-                event_bus.emit_threadsafe(
-                    self._run_id,
-                    _make_event(self._run_id, EventType.RUN_START, data),
-                )
+                if depth == 0:
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(self._run_id, EventType.RUN_START, data),
+                    )
+                else:
+                    # Sub-run: emit as delegation.start so the frontend
+                    # creates a sub-manager node linked to the parent worker
+                    models = data.get("models", {})
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(
+                            self._run_id,
+                            EventType.DELEGATION_START,
+                            {
+                                "parent_id": parent_worker_id,
+                                "depth": depth,
+                                "model": models.get("manager", "?"),
+                                "models": models,
+                                "task": data.get("task", ""),
+                                **{k: v for k, v in data.items()
+                                   if k not in ("models", "task")},
+                            },
+                        ),
+                    )
+            return
 
         # iterations/NNN/manager_decision.json -> iteration.start + iteration.decision
         elif "manager_decision.json" in rel:
             data = self._read_json(path)
             if data:
-                iteration = parts[1] if len(parts) >= 3 else "?"
+                # For sub-runs, find the iteration number from the correct
+                # "iterations/NNN" segment (the last one in the path)
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                # Prefix iteration with parent worker for uniqueness in sub-runs
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 # Emit iteration.start for this iteration (if not already emitted)
-                iter_start_key = f"_iter_start_{iteration}"
+                iter_start_key = f"_iter_start_{unique_iter}"
                 if iter_start_key not in self._seen_files:
                     self._seen_files.add(iter_start_key)
                     event_bus.emit_threadsafe(
@@ -313,7 +505,11 @@ class _RunDirWatcher:
                         _make_event(
                             self._run_id,
                             EventType.ITERATION_START,
-                            {"iteration": iteration},
+                            {
+                                "iteration": unique_iter,
+                                "depth": depth,
+                                "parent_id": parent_worker_id,
+                            },
                         ),
                     )
                 # Extract delegations info for richer detail
@@ -332,7 +528,9 @@ class _RunDirWatcher:
                         self._run_id,
                         EventType.ITERATION_DECISION,
                         {
-                            "iteration": iteration,
+                            "iteration": unique_iter,
+                            "depth": depth,
+                            "parent_id": parent_worker_id,
                             "delegations": delegation_summaries,
                             **data,
                         },
@@ -377,7 +575,14 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if data:
                 worker_id = path.parent.name
-                iteration = parts[1] if len(parts) >= 3 else "?"
+                # Find the iteration number from the nearest iterations/NNN ancestor
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
@@ -385,7 +590,9 @@ class _RunDirWatcher:
                         EventType.WORKER_SPAWN,
                         {
                             "worker_id": worker_id,
-                            "iteration": iteration,
+                            "iteration": unique_iter,
+                            "depth": depth,
+                            "parent_id": parent_worker_id,
                             "instructions": str(data.get("instructions", "")),
                             "tools_allowed": data.get("tools_allowed", []),
                             "skills": [
@@ -403,27 +610,46 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if data:
                 worker_id = path.parent.name
-                iteration = parts[1] if len(parts) >= 3 else "?"
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 # Extract all findings
                 findings = data.get("findings", data.get("result", data))
                 tools_created = data.get("tools_created", [])
+                worker_event_data: dict[str, Any] = {
+                    "worker_id": worker_id,
+                    "iteration": unique_iter,
+                    "depth": depth,
+                    "confidence": data.get("confidence"),
+                    "error": data.get("error"),
+                    "has_error": bool(data.get("error")),
+                    "result": findings,
+                    "tools_created": [
+                        t if isinstance(t, str) else t.get("name", "?")
+                        for t in tools_created
+                    ] if isinstance(tools_created, list) else [],
+                }
+                # Include eval scores if present
+                if data.get("_eval_score") is not None:
+                    worker_event_data["eval_score"] = data["_eval_score"]
+                    worker_event_data["eval_action"] = data.get("_eval_action", "")
+                    worker_event_data["eval_metrics"] = data.get("_eval_metrics", [])
+                # Include critique scores if present
+                if data.get("_critique_score") is not None:
+                    worker_event_data["critique_score"] = data["_critique_score"]
+                    worker_event_data["critique_summary"] = data.get("_critique_summary", "")
+                    worker_event_data["critique_defects"] = data.get("_critique_defects", [])
+                    worker_event_data["critique_repairs"] = data.get("_critique_repairs", [])
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
                         self._run_id,
                         EventType.WORKER_COMPLETE,
-                        {
-                            "worker_id": worker_id,
-                            "iteration": iteration,
-                            "confidence": data.get("confidence"),
-                            "error": data.get("error"),
-                            "has_error": bool(data.get("error")),
-                            "result": findings,
-                            "tools_created": [
-                                t if isinstance(t, str) else t.get("name", "?")
-                                for t in tools_created
-                            ] if isinstance(tools_created, list) else [],
-                        },
+                        worker_event_data,
                     ),
                 )
 
@@ -443,6 +669,7 @@ class _RunDirWatcher:
                                 EventType.TOOL_CALL,
                                 {
                                     "worker_id": worker_id,
+                                    "depth": depth,
                                     "call_index": i,
                                     "tool": tc.get("tool", "unknown"),
                                     "arguments": tc.get("arguments", tc.get("args", {})),
@@ -452,6 +679,50 @@ class _RunDirWatcher:
                                 },
                             ),
                         )
+
+        # critique.json -> critique.result (per-iteration or per-worker)
+        elif rel.endswith("critique.json"):
+            data = self._read_json(path)
+            if data:
+                # Per-worker critique: delegations/<worker>/critique.json
+                if "delegations" in rel:
+                    worker_id = path.parent.name
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(
+                            self._run_id,
+                            EventType.CRITIQUE_RESULT,
+                            {
+                                "worker_id": worker_id,
+                                "depth": depth,
+                                "score": data.get("score"),
+                                "summary": data.get("summary", ""),
+                                "defect_count": len(data.get("defects", [])),
+                                "critical_count": data.get("critical_count", 0),
+                                "effort": data.get("effort_estimate", ""),
+                                "prescriptions": data.get("prescriptions", [])[:3],
+                            },
+                        ),
+                    )
+                else:
+                    # Iteration-level critique summary
+                    critiques = data.get("critiques", [])
+                    summary = data.get("summary", {})
+                    repairs = summary.get("repair_history", [])
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(
+                            self._run_id,
+                            EventType.CRITIQUE_RESULT,
+                            {
+                                "kind": "iteration_summary",
+                                "depth": depth,
+                                "worker_count": len(critiques),
+                                "repair_count": len(repairs),
+                                "pattern_count": len(summary.get("patterns", {})),
+                            },
+                        ),
+                    )
 
         # rolling_summary.json -> log (confidence trend)
         elif rel.endswith("rolling_summary.json"):

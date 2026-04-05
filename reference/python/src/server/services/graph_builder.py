@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -68,13 +69,15 @@ def _truncate(text: Any, max_len: int = 200) -> str:
 # Graph builder
 # ---------------------------------------------------------------------------
 
+_counter_lock = threading.Lock()
 _counter = 0
 
 
 def _uid(prefix: str) -> str:
     global _counter
-    _counter += 1
-    return f"{prefix}_{_counter}"
+    with _counter_lock:
+        _counter += 1
+        return f"{prefix}_{_counter}"
 
 
 def build_graph(run_dir: Path) -> GraphData:
@@ -118,6 +121,7 @@ def build_graph(run_dir: Path) -> GraphData:
             position={"x": 0, "y": 0},
             data={
                 "label": _truncate(task, 50),
+                "nodeType": "task",
                 "task": task,
                 "run_id": run_id,
                 "models": models,
@@ -153,6 +157,7 @@ def build_graph(run_dir: Path) -> GraphData:
                 position={"x": 0, "y": (max_level + 1) * _Y_SPACING},
                 data={
                     "label": f"Result: {comp_status}",
+                    "nodeType": "completion",
                     "status": comp_status,
                     "totalIterations": total_iters,
                     "finalBudget": final_budget,
@@ -170,12 +175,14 @@ def build_graph(run_dir: Path) -> GraphData:
             )
         )
 
-    # Update root status
+    # Update root and manager statuses based on completion
     if completion:
+        final_status = completion.get("status", "complete")
         for n in nodes:
             if n.id == root_id:
-                n.data["status"] = completion.get("status", "complete")
-                break
+                n.data["status"] = final_status
+            elif n.type == "manager" and n.data.get("status") == "running":
+                n.data["status"] = final_status
 
     return GraphData(nodes=nodes, edges=edges, stats=stats)
 
@@ -206,6 +213,8 @@ def _walk_run(
                 "label": f"Manager ({mgr_model[:25]})",
                 "model": mgr_model,
                 "depth": prefix.count("sub_"),
+                "nodeType": "manager",
+                "status": "running",
             },
         )
     )
@@ -242,6 +251,7 @@ def _walk_run(
         confidence = decision_data.get("confidence")
         reasoning = decision_data.get("reasoning", "")
         budget_snap = _read_json(iter_dir / "budget_snapshot.json") or {}
+        iter_critique = _read_json(iter_dir / "critique.json")
 
         dec_color = {
             "delegate": _COLORS["yellow"],
@@ -261,12 +271,22 @@ def _walk_run(
                 },
                 data={
                     "label": f"Iter {iter_num}: {decision_type.upper()}",
+                    "nodeType": "iteration",
                     "iteration": iter_num,
                     "decision": decision_type,
                     "confidence": confidence,
                     "reasoning": _truncate(reasoning, 300),
                     "budget": budget_snap,
                     "status": decision_type,
+                    **({"critique_active": True,
+                        "critique_repairs": sum(
+                            len(c.get("prescriptions", []))
+                            for c in (iter_critique or {}).get("critiques", [])
+                        ),
+                        "critique_patterns": len(
+                            (iter_critique or {}).get("summary", {}).get("patterns", {})
+                        )}
+                       if iter_critique else {}),
                 },
             )
         )
@@ -287,6 +307,9 @@ def _walk_run(
         if not delegations_dir.exists():
             continue
 
+        # Collect eval scores from workers to propagate to iteration node
+        _iter_eval_scores: list[float] = []
+
         worker_dirs = sorted(
             [d for d in delegations_dir.iterdir() if d.is_dir()],
             key=lambda d: d.name,
@@ -299,10 +322,13 @@ def _walk_run(
 
             envelope = _read_json(worker_dir / "envelope.json") or {}
             result = _read_json(worker_dir / "result.json") or {}
+            critique_data = _read_json(worker_dir / "critique.json")
             instructions = envelope.get("instructions", "")
             tools_allowed = envelope.get("tools_allowed", [])
             w_confidence = result.get("confidence")
             has_error = bool(result.get("error"))
+            if "_eval_score" in result:
+                _iter_eval_scores.append(result["_eval_score"])
 
             # Tool calls
             tc_data = _read_json(worker_dir / "tool_calls.json")
@@ -325,6 +351,7 @@ def _walk_run(
                     },
                     data={
                         "label": worker_id_str,
+                        "nodeType": "worker",
                         "worker_id": worker_id_str,
                         "confidence": w_confidence,
                         "confidenceLabel": conf_label,
@@ -334,6 +361,17 @@ def _walk_run(
                         "toolsAllowed": tools_allowed[:10],
                         "instructions": _truncate(instructions, 300),
                         "status": "error" if has_error else "complete",
+                        **({"eval_score": result["_eval_score"],
+                            "eval_action": result.get("_eval_action", ""),
+                            "eval_metrics": result.get("_eval_metrics", [])}
+                           if "_eval_score" in result else {}),
+                        **({"critique_score": critique_data.get("score"),
+                            "critique_summary": critique_data.get("summary", ""),
+                            "critique_defects": critique_data.get("defects", []),
+                            "critique_prescriptions": critique_data.get("prescriptions", []),
+                            "critique_repairs": result.get("_critique_repairs", []),
+                            "critique_effort": critique_data.get("effort_estimate", "")}
+                           if critique_data else {}),
                     },
                 )
             )
@@ -385,6 +423,7 @@ def _walk_run(
                         },
                         data={
                             "label": tool_name,
+                            "nodeType": "toolCall",
                             "tool": tool_name,
                             "ok": tc_ok,
                             "stdout": stdout,
@@ -392,7 +431,7 @@ def _walk_run(
                             "error": str(tc_result.get("error", ""))
                             if tc_result.get("error")
                             else None,
-                            "status": "ok" if tc_ok else "error",
+                            "status": "complete" if tc_ok else "error",
                         },
                     )
                 )
@@ -448,6 +487,15 @@ def _walk_run(
                         f"{prefix}sub_{worker_id_str}_",
                     ),
                 )
+
+        # Propagate avg eval score to iteration node
+        if _iter_eval_scores:
+            avg_eval = sum(_iter_eval_scores) / len(_iter_eval_scores)
+            for n in nodes:
+                if n.id == dec_id:
+                    n.data["eval_score"] = round(avg_eval, 4)
+                    n.data["eval_action"] = "accept" if avg_eval >= 0.75 else "warning" if avg_eval >= 0.5 else "fail"
+                    break
 
     return max_level
 

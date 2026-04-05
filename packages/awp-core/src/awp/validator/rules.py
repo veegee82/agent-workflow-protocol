@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..models.agent import AWPAgent
+from ..models.common import RESERVED_TOOL_NAMESPACES
 from ..models.manifest import AWPManifest
 from ..models.orchestration import ConditionalDependency
-from ..models.common import RESERVED_TOOL_NAMESPACES
 
 
 @dataclass
@@ -232,5 +232,66 @@ def validate_rules(
                 f"R25: Agent '{agent_id}' tool_creation_namespace '{ns}' "
                 f"is not in dynamic_tools.allowed_namespaces: {allowed_namespaces}"
             )
+
+    # --- Evaluation config rules (R27-R30) -----------------------------------
+    eval_cfg = None
+    obs = getattr(manifest, "observability", None)
+    if obs is not None:
+        eval_cfg = getattr(obs, "evaluation", None)
+
+    if eval_cfg is not None and eval_cfg.enabled:
+        from ..models.evaluation import VALID_ACTIONS, VALID_HOOKS, VALID_METRIC_KINDS
+
+        # R27: metric kinds must be valid
+        for m in eval_cfg.metrics:
+            if m.kind not in VALID_METRIC_KINDS:
+                errors.append(
+                    f"R27: Evaluation metric '{m.name}' has invalid kind "
+                    f"'{m.kind}'. Valid kinds: {sorted(VALID_METRIC_KINDS)}"
+                )
+
+        # R28: thresholds ordering and range (defense-in-depth; Pydantic also checks)
+        t = eval_cfg.thresholds
+        for tname, tval in [("accept", t.accept), ("retry", t.retry), ("fail", t.fail)]:
+            if not 0.0 <= tval <= 1.0:
+                errors.append(
+                    f"R28: Evaluation threshold '{tname}' must be in "
+                    f"[0.0, 1.0], got {tval}"
+                )
+        if not (t.accept >= t.retry >= t.fail):
+            errors.append(
+                f"R28: Evaluation thresholds must satisfy "
+                f"accept >= retry >= fail, got accept={t.accept}, "
+                f"retry={t.retry}, fail={t.fail}"
+            )
+
+        # R29: metric weights must be >= 0, at least one > 0 if metrics exist
+        for m in eval_cfg.metrics:
+            if m.weight < 0:
+                errors.append(
+                    f"R29: Evaluation metric '{m.name}' has negative weight "
+                    f"{m.weight}"
+                )
+        if eval_cfg.metrics and all(m.weight == 0 for m in eval_cfg.metrics):
+            errors.append(
+                "R29: At least one evaluation metric must have weight > 0"
+            )
+
+        # R30: step_scores.hooks must use valid hooks; retry actions must be valid
+        for hook in eval_cfg.step_scores.hooks:
+            if hook not in VALID_HOOKS:
+                errors.append(
+                    f"R30: step_scores.hooks contains invalid hook '{hook}'. "
+                    f"Valid hooks: {sorted(VALID_HOOKS)}"
+                )
+        rp = eval_cfg.retry_policy
+        if rp.enabled:
+            for field_name in ("below_retry", "below_fail"):
+                action = getattr(rp.actions, field_name, None)
+                if action and action not in VALID_ACTIONS:
+                    errors.append(
+                        f"R30: retry_policy.actions.{field_name} has invalid "
+                        f"action '{action}'. Valid actions: {sorted(VALID_ACTIONS)}"
+                    )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)

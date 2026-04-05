@@ -806,9 +806,95 @@ function NodeTooltip({ node, position }: { node: Node; position: { x: number; y:
                 {Object.entries(finalBudget ?? budget ?? {}).slice(0, 8).map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-1">
                     <span className="text-awp-muted truncate">{k.replace(/_/g, ' ')}</span>
-                    <span className="text-awp-text font-semibold">{String(v)}</span>
+                    <span className="text-awp-text font-semibold">
+                      {v != null && typeof v === 'object'
+                        ? Object.entries(v as Record<string, unknown>).map(([sk, sv]) => `${sk}: ${sv}`).join(', ')
+                        : String(v)}
+                    </span>
                   </div>
                 ))}
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Eval Score */}
+        {typeof d.eval_score === 'number' && (
+          <div className="pt-1.5">
+            <TooltipRow label="Eval Score">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className={clsx(
+                    'font-mono font-bold text-[11px]',
+                    d.eval_score as number >= 0.75 ? 'text-emerald-400'
+                      : d.eval_score as number >= 0.5 ? 'text-yellow-400'
+                        : 'text-red-400',
+                  )}>
+                    {(d.eval_score as number * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-[9px] text-awp-muted">{String(d.eval_action ?? '')}</span>
+                </div>
+                {Array.isArray(d.eval_metrics) && (d.eval_metrics as Array<{name: string; score: number; weight: number}>).map((m: {name: string; score: number; weight: number}) => (
+                  <div key={m.name} className="flex items-center gap-1 text-[9px]">
+                    <span className="text-awp-muted w-16 truncate">{m.name}</span>
+                    <div className="flex-1 h-1 rounded-full bg-awp-border overflow-hidden">
+                      <div
+                        className={clsx('h-full rounded-full',
+                          m.score >= 0.65 ? 'bg-emerald-500' : m.score >= 0.4 ? 'bg-yellow-500' : 'bg-red-500'
+                        )}
+                        style={{ width: `${Math.round(m.score * 100)}%` }}
+                      />
+                    </div>
+                    <span className="font-mono w-6 text-right">{(m.score * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </TooltipRow>
+          </div>
+        )}
+
+        {/* Critique Score */}
+        {typeof d.critique_score === 'number' && (
+          <div className="pt-1.5">
+            <TooltipRow label="Critique">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className={clsx(
+                    'font-mono font-bold text-[11px]',
+                    d.critique_score as number >= 0.8 ? 'text-emerald-400'
+                      : d.critique_score as number >= 0.5 ? 'text-amber-400'
+                        : 'text-rose-400',
+                  )}>
+                    {(d.critique_score as number * 100).toFixed(0)}%
+                  </span>
+                  {d.critique_summary && (
+                    <span className="text-[9px] text-awp-muted">{String(d.critique_summary)}</span>
+                  )}
+                </div>
+                {Array.isArray(d.critique_defects) && (d.critique_defects as Array<{category: string; severity: string; description: string}>).map((df: {category: string; severity: string; description: string}, idx: number) => (
+                  <div key={idx} className="flex items-center gap-1 text-[9px]">
+                    <span className={clsx(
+                      'px-1 rounded text-[8px] font-bold',
+                      df.severity === 'critical' ? 'bg-rose-500/20 text-rose-400'
+                        : df.severity === 'warning' ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-sky-500/20 text-sky-400',
+                    )}>
+                      {df.severity.toUpperCase()}
+                    </span>
+                    <span className="text-awp-muted">{df.category}:</span>
+                    <span className="text-awp-text truncate max-w-[150px]">{df.description}</span>
+                  </div>
+                ))}
+                {Array.isArray(d.critique_repairs) && (d.critique_repairs as Array<{attempt: number; original_score: number; repaired_score: number; defects_fixed: number}>).length > 0 && (
+                  <div className="mt-1 border-t border-awp-border pt-1">
+                    <span className="text-[9px] text-amber-400 font-medium">Repairs:</span>
+                    {(d.critique_repairs as Array<{attempt: number; original_score: number; repaired_score: number; defects_fixed: number}>).map((r: {attempt: number; original_score: number; repaired_score: number; defects_fixed: number}) => (
+                      <div key={r.attempt} className="text-[9px] text-awp-muted">
+                        #{r.attempt}: {(r.original_score * 100).toFixed(0)}% → {(r.repaired_score * 100).toFixed(0)}% ({r.defects_fixed} fixed)
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </TooltipRow>
           </div>

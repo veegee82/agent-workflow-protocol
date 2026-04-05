@@ -11,8 +11,16 @@ from typing import Any
 from awp.data.inputs import prepare_workspace
 from awp.data.prompts import build_manager_system_prompt
 from awp.models.capabilities import SandboxConfig
+from awp.models.evaluation import (
+    EvalMetricConfig,
+    EvalThresholds,
+    EvaluationConfig,
+    RetryPolicyConfig,
+    StepScoreConfig,
+)
 from awp.models.orchestration import (
     CodeModeEnforcement,
+    CritiqueConfig,
     DelegationBudget,
     DelegationLoggingConfig,
     DelegationLoopConfig,
@@ -335,7 +343,19 @@ class AgentWorkflow:
             )
             logger.info("Registered external tool: %s", spec.name)
 
-        # 5. Run the delegation loop
+        # 5. Build default evaluation config
+        eval_cfg = self._build_eval_config()
+
+        # 5a. Build LLM client for evaluation (rubric_judge)
+        from awp.runtime.llm import LLMClient
+
+        eval_llm: LLMClient | None = None
+        try:
+            eval_llm = LLMClient(model=self.model, api_key=self.api_key)
+        except Exception:
+            logger.debug("Could not create LLM client for evaluation")
+
+        # 5b. Run the delegation loop
         logger.info("Starting delegation loop: task=%s", self.task[:80])
         runner = DelegationLoopRunner(
             workflow_dir=workspace_dir,
@@ -343,6 +363,8 @@ class AgentWorkflow:
             tool_registry=tool_registry,
             manager_model=self.model,
             worker_model=self.worker_model,
+            eval_config=eval_cfg,
+            llm_client=eval_llm,
         )
 
         raw_result = runner.run(self.task)
@@ -363,7 +385,10 @@ class AgentWorkflow:
 
         status = self._determine_status(loop_result)
 
-        return {
+        # Extract evaluation summary from result (injected by EvaluationEngine)
+        evaluation = loop_result.pop("_evaluation", None)
+
+        resp: dict[str, Any] = {
             "status": status,
             "result": loop_result,
             "artifacts": artifacts,
@@ -378,6 +403,9 @@ class AgentWorkflow:
                 "output_dir": str(output_dir),
             },
         }
+        if evaluation:
+            resp["_evaluation"] = evaluation
+        return resp
 
     def _build_config(self) -> DelegationLoopConfig:
         """Build a DelegationLoopConfig from the user's parameters."""
@@ -430,6 +458,56 @@ class AgentWorkflow:
             logging=DelegationLoggingConfig(
                 format="dual",
                 persist_artifacts=True,
+            ),
+            critique=CritiqueConfig(
+                enabled=True,
+                mode="inline",
+                max_repair_attempts=2,
+                repair_budget_fraction=0.15,
+                pattern_memory=True,
+            ),
+        )
+
+    @staticmethod
+    def _build_eval_config() -> EvaluationConfig:
+        """Build a default evaluation config with universal metrics."""
+        return EvaluationConfig(
+            enabled=True,
+            metrics=[
+                EvalMetricConfig(
+                    name="has_result",
+                    kind="deterministic_test",
+                    weight=2.0,
+                    params={"expr": "result.confidence > 0.3 and 'error' not in result"},
+                ),
+                EvalMetricConfig(
+                    name="confidence",
+                    kind="deterministic_test",
+                    weight=1.5,
+                    params={"expr": "result.confidence > 0.6"},
+                ),
+                EvalMetricConfig(
+                    name="not_empty",
+                    kind="deterministic_assertion",
+                    weight=1.0,
+                    params={
+                        "assertions": [
+                            "result.confidence > 0",
+                            "'error' not in result or result.error == ''",
+                        ],
+                    },
+                ),
+                EvalMetricConfig(
+                    name="efficiency",
+                    kind="budget_utility",
+                    weight=0.5,
+                ),
+            ],
+            thresholds=EvalThresholds(accept=0.75, retry=0.45, fail=0.20),
+            step_scores=StepScoreConfig(enabled=True, hooks=["worker_result", "final_answer"]),
+            retry_policy=RetryPolicyConfig(
+                enabled=True,
+                max_repairs=2,
             ),
         )
 

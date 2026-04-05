@@ -684,10 +684,10 @@ State the total file count and the target autonomy level.
 
 #### Step 6: Validation Preview
 
-List which of the 24 rules (R1-R24) apply and confirm they will be satisfied:
+List which of the 30 rules (R1-R30) apply and confirm they will be satisfied:
 
 > **Autonomy Target:** A{N} {Level Name}
-> **Applicable Rules:** R1-R{max} (all satisfied by this plan)
+> **Applicable Rules:** R1-R{max} (all satisfied by this plan, up to R30 if evaluation enabled)
 > **Special Considerations:** {any edge cases, e.g., conditional execution, cyclic risk}
 
 #### Step 6b: Delegation Loop Plan (if engine is delegation_loop)
@@ -809,6 +809,7 @@ Create `{workflow_dir}/workflow.awp.yaml` with:
 - `execution` section (mode, timeouts, error handling).
 - `state` section (persistence, sharing strategy).
 - Additional sections as needed: `memory`, `communication`, `observability`, `security` (cross-cutting features, available at any autonomy level).
+- If quality scoring is desired, add `observability.evaluation` with metrics, thresholds, and optional retry policy. See the evaluation section below.
 - `logging` section.
 - `settings` section (LLM models, runtime config).
 
@@ -1049,6 +1050,16 @@ When generating a delegation_loop workflow:
    - Set `tool_creation: true` in `codemode` envelope when workers should create reusable tools
    - Workers can save files via `_workspace_dir` and `_output_dir` path variables
 6. **NEVER** put `shell.execute` in `tools_allowed` — it is in `forbidden_tools` and will be silently removed, leaving the worker unable to execute code
+7. If the user needs quality analysis of worker outputs, add `critique` config under `delegation_loop`:
+   ```yaml
+   critique:
+     enabled: true
+     mode: inline
+     max_repair_attempts: 2
+     repair_budget_fraction: 0.15
+     pattern_memory: true
+   ```
+8. If the user needs workflow-level quality scoring, add `evaluation` config under `observability` (see Evaluation section above)
 
 #### Step 8: Project Skills (if needed)
 
@@ -1126,6 +1137,107 @@ After generating all files, verify:
 - [ ] R23: sdk_surface.exclude entries match tools in tools.allowed.
 - [ ] R24: If sandbox.type is "isolate", sandbox.network is defined.
 - [ ] R25: WORKFLOW.md exists at project root with ASCII diagram and abstract-to-concrete description.
+- [ ] R27: If evaluation enabled, all metric kinds are valid (deterministic_test, deterministic_assertion, rubric_judge, budget_utility, policy_score).
+- [ ] R28: Evaluation thresholds satisfy accept >= retry >= fail, all in [0, 1].
+- [ ] R29: Evaluation metric weights are >= 0 with at least one > 0.
+- [ ] R30: step_scores.hooks uses valid hooks; retry_policy actions are valid.
+
+### Evaluation / Quality Scoring (Optional)
+
+AWP supports an optional evaluation layer under `observability.evaluation` that scores workflow results on problem-solving quality. This is separate from validation (which checks structural correctness).
+
+**When to use evaluation:**
+- When you need measurable quality scores on workflow outputs
+- When workflows should retry/repair based on result quality
+- When comparing different models or configurations on the same task
+
+**Example evaluation config:**
+
+```yaml
+observability:
+  evaluation:
+    enabled: true
+    metrics:
+      - name: correctness
+        kind: deterministic_test
+        weight: 2.0
+        params:
+          expr: "result.confidence > 0.7 and 'error' not in result"
+      - name: completeness
+        kind: deterministic_assertion
+        weight: 1.0
+        params:
+          assertions:
+            - "'data' in result"
+            - "result.confidence > 0"
+      - name: efficiency
+        kind: budget_utility
+        weight: 0.5
+    thresholds:
+      accept: 0.85
+      retry: 0.65
+      fail: 0.40
+    step_scores:
+      enabled: true
+      hooks:
+        - worker_result
+        - final_answer
+    retry_policy:
+      enabled: true
+      max_repairs: 2
+      actions:
+        below_retry: retry_with_repair
+        below_fail: fail_workflow
+```
+
+**Metric kinds:**
+- `deterministic_test` — safe expression eval (params: `expr`)
+- `deterministic_assertion` — list of assertions, fraction passing (params: `assertions`)
+- `rubric_judge` — LLM-based scoring with a rubric (params: `rubric`)
+- `budget_utility` — efficiency score based on budget usage
+- `policy_score` — governance/policy assertion checks (params: `assertions`)
+
+**Important:** The `step_scores` field uses `hooks` (not `on`) because `on` is a YAML boolean keyword.
+
+### Reflective Critique Loop (Optional, A2+ only)
+
+AWP supports an optional critique system under `delegation_loop.critique` that analyzes worker outputs for defects and triggers targeted repairs. This is separate from evaluation (which scores the overall result).
+
+**When to use critique:**
+- When worker outputs need quality analysis before the manager sees them
+- When you want automatic repair of defective outputs (not full workflow retry)
+- When cross-worker failure pattern learning would improve later iterations
+
+**Example critique config:**
+
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    critique:
+      enabled: true
+      mode: inline                    # "inline" (worker model) or "dedicated"
+      max_repair_attempts: 2          # Per-worker repair cycles
+      repair_budget_fraction: 0.15    # Max 15% of budget for repairs
+      pattern_memory: true            # Learn from failures across workers
+      defect_categories:
+        - missing_data
+        - wrong_format
+        - incomplete
+        - hallucinated
+        - policy_violation
+```
+
+**Critique vs Evaluation:**
+- **Critique** operates per-worker: diagnoses specific defects, prescribes fixes, repairs individual outputs
+- **Evaluation** operates per-workflow: scores the overall result, decides accept/retry/fail
+- Both can be enabled independently. When both active, critique repairs happen BEFORE evaluation scoring.
+
+**Key fields:**
+- `mode: inline` — uses the worker model (cheap). `mode: dedicated` — separate critic agent
+- `pattern_memory: true` — accumulates failure patterns, injects "Known Pitfalls" into next workers
+- `repair_budget_fraction` — caps total repair spend (e.g., 15% of budget)
+- `defect_categories` — types: missing_data, wrong_format, incomplete, hallucinated, stale, policy_violation
 
 ### Phase 4b: Generate WORKFLOW.md (Project-Level Overview)
 
@@ -1406,7 +1518,7 @@ List all generated files with count:
 #### 5f. Autonomy Badge & Validation
 
 ```
-  ✅ Validation: All {count}/24 applicable rules passed
+  ✅ Validation: All {count}/30 applicable rules passed
   🏷️  AWP A{N} {Level Name}
 ```
 
@@ -1832,6 +1944,6 @@ The `references/` directory contains condensed documentation for AI context:
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification (~2000 words). |
 | `compliance-levels.md` | Quick reference for A0-A4 autonomy levels. |
-| `validation-rules.md` | R1-R24 checklist format. |
+| `validation-rules.md` | R1-R30 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |

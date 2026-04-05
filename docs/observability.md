@@ -347,3 +347,53 @@ observability:
 | `failure_threshold` | integer | `3` | Consecutive failures before the workflow is unhealthy. |
 
 When the failure threshold is reached, the runtime should log a CRITICAL-level message, record a `security.event` in the audit trail, and optionally terminate the workflow.
+
+## Evaluation
+
+The evaluation subsystem provides **quality scoring** for workflow results. It is configured under `observability.evaluation` and is fully optional (disabled by default). For the complete reference, see [evaluation.md](evaluation.md).
+
+### Quick Reference
+
+```yaml
+observability:
+  evaluation:
+    enabled: true
+    metrics:
+      - name: correctness
+        kind: deterministic_test
+        weight: 2.0
+        params:
+          expr: "result.confidence > 0.7"
+      - name: quality
+        kind: rubric_judge
+        weight: 1.0
+      - name: efficiency
+        kind: budget_utility
+        weight: 0.5
+    thresholds:
+      accept: 0.85
+      retry: 0.65
+      fail: 0.40
+    retry_policy:
+      enabled: true
+      max_repairs: 2
+```
+
+### Metric Kinds
+
+| Kind | Description | Returns |
+|------|-------------|---------|
+| `deterministic_test` | Evaluate a single safe expression | 1.0 (truthy) or 0.0 (falsy) |
+| `deterministic_assertion` | Evaluate a list of assertions | Fraction passing |
+| `rubric_judge` | LLM-as-judge with rubric prompt | 0.0-1.0 from LLM |
+| `budget_utility` | Score based on resource utilization | 1.0 - avg_utilization |
+| `policy_score` | Check policy/governance assertions | Fraction passing |
+
+### Validation Rules
+
+Evaluation adds rules R27-R30 to the validator:
+
+- **R27**: `metrics[].kind` must be a valid metric kind
+- **R28**: Thresholds must satisfy `accept >= retry >= fail`, all in [0, 1]
+- **R29**: Metric weights must be >= 0; at least one metric must have weight > 0
+- **R30**: `step_scores.hooks` must use valid hooks; retry actions must be valid

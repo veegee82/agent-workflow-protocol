@@ -79,6 +79,96 @@ _available_tools: list[dict[str, Any]] = [
 
 
 # ---------------------------------------------------------------------------
+# Task Refactoring
+# ---------------------------------------------------------------------------
+
+
+@router.post("/refactor-task")
+async def refactor_task(body: dict[str, Any]) -> dict[str, Any]:
+    """Use the manager LLM to refactor a vague task into a structured prompt."""
+    from awp.runtime.llm import LLMClient
+    from server.app import store as _store
+
+    task = (body.get("task") or "").strip()
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+
+    model = body.get("model") or _default_settings.get("model") or "openai/gpt-5-nano"
+    api_key = body.get("api_key") or ""
+
+    # Resolve API key from secrets if not provided directly
+    if not api_key:
+        secrets = await _load_secrets_for_run(_store)
+        import re as _re
+        m = model.lower().strip()
+        if _re.match(r"^(gpt-|o[0-9]|dall-e|text-|tts-|whisper)", m):
+            api_key = secrets.get("OPENAI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+        elif m.startswith("claude-"):
+            api_key = secrets.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        else:
+            api_key = secrets.get("OPENROUTER_API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            api_key = secrets.get("LLM_API_KEY", "") or os.environ.get("LLM_API_KEY", "")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key available. Add one in Settings → API Keys.",
+        )
+
+    system_prompt = (
+        "You are a task refactoring assistant. Your job is to take a user's raw, "
+        "potentially vague task description and rewrite it into a clear, structured "
+        "prompt that a manager agent can execute precisely.\n\n"
+        "CRITICAL: Preserve the user's original language. If the task is in German, "
+        "write the refactored version in German. If in English, write in English. "
+        "Do NOT translate.\n\n"
+        "CRITICAL: Do NOT add scope or requirements the user did not mention. "
+        "Only clarify and structure what is already implied.\n\n"
+        "Rewrite the task using this exact structure:\n\n"
+        "## Objective\n"
+        "One clear sentence describing what must be accomplished.\n\n"
+        "## Context\n"
+        "- Background information and constraints the agent needs\n"
+        "- Assumptions being made\n\n"
+        "## Goals\n"
+        "1. First specific, measurable goal\n"
+        "2. Second goal (if applicable)\n\n"
+        "## Deliverables\n"
+        "- [ ] Concrete output artifact 1\n"
+        "- [ ] Concrete output artifact 2\n\n"
+        "## Success Criteria\n"
+        "- How to verify the task is complete\n"
+        "- Expected quality bar\n\n"
+        "Return ONLY the refactored task text. No meta-commentary, no preamble, "
+        "no explanations outside the structure above."
+    )
+
+    try:
+        client = LLMClient(model=model, api_key=api_key)
+        refactored = await _run_llm_in_thread(client, system_prompt, task, model)
+    except Exception as exc:
+        logger.exception("Task refactoring failed")
+        raise HTTPException(status_code=500, detail=f"LLM call failed: {exc}")
+
+    return {"original_task": task, "refactored_task": refactored}
+
+
+async def _run_llm_in_thread(client: Any, system_prompt: str, task: str, model: str) -> str:
+    """Run blocking LLMClient.chat_text in a thread pool."""
+    import asyncio
+
+    def _do() -> str:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": task},
+        ]
+        return client.chat_text(messages, model=model)
+
+    return await asyncio.get_event_loop().run_in_executor(None, _do)
+
+
+# ---------------------------------------------------------------------------
 # Runs
 # ---------------------------------------------------------------------------
 
@@ -173,8 +263,8 @@ async def create_run(config: WorkflowConfig, session_id: str | None = Query(None
         if session_data:
             await store.add_run_to_session(session_id, run_id)
 
-    # Start the run in a background thread
-    runner_service.start_run(run_id, config_dict)
+    # Start the run in a background thread (pass session_id for experiment context)
+    runner_service.start_run(run_id, config_dict, session_id=session_id)
 
     return {"run_id": run_id, "status": "running", "session_id": session_id}
 

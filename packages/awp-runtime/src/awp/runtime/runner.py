@@ -53,6 +53,7 @@ from .secrets import load_secrets
 from .security import SecurityContext
 from .state_persistence import StatePersistence
 from .dynamic_tool_factory import DynamicToolFactory
+from .evaluation import EvaluationEngine
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -371,6 +372,19 @@ class WorkflowRunner:
         if obs.audit:
             obs.audit.record("workflow.start", details={"task": task, "run_id": run_id})
 
+        # Initialize evaluation engine (no-op if not configured)
+        eval_engine: Optional[EvaluationEngine] = None
+        obs_cfg = getattr(self._manifest, "observability", None)
+        eval_cfg = getattr(obs_cfg, "evaluation", None) if obs_cfg else None
+        if eval_cfg and eval_cfg.enabled:
+            eval_engine = EvaluationEngine(
+                config=eval_cfg,
+                workflow_dir=self._dir,
+                run_id=run_id,
+                llm_client=self._llm,
+            )
+            logger.info("Evaluation engine active with %d metrics", len(eval_cfg.metrics))
+
         logger.info(
             "Running workflow '%s' [run_id=%s] with %d agents in %d levels",
             self.name,
@@ -462,6 +476,23 @@ class WorkflowRunner:
                 )
                 state.update(result)
 
+                # Step evaluation hook
+                if eval_engine:
+                    step_eval = eval_engine.evaluate_step(
+                        hook="worker_result",
+                        result=result,
+                        state=state,
+                        budget=self._run_budget,
+                        agent_id=agent_id,
+                    )
+                    if step_eval:
+                        logger.info(
+                            "  Eval [%s]: score=%.2f action=%s",
+                            agent_id,
+                            step_eval.score,
+                            step_eval.action,
+                        )
+
                 # Track agent run in global budget
                 if self._run_budget:
                     self._run_budget.record_agent_run()
@@ -478,7 +509,7 @@ class WorkflowRunner:
                         "Failed to save checkpoint for %s: %s", agent_id, exc
                     )
 
-        return self._finalize_run(state, obs, root_span, workflow_start, levels)
+        return self._finalize_run(state, obs, root_span, workflow_start, levels, eval_engine)
 
     def _finalize_run(
         self,
@@ -487,8 +518,9 @@ class WorkflowRunner:
         root_span: Optional[str],
         workflow_start: float,
         levels: list,
+        eval_engine: Optional[EvaluationEngine] = None,
     ) -> Dict[str, Any]:
-        """Finalize a workflow run — observability, cleanup, persistence."""
+        """Finalize a workflow run — observability, evaluation, cleanup, persistence."""
         workflow_duration = time.monotonic() - workflow_start
 
         # Attach budget summary to state
@@ -515,6 +547,23 @@ class WorkflowRunner:
                     "duration_s": round(workflow_duration, 2),
                 },
             )
+
+        # Final evaluation
+        if eval_engine and eval_engine.enabled:
+            final_eval = eval_engine.evaluate_final(
+                result=state,
+                state=state,
+                budget=self._run_budget,
+            )
+            if final_eval:
+                action = eval_engine.decide_retry(final_eval)
+                logger.info(
+                    "Final evaluation: score=%.2f action=%s",
+                    final_eval.score,
+                    action,
+                )
+                state["_evaluation"] = eval_engine.get_summary()
+            eval_engine.flush()
 
         # Flush observability
         obs.flush_all()
@@ -561,12 +610,18 @@ class WorkflowRunner:
             or manager_model
         )
 
+        # Pass evaluation config if available
+        obs_cfg = getattr(self._manifest, "observability", None)
+        eval_cfg = getattr(obs_cfg, "evaluation", None) if obs_cfg else None
+
         runner = DelegationLoopRunner(
             workflow_dir=self._dir,
             config=dl_config,
             tool_registry=self._tools,
             manager_model=manager_model,
             worker_model=worker_model,
+            eval_config=eval_cfg,
+            llm_client=self._llm,
         )
         result = runner.run(task, state)
         state.update(result)

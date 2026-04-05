@@ -120,8 +120,12 @@ function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[]
     ? `\n\n---\n**Confidence:** ${(confidence * 100).toFixed(0)}%`
     : '';
 
-  // Collect remaining keys (excluding content + confidence)
-  const extraKeys = Object.keys(dict).filter((k) => k !== mainKey && k !== 'confidence');
+  // Extract evaluation data (from raw result or unwrapped dict)
+  const rawDict = resultData as Record<string, unknown>;
+  const evalData = (rawDict._evaluation ?? dict._evaluation) as Record<string, unknown> | undefined;
+
+  // Collect remaining keys (excluding content, confidence, and underscore-prefixed)
+  const extraKeys = Object.keys(dict).filter((k) => k !== mainKey && k !== 'confidence' && !k.startsWith('_'));
   const extras: OutputBlock[] = [];
   if (extraKeys.length > 0) {
     const extraDict: Record<string, unknown> = {};
@@ -140,6 +144,31 @@ function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[]
         title: 'Additional Data',
       });
     }
+  }
+
+  // Add evaluation summary as markdown (robust — always renders)
+  if (evalData && typeof evalData === 'object' && 'final_score' in evalData) {
+    const ev = evalData as { final_score: number; action?: string; metrics?: Array<{ name: string; score: number; weight: number }>; retries_used?: number };
+    const pct = Math.round(ev.final_score * 100);
+    const icon = pct >= 75 ? '🟢' : pct >= 50 ? '🟡' : '🔴';
+    let md = `## ${icon} Evaluation Score: ${pct}%\n\n`;
+    md += `**Action:** ${(ev.action ?? '').replace(/_/g, ' ')}`;
+    if (ev.metrics && ev.metrics.length > 0) {
+      md += '\n\n| Metric | Score | Weight |\n|--------|------:|-------:|\n';
+      for (const m of ev.metrics) {
+        const mIcon = m.score >= 0.65 ? '✅' : m.score >= 0.4 ? '⚠️' : '❌';
+        md += `| ${mIcon} ${m.name} | ${Math.round(m.score * 100)}% | ${m.weight} |\n`;
+      }
+    }
+    if (ev.retries_used) {
+      md += `\n**Retries used:** ${ev.retries_used}`;
+    }
+    // Eval block goes FIRST so it's always visible at the top
+    return [
+      { type: 'markdown', content: md, title: 'Evaluation' },
+      { type: 'markdown', content: mainContent + confLine, title },
+      ...extras,
+    ];
   }
 
   return [
@@ -559,13 +588,32 @@ function processEvent(
       const workerId = (evt.data.worker_id as string) ?? nodeIdFromEvent(evt);
       const hasError = Boolean(evt.data.error || evt.data.has_error);
       const toolsCreated = (evt.data.tools_created as string[]) ?? [];
-      store.updateGraphNode(workerId, {
+      const nodeUpdate: Partial<Node['data']> = {
         status: hasError ? 'error' : 'complete',
         confidence: evt.data.confidence as number | undefined,
         outputs: evt.data.result as Record<string, unknown> | undefined,
         error: evt.data.error as string | undefined,
         tools_created: toolsCreated,
-      });
+      };
+      // Attach eval scores if present
+      if (typeof evt.data.eval_score === 'number') {
+        nodeUpdate.eval_score = evt.data.eval_score as number;
+        nodeUpdate.eval_action = (evt.data.eval_action as string) ?? '';
+        nodeUpdate.eval_metrics = (evt.data.eval_metrics as Array<{name: string; score: number; weight: number}>) ?? [];
+      }
+      store.updateGraphNode(workerId, nodeUpdate);
+      // Propagate eval score to parent iteration node
+      if (typeof evt.data.eval_score === 'number') {
+        const iterNum = evt.data.iteration as string | undefined;
+        if (iterNum) {
+          const iterNodeId = `iter_${iterNum.replace(/^.*_/, '')}`;
+          store.updateGraphNode(iterNodeId, {
+            eval_score: evt.data.eval_score as number,
+            eval_action: (evt.data.eval_action as string) ?? '',
+            eval_metrics: (evt.data.eval_metrics as Array<{name: string; score: number; weight: number}>) ?? [],
+          });
+        }
+      }
       // Always show worker results (errors always, success in verbose or summarized)
       if (hasError) {
         store.addOutputBlock({
@@ -580,6 +628,20 @@ function processEvent(
           content: JSON.stringify(resultData, null, 2),
           title: `Worker ${workerId.slice(0, 8)} (confidence: ${evt.data.confidence ?? '?'})`,
         });
+      }
+      // Show eval score for this worker as markdown
+      if (typeof evt.data.eval_score === 'number') {
+        const ePct = Math.round((evt.data.eval_score as number) * 100);
+        const eIcon = ePct >= 75 ? '🟢' : ePct >= 50 ? '🟡' : '🔴';
+        let eMd = `### ${eIcon} Worker Eval: ${ePct}% — ${((evt.data.eval_action as string) ?? '').replace(/_/g, ' ')}\n`;
+        const eMetrics = evt.data.eval_metrics as Array<{ name: string; score: number; weight: number }> | undefined;
+        if (eMetrics && eMetrics.length > 0) {
+          eMd += '\n| Metric | Score | Weight |\n|--------|------:|-------:|\n';
+          for (const m of eMetrics) {
+            eMd += `| ${m.score >= 0.65 ? '✅' : m.score >= 0.4 ? '⚠️' : '❌'} ${m.name} | ${Math.round(m.score * 100)}% | ${m.weight} |\n`;
+          }
+        }
+        store.addOutputBlock({ type: 'markdown', content: eMd, title: `Eval: ${workerId.slice(0, 8)}` });
       }
       break;
     }
@@ -753,6 +815,11 @@ function processEvent(
     case 'run.complete': {
       const status = (evt.data.status as string) ?? 'complete';
       const isError = status === 'error' || status === 'failed';
+      const resultObj = evt.data.result as Record<string, unknown> | undefined;
+
+      // Detect if this is the file-watcher completion (has total_iterations)
+      // vs the runner-service completion (has result.result with actual content)
+      const isFileWatcherEvent = !resultObj || ('total_iterations' in evt.data && !('_evaluation' in (resultObj ?? {})));
 
       // Update manager and task root nodes
       store.updateGraphNode('manager', { status: isError ? 'error' : 'complete' });
@@ -772,15 +839,18 @@ function processEvent(
           : prev.sessions,
       }));
 
-      if (isError && evt.data.result) {
-        const result = evt.data.result as Record<string, unknown>;
+      if (isFileWatcherEvent) {
+        break;
+      }
+
+      if (isError && resultObj) {
         store.addOutputBlock({
           type: 'error',
-          content: (result.error as string) ?? JSON.stringify(result, null, 2),
+          content: (resultObj.error as string) ?? JSON.stringify(resultObj, null, 2),
           title: 'Error',
         });
-      } else if (evt.data.result) {
-        for (const block of resultToOutputBlocks(evt.data.result, 'Final Result')) {
+      } else if (resultObj) {
+        for (const block of resultToOutputBlocks(resultObj, 'Final Result')) {
           store.addOutputBlock(block);
         }
       }
@@ -1015,7 +1085,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   loadRunBlocks: async (runId: string) => {
     try {
       const run = await api.getRun(runId);
-      const events = run.events ?? [];
+      const events = (run.events && run.events.length > 0)
+        ? run.events
+        : await api.getRunEvents(runId).catch(() => [] as Array<{type: string; data: Record<string, unknown>}>);
       const blocks: OutputBlock[] = [];
 
       blocks.push({
@@ -1050,6 +1122,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               content: hasErr ? `Worker failed: ${d.error}` : JSON.stringify(d.result ?? d, null, 2),
               title: `Worker ${((d.worker_id as string) ?? '?').slice(0, 8)}`,
             });
+            // Show worker eval score as markdown
+            if (typeof d.eval_score === 'number') {
+              const ePct = Math.round((d.eval_score as number) * 100);
+              const eIcon = ePct >= 75 ? '🟢' : ePct >= 50 ? '🟡' : '🔴';
+              let eMd = `### ${eIcon} Worker Eval: ${ePct}% — ${((d.eval_action as string) ?? '').replace(/_/g, ' ')}\n`;
+              const eMetrics = d.eval_metrics as Array<{ name: string; score: number; weight: number }> | undefined;
+              if (eMetrics && eMetrics.length > 0) {
+                eMd += '\n| Metric | Score | Weight |\n|--------|------:|-------:|\n';
+                for (const m of eMetrics) {
+                  eMd += `| ${m.score >= 0.65 ? '✅' : m.score >= 0.4 ? '⚠️' : '❌'} ${m.name} | ${Math.round(m.score * 100)}% | ${m.weight} |\n`;
+                }
+              }
+              blocks.push({ type: 'markdown', content: eMd, title: `Eval: ${((d.worker_id as string) ?? '?').slice(0, 8)}` });
+            }
             break;
           }
           case 'tool.call': {
@@ -1122,7 +1208,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           const resultData = r.result as Record<string, unknown> | undefined;
           blocks.push({ type: 'error', content: (resultData?.error as string) ?? JSON.stringify(r, null, 2), title: 'Error' });
         } else {
-          for (const block of resultToOutputBlocks(r.result, 'Final Result')) {
+          // Pass the full result (r) so _evaluation is accessible
+          for (const block of resultToOutputBlocks(r, 'Final Result')) {
             blocks.push(block);
           }
         }
@@ -1599,7 +1686,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               title: 'Error',
             });
           } else {
-            for (const block of resultToOutputBlocks(r.result, 'Final Result')) {
+            for (const block of resultToOutputBlocks(r, 'Final Result')) {
               outputBlocks.push(block);
             }
           }

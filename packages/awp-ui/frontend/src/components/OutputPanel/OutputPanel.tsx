@@ -20,6 +20,7 @@ import {
   Users,
   Clock,
   Wrench,
+  Target,
 } from 'lucide-react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useWorkflowStore } from '@/stores/workflowStore';
@@ -612,6 +613,7 @@ const OutputBlockCard = memo(function OutputBlockCard({ block, index }: { block:
         )}
         {block.type === 'table' && <TableBlock content={block.content} />}
         {block.type === 'json' && <JsonBlock content={block.content} />}
+        {block.type === 'evaluation' && <EvalBlock content={block.content} />}
         {block.type === 'error' && (
           <ErrorBlock content={block.content} title={block.title} />
         )}
@@ -619,6 +621,127 @@ const OutputBlockCard = memo(function OutputBlockCard({ block, index }: { block:
           <FileBlock content={block.content} title={block.title} />
         )}
       </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Evaluation Score Block
+// ---------------------------------------------------------------------------
+
+interface EvalMetric {
+  name: string;
+  kind: string;
+  score: number;
+  weight: number;
+}
+
+interface EvalData {
+  final_score: number;
+  action: string;
+  metrics: EvalMetric[];
+  retries_used?: number;
+}
+
+const EvalBlock = memo(function EvalBlock({ content }: { content: string }) {
+  const data: EvalData | null = useMemo(() => {
+    try { return JSON.parse(content); } catch { return null; }
+  }, [content]);
+
+  if (!data || typeof data.final_score !== 'number') {
+    return <JsonBlock content={content} />;
+  }
+
+  const score = data.final_score;
+  const pct = Math.round(score * 100);
+  const actionLabel = data.action?.replace(/_/g, ' ') ?? '';
+  const isAccept = data.action === 'accept' || data.action === 'accept_with_warning';
+  const isFail = data.action === 'fail_workflow';
+
+  const scoreColor = score >= 0.75
+    ? 'text-emerald-400'
+    : score >= 0.5
+      ? 'text-yellow-400'
+      : 'text-red-400';
+
+  const barColor = score >= 0.75
+    ? 'bg-emerald-500'
+    : score >= 0.5
+      ? 'bg-yellow-500'
+      : 'bg-red-500';
+
+  const actionBadge = isAccept
+    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    : isFail
+      ? 'bg-red-500/15 text-red-400 border-red-500/30'
+      : 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30';
+
+  return (
+    <div className="space-y-3">
+      {/* Header: Score + Action */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Target className={clsx('h-5 w-5', scoreColor)} />
+          <span className={clsx('text-2xl font-bold font-mono tabular-nums', scoreColor)}>
+            {pct}%
+          </span>
+          <div className="h-2 w-32 rounded-full bg-awp-border overflow-hidden">
+            <div
+              className={clsx('h-full rounded-full transition-all duration-700', barColor)}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+        <span className={clsx('text-[11px] font-medium px-2 py-0.5 rounded border', actionBadge)}>
+          {actionLabel}
+        </span>
+      </div>
+
+      {/* Metric breakdown */}
+      {data.metrics && data.metrics.length > 0 && (
+        <div className="space-y-1.5">
+          {data.metrics.map((m) => {
+            const mPct = Math.round(m.score * 100);
+            const mColor = m.score >= 0.65
+              ? 'text-emerald-400'
+              : m.score >= 0.4
+                ? 'text-yellow-400'
+                : 'text-red-400';
+            const mBar = m.score >= 0.65
+              ? 'bg-emerald-500'
+              : m.score >= 0.4
+                ? 'bg-yellow-500'
+                : 'bg-red-500';
+
+            return (
+              <div key={m.name} className="flex items-center gap-2 text-xs">
+                <span className="w-36 truncate text-awp-muted" title={m.name}>
+                  {m.name}
+                </span>
+                <div className="flex-1 h-1.5 rounded-full bg-awp-border overflow-hidden">
+                  <div
+                    className={clsx('h-full rounded-full transition-all duration-500', mBar)}
+                    style={{ width: `${mPct}%` }}
+                  />
+                </div>
+                <span className={clsx('w-10 text-right font-mono tabular-nums', mColor)}>
+                  {mPct}%
+                </span>
+                <span className="w-14 text-right text-awp-muted font-mono">
+                  w={m.weight}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Retries */}
+      {(data.retries_used ?? 0) > 0 && (
+        <div className="text-[11px] text-awp-muted">
+          Retries used: {data.retries_used}
+        </div>
+      )}
     </div>
   );
 });

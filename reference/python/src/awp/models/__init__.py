@@ -1,28 +1,37 @@
 """AWP Pydantic data models."""
 
-from .manifest import AWPManifest, DynamicToolsConfig, NamespaceCapability
 from .agent import AWPAgent
-from .capabilities import ToolsCapability, SkillsCapability, DataSourceConfig
-from .communication import CommunicationConfig, BusConfig, Channel, MessageEnvelope
-from .state import StateModel, SharingConfig, PersistenceConfig
-from .memory import MemoryConfig
-from .orchestration import (
-    AWPOrchestrationConfig,
-    GraphNode,
-    AWPExecutionConfig,
-    DelegationLoopConfig,
-    DelegationBudget,
-    ContextBudget,
-    WorkerPolicy,
-    ValidationConfig,
-    StallDetectionConfig,
-    HistoryConfig,
-    DelegationLoopModels,
+from .capabilities import DataSourceConfig, SkillsCapability, ToolsCapability
+from .common import AgentId, SemVer, ToolFQN
+from .communication import BusConfig, Channel, CommunicationConfig, MessageEnvelope
+from .custom_tools import CustomToolDeclaration, CustomToolsConfig
+from .evaluation import (
+    EvalMetricConfig,
+    EvalThresholds,
+    EvaluationConfig,
+    RetryActionConfig,
+    RetryPolicyConfig,
+    RubricJudgeConfig,
+    StepScoreConfig,
 )
+from .manifest import AWPManifest, DynamicToolsConfig, NamespaceCapability
+from .memory import MemoryConfig
 from .observability import ObservabilityConfig
-from .custom_tools import CustomToolsConfig, CustomToolDeclaration
-from .security import SecurityConfig, CircuitBreakerConfig
-from .common import SemVer, AgentId, ToolFQN
+from .orchestration import (
+    AWPExecutionConfig,
+    AWPOrchestrationConfig,
+    ContextBudget,
+    DelegationBudget,
+    DelegationLoopConfig,
+    DelegationLoopModels,
+    GraphNode,
+    HistoryConfig,
+    StallDetectionConfig,
+    ValidationConfig,
+    WorkerPolicy,
+)
+from .security import CircuitBreakerConfig, SecurityConfig
+from .state import PersistenceConfig, SharingConfig, StateModel
 
 __all__ = [
     "AWPManifest",
@@ -59,4 +68,11 @@ __all__ = [
     "ToolFQN",
     "DynamicToolsConfig",
     "NamespaceCapability",
+    "EvaluationConfig",
+    "EvalMetricConfig",
+    "EvalThresholds",
+    "StepScoreConfig",
+    "RetryPolicyConfig",
+    "RetryActionConfig",
+    "RubricJudgeConfig",
 ]

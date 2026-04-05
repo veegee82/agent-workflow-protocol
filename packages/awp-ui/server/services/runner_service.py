@@ -620,24 +620,36 @@ class _RunDirWatcher:
                 # Extract all findings
                 findings = data.get("findings", data.get("result", data))
                 tools_created = data.get("tools_created", [])
+                worker_event_data: dict[str, Any] = {
+                    "worker_id": worker_id,
+                    "iteration": unique_iter,
+                    "depth": depth,
+                    "confidence": data.get("confidence"),
+                    "error": data.get("error"),
+                    "has_error": bool(data.get("error")),
+                    "result": findings,
+                    "tools_created": [
+                        t if isinstance(t, str) else t.get("name", "?")
+                        for t in tools_created
+                    ] if isinstance(tools_created, list) else [],
+                }
+                # Include eval scores if present
+                if data.get("_eval_score") is not None:
+                    worker_event_data["eval_score"] = data["_eval_score"]
+                    worker_event_data["eval_action"] = data.get("_eval_action", "")
+                    worker_event_data["eval_metrics"] = data.get("_eval_metrics", [])
+                # Include critique scores if present
+                if data.get("_critique_score") is not None:
+                    worker_event_data["critique_score"] = data["_critique_score"]
+                    worker_event_data["critique_summary"] = data.get("_critique_summary", "")
+                    worker_event_data["critique_defects"] = data.get("_critique_defects", [])
+                    worker_event_data["critique_repairs"] = data.get("_critique_repairs", [])
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
                         self._run_id,
                         EventType.WORKER_COMPLETE,
-                        {
-                            "worker_id": worker_id,
-                            "iteration": unique_iter,
-                            "depth": depth,
-                            "confidence": data.get("confidence"),
-                            "error": data.get("error"),
-                            "has_error": bool(data.get("error")),
-                            "result": findings,
-                            "tools_created": [
-                                t if isinstance(t, str) else t.get("name", "?")
-                                for t in tools_created
-                            ] if isinstance(tools_created, list) else [],
-                        },
+                        worker_event_data,
                     ),
                 )
 
@@ -667,6 +679,50 @@ class _RunDirWatcher:
                                 },
                             ),
                         )
+
+        # critique.json -> critique.result (per-iteration or per-worker)
+        elif rel.endswith("critique.json"):
+            data = self._read_json(path)
+            if data:
+                # Per-worker critique: delegations/<worker>/critique.json
+                if "delegations" in rel:
+                    worker_id = path.parent.name
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(
+                            self._run_id,
+                            EventType.CRITIQUE_RESULT,
+                            {
+                                "worker_id": worker_id,
+                                "depth": depth,
+                                "score": data.get("score"),
+                                "summary": data.get("summary", ""),
+                                "defect_count": len(data.get("defects", [])),
+                                "critical_count": data.get("critical_count", 0),
+                                "effort": data.get("effort_estimate", ""),
+                                "prescriptions": data.get("prescriptions", [])[:3],
+                            },
+                        ),
+                    )
+                else:
+                    # Iteration-level critique summary
+                    critiques = data.get("critiques", [])
+                    summary = data.get("summary", {})
+                    repairs = summary.get("repair_history", [])
+                    event_bus.emit_threadsafe(
+                        self._run_id,
+                        _make_event(
+                            self._run_id,
+                            EventType.CRITIQUE_RESULT,
+                            {
+                                "kind": "iteration_summary",
+                                "depth": depth,
+                                "worker_count": len(critiques),
+                                "repair_count": len(repairs),
+                                "pattern_count": len(summary.get("patterns", {})),
+                            },
+                        ),
+                    )
 
         # rolling_summary.json -> log (confidence trend)
         elif rel.endswith("rolling_summary.json"):

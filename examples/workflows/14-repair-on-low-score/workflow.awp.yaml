@@ -1,0 +1,60 @@
+awp: "1.0.0"
+
+workflow:
+  name: repair-on-low-score
+  version: "1.0.0"
+  description: "Demonstrates evaluation-driven retry/repair in a delegation loop workflow"
+  author: "AWP Examples"
+  tags: ["example", "a2", "evaluation", "retry", "repair"]
+
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+    budget:
+      max_loops: 5
+      max_total_workers: 10
+      max_total_tokens: 50000
+      max_wall_time: 120
+    models:
+      manager: "openai/gpt-5-nano"
+      worker: "openai/gpt-5-nano"
+    history:
+      full_results_window: 3
+
+observability:
+  logging:
+    level: INFO
+  evaluation:
+    enabled: true
+    metrics:
+      - name: result_quality
+        kind: deterministic_test
+        weight: 2.0
+        params:
+          expr: "result.confidence > 0.6"
+      - name: completeness
+        kind: deterministic_assertion
+        weight: 1.0
+        params:
+          assertions:
+            - "'error' not in result"
+            - "result.confidence > 0"
+      - name: efficiency
+        kind: budget_utility
+        weight: 0.5
+    thresholds:
+      accept: 0.80
+      retry: 0.50
+      fail: 0.25
+    step_scores:
+      enabled: true
+      hooks:
+        - worker_result
+        - final_answer
+    retry_policy:
+      enabled: true
+      max_repairs: 2
+      actions:
+        below_retry: retry_with_repair
+        below_fail: fail_workflow

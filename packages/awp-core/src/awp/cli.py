@@ -121,6 +121,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip automatic PyPI update check",
     )
+    p_run.add_argument(
+        "--eval",
+        action="store_true",
+        help="Enable evaluation scoring (override YAML config)",
+    )
+
+    # eval (view evaluation artifacts)
+    p_eval = subparsers.add_parser(
+        "eval", help="View evaluation artifact for a workflow run"
+    )
+    p_eval.add_argument("path", help="Path to workflow directory")
+    p_eval.add_argument(
+        "--run-id", help="Run ID to view (default: latest)"
+    )
 
     args = parser.parse_args(argv)
 
@@ -145,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_studio(args)
         elif args.command == "run":
             return cmd_run(args)
+        elif args.command == "eval":
+            return cmd_eval(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -552,6 +568,25 @@ def cmd_run(args: argparse.Namespace) -> int:
         wf_dir, manager_model=manager_model, worker_model=worker_model
     )
 
+    # --eval flag: force-enable evaluation on the manifest
+    if getattr(args, "eval", False):
+        obs = getattr(runner._manifest, "observability", None)
+        if obs:
+            eval_cfg = getattr(obs, "evaluation", None)
+            if eval_cfg:
+                eval_cfg.enabled = True
+            else:
+                from .models.evaluation import EvaluationConfig
+
+                obs.evaluation = EvaluationConfig(enabled=True)
+        else:
+            from .models.observability import ObservabilityConfig
+            from .models.evaluation import EvaluationConfig
+
+            runner._manifest.observability = ObservabilityConfig(
+                evaluation=EvaluationConfig(enabled=True)
+            )
+
     # -- Pre-run wizard ------------------------------------------------
     if sys.stdin.isatty():
         # Model wizard: let user choose LLM model if not already set
@@ -599,6 +634,98 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print(json.dumps(value, indent=2, default=str))
                 print()
 
+        # Print evaluation summary if present
+        eval_summary = result.get("_evaluation")
+        if eval_summary:
+            _print_eval_summary(eval_summary)
+
+    return 0
+
+
+def _print_eval_summary(eval_summary: dict) -> None:
+    """Print a formatted evaluation summary."""
+    print()
+    print("=" * 50)
+    score = eval_summary.get("final_score", 0.0)
+    action = eval_summary.get("action", "")
+    print(f"  Evaluation: {score:.2f} / 1.00  ({action})")
+    print("-" * 50)
+    for m in eval_summary.get("metrics", []):
+        sym = "[ok]" if m["score"] >= 0.65 else "[WARN]" if m["score"] >= 0.4 else "[FAIL]"
+        print(f"    {sym}  {m['name']:<20s} {m['score']:.2f}  (weight {m['weight']:.1f})")
+    retries = eval_summary.get("retries_used", 0)
+    if retries:
+        print(f"  Retries used: {retries}")
+    print("=" * 50)
+    print()
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """View evaluation artifacts for a workflow run."""
+    wf_dir = Path(args.path).resolve()
+    eval_dir = wf_dir / "data" / "evaluation"
+
+    if not eval_dir.exists():
+        print(f"No evaluation artifacts found in {eval_dir}")
+        return 1
+
+    run_id = getattr(args, "run_id", None)
+    if run_id:
+        artifact_path = eval_dir / f"{run_id}.json"
+    else:
+        # Find latest artifact
+        artifacts = sorted(eval_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        if not artifacts:
+            print(f"No evaluation artifacts found in {eval_dir}")
+            return 1
+        artifact_path = artifacts[-1]
+
+    if not artifact_path.exists():
+        print(f"Artifact not found: {artifact_path}")
+        return 1
+
+    data = json.loads(artifact_path.read_text(encoding="utf-8"))
+    print(f"  Run ID:     {data.get('run_id', '?')}")
+    print(f"  Artifact:   {artifact_path}")
+    print()
+
+    final_score = data.get("final_score")
+    if final_score is not None:
+        print(f"  Final Score: {final_score:.4f}")
+        print(f"  Action:      {data.get('final_action', '?')}")
+        print(f"  Retries:     {data.get('retries_used', 0)}")
+    else:
+        print("  No final score recorded.")
+
+    # Print step records
+    steps = data.get("step_records", [])
+    if steps:
+        print()
+        print(f"  Step evaluations ({len(steps)}):")
+        for step in steps:
+            r = step.get("result", {})
+            print(
+                f"    [{step.get('hook', '?')}] "
+                f"agent={step.get('agent_id', '?')} "
+                f"score={r.get('score', 0):.4f} "
+                f"action={r.get('action', '?')}"
+            )
+
+    # Print final metric breakdown
+    final_result = data.get("final_result")
+    if final_result and "metric_scores" in final_result:
+        print()
+        print("  Metric breakdown:")
+        for ms in final_result["metric_scores"]:
+            sym = "[ok]" if ms["score"] >= 0.65 else "[WARN]" if ms["score"] >= 0.4 else "[FAIL]"
+            print(
+                f"    {sym}  {ms['name']:<20s} {ms['score']:.4f}  "
+                f"(weight={ms['weight']:.1f}, kind={ms['kind']})"
+            )
+            if ms.get("evidence"):
+                print(f"         {ms['evidence'][:100]}")
+
+    print()
     return 0
 
 

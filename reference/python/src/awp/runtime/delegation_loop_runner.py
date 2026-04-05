@@ -49,6 +49,8 @@ from .context_sharing import (
     build_input_registry,
     prepare_context,
 )
+from .critique import CritiqueEngine
+from .evaluation import EvaluationEngine
 from .llm import LLMClient
 from .tools import ToolRegistry
 
@@ -334,6 +336,60 @@ class RunLogger:
         )
         worker_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(worker_dir / "result.json", result)
+
+    def log_critique(
+        self, iteration: int, critiques: list[dict], summary: dict
+    ) -> None:
+        """Write critique results and repair history for an iteration."""
+        iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
+        iter_dir.mkdir(parents=True, exist_ok=True)
+        self.write_json(iter_dir / "critique.json", {
+            "critiques": critiques,
+            "summary": summary,
+        })
+        # Write per-worker critique files
+        for c in critiques:
+            wid = c.get("worker_id", "unknown")
+            worker_dir = iter_dir / "delegations" / wid
+            worker_dir.mkdir(parents=True, exist_ok=True)
+            self.write_json(worker_dir / "critique.json", c)
+        # Human-readable critique summary
+        md_lines = [f"# Critique — Iteration {iteration}\n"]
+        for c in critiques:
+            wid = c.get("worker_id", "?")
+            score = c.get("score", "?")
+            status = "PASS" if c.get("critical_count", 0) == 0 else "NEEDS REPAIR"
+            md_lines.append(f"## {wid}: {status} (score={score})\n")
+            for d in c.get("defects", []):
+                sev = d.get("severity", "?")
+                cat = d.get("category", "?")
+                desc = d.get("description", "?")
+                md_lines.append(f"- [{sev.upper()}] **{cat}**: {desc}")
+            prescriptions = c.get("prescriptions", [])
+            if prescriptions:
+                md_lines.append("\n**Prescriptions:**")
+                for p in prescriptions:
+                    md_lines.append(f"  - {p}")
+            md_lines.append("")
+        # Repair history
+        repairs = summary.get("repair_history", [])
+        if repairs:
+            md_lines.append("## Repair History\n")
+            for r in repairs:
+                md_lines.append(
+                    f"- **{r.get('worker_id')}** attempt {r.get('attempt')}: "
+                    f"{r.get('original_score', '?')} -> {r.get('repaired_score', '?')} "
+                    f"({r.get('defects_fixed', 0)} fixed)"
+                )
+        # Patterns
+        patterns = summary.get("patterns", {})
+        if patterns:
+            md_lines.append("\n## Accumulated Patterns\n")
+            for name, p in patterns.items():
+                md_lines.append(
+                    f"- **{name}** (x{p.get('frequency', 1)}): {p.get('prevention_rule', '')}"
+                )
+        self.write_md(iter_dir / "CRITIQUE.md", "\n".join(md_lines))
 
     def log_iteration_budget(self, iteration: int, budget: "BudgetSnapshot") -> None:
         """Write budget_snapshot.json after iteration finishes."""
@@ -709,6 +765,8 @@ class DelegationLoopRunner:
         run_id: Optional[str] = None,
         depth: int = 0,
         parent_budget: Optional[BudgetSnapshot] = None,
+        eval_config: Any = None,
+        llm_client: Optional[LLMClient] = None,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
@@ -746,6 +804,33 @@ class DelegationLoopRunner:
 
         # History
         self._history: list[dict[str, Any]] = []
+
+        # Critique engine (Reflective Critique Loop)
+        self._critique_engine: Optional[CritiqueEngine] = None
+        critique_cfg = getattr(config, "critique", None)
+        if critique_cfg and critique_cfg.enabled:
+            self._critique_engine = CritiqueEngine(
+                config=critique_cfg,
+                workflow_dir=workflow_dir,
+                run_id=self._run_id,
+                worker_model=self._worker_model,
+                llm_client=llm_client,
+            )
+            logger.info("Critique engine active (max_repair=%d)", critique_cfg.max_repair_attempts)
+
+        # Evaluation engine (no-op if not configured)
+        self._eval_engine: Optional[EvaluationEngine] = None
+        if eval_config and getattr(eval_config, "enabled", False):
+            self._eval_engine = EvaluationEngine(
+                config=eval_config,
+                workflow_dir=workflow_dir,
+                run_id=self._run_id,
+                llm_client=llm_client,
+            )
+            logger.info(
+                "Evaluation engine active with %d metrics",
+                len(eval_config.metrics),
+            )
 
     def _load_agent(
         self, agent_dir: Path, llm: Optional[LLMClient] = None
@@ -895,6 +980,43 @@ class DelegationLoopRunner:
                         )
                         continue  # force another loop iteration
 
+                # --- Evaluation gate: score final result before accepting
+                if self._eval_engine and self._eval_engine.enabled:
+                    final_eval = self._eval_engine.evaluate_final(
+                        result=result, state=state, budget=self._budget,
+                    )
+                    if final_eval:
+                        action = self._eval_engine.decide_retry(final_eval)
+                        logger.info(
+                            "Evaluation gate: score=%.2f action=%s",
+                            final_eval.score,
+                            action,
+                        )
+                        if action == "retry_with_repair" and self._budget.can_continue()[0]:
+                            self._eval_engine.record_retry()
+                            state["_eval_repair_required"] = {
+                                "score": round(final_eval.score, 4),
+                                "action": action,
+                                "metrics": [
+                                    {"name": ms.name, "score": round(ms.score, 4)}
+                                    for ms in final_eval.metric_scores
+                                ],
+                            }
+                            state["_last_manager_feedback"] = (
+                                f"COMPLETION REJECTED by evaluation: "
+                                f"score={final_eval.score:.2f} (threshold="
+                                f"{self._eval_engine._config.thresholds.retry:.2f}). "
+                                f"Please improve the result quality."
+                            )
+                            continue  # force another loop iteration
+                        elif action == "fail_workflow":
+                            result["_evaluation"] = self._eval_engine.get_summary()
+                            self._eval_engine.flush()
+                            return result, "eval_fail"
+                        else:
+                            result["_evaluation"] = self._eval_engine.get_summary()
+                    self._eval_engine.flush()
+
                 self._logger.log_iteration(
                     iteration,
                     manager_decision,
@@ -953,13 +1075,22 @@ class DelegationLoopRunner:
                 envelopes, task, state, iteration=iteration
             )
 
-            # 4. Validate results (2-tier)
+            # 4. Critique phase (Reflective Critique Loop)
+            critique_envelopes = []
+            if self._critique_engine and self._critique_engine.enabled:
+                critique_envelopes = self._critique_and_repair(
+                    delegation_results, task, state, iteration
+                )
+
+            # 5. Validate results (2-tier)
             validation_results = self._validate_results(delegation_results, task)
 
-            # 5. Write budget snapshot immediately (for file watchers)
+            # (Step evaluation is now done inside _execute_delegations before file write)
+
+            # 6. Write budget snapshot immediately (for file watchers)
             self._logger.log_iteration_budget(iteration, self._budget)
 
-            # 5b. Log full iteration (artifacts, tools, etc.)
+            # 6b. Log full iteration (artifacts, tools, critique, etc.)
             self._logger.log_iteration(
                 iteration,
                 manager_decision,
@@ -968,19 +1099,33 @@ class DelegationLoopRunner:
                 validation_results,
             )
 
-            # 6. Aggregate into history
+            # 6c. Log critique data if present
+            if critique_envelopes:
+                self._logger.log_critique(
+                    iteration,
+                    [c.to_dict() for c in critique_envelopes],
+                    self._critique_engine.get_summary() if self._critique_engine else {},
+                )
+
+            # 7. Aggregate into history
             agg_confidence = self._aggregate_confidence(delegation_results)
             key_findings = self._extract_key_findings(delegation_results)
 
-            self._history.append(
-                {
-                    "iteration": iteration,
-                    "confidence": agg_confidence,
-                    "key_findings": key_findings,
-                    "worker_count": len(delegation_results),
-                    "validation": validation_results,
-                }
-            )
+            history_entry: dict[str, Any] = {
+                "iteration": iteration,
+                "confidence": agg_confidence,
+                "key_findings": key_findings,
+                "worker_count": len(delegation_results),
+                "validation": validation_results,
+            }
+            if critique_envelopes:
+                history_entry["critique"] = [c.to_dict() for c in critique_envelopes]
+                history_entry["critique_summary"] = (
+                    self._critique_engine.get_manager_critique_summary(critique_envelopes)
+                    if self._critique_engine
+                    else ""
+                )
+            self._history.append(history_entry)
 
             # 7. Update rolling summary
             window = self._config.history.full_results_window
@@ -1507,6 +1652,18 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 f"Do NOT mark the task as complete until all files are valid.\n"
             )
 
+        # Critique feedback from last iteration
+        if self._history and self._history[-1].get("critique_summary"):
+            parts.append(self._history[-1]["critique_summary"])
+            parts.append("")
+
+        # Pattern pitfalls from critique engine
+        if self._critique_engine and self._critique_engine.enabled:
+            pitfalls = self._critique_engine.build_pattern_pitfalls_section()
+            if pitfalls:
+                parts.append(pitfalls)
+                parts.append("")
+
         # State from previous workers
         worker_states = {
             k: v for k, v in state.items() if k != "task" and not k.startswith("_")
@@ -1706,6 +1863,97 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         delegation["skills"] = quality_skills
 
+    # -- Critique and repair -----------------------------------------------
+
+    def _critique_and_repair(
+        self,
+        delegation_results: list[dict],
+        task: str,
+        state: dict,
+        iteration: int,
+    ) -> list:
+        """Run critique phase on all worker results; attempt targeted repairs.
+
+        Returns list of CritiqueEnvelope objects. May mutate delegation_results
+        in-place if repairs improve results.
+        """
+        from .critique import CritiqueEnvelope
+
+        if not self._critique_engine:
+            return []
+
+        # 1. Critique all results
+        critiques = self._critique_engine.critique_results(
+            delegation_results, task, iteration
+        )
+
+        # 2. Attempt targeted repair for results with critical defects
+        repair_budget_limit = (
+            self._config.critique.repair_budget_fraction * self._budget.max_total_tokens
+        )
+
+        for i, (dr, critique) in enumerate(zip(delegation_results, critiques)):
+            if not critique.has_critical_defects:
+                # Annotate result with critique metadata
+                dr["result"]["_critique_score"] = round(critique.score, 4)
+                dr["result"]["_critique_summary"] = critique.summary
+                continue
+
+            # Check repair budget
+            if self._critique_engine._total_repair_tokens >= repair_budget_limit:
+                logger.warning(
+                    "Repair budget exhausted (%.0f tokens used of %.0f limit)",
+                    self._critique_engine._total_repair_tokens,
+                    repair_budget_limit,
+                )
+                dr["result"]["_critique_score"] = round(critique.score, 4)
+                dr["result"]["_critique_summary"] = critique.summary
+                dr["result"]["_critique_defects"] = [
+                    {"category": d.category, "severity": d.severity, "description": d.description}
+                    for d in critique.defects
+                ]
+                continue
+
+            worker_id = dr.get("worker_id", "unknown")
+            envelope = dr.get("envelope", {})
+
+            def run_repair_worker(repair_envelope: dict, repair_task: str) -> dict:
+                return self._run_ephemeral_worker(
+                    f"{worker_id}_repair", repair_envelope, repair_task, state
+                )
+
+            repaired_result, attempts = self._critique_engine.attempt_repair(
+                worker_id=worker_id,
+                worker_result=dr["result"],
+                critique=critique,
+                task=task,
+                envelope=envelope,
+                run_worker_fn=run_repair_worker,
+                budget_checker=self._budget.can_continue,
+                iteration=iteration,
+            )
+
+            # Update delegation result with repaired version
+            if attempts:
+                last_attempt = attempts[-1]
+                dr["result"] = repaired_result
+                dr["result"]["_critique_score"] = round(last_attempt.repaired_score, 4)
+                dr["result"]["_critique_summary"] = f"Repaired after {len(attempts)} attempt(s)"
+                dr["result"]["_critique_repairs"] = [a.to_dict() for a in attempts]
+                # Log repair result to disk
+                self._logger.log_worker_result(iteration, worker_id, repaired_result)
+                # Track workers spawned for repair
+                self._budget.workers_spawned += len(attempts)
+            else:
+                dr["result"]["_critique_score"] = round(critique.score, 4)
+                dr["result"]["_critique_summary"] = critique.summary
+                dr["result"]["_critique_defects"] = [
+                    {"category": d.category, "severity": d.severity, "description": d.description}
+                    for d in critique.defects
+                ]
+
+        return critiques
+
     # -- Worker execution -------------------------------------------------
 
     def _execute_delegations(
@@ -1728,6 +1976,22 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 result = self._run_ephemeral_worker(worker_id, envelope, task, state)
                 # Persist any skills the worker created to the skill registry
                 self._persist_worker_result_skills(result, worker_id)
+                # Run step evaluation BEFORE writing result (so file watcher gets scores)
+                if self._eval_engine and self._eval_engine.enabled and isinstance(result, dict):
+                    step_eval = self._eval_engine.evaluate_step(
+                        hook="worker_result",
+                        result=result,
+                        state=state,
+                        budget=self._budget,
+                        agent_id=worker_id,
+                    )
+                    if step_eval:
+                        result["_eval_score"] = round(step_eval.score, 4)
+                        result["_eval_action"] = step_eval.action
+                        result["_eval_metrics"] = [
+                            {"name": ms.name, "score": round(ms.score, 4), "weight": ms.weight}
+                            for ms in step_eval.metric_scores
+                        ]
                 # Write result to disk immediately (for file watchers)
                 self._logger.log_worker_result(iteration, worker_id, result)
                 return {
@@ -1764,6 +2028,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         raw_skills = envelope.get("skills", [])
         # Resolve skill names to full content (lazy loading from skill registry)
         skills = self._resolve_skills(raw_skills) if raw_skills else []
+        # Inject critique pattern pitfalls as an additional skill
+        if self._critique_engine and self._critique_engine.enabled:
+            pitfalls = self._critique_engine.build_pattern_pitfalls_section()
+            if pitfalls:
+                skills.append(f"# Quality Guard\n\n{pitfalls}")
         envelope["skills"] = skills  # Update envelope for logging
         tools_allowed = envelope.get("tools_allowed", [])
         output_contract = envelope.get("output_contract", {})

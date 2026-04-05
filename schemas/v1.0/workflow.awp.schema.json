@@ -134,7 +134,132 @@
     "state": { "type": "object" },
     "memory": { "type": "object" },
     "communication": { "type": "object" },
-    "observability": { "type": "object" },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "logging": { "type": "object" },
+        "metrics": { "type": "object" },
+        "tracing": { "type": "object" },
+        "audit": { "type": "object" },
+        "health": { "type": "object" },
+        "evaluation": {
+          "type": "object",
+          "description": "Optional quality-scoring / evaluation configuration.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable evaluation scoring for this workflow."
+            },
+            "metrics": {
+              "type": "array",
+              "description": "Evaluation metrics to compute.",
+              "items": {
+                "type": "object",
+                "required": ["name", "kind"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Unique metric name."
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic_test",
+                      "deterministic_assertion",
+                      "rubric_judge",
+                      "budget_utility",
+                      "policy_score"
+                    ],
+                    "description": "Scorer type."
+                  },
+                  "weight": {
+                    "type": "number",
+                    "minimum": 0,
+                    "default": 1.0,
+                    "description": "Weight for weighted-average aggregation."
+                  },
+                  "params": {
+                    "type": "object",
+                    "description": "Kind-specific parameters (e.g. expr, assertions)."
+                  }
+                }
+              }
+            },
+            "thresholds": {
+              "type": "object",
+              "description": "Score thresholds for accept / retry / fail decisions.",
+              "properties": {
+                "accept": {
+                  "type": "number", "minimum": 0, "maximum": 1, "default": 0.85
+                },
+                "retry": {
+                  "type": "number", "minimum": 0, "maximum": 1, "default": 0.65
+                },
+                "fail": {
+                  "type": "number", "minimum": 0, "maximum": 1, "default": 0.40
+                }
+              }
+            },
+            "step_scores": {
+              "type": "object",
+              "description": "Step-level scoring hooks.",
+              "properties": {
+                "enabled": { "type": "boolean", "default": true },
+                "hooks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["worker_result", "generated_tool", "final_answer"]
+                  },
+                  "default": ["worker_result", "final_answer"]
+                }
+              }
+            },
+            "retry_policy": {
+              "type": "object",
+              "description": "Score-driven retry / repair policy.",
+              "properties": {
+                "enabled": { "type": "boolean", "default": false },
+                "max_repairs": {
+                  "type": "integer", "minimum": 0, "default": 2
+                },
+                "actions": {
+                  "type": "object",
+                  "properties": {
+                    "below_retry": {
+                      "type": "string",
+                      "enum": ["retry_with_repair", "fail_workflow", "accept_with_warning"],
+                      "default": "retry_with_repair"
+                    },
+                    "below_fail": {
+                      "type": "string",
+                      "enum": ["retry_with_repair", "fail_workflow", "accept_with_warning"],
+                      "default": "fail_workflow"
+                    }
+                  }
+                }
+              }
+            },
+            "rubric_judge": {
+              "type": "object",
+              "description": "LLM-based rubric judge configuration.",
+              "properties": {
+                "model": { "type": "string" },
+                "temperature": {
+                  "type": "number", "minimum": 0, "maximum": 2, "default": 0.0
+                }
+              }
+            },
+            "artifact_path": {
+              "type": "string",
+              "default": "data/evaluation",
+              "description": "Directory for evaluation artifact JSON files."
+            }
+          }
+        }
+      }
+    },
     "custom_tools": { "type": "object" },
     "dynamic_tools": {
       "type": "object",
