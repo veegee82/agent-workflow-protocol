@@ -1,0 +1,16 @@
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="14">
+  <rect x="10" y="10" width="660" height="180" rx="8" fill="#f0f4ff" stroke="#4a6fa5" stroke-width="2"/>
+  <text x="340" y="38" text-anchor="middle" font-weight="bold" font-size="16" fill="#2a3f5f">AWP Layer 5: Orchestration</text>
+  <rect x="30" y="55" width="290" height="120" rx="6" fill="#fff" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="175" y="80" text-anchor="middle" font-weight="bold" fill="#2a3f5f">DAG Engine</text>
+  <text x="175" y="102" text-anchor="middle" fill="#555">Static graph</text>
+  <text x="175" y="122" text-anchor="middle" fill="#555">Defined before run</text>
+  <text x="175" y="142" text-anchor="middle" fill="#555">Predictable</text>
+  <text x="175" y="162" text-anchor="middle" fill="#555">Topological order</text>
+  <rect x="360" y="55" width="290" height="120" rx="6" fill="#fff" stroke="#4a6fa5" stroke-width="1.5"/>
+  <text x="505" y="80" text-anchor="middle" font-weight="bold" fill="#2a3f5f">Delegation Loop Engine</text>
+  <text x="505" y="102" text-anchor="middle" fill="#555">Dynamic orchestration</text>
+  <text x="505" y="122" text-anchor="middle" fill="#555">Decided at runtime by LLM</text>
+  <text x="505" y="142" text-anchor="middle" fill="#555">Adaptive</text>
+  <text x="505" y="162" text-anchor="middle" fill="#555">Manager-worker loop</text>
+</svg>

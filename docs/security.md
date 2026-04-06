@@ -34,37 +34,7 @@ security:
 
 ### State Machine
 
-<svg viewBox="0 0 520 200" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
-<!-- States -->
-  <rect x="30" y="60" width="120" height="50" rx="8" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
-  <text x="90" y="82" text-anchor="middle" font-weight="700" fill="#1a6b3c" font-size="14">CLOSED</text>
-  <text x="90" y="100" text-anchor="middle" fill="#5a8c5a" font-size="10">normal operation</text>
-
-  <rect x="250" y="60" width="120" height="50" rx="8" fill="#fde2e2" stroke="#c0392b" stroke-width="2"/>
-  <text x="310" y="82" text-anchor="middle" font-weight="700" fill="#922b21" font-size="14">OPEN</text>
-  <text x="310" y="100" text-anchor="middle" fill="#c0392b" font-size="10">all requests rejected</text>
-
-  <rect x="140" y="150" width="120" height="50" rx="8" fill="#fef3cd" stroke="#d4a017" stroke-width="2"/>
-  <text x="200" y="172" text-anchor="middle" font-weight="700" fill="#856404" font-size="14">HALF-OPEN</text>
-  <text x="200" y="190" text-anchor="middle" fill="#a88a04" font-size="10">testing recovery</text>
-
-  <!-- Edges -->
-  <path d="M152,78 L248,78" fill="none" stroke="#c0392b" stroke-width="1.5"/>
-  <text x="200" y="72" text-anchor="middle" fill="#c0392b" font-size="10">failures &gt; threshold</text>
-
-  <path d="M310,112 Q310,150 262,165" fill="none" stroke="#d4a017" stroke-width="1.5"/>
-  <text x="330" y="140" fill="#d4a017" font-size="10">reset_timeout</text>
-
-  <path d="M140,165 Q80,150 85,112" fill="none" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="60" y="145" fill="#27ae60" font-size="10">success</text>
-
-  <path d="M262,180 Q310,195 355,112" fill="none" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,2"/>
-  <text x="340" y="175" fill="#c0392b" font-size="10">failure</text>
-
-  <!-- Self-loop on CLOSED -->
-  <path d="M90,58 Q90,20 50,40 Q20,55 30,65" fill="none" stroke="#27ae60" stroke-width="1"/>
-  <text x="30" y="30" fill="#27ae60" font-size="10">success</text>
-</svg>
+  <img src="diagrams/inline-security.svg" alt="security diagram" width="100%"/>
 
 - **CLOSED:** Normal operation. Failures are counted.
 - **OPEN:** All requests are immediately rejected. No execution occurs.

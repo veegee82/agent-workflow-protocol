@@ -1,0 +1,21 @@
+<svg viewBox="0 0 560 220" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+<!-- Manager envelope -->
+  <rect x="60" y="5" width="440" height="45" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
+  <text x="280" y="22" text-anchor="middle" font-weight="600" fill="#922b21">Manager LLM sends envelope</text>
+  <text x="280" y="40" text-anchor="middle" fill="#c0392b" font-size="10" font-family="monospace">codemode.enabled: false, tools_allowed: [file.read]</text>
+  <!-- Policy check -->
+  <rect x="60" y="70" width="440" height="80" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="280" y="88" text-anchor="middle" font-weight="700" fill="#856404">Runtime Policy Check</text>
+  <text x="80" y="106" fill="#666" font-size="10">codemode.enabled in manager_controlled? → Force = true</text>
+  <text x="80" y="121" fill="#666" font-size="10">codemode.tool_creation in manager_controlled? → Force = true</text>
+  <text x="80" y="136" fill="#666" font-size="10">codemode.enabled=true but code.execute missing? → Auto-inject</text>
+  <!-- Actual envelope -->
+  <rect x="60" y="170" width="440" height="45" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+  <text x="280" y="187" text-anchor="middle" font-weight="600" fill="#1a6b3c">Actual Worker Envelope</text>
+  <text x="280" y="205" text-anchor="middle" fill="#27ae60" font-size="10" font-family="monospace">codemode: {enabled: true, tool_creation: true}, tools: [file.read, code.execute]</text>
+  <!-- Arrows -->
+  <line x1="280" y1="52" x2="280.0" y2="66.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="280.0,68.0 277.0,62.0 283.0,62.0" fill="#4a6fa5"/>
+  <line x1="280" y1="152" x2="280.0" y2="166.0" stroke="#4a6fa5" stroke-width="1.5"/>
+  <polygon points="280.0,168.0 277.0,162.0 283.0,162.0" fill="#4a6fa5"/>
+</svg>

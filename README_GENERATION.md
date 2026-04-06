@@ -356,41 +356,7 @@ Understanding how data flows from `inputs={}` to worker code execution is critic
 
 ### The Path from Python to Worker
 
-<svg viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-<rect x="110" y="5" width="300" height="28" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
-  <text x="260" y="24" text-anchor="middle" font-weight="600" fill="#5a2d82" font-size="12">AgentWorkflow(inputs={"data": df})</text>
-
-  <rect x="130" y="53" width="260" height="40" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
-  <text x="260" y="68" text-anchor="middle" font-weight="600" fill="#2a3f5f">prepare_workspace()</text>
-  <text x="260" y="84" text-anchor="middle" fill="#5a7aa5" font-size="10">Serialize inputs → workspace/inputs/</text>
-
-  <rect x="130" y="113" width="260" height="40" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
-  <text x="260" y="128" text-anchor="middle" font-weight="600" fill="#2a3f5f">Manager Prompt</text>
-  <text x="260" y="144" text-anchor="middle" fill="#5a7aa5" font-size="10">"data (dataframe) — inputs/data.csv" + schema</text>
-
-  <rect x="130" y="173" width="260" height="40" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
-  <text x="260" y="188" text-anchor="middle" font-weight="600" fill="#856404">Manager LLM Decision</text>
-  <text x="260" y="204" text-anchor="middle" fill="#a88a04" font-size="10">Creates delegation envelope</text>
-
-  <rect x="130" y="233" width="260" height="40" rx="6" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
-  <text x="260" y="248" text-anchor="middle" font-weight="600" fill="#2d5a2d">Worker System Prompt</text>
-  <text x="260" y="264" text-anchor="middle" fill="#5a8c5a" font-size="10">_workspace_dir + _output_dir injected</text>
-
-  <rect x="130" y="293" width="260" height="40" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="260" y="308" text-anchor="middle" font-weight="700" fill="#1a6b3c">code.execute</text>
-  <text x="260" y="324" text-anchor="middle" fill="#27ae60" font-size="10">df = pd.read_csv(...) → plt.savefig(...)</text>
-
-  <line x1="260" y1="35" x2="260.0" y2="49.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="260.0,51.0 257.0,45.0 263.0,45.0" fill="#4a6fa5"/>
-  <line x1="260" y1="95" x2="260.0" y2="109.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="260.0,111.0 257.0,105.0 263.0,105.0" fill="#4a6fa5"/>
-  <line x1="260" y1="155" x2="260.0" y2="169.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="260.0,171.0 257.0,165.0 263.0,165.0" fill="#4a6fa5"/>
-  <line x1="260" y1="215" x2="260.0" y2="229.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="260.0,231.0 257.0,225.0 263.0,225.0" fill="#4a6fa5"/>
-  <line x1="260" y1="275" x2="260.0" y2="289.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="260.0,291.0 257.0,285.0 263.0,285.0" fill="#4a6fa5"/>
-</svg>
+  <img src="docs/diagrams/inline-readme-generation-1.svg" alt="generation diagram" width="100%"/>
 
 ### Path Resolution
 
@@ -467,27 +433,7 @@ The manager LLM controls *what* workers do (instructions, skills, output contrac
 
 ### The Enforcement Flow
 
-<svg viewBox="0 0 560 220" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-<!-- Manager envelope -->
-  <rect x="60" y="5" width="440" height="45" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
-  <text x="280" y="22" text-anchor="middle" font-weight="600" fill="#922b21">Manager LLM sends envelope</text>
-  <text x="280" y="40" text-anchor="middle" fill="#c0392b" font-size="10" font-family="monospace">codemode.enabled: false, tools_allowed: [file.read]</text>
-  <!-- Policy check -->
-  <rect x="60" y="70" width="440" height="80" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
-  <text x="280" y="88" text-anchor="middle" font-weight="700" fill="#856404">Runtime Policy Check</text>
-  <text x="80" y="106" fill="#666" font-size="10">codemode.enabled in manager_controlled? → Force = true</text>
-  <text x="80" y="121" fill="#666" font-size="10">codemode.tool_creation in manager_controlled? → Force = true</text>
-  <text x="80" y="136" fill="#666" font-size="10">codemode.enabled=true but code.execute missing? → Auto-inject</text>
-  <!-- Actual envelope -->
-  <rect x="60" y="170" width="440" height="45" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="280" y="187" text-anchor="middle" font-weight="600" fill="#1a6b3c">Actual Worker Envelope</text>
-  <text x="280" y="205" text-anchor="middle" fill="#27ae60" font-size="10" font-family="monospace">codemode: {enabled: true, tool_creation: true}, tools: [file.read, code.execute]</text>
-  <!-- Arrows -->
-  <line x1="280" y1="52" x2="280.0" y2="66.0" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="280.0,68.0 277.0,62.0 283.0,62.0" fill="#4a6fa5"/>
-  <line x1="280" y1="152" x2="280.0" y2="166.0" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="280.0,168.0 277.0,162.0 283.0,162.0" fill="#4a6fa5"/>
-</svg>
+  <img src="docs/diagrams/inline-readme-generation-2.svg" alt="generation diagram" width="100%"/>
 
 This enforcement happens transparently. The manager LLM is never informed that its choices were overridden — it simply sees the worker succeed where it would have failed without code execution.
 

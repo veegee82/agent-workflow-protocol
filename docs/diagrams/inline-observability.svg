@@ -1,0 +1,41 @@
+<svg viewBox="0 0 500 310" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
+  <!-- Root -->
+  <rect x="10" y="5" width="480" height="24" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="20" y="21" font-weight="700" fill="#2a3f5f">workflow.run</text>
+  <text x="480" y="21" text-anchor="end" fill="#999" font-size="10">root span</text>
+  <!-- agent.execute -->
+  <rect x="30" y="38" width="440" height="24" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
+  <text x="40" y="54" font-weight="600" fill="#2d5a2d">agent.execute</text>
+  <text x="460" y="54" text-anchor="end" fill="#999" font-size="10">one per agent</text>
+  <!-- children of agent.execute -->
+  <rect x="50" y="70" width="180" height="20" rx="3" fill="#f0faf0" stroke="#5b8c5a" stroke-width="0.8"/>
+  <text x="60" y="84" fill="#2d5a2d" font-size="10">agent.build_context</text>
+  <!-- llm.call -->
+  <rect x="50" y="96" width="400" height="24" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1"/>
+  <text x="60" y="112" font-weight="600" fill="#856404">llm.call</text>
+  <text x="440" y="112" text-anchor="end" fill="#999" font-size="10">one per LLM invocation</text>
+  <rect x="70" y="126" width="180" height="18" rx="3" fill="#fffbe6" stroke="#d4a017" stroke-width="0.6"/>
+  <text x="80" y="139" fill="#856404" font-size="10">llm.prompt_construction</text>
+  <rect x="70" y="148" width="130" height="18" rx="3" fill="#fffbe6" stroke="#d4a017" stroke-width="0.6"/>
+  <text x="80" y="161" fill="#856404" font-size="10">llm.inference</text>
+  <!-- tool.call -->
+  <rect x="50" y="174" width="400" height="24" rx="4" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1"/>
+  <text x="60" y="190" font-weight="600" fill="#5a2d82">tool.call</text>
+  <text x="440" y="190" text-anchor="end" fill="#999" font-size="10">one per tool invocation</text>
+  <rect x="70" y="204" width="170" height="18" rx="3" fill="#f5eefa" stroke="#7b4ea3" stroke-width="0.6"/>
+  <text x="80" y="217" fill="#5a2d82" font-size="10">tool.validate_params</text>
+  <rect x="70" y="226" width="120" height="18" rx="3" fill="#f5eefa" stroke="#7b4ea3" stroke-width="0.6"/>
+  <text x="80" y="239" fill="#5a2d82" font-size="10">tool.execute</text>
+  <!-- memory -->
+  <rect x="50" y="252" width="130" height="18" rx="3" fill="#f0faf0" stroke="#5b8c5a" stroke-width="0.8"/>
+  <text x="60" y="265" fill="#2d5a2d" font-size="10">memory.read</text>
+  <rect x="190" y="252" width="130" height="18" rx="3" fill="#f0faf0" stroke="#5b8c5a" stroke-width="0.8"/>
+  <text x="200" y="265" fill="#2d5a2d" font-size="10">memory.write</text>
+  <rect x="330" y="252" width="160" height="18" rx="3" fill="#f0faf0" stroke="#5b8c5a" stroke-width="0.8"/>
+  <text x="340" y="265" fill="#2d5a2d" font-size="10">agent.parse_response</text>
+  <!-- orchestrator spans -->
+  <rect x="30" y="278" width="210" height="20" rx="3" fill="#fde2e2" stroke="#c0392b" stroke-width="0.8"/>
+  <text x="40" y="292" fill="#922b21" font-size="10">orchestrator.evaluate_condition</text>
+  <rect x="250" y="278" width="160" height="20" rx="3" fill="#fde2e2" stroke="#c0392b" stroke-width="0.8"/>
+  <text x="260" y="292" fill="#922b21" font-size="10">orchestrator.fan_out</text>
+</svg>

@@ -1,0 +1,42 @@
+<svg viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+<!-- Nodes -->
+  <rect x="10" y="10" width="140" height="30" rx="5" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.2"/>
+  <text x="80" y="30" text-anchor="middle" fill="#2a3f5f" font-weight="600" font-size="11">L6 Observability</text>
+
+  <rect x="230" y="10" width="140" height="30" rx="5" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1.2"/>
+  <text x="300" y="30" text-anchor="middle" fill="#2d5a2d" font-weight="600" font-size="11">L5 Orchestration</text>
+
+  <rect x="10" y="80" width="120" height="30" rx="5" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
+  <text x="70" y="100" text-anchor="middle" fill="#856404" font-weight="600" font-size="11">L4 Memory</text>
+
+  <rect x="150" y="80" width="120" height="30" rx="5" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
+  <text x="210" y="100" text-anchor="middle" fill="#5a2d82" font-weight="600" font-size="11">L3 Communication</text>
+
+  <rect x="290" y="80" width="120" height="30" rx="5" fill="#fde2e2" stroke="#c0392b" stroke-width="1.2"/>
+  <text x="350" y="100" text-anchor="middle" fill="#922b21" font-weight="600" font-size="11">L2 Capabilities</text>
+
+  <rect x="150" y="150" width="140" height="30" rx="5" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2"/>
+  <text x="220" y="170" text-anchor="middle" fill="#1a6b3c" font-weight="600" font-size="11">L1 Agent Identity</text>
+
+  <rect x="150" y="210" width="140" height="30" rx="5" fill="#f0f0f0" stroke="#888" stroke-width="1.2"/>
+  <text x="220" y="230" text-anchor="middle" fill="#333" font-weight="600" font-size="11">L0 Manifest</text>
+
+  <!-- Security -->
+  <rect x="440" y="70" width="140" height="30" rx="5" fill="#fff3e0" stroke="#e65100" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="510" y="90" text-anchor="middle" fill="#e65100" font-weight="600" font-size="11">Security</text>
+  <text x="510" y="118" text-anchor="middle" fill="#999" font-size="10" font-style="italic">cross-cuts all layers</text>
+
+  <!-- Edges -->
+  <line x1="150" y1="25" x2="226.0" y2="25.0" stroke="#666" stroke-width="1.2"/>
+  <polygon points="228.0,25.0 222.0,28.0 222.0,22.0" fill="#666"/>
+  <line x1="300" y1="42" x2="231.1" y2="146.3" stroke="#666" stroke-width="1.2"/>
+  <polygon points="230.0,148.0 230.8,141.3 235.8,144.6" fill="#666"/>
+  <line x1="70" y1="112" x2="183.1" y2="147.4" stroke="#666" stroke-width="1.2"/>
+  <polygon points="185.0,148.0 178.4,149.1 180.2,143.3" fill="#666"/>
+  <line x1="210" y1="112" x2="214.7" y2="146.0" stroke="#666" stroke-width="1.2"/>
+  <polygon points="215.0,148.0 211.2,142.5 217.1,141.6" fill="#666"/>
+  <line x1="350" y1="112" x2="256.9" y2="147.3" stroke="#666" stroke-width="1.2"/>
+  <polygon points="255.0,148.0 259.5,143.1 261.7,148.7" fill="#666"/>
+  <line x1="220" y1="182" x2="220.0" y2="206.0" stroke="#666" stroke-width="1.2"/>
+  <polygon points="220.0,208.0 217.0,202.0 223.0,202.0" fill="#666"/>
+</svg>

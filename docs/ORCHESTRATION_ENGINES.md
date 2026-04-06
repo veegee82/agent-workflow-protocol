@@ -4,22 +4,7 @@ AWP Layer 5 (Orchestration) supports two execution engines. Each engine answers
 the same question -- *"In what order and under what conditions do agents run?"* --
 but with fundamentally different philosophies.
 
-<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="14">
-  <rect x="10" y="10" width="660" height="180" rx="8" fill="#f0f4ff" stroke="#4a6fa5" stroke-width="2"/>
-  <text x="340" y="38" text-anchor="middle" font-weight="bold" font-size="16" fill="#2a3f5f">AWP Layer 5: Orchestration</text>
-  <rect x="30" y="55" width="290" height="120" rx="6" fill="#fff" stroke="#4a6fa5" stroke-width="1.5"/>
-  <text x="175" y="80" text-anchor="middle" font-weight="bold" fill="#2a3f5f">DAG Engine</text>
-  <text x="175" y="102" text-anchor="middle" fill="#555">Static graph</text>
-  <text x="175" y="122" text-anchor="middle" fill="#555">Defined before run</text>
-  <text x="175" y="142" text-anchor="middle" fill="#555">Predictable</text>
-  <text x="175" y="162" text-anchor="middle" fill="#555">Topological order</text>
-  <rect x="360" y="55" width="290" height="120" rx="6" fill="#fff" stroke="#4a6fa5" stroke-width="1.5"/>
-  <text x="505" y="80" text-anchor="middle" font-weight="bold" fill="#2a3f5f">Delegation Loop Engine</text>
-  <text x="505" y="102" text-anchor="middle" fill="#555">Dynamic orchestration</text>
-  <text x="505" y="122" text-anchor="middle" fill="#555">Decided at runtime by LLM</text>
-  <text x="505" y="142" text-anchor="middle" fill="#555">Adaptive</text>
-  <text x="505" y="162" text-anchor="middle" fill="#555">Manager-worker loop</text>
-</svg>
+  <img src="diagrams/inline-orchestration_engines-1.svg" alt="orchestration_engines diagram" width="100%"/>
 
 ---
 
@@ -51,24 +36,7 @@ orchestration:
 
 ### Execution Model
 
-<svg viewBox="0 0 480 80" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-<rect x="5" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
-  <text x="60" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 0</text>
-  <rect x="15" y="30" width="90" height="26" rx="4" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1"/>
-  <text x="60" y="47" text-anchor="middle" fill="#2a3f5f" font-size="10">planner</text>
-  <rect x="155" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
-  <text x="210" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 1</text>
-  <rect x="165" y="30" width="90" height="26" rx="4" fill="#d5e8d4" stroke="#5b8c5a" stroke-width="1"/>
-  <text x="210" y="47" text-anchor="middle" fill="#2d5a2d" font-size="10">researcher</text>
-  <rect x="305" y="5" width="110" height="65" rx="6" fill="#f8f9fa" stroke="#ddd" stroke-width="1" stroke-dasharray="4,2"/>
-  <text x="360" y="20" text-anchor="middle" fill="#999" font-size="10" font-weight="600">Level 2</text>
-  <rect x="315" y="30" width="90" height="26" rx="4" fill="#fef3cd" stroke="#d4a017" stroke-width="1"/>
-  <text x="360" y="47" text-anchor="middle" fill="#856404" font-size="10">writer</text>
-  <line x1="117" y1="43" x2="151.0" y2="43.0" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="153.0,43.0 147.0,46.0 147.0,40.0" fill="#4a6fa5"/>
-  <line x1="267" y1="43" x2="301.0" y2="43.0" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="303.0,43.0 297.0,46.0 297.0,40.0" fill="#4a6fa5"/>
-</svg>
+  <img src="diagrams/inline-orchestration_engines-2.svg" alt="orchestration_engines diagram" width="100%"/>
 
 Agents at the same level with no mutual dependencies run in parallel.
 
@@ -141,59 +109,7 @@ The manager creates them at runtime by generating a **Delegation Envelope**
 containing everything the worker needs: instructions, domain knowledge (skills),
 allowed tools, and output contract.
 
-<svg viewBox="0 0 560 520" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
-  <rect x="5" y="5" width="550" height="510" rx="10" fill="#f8f9fc" stroke="#4a6fa5" stroke-width="2"/>
-  <text x="280" y="30" text-anchor="middle" font-weight="bold" font-size="16" fill="#2a3f5f">DELEGATION LOOP</text>
-  <!-- Manager Agent -->
-  <rect x="130" y="45" width="300" height="80" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
-  <text x="280" y="68" text-anchor="middle" font-weight="bold" fill="#2a3f5f">MANAGER AGENT</text>
-  <text x="280" y="88" text-anchor="middle" fill="#555">Receives: Task + Rolling Summary</text>
-  <text x="280" y="108" text-anchor="middle" fill="#555">Decides: DELEGATE | COMPLETE | FAIL</text>
-  <!-- Arrow down -->
-  <line x1="280" y1="125" x2="280.0" y2="148.0" stroke="#4a6fa5" stroke-width="2"/>
-  <polygon points="280.0,150.0 277.0,144.0 283.0,144.0" fill="#4a6fa5"/>
-  <!-- DELEGATE box -->
-  <rect x="220" y="150" width="120" height="30" rx="4" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
-  <text x="280" y="170" text-anchor="middle" font-weight="bold" fill="#5a2d82">DELEGATE</text>
-  <!-- Fan-out arrows -->
-  <line x1="280" y1="180" x2="121.9" y2="219.5" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="120.0,220.0 125.1,215.6 126.5,221.5" fill="#4a6fa5"/>
-  <line x1="280" y1="180" x2="280.0" y2="218.0" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="280.0,220.0 277.0,214.0 283.0,214.0" fill="#4a6fa5"/>
-  <line x1="280" y1="180" x2="438.1" y2="219.5" stroke="#4a6fa5" stroke-width="1.5"/>
-  <polygon points="440.0,220.0 433.5,221.5 434.9,215.6" fill="#4a6fa5"/>
-  <text x="490" y="210" fill="#888" font-size="12">Fan-Out</text>
-  <!-- Workers -->
-  <rect x="80" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="120" y="242" text-anchor="middle" fill="#1a6b3c">Wkr A</text>
-  <rect x="240" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="280" y="242" text-anchor="middle" fill="#1a6b3c">Wkr B</text>
-  <rect x="400" y="220" width="80" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="440" y="242" text-anchor="middle" fill="#1a6b3c">Wkr C</text>
-  <text x="490" y="248" fill="#888" font-size="11">Ephemeral workers</text>
-  <!-- Converge arrows -->
-  <line x1="120" y1="255" x2="280" y2="290" stroke="#4a6fa5" stroke-width="1.5"/>
-  <line x1="280" y1="255" x2="280" y2="290" stroke="#4a6fa5" stroke-width="1.5"/>
-  <line x1="440" y1="255" x2="280" y2="290" stroke="#4a6fa5" stroke-width="1.5"/>
-  <!-- 2-Tier Validation -->
-  <rect x="130" y="290" width="300" height="65" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.5"/>
-  <text x="280" y="312" text-anchor="middle" font-weight="bold" fill="#856404">2-TIER VALIDATION</text>
-  <text x="280" y="330" text-anchor="middle" fill="#666">S1: Deterministic — Schema, confidence, budget</text>
-  <text x="280" y="346" text-anchor="middle" fill="#666">S2: LLM Semantic — "Does this make sense?"</text>
-  <!-- Arrow down -->
-  <line x1="280" y1="355" x2="280.0" y2="378.0" stroke="#4a6fa5" stroke-width="2"/>
-  <polygon points="280.0,380.0 277.0,374.0 283.0,374.0" fill="#4a6fa5"/>
-  <!-- Termination Check -->
-  <rect x="150" y="380" width="260" height="50" rx="6" fill="#fde2e2" stroke="#c0392b" stroke-width="1.5"/>
-  <text x="280" y="402" text-anchor="middle" font-weight="bold" fill="#922b21">TERMINATION CHECK</text>
-  <text x="280" y="420" text-anchor="middle" fill="#666">Budget? Stall? Loops?</text>
-  <!-- Arrow to Next Iteration -->
-  <line x1="280" y1="430" x2="280.0" y2="458.0" stroke="#4a6fa5" stroke-width="2"/>
-  <polygon points="280.0,460.0 277.0,454.0 283.0,454.0" fill="#4a6fa5"/>
-  <rect x="210" y="460" width="140" height="30" rx="15" fill="#4a6fa5" stroke="none"/>
-  <text x="280" y="480" text-anchor="middle" fill="#fff" font-weight="bold">Next Iteration</text>
-  <!-- Arrow marker -->
-</svg>
+  <img src="diagrams/inline-orchestration_engines-3.svg" alt="orchestration_engines diagram" width="100%"/>
 
 ### The Delegation Envelope
 

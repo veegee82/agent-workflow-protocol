@@ -57,63 +57,7 @@ When `enabled: false` (the default), critique is completely disabled and has zer
 
 ### Critique Flow
 
-<svg viewBox="0 0 620 520" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" font-size="11">
-<!-- Worker result -->
-  <rect x="180" y="5" width="220" height="30" rx="6" fill="#dce6f7" stroke="#4a6fa5" stroke-width="1.5"/>
-  <text x="290" y="25" text-anchor="middle" font-weight="600" fill="#2a3f5f">Worker produces result</text>
-  <!-- Critic -->
-  <rect x="140" y="55" width="300" height="40" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.5"/>
-  <text x="290" y="72" text-anchor="middle" font-weight="700" fill="#5a2d82">Critic analyzes result</text>
-  <text x="290" y="88" text-anchor="middle" fill="#7b4ea3" font-size="10">LLM or heuristic fallback</text>
-  <!-- Envelope -->
-  <rect x="120" y="115" width="340" height="60" rx="6" fill="#fef3cd" stroke="#d4a017" stroke-width="1.2"/>
-  <text x="290" y="132" text-anchor="middle" font-weight="600" fill="#856404">CritiqueEnvelope</text>
-  <text x="145" y="148" fill="#a88a04" font-size="10">score (0.0-1.0) | defects (categorized) | prescriptions</text>
-  <text x="145" y="163" fill="#a88a04" font-size="10">reusable_patterns (for other workers) | effort_estimate</text>
-  <!-- Decision diamond -->
-  <polygon points="290,195 360,220 290,245 220,220" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
-  <text x="290" y="224" text-anchor="middle" font-weight="600" fill="#e65100" font-size="10">Critical defects?</text>
-  <!-- No path -->
-  <rect x="420" y="205" width="180" height="30" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2"/>
-  <text x="510" y="225" text-anchor="middle" fill="#1a6b3c" font-size="11">Accept, record patterns</text>
-  <!-- Repair loop box -->
-  <rect x="100" y="265" width="380" height="160" rx="8" fill="#fdf0f0" stroke="#c0392b" stroke-width="1.5"/>
-  <text x="290" y="283" text-anchor="middle" font-weight="700" fill="#922b21">Targeted Repair Loop</text>
-  <text x="290" y="298" text-anchor="middle" fill="#c0392b" font-size="10">(up to max_repair_attempts)</text>
-  <rect x="130" y="308" width="320" height="24" rx="4" fill="#fde2e2" stroke="#c0392b" stroke-width="0.8"/>
-  <text x="290" y="324" text-anchor="middle" fill="#922b21" font-size="10">Build repair prompt with defect list + prescriptions</text>
-  <rect x="130" y="340" width="320" height="24" rx="4" fill="#fde2e2" stroke="#c0392b" stroke-width="0.8"/>
-  <text x="290" y="356" text-anchor="middle" fill="#922b21" font-size="10">Re-run worker with repair instructions</text>
-  <rect x="130" y="372" width="320" height="24" rx="4" fill="#fde2e2" stroke="#c0392b" stroke-width="0.8"/>
-  <text x="290" y="388" text-anchor="middle" fill="#922b21" font-size="10">Re-critique result</text>
-  <rect x="130" y="404" width="320" height="14" rx="3" fill="none"/>
-  <text x="290" y="414" text-anchor="middle" fill="#999" font-size="10">Score improved? Keep. Not improved? Stop.</text>
-  <!-- Pattern memory -->
-  <rect x="150" y="445" width="280" height="30" rx="6" fill="#e8d5f5" stroke="#7b4ea3" stroke-width="1.2"/>
-  <text x="290" y="465" text-anchor="middle" font-weight="600" fill="#5a2d82">Patterns recorded in PatternMemory</text>
-  <!-- Next workers -->
-  <rect x="120" y="495" width="340" height="24" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
-  <text x="290" y="512" text-anchor="middle" font-weight="600" fill="#1a6b3c">Next workers receive "Known Pitfalls"</text>
-  <!-- Arrows -->
-  <line x1="290" y1="37" x2="290.0" y2="51.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="290.0,53.0 287.0,47.0 293.0,47.0" fill="#4a6fa5"/>
-  <line x1="290" y1="97" x2="290.0" y2="111.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="290.0,113.0 287.0,107.0 293.0,107.0" fill="#4a6fa5"/>
-  <line x1="290" y1="177" x2="290.0" y2="191.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="290.0,193.0 287.0,187.0 293.0,187.0" fill="#4a6fa5"/>
-  <line x1="362" y1="220" x2="416.0" y2="220.0" stroke="#27ae60" stroke-width="1.3"/>
-  <polygon points="418.0,220.0 412.0,223.0 412.0,217.0" fill="#27ae60"/>
-  <text x="390" y="214" fill="#27ae60" font-size="10">No</text>
-  <line x1="290" y1="247" x2="290.0" y2="261.0" stroke="#c0392b" stroke-width="1.3"/>
-  <polygon points="290.0,263.0 287.0,257.0 293.0,257.0" fill="#c0392b"/>
-  <text x="305" y="258" fill="#c0392b" font-size="10">Yes</text>
-  <line x1="290" y1="427" x2="290.0" y2="441.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="290.0,443.0 287.0,437.0 293.0,437.0" fill="#4a6fa5"/>
-  <line x1="290" y1="477" x2="290.0" y2="491.0" stroke="#4a6fa5" stroke-width="1.3"/>
-  <polygon points="290.0,493.0 287.0,487.0 293.0,487.0" fill="#4a6fa5"/>
-  <!-- Accept also goes to pattern memory -->
-  <path d="M510,237 Q510,460 432,460" fill="none" stroke="#27ae60" stroke-width="1" stroke-dasharray="4,2"/>
-</svg>
+  <img src="diagrams/inline-critique.svg" alt="critique diagram" width="100%"/>
 
 ### Defect Categories
 
