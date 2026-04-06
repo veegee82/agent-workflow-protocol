@@ -390,6 +390,106 @@ At A4, the architecture goes fractal. Workers can themselves become managers:
 
 **Budget flows down, results flow up.** Each level receives a subset of the parent's budget. A department manager cannot spend more than the CEO allocated. This hierarchical budget enforcement is unique to AWP.
 
+#### How a worker becomes a sub-manager
+
+A delegation envelope can opt into recursive execution in **three** ways
+(defense in depth — the recursion happens even when the manager LLM
+forgets to set every field):
+
+0. **Auto-tag at plan time:** if the manager produces a PLAN with two or
+   more independent (no-dependency) subtasks and the workflow allows
+   recursive delegation, the runtime automatically tags those subtasks
+   with `delegation_strategy: "submanager"`. Weaker manager models often
+   forget the field even when the task explicitly asks for recursive
+   decomposition; the auto-tag closes that gap without changing the
+   manager's intent.
+1. **Explicit per-delegation:** the manager sets `as_submanager: true` on the
+   envelope and optionally specifies `submanager_agent` (path to a manager
+   agent dir), `submanager_budget_fraction` (default 0.3), and
+   `inherited_state_keys` (the only state passed down).
+2. **Plan-driven:** during the PLAN decision, a subtask is declared with
+   `delegation_strategy: "submanager"`. Any subsequent DELEGATE that links
+   to that `subtask_id` is upgraded to a sub-manager spawn automatically.
+
+When either trigger fires, the runtime constructs a child
+`DelegationLoopRunner` with `depth = parent.depth + 1`, an allocated child
+`BudgetSnapshot`, and a sub-run directory at
+`<parent_run>/iterations/NNN/delegations/<worker_id>/runs/<sub_run_id>/`.
+The graph builder walks this directory recursively, so the visualizer
+renders nested sub-runs as their own clusters without any extra config.
+
+#### Termination guarantees (no hangs, no blocked branches)
+
+The recursive architecture is engineered so that the parent loop can never
+get stuck on a child:
+
+- **Hard-cap budget allocation with pre-charge reservation.**
+  `BudgetSnapshot.allocate_child(fraction)` returns a child snapshot
+  whose `max_loops`, `max_total_workers`, `max_total_tokens` and
+  `max_tool_calls` are capped at *fraction × parent's currently remaining
+  capacity*. **The allocated amount is immediately booked against the
+  parent as consumed**, so a second sibling allocation in the same
+  iteration sees a smaller remaining pool. Without this reservation,
+  three concurrent `allocate_child(0.3)` calls would each grab 30% of
+  the same untouched base and over-commit to 90% of the parent budget;
+  with it, they correctly degrade to 30% / 21% / 14.7% as the pool
+  shrinks. Wall-time is shared as hard cap (= parent's remaining
+  wall-time), so the global timeout always wins regardless of recursion
+  depth.
+- **Refund-style reclaim.** When the child loop returns — successfully,
+  with a stall, or via exception — `parent.reclaim_child(child)` releases
+  the pre-charged reservation and books the child's *actual* usage in
+  its place. The net change to the parent equals
+  `child.actual − child.reserved`, which is always ≤ 0 because the child
+  cannot exceed its caps. Unused capacity flows back automatically.
+  Double-reclaim is a no-op so nested error paths cannot double-charge
+  or double-refund.
+- **Depth gate.** `as_submanager` is silently downgraded to a normal
+  worker when `current_depth >= max_depth`. The recursion is provably
+  bounded.
+- **Failure normalisation.** Any exception inside a child is caught at
+  the spawn boundary and converted to `{confidence: 0.0,
+  submanager_failed: true}`. The parent's aggregation logic treats this
+  as a failed delegation — never as a hang.
+- **Inherited stall detection.** Each child runs the same
+  `StallDetector` and per-subtask iteration tracking as the top-level
+  manager. A stuck branch detects itself, force-completes within its own
+  budget window, and propagates back as a low-confidence result.
+- **State subset only.** Children see only the keys listed in
+  `inherited_state_keys`, never the full parent state. This prevents
+  cross-branch leakage and keeps the child's prompt small enough to
+  finish within its allocated tokens.
+- **Auto-promotion of stuck subtasks.** When a normal-worker subtask is
+  stuck for more than `MAX_SUBTASK_ITERATIONS` (default 5) and recursion
+  is still allowed, the runtime promotes the subtask to
+  `delegation_strategy: "submanager"`, resets its iteration counter, and
+  injects an instruction telling the manager to use `as_submanager: true`
+  on the next DELEGATE. This is the only way a single sub-task can
+  recover from a runaway worker loop without consuming the entire
+  parent budget.
+- **Worker tool-call repeat detector.** Inside `chat_with_tools`, the
+  runtime tracks the last few `(tool_name, arguments)` pairs the model
+  produced. When the same signature appears 3 times in a row — a strong
+  signal that the worker is stuck on an error response it cannot learn
+  from — the loop is forcibly terminated with an explicit abort message
+  injected as the next tool result. The model gets one final round with
+  `tool_choice="none"` to produce a coherent final answer (typically a
+  partial result with low confidence). Without this guard, weaker
+  models can burn an entire `max_rounds=10` window calling the same
+  broken `code.execute` payload over and over, blocking the parent loop.
+
+#### Visualisation: nested sub-run clusters
+
+The graph builder reflects the sub-run hierarchy on disk one-to-one. For
+each spawned submanager it walks
+`<run>/iterations/NNN/delegations/<worker>/runs/<sub_run_id>/`
+recursively and emits a `subRunCluster` node that contains every node
+of that sub-run as parent-relative children (React Flow's
+`parentNode` + `extent: "parent"` mechanism). The cluster header shows
+the triggering worker, the recursion depth, the manager model, and the
+budget caps. A coloured palette per depth (violet → pink → cyan → amber)
+makes the recursion levels obvious at a glance, even at depth 3 or 4.
+
 ---
 
 ## 8. The Safety Architecture
