@@ -313,7 +313,10 @@ class StallDetector:
             if old_out or new_out:
                 output_stalled = self._output_similarity(old_out, new_out) > 0.85
 
-        if confidence_stalled or output_stalled:
+        both_stalled = confidence_stalled and output_stalled
+        either_stalled = confidence_stalled or output_stalled
+
+        if either_stalled:
             self._warnings += 1
             # Strategy switching: rotate through strategies before stopping
             if self._strategy_pool:
@@ -324,6 +327,10 @@ class StallDetector:
                     return "switch_strategy"
                 # All strategies exhausted
                 return "stop"
+            # Both channels agree → stop immediately (was: require 2 warnings)
+            if both_stalled:
+                return "stop"
+            # Only one channel → warn first, stop on second warning
             if self._warnings >= 2:
                 return "stop"
             return "warn"
@@ -1600,6 +1607,39 @@ class DelegationLoopRunner:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
 
+            # Track delegation history to detect repeated same-worker patterns
+            if "_delegation_history" not in state:
+                state["_delegation_history"] = {}
+            repeated_warnings = []
+            for env in envelopes:
+                wid = env.get("worker_id", env.get("id", ""))
+                if wid:
+                    hist = state["_delegation_history"]
+                    hist[wid] = hist.get(wid, 0) + 1
+                    if hist[wid] >= 3:
+                        logger.warning(
+                            "Worker '%s' delegated %d times — likely stuck",
+                            wid, hist[wid],
+                        )
+                        repeated_warnings.append(
+                            f"Worker '{wid}' has been delegated {hist[wid]} times "
+                            f"with no satisfactory result. You MUST change the "
+                            f"approach: use a DIFFERENT worker_id, change the "
+                            f"instructions substantially, or fix the root cause "
+                            f"identified in earlier failures."
+                        )
+            if repeated_warnings:
+                state["_repeated_delegation_warning"] = "\n".join(repeated_warnings)
+                # Feed stall detector with zero confidence for repeated patterns
+                if self._stall:
+                    stall_status = self._stall.record(0.0, "repeated_worker_delegation")
+                    if stall_status == "stop":
+                        return self._build_partial_result(
+                            "stall_detected_repeated_delegations"
+                        ), "stall_detected"
+            else:
+                state.pop("_repeated_delegation_warning", None)
+
             self._profiler.start(f"workers.iter_{iteration}")
             delegation_results = self._execute_delegations(
                 envelopes, task, state, iteration=iteration
@@ -1680,11 +1720,20 @@ class DelegationLoopRunner:
                 window,
             )
 
-            # 8. Update state with results
+            # 8. Update state with results (strip internal fields to avoid
+            #    polluting manager context with tooling traces)
+            _INTERNAL_PREFIXES = ("_tool_calls", "_critique", "_eval", "_repair", "tools_created")
             for dr in delegation_results:
                 wid = dr.get("worker_id", "")
                 if wid:
-                    state[wid] = dr.get("result", {})
+                    raw = dr.get("result", {})
+                    if isinstance(raw, dict):
+                        state[wid] = {
+                            k: v for k, v in raw.items()
+                            if not any(k.startswith(p) for p in _INTERNAL_PREFIXES)
+                        }
+                    else:
+                        state[wid] = raw
 
             # 8b. Record outcomes in decision journal (Manager Intelligence)
             if self._journal:
@@ -2441,6 +2490,36 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 f"You MUST delegate a worker to fix these broken output "
                 f"files before attempting to complete again. "
                 f"Do NOT mark the task as complete until all files are valid.\n"
+            )
+
+        # Repeated delegation warning
+        repeated_warn = state.get("_repeated_delegation_warning")
+        if repeated_warn:
+            parts.append(
+                f"## ⚠ REPEATED DELEGATION DETECTED\n{repeated_warn}\n\n"
+                f"Re-delegating the same worker with the same approach is "
+                f"not making progress. Change strategy, merge subtasks, or "
+                f"use a different decomposition.\n"
+            )
+
+        # Diagnose findings enforcement
+        active_hypotheses = state.get("_active_hypotheses")
+        if active_hypotheses:
+            parts.append("## 🔬 ACTIVE DIAGNOSIS — YOU MUST ADDRESS THESE\n")
+            parts.append(
+                "You previously diagnosed problems and generated hypotheses. "
+                "Your next delegation MUST test or fix at least one of these:\n"
+            )
+            for i, hyp in enumerate(active_hypotheses, 1):
+                if isinstance(hyp, dict):
+                    parts.append(
+                        f"{i}. **{hyp.get('hypothesis', hyp.get('description', str(hyp)))}**\n"
+                    )
+                else:
+                    parts.append(f"{i}. **{hyp}**\n")
+            parts.append(
+                "\nDo NOT ignore these and repeat the same delegation that failed. "
+                "Address the root cause.\n"
             )
 
         # Critique feedback from last iteration
