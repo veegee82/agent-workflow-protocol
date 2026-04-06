@@ -657,6 +657,13 @@ class LLMClient:
         # Build sanitized→original name mapping for tool executor
         _, name_map = _sanitize_tool_names(tools)
 
+        # Repeat-detector: if the model issues the same (tool, args) call
+        # 3 times in a row, the loop is stuck (model not learning from
+        # the error response). Abort early with an explicit hint instead
+        # of burning all max_rounds.
+        recent_calls: list[tuple[str, str]] = []
+        REPEAT_THRESHOLD = 3
+
         for round_num in range(max_rounds):
             # On the first round, force tool usage when caller didn't specify
             # a preference. This prevents weaker models from skipping tools
@@ -724,6 +731,52 @@ class LLMClient:
                     continue
 
                 logger.info("Tool call [%d]: %s(%s)", round_num, tool_name, args)
+
+                # Repeat-detection: same (tool, args) signature in a row
+                call_sig = (tool_name, raw_args[:500])
+                recent_calls.append(call_sig)
+                if (
+                    len(recent_calls) >= REPEAT_THRESHOLD
+                    and len(set(recent_calls[-REPEAT_THRESHOLD:])) == 1
+                ):
+                    logger.warning(
+                        "Tool call loop stuck: %s called %d times with "
+                        "identical arguments — aborting worker loop",
+                        tool_name, REPEAT_THRESHOLD,
+                    )
+                    abort_msg = {
+                        "ok": False,
+                        "status": 500,
+                        "data": {},
+                        "error": (
+                            f"ABORTED: You called `{tool_name}` "
+                            f"{REPEAT_THRESHOLD} times in a row with the "
+                            f"same arguments. The previous error responses "
+                            f"are above — read them, FIX the underlying "
+                            f"issue (e.g. syntax error, wrong path), then "
+                            f"either call the tool with DIFFERENT arguments "
+                            f"or stop calling tools and return your final "
+                            f"answer with `confidence` reflecting that the "
+                            f"task could not be completed."
+                        ),
+                    }
+                    current_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", ""),
+                            "content": json.dumps(abort_msg, default=str),
+                        }
+                    )
+                    # Force one more LLM round so the model can produce a
+                    # final answer with the abort context, then exit.
+                    final = self.chat(
+                        current_messages,
+                        tools=tools,
+                        tool_choice="none",  # NO more tool calls
+                        **kwargs,
+                    )
+                    final_msg = final.get("choices", [{}])[0].get("message", {})
+                    return final_msg or current_messages[-1]
 
                 try:
                     result = tool_executor(tool_name, args)
