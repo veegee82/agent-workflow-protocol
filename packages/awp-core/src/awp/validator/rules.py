@@ -294,4 +294,39 @@ def validate_rules(
                         f"action '{action}'. Valid actions: {sorted(VALID_ACTIONS)}"
                     )
 
+    # --- A4 recursive delegation rules (R31-R32) ----------------------------
+    # R31: A4 workflows MUST set a finite max_depth.
+    # R32: max_depth must be reasonable to guarantee termination.
+    orch = getattr(manifest, "orchestration", None)
+    dl_cfg = (
+        getattr(orch, "delegation_loop", None) if orch is not None else None
+    )
+    if dl_cfg is not None and getattr(dl_cfg, "budget", None) is not None:
+        budget = dl_cfg.budget
+        max_depth = getattr(budget, "max_depth", None)
+        # R31: max_depth must be present and >= 0
+        if max_depth is None:
+            errors.append(
+                "R31: delegation_loop.budget.max_depth is required for "
+                "delegation-loop workflows. Set max_depth=0 to disable "
+                "recursive delegation, or 1+ to enable submanagers."
+            )
+        elif max_depth < 0:
+            errors.append(
+                f"R31: delegation_loop.budget.max_depth must be >= 0 (got {max_depth})."
+            )
+        # R32: max_depth must not exceed a hard ceiling so the recursion
+        # tree always terminates within human-debuggable bounds.
+        elif max_depth > 10:
+            errors.append(
+                f"R32: delegation_loop.budget.max_depth={max_depth} exceeds "
+                f"the hard ceiling of 10. Deep recursion makes debugging and "
+                f"budget reasoning intractable. Use a flatter decomposition."
+            )
+        elif max_depth > 5:
+            warnings.append(
+                f"R32: delegation_loop.budget.max_depth={max_depth} is high. "
+                f"Most A4 workflows complete with depth <= 3."
+            )
+
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)

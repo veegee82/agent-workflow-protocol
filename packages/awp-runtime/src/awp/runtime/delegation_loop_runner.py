@@ -100,12 +100,19 @@ def _find_truncation_points(text: str) -> list[int]:
 
 
 class BudgetSnapshot:
-    """Tracks consumed resources across the entire delegation tree."""
+    """Tracks consumed resources across the entire delegation tree.
+
+    For A4 recursive delegation, a child snapshot can be allocated via
+    :meth:`allocate_child`. The child has hard-cap caps that cannot be
+    exceeded; on :meth:`reclaim_child` the child's actual usage is folded
+    back into the parent so that ungeused budget is freed.
+    """
 
     def __init__(
         self,
         budget: DelegationBudget,
         reservation_config: Any | None = None,
+        parent: "BudgetSnapshot | None" = None,
     ) -> None:
         self.max_loops = budget.max_loops
         self.max_total_workers = budget.max_total_workers
@@ -123,6 +130,102 @@ class BudgetSnapshot:
         self._reservation = reservation_config
         self._current_phase: str = "core_work"
         self._phase_transitions: list[tuple[int, str]] = [(0, "core_work")]
+        # A4 recursive delegation
+        self._parent: "BudgetSnapshot | None" = parent
+        self._reclaimed: bool = False
+
+    # -- A4: Child allocation -------------------------------------------------
+
+    def allocate_child(
+        self,
+        fraction: float = 0.3,
+        max_depth: int | None = None,
+    ) -> "BudgetSnapshot":
+        """Allocate a child budget that is a hard-capped subset of this one.
+
+        The child receives a fraction of *currently remaining* parent
+        capacity for loops, workers, tokens, tool_calls. The allocated
+        amount is **immediately reserved** against the parent (counted as
+        consumed) — this prevents three parallel ``allocate_child(0.3)``
+        calls from each grabbing 30% of the same base and over-committing
+        90% of the budget.
+
+        On :meth:`reclaim_child` the reservation is released and replaced
+        with the child's *actual* usage. Unused capacity flows back to the
+        parent automatically.
+
+        Wall-time is shared (the child sees the parent's remaining
+        wall-time as its hard cap, so the global timeout always wins — no
+        child can hang the whole tree).
+        """
+        fraction = max(0.05, min(0.95, float(fraction)))
+        # Compute remaining capacity per dimension
+        rem_loops = max(1, self.max_loops - self.loops_used)
+        rem_workers = max(1, self.max_total_workers - self.workers_spawned)
+        rem_tokens = (
+            max(1, self.max_total_tokens - self.tokens_consumed)
+            if self.max_total_tokens else 0
+        )
+        rem_tool_calls = (
+            max(1, self.max_tool_calls - self.tool_calls_used)
+            if self.max_tool_calls else 0
+        )
+
+        # Build a synthetic DelegationBudget for the child
+        class _ChildBudget:
+            pass
+        cb = _ChildBudget()
+        cb.max_loops = max(1, int(rem_loops * fraction))
+        cb.max_total_workers = max(1, int(rem_workers * fraction))
+        cb.max_total_tokens = int(rem_tokens * fraction) if rem_tokens else 0
+        # Wall-time: child shares parent's remaining wall-time as hard cap.
+        # The global timeout always wins — child cannot outlive the parent.
+        cb.max_wall_time = max(1, int(self.wall_time_remaining))
+        cb.max_tool_calls = int(rem_tool_calls * fraction) if rem_tool_calls else 0
+        cb.max_depth = (
+            max_depth if max_depth is not None else max(0, self.max_depth - 1)
+        )
+
+        child = BudgetSnapshot(cb, reservation_config=None, parent=self)  # type: ignore[arg-type]
+        # Pre-charge the reservation against the parent so concurrent
+        # siblings see a smaller "remaining" pool. Stored on the child so
+        # reclaim_child knows how much to refund.
+        child._reserved_loops = cb.max_loops
+        child._reserved_workers = cb.max_total_workers
+        child._reserved_tokens = cb.max_total_tokens
+        child._reserved_tool_calls = cb.max_tool_calls
+        self.loops_used += cb.max_loops
+        self.workers_spawned += cb.max_total_workers
+        self.tokens_consumed += cb.max_total_tokens
+        self.tool_calls_used += cb.max_tool_calls
+        return child
+
+    def reclaim_child(self, child: "BudgetSnapshot") -> None:
+        """Release the child's reservation and book its actual usage.
+
+        Net change to the parent equals ``child.actual - child.reserved``,
+        which is always ≤ 0 because the child cannot exceed its caps.
+        Calling reclaim twice is a no-op so that nested error paths cannot
+        double-charge or double-refund.
+        """
+        if child._reclaimed or child._parent is not self:
+            return
+        # Release the reservation that was pre-charged at allocate time
+        self.loops_used -= getattr(child, "_reserved_loops", 0)
+        self.workers_spawned -= getattr(child, "_reserved_workers", 0)
+        self.tokens_consumed -= getattr(child, "_reserved_tokens", 0)
+        self.tool_calls_used -= getattr(child, "_reserved_tool_calls", 0)
+        # Book the child's actual consumption
+        self.loops_used += child.loops_used
+        self.workers_spawned += child.workers_spawned
+        self.tokens_consumed += child.tokens_consumed
+        self.tool_calls_used += child.tool_calls_used
+        # Clamp to non-negative just in case of edge-case rounding
+        self.loops_used = max(0, self.loops_used)
+        self.workers_spawned = max(0, self.workers_spawned)
+        self.tokens_consumed = max(0, self.tokens_consumed)
+        self.tool_calls_used = max(0, self.tool_calls_used)
+        child._reclaimed = True
 
     @property
     def wall_time_elapsed(self) -> float:
@@ -517,9 +620,16 @@ class TaskPlan:
     criteria so the manager can monitor progress across iterations.
     """
 
+    # Maximum iterations on a single subtask before force-completing it
+    MAX_SUBTASK_ITERATIONS = 5
+
     def __init__(self, max_subtasks: int = 10) -> None:
         self._subtasks: list[dict[str, Any]] = []
         self._max = max_subtasks
+        # worker_id → subtask_id explicit mapping from delegation envelopes
+        self._worker_subtask_map: dict[str, str] = {}
+        # subtask_id → number of iterations spent on it
+        self._subtask_iterations: dict[str, int] = {}
 
     def set_subtasks(self, subtasks: list[dict[str, Any]]) -> None:
         """Set the plan from the manager's PLAN decision output."""
@@ -528,16 +638,128 @@ class TaskPlan:
             st.setdefault("status", "pending")
             st.setdefault("result_summary", "")
 
-    def update_status(
-        self, subtask_id: str, status: str, result_summary: str = ""
-    ) -> None:
-        """Update a subtask's status after a worker completes."""
+    def register_worker_mapping(self, worker_id: str, subtask_id: str) -> None:
+        """Register an explicit worker_id → subtask_id mapping from a delegation envelope."""
+        self._worker_subtask_map[worker_id] = subtask_id
+
+    def _resolve_subtask(self, worker_id: str) -> dict[str, Any] | None:
+        """Resolve a worker_id to a subtask, using explicit mapping first, then fuzzy match."""
+        # 1. Exact match on subtask id
         for st in self._subtasks:
-            if st.get("id") == subtask_id:
-                st["status"] = status
-                if result_summary:
-                    st["result_summary"] = result_summary
-                break
+            if st.get("id") == worker_id:
+                return st
+        # 2. Explicit mapping from delegation envelope's subtask_id field
+        mapped_id = self._worker_subtask_map.get(worker_id)
+        if mapped_id:
+            for st in self._subtasks:
+                if st.get("id") == mapped_id:
+                    return st
+        # 3. Fuzzy match: find subtask whose id shares significant tokens with worker_id.
+        # Strip trailing digits/version suffixes (v2, _3, iter20) for better matching.
+        import re
+        def _normalize(s: str) -> set[str]:
+            s = s.lower().replace("-", "_")
+            tokens = set()
+            for tok in s.split("_"):
+                tok = re.sub(r"\d+$", "", tok)  # strip trailing digits (v2 → v, iter20 → iter)
+                tok = re.sub(r"^v$", "", tok)  # drop bare 'v' (version marker)
+                if len(tok) >= 3:  # ignore short tokens
+                    tokens.add(tok)
+            return tokens
+
+        worker_tokens = _normalize(worker_id)
+        # Generic tokens that shouldn't count as meaningful overlap
+        STOP = {"subtask", "task", "worker", "agent", "step", "phase", "the", "and", "for"}
+        worker_tokens -= STOP
+        if not worker_tokens:
+            return None
+        best_match: dict[str, Any] | None = None
+        best_score = 0
+        for st in self._subtasks:
+            if st.get("status") == "completed":
+                continue  # don't match against already-completed subtasks
+            st_id = st.get("id", "")
+            st_tokens = _normalize(st_id) - STOP
+            desc_words = re.findall(r"[a-z]+", st.get("description", "").lower())[:30]
+            desc_tokens = {w for w in desc_words if len(w) >= 3} - STOP
+            overlap = len(worker_tokens & (st_tokens | desc_tokens))
+            if overlap > best_score and overlap >= 1:
+                best_score = overlap
+                best_match = st
+        return best_match
+
+    def update_status(
+        self, worker_id: str, status: str, result_summary: str = ""
+    ) -> None:
+        """Update a subtask's status after a worker completes.
+
+        Uses explicit subtask_id mapping, then fuzzy matching if no exact match.
+        """
+        st = self._resolve_subtask(worker_id)
+        if not st:
+            return
+        st["status"] = status
+        if result_summary:
+            st["result_summary"] = result_summary
+
+    def record_iteration(self, worker_id: str) -> None:
+        """Record that an iteration was spent on the subtask associated with this worker."""
+        st = self._resolve_subtask(worker_id)
+        if not st:
+            return
+        st_id = st.get("id", "")
+        self._subtask_iterations[st_id] = self._subtask_iterations.get(st_id, 0) + 1
+
+    def get_stuck_subtasks(self) -> list[dict[str, Any]]:
+        """Return subtasks that have exceeded MAX_SUBTASK_ITERATIONS without completing."""
+        stuck = []
+        for st in self._subtasks:
+            st_id = st.get("id", "")
+            iters = self._subtask_iterations.get(st_id, 0)
+            if iters >= self.MAX_SUBTASK_ITERATIONS and st["status"] != "completed":
+                stuck.append(st)
+        return stuck
+
+    def force_advance_stuck(
+        self,
+        promote_to_submanager: bool = False,
+    ) -> list[str]:
+        """Handle stuck subtasks. Two modes:
+
+        - ``promote_to_submanager=False`` (default): force-complete the
+          subtask so the loop moves on. Used when recursive delegation is
+          not available (depth limit reached, A2/A3 workflow).
+        - ``promote_to_submanager=True``: mark the subtask with
+          ``delegation_strategy="submanager"`` and reset its iteration
+          counter. The next DELEGATE for that subtask will spawn a child
+          DelegationLoopRunner with a dedicated budget. Status stays
+          ``in_progress`` so the manager keeps working on it.
+
+        Either way the parent loop is guaranteed to make progress: a
+        force-completed subtask unblocks dependents; a promoted one gets
+        a fresh iteration window with a stronger execution mode.
+        """
+        advanced = []
+        for st in self.get_stuck_subtasks():
+            st_id = st.get("id", "")
+            if promote_to_submanager and st.get("delegation_strategy") != "submanager":
+                st["delegation_strategy"] = "submanager"
+                st["status"] = "in_progress"
+                st["result_summary"] = (
+                    f"[AUTO-PROMOTED to submanager after "
+                    f"{self._subtask_iterations.get(st_id, 0)} stuck iterations]"
+                )
+                # Reset iteration counter so the submanager gets its own window
+                self._subtask_iterations[st_id] = 0
+                advanced.append(st_id)
+            else:
+                st["status"] = "completed"
+                st["result_summary"] = (
+                    f"[AUTO-ADVANCED after {self._subtask_iterations.get(st_id, 0)} "
+                    f"iterations — use best available results]"
+                )
+                advanced.append(st_id)
+        return advanced
 
     def get_next_actionable(self) -> list[dict[str, Any]]:
         """Return subtasks whose dependencies are all completed."""
@@ -564,20 +786,31 @@ class TaskPlan:
             return ""
         lines = [
             f"## Task Plan Progress ({self.progress_summary()})\n",
-            "| ID | Description | Priority | Dependencies | Status | Result |",
-            "|-----|-------------|----------|--------------|--------|--------|",
+            "| ID | Description | Priority | Dependencies | Status | Iterations | Result |",
+            "|-----|-------------|----------|--------------|--------|------------|--------|",
         ]
         for st in self._subtasks:
             deps = ", ".join(st.get("dependencies", [])) or "none"
+            iters = self._subtask_iterations.get(st.get("id", ""), 0)
+            iter_warn = f" ⚠" if iters >= self.MAX_SUBTASK_ITERATIONS - 1 else ""
             lines.append(
                 f"| {st.get('id', '?')} | {st.get('description', '')[:60]} "
                 f"| {st.get('priority', 'normal')} | {deps} "
-                f"| **{st['status']}** | {st.get('result_summary', '')[:40]} |"
+                f"| **{st['status']}** | {iters}{iter_warn} "
+                f"| {st.get('result_summary', '')[:40]} |"
             )
         actionable = self.get_next_actionable()
         if actionable:
             ids = ", ".join(a["id"] for a in actionable)
             lines.append(f"\n**Next actionable subtasks**: {ids}\n")
+        stuck = self.get_stuck_subtasks()
+        if stuck:
+            ids = ", ".join(s["id"] for s in stuck)
+            lines.append(
+                f"\n**⚠ STUCK SUBTASKS (>{self.MAX_SUBTASK_ITERATIONS} iterations)**: {ids}\n"
+                f"These subtasks will be auto-advanced. Use best available results "
+                f"and move to the next subtask.\n"
+            )
         return "\n".join(lines)
 
 
@@ -1145,6 +1378,8 @@ class DelegationLoopRunner:
         eval_config: Any = None,
         llm_client: Optional[LLMClient] = None,
         profile: bool = False,
+        run_dir_override: Optional[Path] = None,
+        inherited_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
@@ -1215,8 +1450,15 @@ class DelegationLoopRunner:
             diagnosis_cfg.max_hypotheses if diagnosis_cfg else 3
         )
 
-        # Logger
-        run_dir = self._dir / "workspace" / "runs" / self._run_id
+        # Logger — submanagers write under their parent worker directory so
+        # the visualizer can render nested sub-runs (graph_builder.py walks
+        # `<worker_dir>/runs/<sub_run_id>/`).
+        if run_dir_override is not None:
+            run_dir = run_dir_override
+        else:
+            run_dir = self._dir / "workspace" / "runs" / self._run_id
+        self._run_dir = run_dir
+        self._inherited_state = inherited_state or {}
         self._logger = RunLogger(run_dir, fmt=config.logging.format)
 
         # History
@@ -1413,6 +1655,37 @@ class DelegationLoopRunner:
                     self._task_plan = TaskPlan(
                         max_subtasks=self._task_plan_max
                     )
+                    # Defense-in-depth for A4: when the manager plans
+                    # 2+ INDEPENDENT subtasks (no dependencies between
+                    # them) and recursive delegation is allowed, auto-tag
+                    # them as submanager subtasks. Weaker manager models
+                    # frequently forget the delegation_strategy field
+                    # even when the task explicitly asks for it. This
+                    # auto-tagging makes the A4 path actually exercised
+                    # without requiring the manager to nail every field.
+                    if (
+                        self._depth < self._budget.max_depth
+                        and len(subtasks) >= 2
+                    ):
+                        ids = {s.get("id") for s in subtasks if s.get("id")}
+                        independent = [
+                            s for s in subtasks
+                            if not (s.get("dependencies") or [])
+                            and s.get("id") in ids
+                        ]
+                        # Only auto-tag when at least 2 of the planned
+                        # subtasks are root-level (no deps) — those are
+                        # the natural submanager candidates.
+                        if len(independent) >= 2:
+                            for s in independent:
+                                if "delegation_strategy" not in s:
+                                    s["delegation_strategy"] = "submanager"
+                            logger.info(
+                                "Auto-tagged %d independent subtasks as "
+                                "delegation_strategy='submanager' (A4 "
+                                "defense-in-depth)",
+                                len(independent),
+                            )
                     self._task_plan.set_subtasks(subtasks)
                     logger.info(
                         "Task plan created with %d subtasks", len(subtasks)
@@ -1423,9 +1696,40 @@ class DelegationLoopRunner:
 
             # Handle DIAGNOSE decision (Manager Intelligence: Hypothesis Debugging)
             # Max 2 consecutive DIAGNOSE decisions — after that, force DELEGATE.
+            # Also enforce a total diagnose budget (max 30% of loop budget) and
+            # a cooldown period (must delegate at least 2 times before diagnosing again).
             if decision_type == "diagnose":
                 prev_diagnose_count = state.get("_consecutive_diagnoses", 0)
-                if prev_diagnose_count >= 2:
+                total_diagnoses = state.get("_total_diagnoses", 0)
+                diagnose_cooldown = state.get("_diagnose_cooldown", 0)
+                max_total_diagnoses = max(3, self._budget.max_loops // 4)
+                blocked = False
+
+                if total_diagnoses >= max_total_diagnoses:
+                    logger.warning(
+                        "Total DIAGNOSE budget exhausted (%d/%d) — "
+                        "forcing delegation.",
+                        total_diagnoses, max_total_diagnoses,
+                    )
+                    state["_diagnose_locked"] = (
+                        f"You have used all {max_total_diagnoses} DIAGNOSE decisions. "
+                        f"You MUST now DELEGATE workers or COMPLETE the task. "
+                        f"No more diagnosis is allowed."
+                    )
+                    blocked = True
+                elif diagnose_cooldown > 0:
+                    logger.warning(
+                        "DIAGNOSE cooldown active (%d delegations remaining) — "
+                        "forcing delegation.",
+                        diagnose_cooldown,
+                    )
+                    state["_diagnose_locked"] = (
+                        "DIAGNOSE is on cooldown. You must DELEGATE at least "
+                        f"{diagnose_cooldown} more time(s) before diagnosing again. "
+                        "Use the existing hypotheses to guide your delegation."
+                    )
+                    blocked = True
+                elif prev_diagnose_count >= 2:
                     logger.warning(
                         "Manager issued DIAGNOSE %d times in a row — "
                         "forcing delegation. Hypotheses are already available.",
@@ -1437,6 +1741,9 @@ class DelegationLoopRunner:
                         "test or fix the issue, or COMPLETE if the task is done. "
                         "Do NOT issue DIAGNOSE again."
                     )
+                    blocked = True
+
+                if blocked:
                     # Feed stall detector
                     if self._stall:
                         stall_status = self._stall.record(0.0, "repeated_diagnose")
@@ -1456,10 +1763,14 @@ class DelegationLoopRunner:
                 if hypotheses and self._diagnosis_enabled:
                     state["_active_hypotheses"] = hypotheses
                     state["_consecutive_diagnoses"] = prev_diagnose_count + 1
+                    state["_total_diagnoses"] = total_diagnoses + 1
                     logger.info(
-                        "Diagnosis: %d hypotheses generated for worker '%s'",
+                        "Diagnosis: %d hypotheses generated for worker '%s' "
+                        "(total diagnoses: %d/%d)",
                         len(hypotheses),
                         manager_decision.get("failed_worker", "?"),
+                        total_diagnoses + 1,
+                        max_total_diagnoses,
                     )
                 else:
                     logger.warning("DIAGNOSE decision but no hypotheses or diagnosis disabled")
@@ -1598,9 +1909,17 @@ class DelegationLoopRunner:
                 }, "fail"
 
             # 3. Execute delegations (fan-out)
-            # Reset consecutive-diagnose counter on actual delegation
+            # Reset consecutive-diagnose counter on actual delegation.
+            # Apply cooldown: after a diagnose lock, require 2 delegations
+            # before allowing diagnose again to prevent diagnose→delegate→diagnose loops.
+            if state.get("_consecutive_diagnoses", 0) >= 2:
+                state["_diagnose_cooldown"] = 2  # must delegate 2x before diagnosing again
             state.pop("_consecutive_diagnoses", None)
             state.pop("_diagnose_locked", None)
+            # Decrement cooldown counter
+            cooldown = state.get("_diagnose_cooldown", 0)
+            if cooldown > 0:
+                state["_diagnose_cooldown"] = cooldown - 1
 
             envelopes = manager_decision.get("delegations", [])
             if not envelopes:
@@ -1747,6 +2066,12 @@ class DelegationLoopRunner:
 
             # 8c. Update task plan status (Manager Intelligence)
             if self._task_plan:
+                # Register explicit subtask_id mappings from delegation envelopes
+                for env in envelopes:
+                    env_wid = env.get("worker_id", env.get("id", ""))
+                    env_stid = env.get("subtask_id", "")
+                    if env_wid and env_stid:
+                        self._task_plan.register_worker_mapping(env_wid, env_stid)
                 for dr in delegation_results:
                     wid = dr.get("worker_id", "")
                     result = dr.get("result", {})
@@ -1754,6 +2079,45 @@ class DelegationLoopRunner:
                     status = "completed" if isinstance(conf, (int, float)) and conf > 0.3 else "failed"
                     summary = str(result.get("key_finding", result.get("summary", "")))[:60]
                     self._task_plan.update_status(wid, status, summary)
+                    self._task_plan.record_iteration(wid)
+                # Force-advance subtasks stuck for too many iterations.
+                # If recursive delegation is allowed (max_depth > current
+                # depth), PROMOTE the stuck subtask to a submanager instead
+                # of force-completing — this gives it a fresh budget window
+                # under a dedicated child runner. The parent loop still
+                # makes progress because the iteration counter is reset
+                # AND any new stall in the child propagates upward as a
+                # failed delegation, which we will then force-complete.
+                can_promote = self._depth < self._budget.max_depth
+                advanced = self._task_plan.force_advance_stuck(
+                    promote_to_submanager=can_promote
+                )
+                if advanced:
+                    if can_promote:
+                        logger.warning(
+                            "Auto-promoted stuck subtasks to submanagers: %s",
+                            ", ".join(advanced),
+                        )
+                        state["_subtask_advanced"] = (
+                            f"Subtasks {', '.join(advanced)} were AUTO-PROMOTED "
+                            f"to submanagers after {TaskPlan.MAX_SUBTASK_ITERATIONS} "
+                            f"stuck iterations. Your NEXT DELEGATE for any of "
+                            f"these subtasks MUST set `as_submanager: true` so "
+                            f"the runtime spawns a dedicated child loop with a "
+                            f"reserved budget."
+                        )
+                    else:
+                        logger.warning(
+                            "Auto-advanced stuck subtasks (max_depth reached): %s",
+                            ", ".join(advanced),
+                        )
+                        state["_subtask_advanced"] = (
+                            f"Subtasks {', '.join(advanced)} were AUTO-ADVANCED "
+                            f"after {TaskPlan.MAX_SUBTASK_ITERATIONS} iterations. "
+                            f"Recursion depth limit reached — use best available "
+                            f"results and proceed to the NEXT subtask. Do NOT "
+                            f"re-delegate work for these subtasks."
+                        )
 
             # 8d. Update hypothesis status (Manager Intelligence)
             if state.get("_active_hypotheses") and self._diagnosis_enabled:
@@ -1965,7 +2329,9 @@ class DelegationLoopRunner:
       "description": "What this subtask accomplishes",
       "dependencies": [],
       "priority": "high",
-      "success_criteria": "How to know this subtask is done"
+      "success_criteria": "How to know this subtask is done",
+      "delegation_strategy": "worker",
+      "submanager_agent": null
     }
   ]
 }
@@ -1973,8 +2339,10 @@ class DelegationLoopRunner:
 Use PLAN **once** on the first iteration to decompose the problem before delegating.
 You can only PLAN once — after that, use DELEGATE to execute the plan.
 After planning, you will see a Task Plan Progress section tracking subtask status.
-Map your DELEGATE worker_ids to subtask IDs to enable automatic progress tracking.
+**CRITICAL: In every DELEGATE decision, include `"subtask_id": "subtask_X"` in each delegation envelope to link the worker to a plan subtask.** This enables automatic progress tracking. Without `subtask_id`, the plan cannot track which subtasks are done.
+**A4 — Submanager subtasks (optional):** If a subtask itself decomposes into many sub-steps that need their own iteration loop (e.g. multi-source research, end-to-end pipeline), set `"delegation_strategy": "submanager"` and optionally `"submanager_agent": "agents/specialist"`. The runtime will then spawn a child DelegationLoopRunner with a hard-capped budget fraction of the parent. If `max_depth` would be exceeded, the field is silently ignored and a normal worker runs instead — the loop never hangs.
 **IMPORTANT: Do NOT issue PLAN again after the first iteration. Use DELEGATE instead.**
+**IMPORTANT: If a subtask is marked as STUCK or AUTO-ADVANCED, do NOT retry it. Move to the next subtask immediately.**
 """)
 
         if self._diagnosis_enabled:
@@ -2020,6 +2388,14 @@ targeted workers to test the most likely hypotheses before doing a full retry.
             parts.append(
                 f"## DIAGNOSE LOCKED\n"
                 f"**{diag_lock}**\n"
+            )
+
+        # Subtask auto-advanced warning
+        subtask_advanced = state.get("_subtask_advanced")
+        if subtask_advanced:
+            parts.append(
+                f"## ⚠ SUBTASKS AUTO-ADVANCED\n"
+                f"**{subtask_advanced}**\n"
             )
 
         # Task Plan Progress
@@ -2324,6 +2700,21 @@ You generate instructions, skills (domain knowledge), and tool configurations fo
 You MUST respond with a JSON object containing ONE of these decisions:
 
 ### DELEGATE — Assign work to workers
+
+**MANDATORY FIELDS in every delegation envelope:**
+- `worker_id` — unique snake_case
+- `subtask_id` — MUST be the id of a plan subtask. The runtime cannot
+  track progress without this field. Omitting it forces the runtime
+  into fuzzy-matching, which is unreliable. ALWAYS set it.
+- `instructions` — what the worker must do
+
+**MANDATORY for any subtask whose plan entry has `delegation_strategy: "submanager"`:**
+- `as_submanager: true` — REQUIRED. The plan said this is a submanager
+  subtask; the envelope MUST honour that. If you forget, the runtime
+  will spawn a normal worker, and the subtask will likely loop until
+  auto-promotion kicks in — wasting an iteration.
+- `submanager_budget_fraction` — float in [0.05, 0.95], default 0.3
+
 ```json
 {{
   "decision": "delegate",
@@ -2331,6 +2722,11 @@ You MUST respond with a JSON object containing ONE of these decisions:
   "delegations": [
     {{
       "worker_id": "unique_snake_case_name",
+      "subtask_id": "subtask_1",
+      "as_submanager": false,
+      "submanager_agent": "agents/specialist",
+      "submanager_budget_fraction": 0.3,
+      "inherited_state_keys": ["data_summary"],
       "instructions": "Detailed instructions for the worker",
       "skills": ["# Skill Name\\n\\n## Purpose\\n...\\n\\n## Concepts\\n...\\n\\n## Rules\\n1. ..."],
       "tools_allowed": ["web.search", "file.read"],
@@ -2356,6 +2752,24 @@ You MUST respond with a JSON object containing ONE of these decisions:
 - `## Rules` — numbered, testable constraints
 - `## Procedure` (optional) — step-by-step sequence for multi-step tasks
 - `## Examples` (optional) — input/output pairs when correct application is non-obvious
+
+**Submanager fields (A4 — recursive delegation, optional):**
+- `as_submanager: true` — spawns a child DelegationLoopRunner instead of an
+  ephemeral worker. Use this when the subtask itself decomposes into many
+  sub-steps that need their own iteration loop (e.g. "perform a multi-source
+  research", "build and validate an end-to-end pipeline").
+- `submanager_agent` — relative path to a manager agent dir (e.g.
+  `agents/specialist`). Defaults to the parent's manager when omitted.
+- `submanager_budget_fraction` — float in (0.05, 0.95), default 0.3. The
+  child receives this fraction of the parent's REMAINING capacity as a
+  HARD CAP. Unused budget flows back to the parent automatically.
+- `inherited_state_keys` — list of state keys the child should see. Only
+  these keys are passed; everything else is hidden to keep tokens low.
+- The plan-level alternative: declare `delegation_strategy: "submanager"`
+  + optional `submanager_agent` directly on the subtask in your PLAN.
+- The recursion depth is bounded by `max_depth` in the budget. When the
+  current depth reaches the limit, `as_submanager` is silently downgraded
+  to a normal worker so the loop never hangs.
 
 ### COMPLETE — Task is done
 ```json
@@ -2857,6 +3271,32 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             # Write envelope to disk BEFORE worker starts (for file watchers)
             self._logger.log_worker_envelope(iteration, worker_id, envelope)
 
+            # A4: recursive sub-manager spawning. If the envelope is marked
+            # as_submanager (or the matching plan subtask declares
+            # delegation_strategy="submanager"), we spawn a child
+            # DelegationLoopRunner instead of running an ephemeral worker.
+            if self._is_submanager_envelope(envelope):
+                try:
+                    return self._spawn_submanager(
+                        worker_id, envelope, task, state, iteration
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "  Submanager %s failed: %s", worker_id, exc
+                    )
+                    err = {
+                        "error": str(exc),
+                        "confidence": 0.0,
+                        "submanager_failed": True,
+                    }
+                    self._logger.log_worker_result(iteration, worker_id, err)
+                    return {
+                        "worker_id": worker_id,
+                        "envelope": envelope,
+                        "result": err,
+                        "status": "error",
+                    }
+
             try:
                 result = self._run_ephemeral_worker(worker_id, envelope, task, state)
                 # Persist any skills the worker created to the skill registry
@@ -2905,6 +3345,191 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 results.append(future.result())
 
         return results
+
+    # ------------------------------------------------------------------
+    # A4 — Recursive submanager spawning
+    # ------------------------------------------------------------------
+
+    def _is_submanager_envelope(self, envelope: dict) -> bool:
+        """Decide whether a delegation should spawn a child DelegationLoopRunner.
+
+        A worker becomes a submanager when:
+        - The envelope has ``as_submanager: true``, OR
+        - The matching plan subtask has ``delegation_strategy: "submanager"``
+          (matched by explicit ``subtask_id`` OR by fuzzy worker_id match).
+
+        Hard-blocked when ``self._depth >= self._budget.max_depth`` so the
+        recursion can never escape its allowed depth.
+
+        This is intentionally lenient: weaker manager models often forget
+        to set ``as_submanager`` even when the plan said they should. We
+        defend in depth here so the plan's intent is honoured even when
+        the manager envelope is sloppy.
+        """
+        if self._depth >= self._budget.max_depth:
+            return False
+        if bool(envelope.get("as_submanager")):
+            return True
+        if self._task_plan is not None:
+            stid = envelope.get("subtask_id", "")
+            # 1. Explicit subtask_id link
+            if stid:
+                for st in self._task_plan._subtasks:
+                    if st.get("id") == stid:
+                        return st.get("delegation_strategy") == "submanager"
+            # 2. Fall back to fuzzy worker_id matching — the same heuristic
+            # the TaskPlan uses for status tracking. Manager forgot subtask_id
+            # but the worker name still maps clearly to a submanager subtask.
+            wid = envelope.get("worker_id", "")
+            if wid:
+                resolved = self._task_plan._resolve_subtask(wid)
+                if resolved and resolved.get("delegation_strategy") == "submanager":
+                    return True
+        return False
+
+    def _spawn_submanager(
+        self,
+        worker_id: str,
+        envelope: dict,
+        task: str,
+        state: dict,
+        iteration: int,
+    ) -> dict:
+        """Spawn a child :class:`DelegationLoopRunner` for this delegation.
+
+        Termination guarantees (so the parent can never hang):
+
+        - Budget is allocated as a hard-cap fraction of the parent's
+          *remaining* capacity (:meth:`BudgetSnapshot.allocate_child`).
+        - Wall-time is shared with the parent — the global timeout always
+          wins, regardless of recursion depth.
+        - The submanager has its own ``StallDetector`` and force-advance
+          logic (inherited from the same DelegationLoopRunner code).
+        - On exception or timeout we still ``reclaim_child`` so the parent
+          accounting stays accurate.
+        - The result envelope always contains a ``confidence`` field so
+          downstream aggregation never blocks.
+        """
+        # 1. Resolve which agent to load (subtask config beats envelope)
+        sub_agent_path = envelope.get("submanager_agent")
+        if not sub_agent_path and self._task_plan is not None:
+            stid = envelope.get("subtask_id", "")
+            for st in self._task_plan._subtasks:
+                if st.get("id") == stid:
+                    sub_agent_path = st.get("submanager_agent")
+                    break
+        if not sub_agent_path:
+            sub_agent_path = self._config.manager  # fall back to parent's manager
+
+        # 2. Build inherited state subset (explicit keys only — no leakage)
+        inherited_keys = envelope.get("inherited_state_keys", [])
+        inherited = {
+            k: state.get(k) for k in inherited_keys if k in state
+        }
+
+        # 3. Allocate child budget (hard-cap fraction)
+        fraction = float(envelope.get("submanager_budget_fraction", 0.3))
+        child_budget = self._budget.allocate_child(fraction=fraction)
+
+        # 4. Build sub-run dir under the parent worker dir so the
+        # visualizer can render the nested run cluster
+        parent_worker_dir = (
+            self._run_dir
+            / "iterations"
+            / f"{iteration:03d}"
+            / "delegations"
+            / worker_id
+        )
+        sub_run_id = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+            + "_"
+            + uuid.uuid4().hex[:8]
+        )
+        sub_run_dir = parent_worker_dir / "runs" / sub_run_id
+
+        # 5. Construct the sub-task description for the child manager
+        sub_task = envelope.get("instructions", "") or task
+        sub_task_header = (
+            f"## Submanager task\n"
+            f"You have been spawned as a sub-manager for `{worker_id}` "
+            f"(depth {self._depth + 1} of max {self._budget.max_depth}).\n"
+            f"Budget allocated: {child_budget.max_loops} loops, "
+            f"{child_budget.max_total_workers} workers, "
+            f"{child_budget.max_total_tokens} tokens, "
+            f"{int(child_budget.max_wall_time)}s wall-time.\n\n"
+            f"Inherited state keys: {list(inherited.keys()) or 'none'}\n\n"
+        )
+        full_sub_task = sub_task_header + sub_task
+
+        # 6. Construct child runner — same workflow_dir, same config (so
+        # forbidden tools, sandbox, validation rules all transfer), shared
+        # tool registry, but its own run_dir + budget + inherited state.
+        logger.info(
+            "  Spawning SUBMANAGER %s at depth=%d (budget fraction=%.2f, "
+            "loops=%d, tokens=%d, wall=%ds)",
+            worker_id, self._depth + 1, fraction,
+            child_budget.max_loops, child_budget.max_total_tokens,
+            int(child_budget.max_wall_time),
+        )
+        child = DelegationLoopRunner(
+            workflow_dir=self._dir,
+            config=self._config,
+            tool_registry=self._tools,
+            manager_model=self._manager_model,
+            worker_model=self._worker_model,
+            run_id=sub_run_id,
+            depth=self._depth + 1,
+            parent_budget=child_budget,
+            eval_config=getattr(self, "_eval_engine_config", None),
+            llm_client=self._manager_llm,
+            profile=False,
+            run_dir_override=sub_run_dir,
+            inherited_state=inherited,
+        )
+        # The child agent class is loaded from sub_agent_path on the next
+        # _run_manager call. We override the manager path for the child by
+        # patching its config copy (lightweight: only the manager attribute).
+        try:
+            child._config = type(self._config).model_validate(
+                self._config.model_dump()
+            )
+            child._config.manager = sub_agent_path
+        except Exception:
+            pass  # config is shared — fall back to parent's manager
+
+        # 7. Run the child loop. This call is bounded by:
+        #    - child_budget.max_loops / max_total_workers / max_total_tokens
+        #    - child_budget.max_wall_time (= parent's remaining wall-time)
+        #    - child's own StallDetector (inherited code path)
+        #    - child's own depth-limit (max_depth - 1)
+        try:
+            sub_result = child.run(full_sub_task, dict(inherited))
+        except Exception as exc:
+            logger.error("Submanager %s raised: %s", worker_id, exc)
+            sub_result = {
+                "error": str(exc),
+                "confidence": 0.0,
+                "submanager_failed": True,
+            }
+        finally:
+            # 8. Always reclaim child budget so unused capacity flows back
+            self._budget.reclaim_child(child_budget)
+
+        # 9. Normalise result so downstream aggregation never blocks
+        if not isinstance(sub_result, dict):
+            sub_result = {"value": sub_result, "confidence": 0.5}
+        sub_result.setdefault("confidence", 0.5)
+        sub_result["_submanager"] = True
+        sub_result["_submanager_depth"] = self._depth + 1
+        sub_result["_submanager_run_id"] = sub_run_id
+
+        self._logger.log_worker_result(iteration, worker_id, sub_result)
+        return {
+            "worker_id": worker_id,
+            "envelope": envelope,
+            "result": sub_result,
+            "status": "ok",
+        }
 
     def _run_ephemeral_worker(
         self, worker_id: str, envelope: dict, task: str, state: dict
