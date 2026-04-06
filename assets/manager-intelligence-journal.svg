@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 450" width="900" height="450" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4CAF50"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#CE93D8"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF9800"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="450" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Decision Journal — Reflective Memory</text>
+  <text x="450" y="60" text-anchor="middle" fill="#888" font-size="13">Manager tracks decisions and outcomes for intra-run learning</text>
+
+  <!-- Vertical timeline line -->
+  <line x1="60" y1="90" x2="60" y2="395" stroke="#333" stroke-width="2"/>
+
+  <!-- Timeline dots -->
+  <circle cx="60" cy="110" r="6" fill="#FF9800"/>
+  <circle cx="60" cy="185" r="6" fill="#FF9800"/>
+  <circle cx="60" cy="260" r="6" fill="#FF9800"/>
+  <circle cx="60" cy="335" r="6" fill="#FF9800"/>
+
+  <!-- Entry 1: Iter 1 PLAN -->
+  <rect x="80" y="90" width="180" height="40" rx="6" fill="#1a1a2e" stroke="#FF9800" stroke-width="1.5"/>
+  <text x="90" y="110" fill="#FF9800" font-size="12" font-weight="bold">Iter 1: PLAN</text>
+  <text x="90" y="124" fill="#888" font-size="10">Create subtask graph</text>
+
+  <line x1="260" y1="110" x2="310" y2="110" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="318" y="93" width="195" height="34" rx="6" fill="#1b5e20" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="328" y="115" fill="#4CAF50" font-size="12" font-weight="bold">3 subtasks created</text>
+  <circle cx="500" cy="110" r="8" fill="none" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="500" y="114" text-anchor="middle" fill="#4CAF50" font-size="10">&#x2713;</text>
+
+  <!-- Entry 2: Iter 2 DELEGATE -->
+  <rect x="80" y="165" width="180" height="40" rx="6" fill="#1a1a2e" stroke="#FF9800" stroke-width="1.5"/>
+  <text x="90" y="185" fill="#FF9800" font-size="12" font-weight="bold">Iter 2: DELEGATE</text>
+  <text x="90" y="199" fill="#888" font-size="10">Worker on subtask T1</text>
+
+  <line x1="260" y1="185" x2="310" y2="185" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="318" y="168" width="195" height="34" rx="6" fill="#1b5e20" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="328" y="190" fill="#4CAF50" font-size="12" font-weight="bold">conf=0.85 (effective)</text>
+  <circle cx="500" cy="185" r="8" fill="none" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="500" y="189" text-anchor="middle" fill="#4CAF50" font-size="10">&#x2713;</text>
+
+  <!-- Entry 3: Iter 3 DELEGATE — poor result -->
+  <rect x="80" y="240" width="180" height="40" rx="6" fill="#1a1a2e" stroke="#FF9800" stroke-width="1.5"/>
+  <text x="90" y="260" fill="#FF9800" font-size="12" font-weight="bold">Iter 3: DELEGATE</text>
+  <text x="90" y="274" fill="#888" font-size="10">Worker on subtask T2</text>
+
+  <line x1="260" y1="260" x2="310" y2="260" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="318" y="243" width="195" height="34" rx="6" fill="#4a1a1a" stroke="#f44336" stroke-width="1.5"/>
+  <text x="328" y="262" fill="#f44336" font-size="11" font-weight="bold">conf=0.25</text>
+  <text x="412" y="262" fill="#FFD54F" font-size="10">(consider changing)</text>
+  <circle cx="500" cy="260" r="8" fill="none" stroke="#FFD54F" stroke-width="1.5"/>
+  <text x="500" y="264" text-anchor="middle" fill="#FFD54F" font-size="10">!</text>
+
+  <!-- Entry 4: Iter 4 DIAGNOSE -->
+  <rect x="80" y="315" width="180" height="40" rx="6" fill="#1a1a2e" stroke="#FF9800" stroke-width="1.5"/>
+  <text x="90" y="335" fill="#FF9800" font-size="12" font-weight="bold">Iter 4: DIAGNOSE</text>
+  <text x="90" y="349" fill="#888" font-size="10">Investigate T2 failure</text>
+
+  <line x1="260" y1="335" x2="310" y2="335" stroke="#888" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="318" y="318" width="195" height="34" rx="6" fill="#2a1a3e" stroke="#CE93D8" stroke-width="1.5"/>
+  <text x="328" y="340" fill="#CE93D8" font-size="12" font-weight="bold">3 hypotheses generated</text>
+
+  <!-- ===== Right Side: Reflection Box ===== -->
+  <rect x="570" y="120" width="300" height="200" rx="10" fill="#1a1a2e" stroke="#CE93D8" stroke-width="2"/>
+
+  <!-- Reflection header -->
+  <rect x="570" y="120" width="300" height="35" rx="10" fill="#2a1a3e"/>
+  <rect x="570" y="145" width="300" height="10" fill="#2a1a3e"/>
+  <text x="720" y="143" text-anchor="middle" fill="#CE93D8" font-size="14" font-weight="bold">Reflection</text>
+
+  <!-- Reflection content -->
+  <text x="590" y="178" fill="#e0e0e0" font-size="11" font-style="italic">"What adjustment would</text>
+  <text x="590" y="195" fill="#e0e0e0" font-size="11" font-style="italic">improve the next iteration?"</text>
+
+  <line x1="590" y1="210" x2="850" y2="210" stroke="#333" stroke-width="1"/>
+
+  <text x="590" y="232" fill="#888" font-size="10">Patterns observed:</text>
+  <text x="600" y="250" fill="#4CAF50" font-size="10">+ PLAN produced clear structure</text>
+  <text x="600" y="268" fill="#4CAF50" font-size="10">+ T1 delegation was effective</text>
+  <text x="600" y="286" fill="#f44336" font-size="10">- T2 worker underperformed</text>
+  <text x="600" y="304" fill="#FFD54F" font-size="10">~ Try different strategy for T2</text>
+
+  <!-- Arrow from reflection back to top (next decision) -->
+  <path d="M 720,120 L 720,85 L 60,85 L 60,100" fill="none" stroke="#CE93D8" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowPurple)"/>
+  <text x="390" y="78" text-anchor="middle" fill="#CE93D8" font-size="10" font-weight="bold">feeds into next iteration</text>
+
+  <!-- Connecting line from journal entries to reflection -->
+  <line x1="520" y1="185" x2="570" y2="185" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+  <line x1="520" y1="260" x2="570" y2="260" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+
+  <!-- Bottom insight box -->
+  <rect x="30" y="400" width="840" height="38" rx="8" fill="#1a1a2e" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="450" y="424" text-anchor="middle" fill="#888" font-size="11">The journal creates a structured memory of what worked and what failed, enabling the manager to learn within a single run.</text>
+</svg>

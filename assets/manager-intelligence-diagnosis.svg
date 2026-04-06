@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4CAF50"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f44336"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF9800"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#CE93D8"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="500" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Hypothesis-Driven Debugging</text>
+  <text x="450" y="60" text-anchor="middle" fill="#888" font-size="13">Systematic failure diagnosis before retry</text>
+
+  <!-- Step 1: Worker Result (gray) -->
+  <rect x="30" y="110" width="160" height="65" rx="8" fill="#1a1a2e" stroke="#888" stroke-width="1.5"/>
+  <text x="110" y="135" text-anchor="middle" fill="#e0e0e0" font-size="13" font-weight="bold">Worker Result</text>
+  <text x="110" y="158" text-anchor="middle" fill="#f44336" font-size="12">confidence: 0.15</text>
+
+  <line x1="190" y1="142" x2="230" y2="142" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 2: Diamond — conf < threshold? -->
+  <polygon points="310,142 370,105 430,142 370,179" fill="#1a1a2e" stroke="#FFD54F" stroke-width="2"/>
+  <text x="370" y="138" text-anchor="middle" fill="#FFD54F" font-size="10" font-weight="bold">conf &lt;</text>
+  <text x="370" y="152" text-anchor="middle" fill="#FFD54F" font-size="10" font-weight="bold">threshold?</text>
+
+  <!-- No arrow right to "Continue normally" -->
+  <line x1="430" y1="142" x2="468" y2="142" stroke="#4CAF50" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="449" y="133" fill="#4CAF50" font-size="10" font-weight="bold">No</text>
+  <rect x="475" y="122" width="140" height="38" rx="8" fill="#1b5e20" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="545" y="146" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">Continue normally</text>
+
+  <!-- Yes arrow down -->
+  <line x1="370" y1="179" x2="370" y2="218" stroke="#f44336" stroke-width="2" marker-end="url(#arrowRed)"/>
+  <text x="382" y="202" fill="#f44336" font-size="10" font-weight="bold">Yes</text>
+
+  <!-- Step 3: Manager DIAGNOSE (orange/purple) -->
+  <rect x="290" y="225" width="160" height="50" rx="8" fill="#1a1a2e" stroke="#FF9800" stroke-width="2"/>
+  <rect x="290" y="225" width="160" height="50" rx="8" fill="none" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="370" y="248" text-anchor="middle" fill="#FF9800" font-size="14" font-weight="bold">Manager</text>
+  <text x="370" y="265" text-anchor="middle" fill="#CE93D8" font-size="11">DIAGNOSE</text>
+
+  <line x1="450" y1="250" x2="498" y2="250" stroke="#CE93D8" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+  <!-- Step 4: Hypothesis boxes (purple, stacked) -->
+  <rect x="505" y="195" width="160" height="36" rx="6" fill="#2a1a3e" stroke="#CE93D8" stroke-width="1.5"/>
+  <text x="530" y="218" fill="#CE93D8" font-size="12" font-weight="bold">H1</text>
+  <text x="575" y="218" fill="#e0e0e0" font-size="11">Wrong prompt</text>
+  <text x="650" y="218" fill="#4CAF50" font-size="11" font-weight="bold">0.7</text>
+
+  <rect x="505" y="237" width="160" height="36" rx="6" fill="#2a1a3e" stroke="#CE93D8" stroke-width="1.5"/>
+  <text x="530" y="260" fill="#CE93D8" font-size="12" font-weight="bold">H2</text>
+  <text x="575" y="260" fill="#e0e0e0" font-size="11">Missing data</text>
+  <text x="650" y="260" fill="#FFD54F" font-size="11" font-weight="bold">0.5</text>
+
+  <rect x="505" y="279" width="160" height="36" rx="6" fill="#2a1a3e" stroke="#CE93D8" stroke-width="1.5"/>
+  <text x="530" y="302" fill="#CE93D8" font-size="12" font-weight="bold">H3</text>
+  <text x="575" y="302" fill="#e0e0e0" font-size="11">Model limit</text>
+  <text x="650" y="302" fill="#888" font-size="11" font-weight="bold">0.2</text>
+
+  <!-- Arrow from H1 to Diagnostic Worker -->
+  <line x1="665" y1="213" x2="703" y2="213" stroke="#CE93D8" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+  <!-- Step 5: Diagnostic Worker -->
+  <rect x="710" y="193" width="130" height="40" rx="6" fill="#1a1a2e" stroke="#888" stroke-width="1.5"/>
+  <text x="775" y="218" text-anchor="middle" fill="#e0e0e0" font-size="12">Diagnostic Worker</text>
+  <text x="775" y="178" text-anchor="middle" fill="#888" font-size="9">Tests highest-ranked hypothesis</text>
+
+  <!-- Arrow down to Confirmed diamond -->
+  <line x1="775" y1="233" x2="775" y2="268" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 6: Diamond — Confirmed? -->
+  <polygon points="775,275 830,305 775,335 720,305" fill="#1a1a2e" stroke="#FFD54F" stroke-width="2"/>
+  <text x="775" y="308" text-anchor="middle" fill="#FFD54F" font-size="10" font-weight="bold">Confirmed?</text>
+
+  <!-- Yes → H1 Confirmed (green) -->
+  <line x1="830" y1="305" x2="858" y2="305" stroke="#4CAF50" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="844" y="296" fill="#4CAF50" font-size="9" font-weight="bold">Yes</text>
+  <rect x="830" y="360" width="55" height="30" rx="6" fill="#1b5e20" stroke="#4CAF50" stroke-width="1.5" transform="translate(35,-70)"/>
+  <text x="867" y="305" fill="#4CAF50" font-size="10" font-weight="bold">H1 OK</text>
+
+  <!-- No → Refuted (red) -->
+  <line x1="720" y1="305" x2="690" y2="305" stroke="#f44336" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+  <text x="703" y="296" fill="#f44336" font-size="9" font-weight="bold">No</text>
+  <rect x="630" y="290" width="55" height="30" rx="6" fill="#4a1a1a" stroke="#f44336" stroke-width="1.5"/>
+  <text x="657" y="310" text-anchor="middle" fill="#f44336" font-size="10" font-weight="bold">Refuted</text>
+  <!-- Arrow from refuted back to H2 -->
+  <path d="M 657,320 L 657,345 L 585,345 L 585,315" fill="none" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrowPurple)"/>
+  <text x="620" y="340" fill="#888" font-size="8">try next H</text>
+
+  <!-- Step 7: Arrow from confirmed → Informed Retry -->
+  <path d="M 867,310 L 867,390 L 450,390" fill="none" stroke="#FF9800" stroke-width="2" marker-end="url(#arrowOrange)"/>
+
+  <!-- Informed Retry box -->
+  <rect x="280" y="370" width="170" height="50" rx="8" fill="#1a1a2e" stroke="#FF9800" stroke-width="2"/>
+  <text x="365" y="392" text-anchor="middle" fill="#FF9800" font-size="13" font-weight="bold">Informed Retry</text>
+  <text x="365" y="410" text-anchor="middle" fill="#888" font-size="10">Manager delegates with</text>
+  <text x="365" y="422" text-anchor="middle" fill="#888" font-size="10">root cause knowledge</text>
+
+  <!-- Bottom insight -->
+  <rect x="30" y="445" width="840" height="38" rx="8" fill="#1a1a2e" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="450" y="469" text-anchor="middle" fill="#888" font-size="11">Instead of blind retry, the manager diagnoses failures systematically — improving success rate and reducing wasted budget.</text>
+</svg>

@@ -288,6 +288,48 @@ Respond with a JSON object containing ONE of these decisions:
 }}
 ```
 
+### PLAN — Create a task decomposition (recommended on first iteration)
+```json
+{{
+  "decision": "plan",
+  "reasoning": "Breaking the task into subtasks for systematic execution",
+  "subtasks": [
+    {{
+      "id": "subtask_1",
+      "description": "What this subtask accomplishes",
+      "dependencies": [],
+      "priority": "high",
+      "success_criteria": "How to know this subtask is done"
+    }}
+  ]
+}}
+```
+Use PLAN **once** on the first iteration to decompose the problem before delegating.
+You can only PLAN once — after that, use DELEGATE to execute the plan.
+After planning, you will see a Task Plan Progress section tracking subtask status.
+Map your DELEGATE worker_ids to subtask IDs to enable automatic progress tracking.
+**IMPORTANT: Do NOT issue PLAN again after the first iteration. Use DELEGATE instead.**
+
+### DIAGNOSE — Generate failure hypotheses before retrying
+```json
+{{
+  "decision": "diagnose",
+  "reasoning": "Worker failed — generating hypotheses before retrying",
+  "failed_worker": "worker_id_that_failed",
+  "hypotheses": [
+    {{
+      "id": "h1",
+      "cause": "Description of suspected root cause",
+      "test": "How to test this hypothesis",
+      "likelihood": 0.7
+    }}
+  ]
+}}
+```
+Use DIAGNOSE when a worker produces low confidence or fails entirely.
+Generate up to 3 hypotheses. On the next iteration, delegate targeted workers
+to test the most likely hypotheses before doing a full retry.
+
 ## Skill Format (MANDATORY)
 
 Each entry in a worker's `skills` array MUST be a **full Markdown document** — NOT a tag, label, or short phrase.

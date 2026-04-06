@@ -102,7 +102,11 @@ def _find_truncation_points(text: str) -> list[int]:
 class BudgetSnapshot:
     """Tracks consumed resources across the entire delegation tree."""
 
-    def __init__(self, budget: DelegationBudget) -> None:
+    def __init__(
+        self,
+        budget: DelegationBudget,
+        reservation_config: Any | None = None,
+    ) -> None:
         self.max_loops = budget.max_loops
         self.max_total_workers = budget.max_total_workers
         self.max_total_tokens = budget.max_total_tokens
@@ -115,6 +119,10 @@ class BudgetSnapshot:
         self.tokens_consumed = 0
         self.tool_calls_used = 0
         self.start_time = time.monotonic()
+        # Budget reservation (Manager Intelligence)
+        self._reservation = reservation_config
+        self._current_phase: str = "core_work"
+        self._phase_transitions: list[tuple[int, str]] = [(0, "core_work")]
 
     @property
     def wall_time_elapsed(self) -> float:
@@ -146,6 +154,61 @@ class BudgetSnapshot:
             fractions.append(1 - (self.tool_calls_used / self.max_tool_calls))
         return max(0.0, min(fractions))
 
+    @property
+    def current_phase(self) -> str:
+        """Name of the active budget phase."""
+        return self._current_phase
+
+    def _get_phase_fraction(self, phase_name: str) -> float:
+        """Return the budget fraction allocated to *phase_name*."""
+        if not self._reservation or not self._reservation.enabled:
+            return 1.0
+        for p in self._reservation.phases:
+            if p.name == phase_name:
+                return p.fraction
+        return 1.0
+
+    def _cumulative_fraction_through(self, phase_name: str) -> float:
+        """Cumulative budget fraction from phase 0 through *phase_name* (inclusive)."""
+        if not self._reservation or not self._reservation.enabled:
+            return 1.0
+        total = 0.0
+        for p in self._reservation.phases:
+            total += p.fraction
+            if p.name == phase_name:
+                return total
+        return 1.0
+
+    def phase_budget_remaining(self) -> float:
+        """Fraction of the current phase's budget that is still available (0.0-1.0)."""
+        if not self._reservation or not self._reservation.enabled:
+            return self.budget_fraction_remaining
+        consumed = 1.0 - self.budget_fraction_remaining
+        ceiling = self._cumulative_fraction_through(self._current_phase)
+        phase_frac = self._get_phase_fraction(self._current_phase)
+        if phase_frac <= 0:
+            return 0.0
+        floor = ceiling - phase_frac
+        phase_consumed = max(0.0, consumed - floor)
+        return max(0.0, 1.0 - (phase_consumed / phase_frac))
+
+    def transition_phase(self, phase_name: str, iteration: int) -> None:
+        """Move to a new budget phase."""
+        self._current_phase = phase_name
+        self._phase_transitions.append((iteration, phase_name))
+
+    def phase_warning(self) -> str | None:
+        """Return a warning string if < 10% of the current phase budget remains."""
+        if not self._reservation or not self._reservation.enabled:
+            return None
+        remaining = self.phase_budget_remaining()
+        if remaining < 0.10:
+            return (
+                f"Phase '{self._current_phase}' is at {remaining * 100:.0f}% — "
+                f"consider transitioning to the next phase"
+            )
+        return None
+
     def can_continue(self) -> tuple[bool, str]:
         """Check if the loop can continue within budget."""
         if self.loops_used >= self.max_loops:
@@ -161,7 +224,7 @@ class BudgetSnapshot:
         return True, "ok"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "loops": {"used": self.loops_used, "max": self.max_loops},
             "workers": {"spawned": self.workers_spawned, "max": self.max_total_workers},
             "tokens": {"consumed": self.tokens_consumed, "max": self.max_total_tokens},
@@ -172,6 +235,15 @@ class BudgetSnapshot:
             },
             "budget_remaining_pct": round(self.budget_fraction_remaining * 100, 1),
         }
+        if self._reservation and self._reservation.enabled:
+            d["phase"] = {
+                "current": self._current_phase,
+                "phase_remaining_pct": round(self.phase_budget_remaining() * 100, 1),
+            }
+            warning = self.phase_warning()
+            if warning:
+                d["phase"]["warning"] = warning
+        return d
 
 
 class StallDetector:
@@ -185,12 +257,26 @@ class StallDetector:
     warning first.
     """
 
-    def __init__(self, window: int = 3, min_delta: float = 0.05) -> None:
+    def __init__(
+        self,
+        window: int = 3,
+        min_delta: float = 0.05,
+        strategy_config: Any | None = None,
+    ) -> None:
         self.window = window
         self.min_delta = min_delta
         self._history: list[float] = []
         self._output_history: list[str] = []
         self._warnings = 0
+        # Strategy switching (Manager Intelligence)
+        self._strategy_config = strategy_config
+        self._strategy_pool: list[str] = (
+            list(strategy_config.strategies)
+            if strategy_config and strategy_config.enabled
+            else []
+        )
+        self._current_strategy_idx: int = 0
+        self._active_strategy: str | None = None
 
     @staticmethod
     def _output_similarity(a: str, b: str) -> float:
@@ -229,6 +315,15 @@ class StallDetector:
 
         if confidence_stalled or output_stalled:
             self._warnings += 1
+            # Strategy switching: rotate through strategies before stopping
+            if self._strategy_pool:
+                if self._current_strategy_idx < len(self._strategy_pool):
+                    self._active_strategy = self._strategy_pool[self._current_strategy_idx]
+                    self._current_strategy_idx += 1
+                    self._warnings = 0  # reset warnings for new strategy
+                    return "switch_strategy"
+                # All strategies exhausted
+                return "stop"
             if self._warnings >= 2:
                 return "stop"
             return "warn"
@@ -237,9 +332,254 @@ class StallDetector:
         self._warnings = 0
         return "ok"
 
+    @property
+    def suggested_strategy(self) -> str | None:
+        """The currently active meta-strategy, if any."""
+        return self._active_strategy
+
+    @property
+    def strategies_exhausted(self) -> bool:
+        """True if all strategies have been tried."""
+        return bool(self._strategy_pool) and self._current_strategy_idx >= len(
+            self._strategy_pool
+        )
+
+
+# ---------------------------------------------------------------------------
+# Performance Profiler
+# ---------------------------------------------------------------------------
+
+
+class PerformanceProfiler:
+    """Collects timing data for each phase of the delegation loop.
+
+    When ``enabled=True``, records wall-clock durations for manager calls,
+    worker execution, critique, logging, and code execution.  Writes a
+    ``timing_report.json`` at the end of the run.
+    """
+
+    def __init__(self, enabled: bool = False) -> None:
+        self.enabled = enabled
+        self._events: list[dict[str, Any]] = []
+        self._open: dict[str, float] = {}
+
+    def start(self, label: str, **meta: Any) -> None:
+        if not self.enabled:
+            return
+        self._open[label] = time.monotonic()
+
+    def stop(self, label: str, **meta: Any) -> float:
+        if not self.enabled or label not in self._open:
+            return 0.0
+        elapsed = time.monotonic() - self._open.pop(label)
+        event: dict[str, Any] = {
+            "label": label,
+            "duration_s": round(elapsed, 4),
+        }
+        event.update(meta)
+        self._events.append(event)
+        return elapsed
+
+    def get_report(self) -> dict[str, Any]:
+        """Return structured timing report with per-phase aggregates."""
+        if not self._events:
+            return {}
+        # Aggregate by label prefix (e.g. "manager", "worker", "critique")
+        aggregates: dict[str, list[float]] = {}
+        for ev in self._events:
+            prefix = ev["label"].split(".")[0]
+            aggregates.setdefault(prefix, []).append(ev["duration_s"])
+        summary = {}
+        total = 0.0
+        for prefix, durations in sorted(aggregates.items()):
+            s = sum(durations)
+            total += s
+            summary[prefix] = {
+                "total_s": round(s, 2),
+                "count": len(durations),
+                "avg_s": round(s / len(durations), 2),
+                "max_s": round(max(durations), 2),
+            }
+        return {
+            "total_profiled_s": round(total, 2),
+            "phases": summary,
+            "events": self._events,
+        }
+
+    def write_report(self, run_dir: Path) -> None:
+        """Write timing_report.json to disk."""
+        if not self.enabled or not self._events:
+            return
+        report = self.get_report()
+        path = run_dir / "timing_report.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(report, indent=2, default=str, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        # Print summary to log
+        logger.info("=== TIMING REPORT ===")
+        for phase, data in report.get("phases", {}).items():
+            logger.info(
+                "  %-20s %6.1fs total  (%d calls, avg %.1fs, max %.1fs)",
+                phase,
+                data["total_s"],
+                data["count"],
+                data["avg_s"],
+                data["max_s"],
+            )
+        logger.info("  %-20s %6.1fs", "TOTAL PROFILED", report["total_profiled_s"])
+
+
+# ---------------------------------------------------------------------------
+# Manager Intelligence data structures
+# ---------------------------------------------------------------------------
+
+
+class DecisionJournal:
+    """Reflective workspace memory — tracks manager decisions and outcomes.
+
+    Enables the manager to learn from its own decision history within a
+    single run by recording what was decided, why, and what happened.
+    """
+
+    def __init__(self, max_entries: int = 20) -> None:
+        self._entries: list[dict[str, Any]] = []
+        self._max = max_entries
+
+    def record(
+        self,
+        iteration: int,
+        decision_type: str,
+        rationale: str,
+        worker_ids: list[str] | None = None,
+    ) -> None:
+        """Record a manager decision."""
+        entry = {
+            "iteration": iteration,
+            "decision": decision_type,
+            "rationale": rationale,
+            "worker_ids": worker_ids or [],
+            "outcome": None,
+            "lesson": None,
+        }
+        self._entries.append(entry)
+        if len(self._entries) > self._max:
+            self._entries.pop(0)
+
+    def record_outcome(self, iteration: int, outcomes: dict[str, float]) -> None:
+        """Attach outcomes to the most recent entry matching *iteration*."""
+        for entry in reversed(self._entries):
+            if entry["iteration"] == iteration:
+                entry["outcome"] = outcomes
+                # Auto-derive a lesson from confidence trends
+                if outcomes:
+                    avg_conf = sum(outcomes.values()) / len(outcomes)
+                    if avg_conf < 0.3:
+                        entry["lesson"] = "Low confidence — consider changing approach"
+                    elif avg_conf > 0.8:
+                        entry["lesson"] = "High confidence — approach is effective"
+                break
+
+    def to_prompt_section(self) -> str:
+        """Format journal for injection into the manager prompt."""
+        if not self._entries:
+            return ""
+        lines = ["## Decision Journal (recent decisions and outcomes)\n"]
+        for e in self._entries[-10:]:
+            outcome_str = ""
+            if e["outcome"]:
+                confs = [f"{k}={v:.2f}" for k, v in e["outcome"].items()]
+                outcome_str = f" → outcomes: {', '.join(confs)}"
+            lesson_str = f" | Lesson: {e['lesson']}" if e["lesson"] else ""
+            lines.append(
+                f"- **Iter {e['iteration']}** [{e['decision']}]: "
+                f"{e['rationale']}{outcome_str}{lesson_str}"
+            )
+        lines.append(
+            "\n**Reflection**: Given the pattern of decisions and outcomes above, "
+            "what adjustment would improve the next iteration?\n"
+        )
+        return "\n".join(lines)
+
+
+class TaskPlan:
+    """Explicit task graph created by the manager during the planning phase.
+
+    Tracks subtasks with dependencies, priorities, status, and success
+    criteria so the manager can monitor progress across iterations.
+    """
+
+    def __init__(self, max_subtasks: int = 10) -> None:
+        self._subtasks: list[dict[str, Any]] = []
+        self._max = max_subtasks
+
+    def set_subtasks(self, subtasks: list[dict[str, Any]]) -> None:
+        """Set the plan from the manager's PLAN decision output."""
+        self._subtasks = subtasks[: self._max]
+        for st in self._subtasks:
+            st.setdefault("status", "pending")
+            st.setdefault("result_summary", "")
+
+    def update_status(
+        self, subtask_id: str, status: str, result_summary: str = ""
+    ) -> None:
+        """Update a subtask's status after a worker completes."""
+        for st in self._subtasks:
+            if st.get("id") == subtask_id:
+                st["status"] = status
+                if result_summary:
+                    st["result_summary"] = result_summary
+                break
+
+    def get_next_actionable(self) -> list[dict[str, Any]]:
+        """Return subtasks whose dependencies are all completed."""
+        completed_ids = {st["id"] for st in self._subtasks if st["status"] == "completed"}
+        actionable = []
+        for st in self._subtasks:
+            if st["status"] != "pending":
+                continue
+            deps = st.get("dependencies", [])
+            if all(d in completed_ids for d in deps):
+                actionable.append(st)
+        return actionable
+
+    def progress_summary(self) -> str:
+        """One-line progress summary."""
+        total = len(self._subtasks)
+        done = sum(1 for st in self._subtasks if st["status"] == "completed")
+        in_prog = sum(1 for st in self._subtasks if st["status"] == "in_progress")
+        return f"{done}/{total} completed, {in_prog} in progress"
+
+    def to_prompt_section(self) -> str:
+        """Format plan for injection into the manager prompt."""
+        if not self._subtasks:
+            return ""
+        lines = [
+            f"## Task Plan Progress ({self.progress_summary()})\n",
+            "| ID | Description | Priority | Dependencies | Status | Result |",
+            "|-----|-------------|----------|--------------|--------|--------|",
+        ]
+        for st in self._subtasks:
+            deps = ", ".join(st.get("dependencies", [])) or "none"
+            lines.append(
+                f"| {st.get('id', '?')} | {st.get('description', '')[:60]} "
+                f"| {st.get('priority', 'normal')} | {deps} "
+                f"| **{st['status']}** | {st.get('result_summary', '')[:40]} |"
+            )
+        actionable = self.get_next_actionable()
+        if actionable:
+            ids = ", ".join(a["id"] for a in actionable)
+            lines.append(f"\n**Next actionable subtasks**: {ids}\n")
+        return "\n".join(lines)
+
 
 class RunLogger:
-    """Dual-layer logging: structured JSON + human-readable Markdown."""
+    """Dual-layer logging: structured JSON + human-readable Markdown.
+
+    File writes are dispatched to a background thread so they don't
+    block the hot path (manager → worker → critique chain).
+    """
 
     def __init__(self, run_dir: Path, fmt: str = "dual") -> None:
         self.run_dir = run_dir
@@ -249,24 +589,53 @@ class RunLogger:
         (self.run_dir / "history").mkdir(exist_ok=True)
         (self.run_dir / "artifacts" / "skills").mkdir(parents=True, exist_ok=True)
         (self.run_dir / "artifacts" / "tools").mkdir(parents=True, exist_ok=True)
+        # Async write queue (daemon thread processes writes in background)
+        import queue
+        import threading
+        self._queue: queue.Queue[tuple | None] = queue.Queue()
+        self._writer = threading.Thread(target=self._bg_writer, daemon=True)
+        self._writer.start()
+
+    def _bg_writer(self) -> None:
+        """Background thread that drains the write queue."""
+        while True:
+            item = self._queue.get()
+            if item is None:
+                self._queue.task_done()
+                break
+            path, content = item
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            except Exception:
+                pass
+            finally:
+                self._queue.task_done()
+
+    def flush(self) -> None:
+        """Wait until all queued writes are flushed to disk."""
+        self._queue.join()
+
+    def shutdown(self) -> None:
+        """Flush remaining writes and stop the background thread."""
+        self._queue.put(None)
+        self._writer.join(timeout=5)
+
+    def _enqueue(self, path: Path, content: str) -> None:
+        self._queue.put((path, content))
 
     def write_json(self, path: Path, data: Any) -> None:
         if self.fmt in ("dual", "json"):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(data, indent=2, default=str, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            content = json.dumps(data, indent=2, default=str, ensure_ascii=False)
+            self._enqueue(path, content)
 
     def write_md(self, path: Path, content: str) -> None:
         if self.fmt in ("dual", "md"):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            self._enqueue(path, content)
 
     def _write_file(self, path: Path, content: str) -> None:
         """Write any file (always, regardless of format setting)."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        self._enqueue(path, content)
 
     def log_run_start(
         self,
@@ -676,7 +1045,8 @@ class RunLogger:
             f"**Wall Time:** {budget.wall_time_elapsed:.1f}s\n"
             f"**Workers Spawned:** {budget.workers_spawned}\n"
         )
-        # Append to RUN_SUMMARY.md
+        # Flush pending writes so RUN_SUMMARY.md is on disk before we read it
+        self.flush()
         existing = ""
         run_summary = self.run_dir / "RUN_SUMMARY.md"
         if run_summary.exists():
@@ -767,9 +1137,11 @@ class DelegationLoopRunner:
         parent_budget: Optional[BudgetSnapshot] = None,
         eval_config: Any = None,
         llm_client: Optional[LLMClient] = None,
+        profile: bool = False,
     ) -> None:
         self._dir = workflow_dir
         self._config = config
+        self._profiler = PerformanceProfiler(enabled=profile)
         self._tools = tool_registry
         self._manager_model = manager_model or config.models.manager or ""
         self._worker_model = worker_model or config.models.worker or self._manager_model
@@ -782,20 +1154,58 @@ class DelegationLoopRunner:
         self._depth = depth
 
         # Budget: use parent's remaining budget or create fresh
+        reservation_cfg = getattr(config, "budget_reservation", None)
         if parent_budget:
             self._budget = parent_budget
         else:
-            self._budget = BudgetSnapshot(config.budget)
+            self._budget = BudgetSnapshot(config.budget, reservation_config=reservation_cfg)
 
-        # Stall detection
+        # Persistent LLM client for manager (reused across iterations)
+        self._manager_llm: LLMClient | None = None
+        if self._manager_model:
+            try:
+                self._manager_llm = LLMClient(model=self._manager_model)
+            except Exception:
+                logger.debug("Could not pre-create manager LLM client")
+
+        # Stall detection (with optional strategy switching)
         stall_cfg = config.termination
+        strategy_cfg = (
+            getattr(stall_cfg, "strategy_switching", None) if stall_cfg else None
+        )
         self._stall = (
             StallDetector(
                 window=stall_cfg.window if stall_cfg else 3,
                 min_delta=stall_cfg.min_confidence_delta if stall_cfg else 0.05,
+                strategy_config=strategy_cfg,
             )
             if (stall_cfg and stall_cfg.enabled)
             else None
+        )
+
+        # Manager Intelligence: Decision Journal
+        journal_cfg = getattr(config, "decision_journal", None)
+        self._journal: DecisionJournal | None = None
+        if journal_cfg and journal_cfg.enabled:
+            self._journal = DecisionJournal(max_entries=journal_cfg.max_entries)
+            logger.info("Decision journal active (max_entries=%d)", journal_cfg.max_entries)
+
+        # Manager Intelligence: Task Decomposition
+        planning_cfg = getattr(config, "planning", None)
+        self._planning_enabled = bool(planning_cfg and planning_cfg.enabled)
+        self._task_plan: TaskPlan | None = None
+        if self._planning_enabled:
+            self._task_plan_max = planning_cfg.max_subtasks  # type: ignore[union-attr]
+            logger.info("Task planning active (max_subtasks=%d)", self._task_plan_max)
+
+        # Manager Intelligence: Hypothesis-Driven Debugging
+        diagnosis_cfg = getattr(config, "diagnosis", None)
+        self._diagnosis_enabled = bool(diagnosis_cfg and diagnosis_cfg.enabled)
+        self._diagnosis_threshold = (
+            diagnosis_cfg.confidence_threshold if diagnosis_cfg else 0.3
+        )
+        self._diagnosis_max_hypotheses = (
+            diagnosis_cfg.max_hypotheses if diagnosis_cfg else 3
         )
 
         # Logger
@@ -908,6 +1318,12 @@ class DelegationLoopRunner:
             self._budget.loops_used,
             status,
         )
+        # Flush all async writes to disk before returning
+        self._logger.flush()
+
+        # Write performance timing report if profiling is enabled
+        run_dir = self._dir / "workspace" / "runs" / self._run_id
+        self._profiler.write_report(run_dir)
 
         return {"delegation_loop": final_result}
 
@@ -927,11 +1343,120 @@ class DelegationLoopRunner:
             logger.info("=== Iteration %d ===", iteration)
 
             # 1. Ask manager for decision
+            self._profiler.start(f"manager.iter_{iteration}")
             manager_decision = self._run_manager(task, state, iteration)
+            self._profiler.stop(f"manager.iter_{iteration}", iteration=iteration)
             decision_type = manager_decision.get("decision", "fail")
 
             # Write manager decision to disk immediately (for file watchers)
+            self._profiler.start(f"logging.manager_decision_{iteration}")
             self._logger.log_manager_decision(iteration, manager_decision)
+            self._profiler.stop(f"logging.manager_decision_{iteration}")
+
+            # Record decision in journal (Manager Intelligence)
+            if self._journal:
+                rationale = manager_decision.get("reasoning", "")
+                if not rationale and decision_type == "delegate":
+                    rationale = f"Delegating to {len(manager_decision.get('delegations', []))} workers"
+                self._journal.record(
+                    iteration,
+                    decision_type,
+                    rationale,
+                    worker_ids=[
+                        d.get("worker_id", "")
+                        for d in manager_decision.get("delegations", [])
+                    ],
+                )
+
+            # Handle PLAN decision (Manager Intelligence: Task Decomposition)
+            # PLAN is only allowed ONCE. If a plan already exists, treat
+            # repeated PLAN decisions as a signal to continue (the manager
+            # is stuck in a planning loop).
+            if decision_type == "plan":
+                if self._task_plan is not None:
+                    # Plan already exists — manager is looping. Force it to
+                    # delegate by converting this to a warning and continuing.
+                    logger.warning(
+                        "Manager issued PLAN again but a plan already exists "
+                        "(%s). Ignoring repeated plan — manager should DELEGATE.",
+                        self._task_plan.progress_summary(),
+                    )
+                    # Inject a hint so the manager sees this on next iteration
+                    state["_plan_locked"] = (
+                        "A task plan already exists. You MUST use DELEGATE "
+                        "to assign workers to the pending subtasks, or "
+                        "COMPLETE if the task is done. Do NOT issue PLAN again."
+                    )
+                    # Feed stall detector so repeated PLANs trigger strategy switch
+                    if self._stall:
+                        stall_status = self._stall.record(0.0, "repeated_plan")
+                        if stall_status == "switch_strategy":
+                            state["_strategy_override"] = self._stall.suggested_strategy
+                            logger.warning(
+                                "PLAN loop stall — switching strategy: %s",
+                                self._stall.suggested_strategy,
+                            )
+                        elif stall_status == "stop":
+                            return self._build_partial_result(
+                                "stall_detected_plan_loop"
+                            ), "stall_detected"
+                    continue
+                subtasks = manager_decision.get("subtasks", [])
+                if subtasks and self._planning_enabled:
+                    self._task_plan = TaskPlan(
+                        max_subtasks=self._task_plan_max
+                    )
+                    self._task_plan.set_subtasks(subtasks)
+                    logger.info(
+                        "Task plan created with %d subtasks", len(subtasks)
+                    )
+                else:
+                    logger.warning("PLAN decision but no subtasks or planning disabled")
+                continue  # manager will see the plan on the next iteration
+
+            # Handle DIAGNOSE decision (Manager Intelligence: Hypothesis Debugging)
+            # Max 2 consecutive DIAGNOSE decisions — after that, force DELEGATE.
+            if decision_type == "diagnose":
+                prev_diagnose_count = state.get("_consecutive_diagnoses", 0)
+                if prev_diagnose_count >= 2:
+                    logger.warning(
+                        "Manager issued DIAGNOSE %d times in a row — "
+                        "forcing delegation. Hypotheses are already available.",
+                        prev_diagnose_count + 1,
+                    )
+                    state["_diagnose_locked"] = (
+                        "You have already diagnosed the problem. Hypotheses "
+                        "are listed above. You MUST now DELEGATE a worker to "
+                        "test or fix the issue, or COMPLETE if the task is done. "
+                        "Do NOT issue DIAGNOSE again."
+                    )
+                    # Feed stall detector
+                    if self._stall:
+                        stall_status = self._stall.record(0.0, "repeated_diagnose")
+                        if stall_status == "switch_strategy":
+                            state["_strategy_override"] = self._stall.suggested_strategy
+                            logger.warning(
+                                "DIAGNOSE loop stall — switching strategy: %s",
+                                self._stall.suggested_strategy,
+                            )
+                        elif stall_status == "stop":
+                            return self._build_partial_result(
+                                "stall_detected_diagnose_loop"
+                            ), "stall_detected"
+                    continue
+
+                hypotheses = manager_decision.get("hypotheses", [])
+                if hypotheses and self._diagnosis_enabled:
+                    state["_active_hypotheses"] = hypotheses
+                    state["_consecutive_diagnoses"] = prev_diagnose_count + 1
+                    logger.info(
+                        "Diagnosis: %d hypotheses generated for worker '%s'",
+                        len(hypotheses),
+                        manager_decision.get("failed_worker", "?"),
+                    )
+                else:
+                    logger.warning("DIAGNOSE decision but no hypotheses or diagnosis disabled")
+                continue  # manager will use hypotheses to inform next delegation
 
             # 2. Handle decision
             if decision_type == "complete":
@@ -1054,7 +1579,7 @@ class DelegationLoopRunner:
                 logger.warning("Manager requested retry — continuing loop")
                 continue
 
-            if decision_type != "delegate":
+            if decision_type not in ("delegate",):
                 logger.warning("Unknown decision: %s, treating as fail", decision_type)
                 if self._history:
                     return self._build_partial_result(
@@ -1066,20 +1591,36 @@ class DelegationLoopRunner:
                 }, "fail"
 
             # 3. Execute delegations (fan-out)
+            # Reset consecutive-diagnose counter on actual delegation
+            state.pop("_consecutive_diagnoses", None)
+            state.pop("_diagnose_locked", None)
+
             envelopes = manager_decision.get("delegations", [])
             if not envelopes:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
 
+            self._profiler.start(f"workers.iter_{iteration}")
             delegation_results = self._execute_delegations(
                 envelopes, task, state, iteration=iteration
+            )
+            self._profiler.stop(
+                f"workers.iter_{iteration}",
+                iteration=iteration,
+                worker_count=len(envelopes),
             )
 
             # 4. Critique phase (Reflective Critique Loop)
             critique_envelopes = []
             if self._critique_engine and self._critique_engine.enabled:
+                self._profiler.start(f"critique.iter_{iteration}")
                 critique_envelopes = self._critique_and_repair(
                     delegation_results, task, state, iteration
+                )
+                self._profiler.stop(
+                    f"critique.iter_{iteration}",
+                    iteration=iteration,
+                    worker_count=len(delegation_results),
                 )
 
             # 5. Validate results (2-tier)
@@ -1088,6 +1629,7 @@ class DelegationLoopRunner:
             # (Step evaluation is now done inside _execute_delegations before file write)
 
             # 6. Write budget snapshot immediately (for file watchers)
+            self._profiler.start(f"logging.iter_{iteration}")
             self._logger.log_iteration_budget(iteration, self._budget)
 
             # 6b. Log full iteration (artifacts, tools, critique, etc.)
@@ -1098,6 +1640,7 @@ class DelegationLoopRunner:
                 self._budget,
                 validation_results,
             )
+            self._profiler.stop(f"logging.iter_{iteration}")
 
             # 6c. Log critique data if present
             if critique_envelopes:
@@ -1143,11 +1686,74 @@ class DelegationLoopRunner:
                 if wid:
                     state[wid] = dr.get("result", {})
 
-            # 9. Stall detection
+            # 8b. Record outcomes in decision journal (Manager Intelligence)
+            if self._journal:
+                outcomes = {}
+                for dr in delegation_results:
+                    wid = dr.get("worker_id", "")
+                    conf = dr.get("result", {}).get("confidence", 0.0)
+                    if wid:
+                        outcomes[wid] = conf if isinstance(conf, (int, float)) else 0.0
+                self._journal.record_outcome(iteration, outcomes)
+
+            # 8c. Update task plan status (Manager Intelligence)
+            if self._task_plan:
+                for dr in delegation_results:
+                    wid = dr.get("worker_id", "")
+                    result = dr.get("result", {})
+                    conf = result.get("confidence", 0.0)
+                    status = "completed" if isinstance(conf, (int, float)) and conf > 0.3 else "failed"
+                    summary = str(result.get("key_finding", result.get("summary", "")))[:60]
+                    self._task_plan.update_status(wid, status, summary)
+
+            # 8d. Update hypothesis status (Manager Intelligence)
+            if state.get("_active_hypotheses") and self._diagnosis_enabled:
+                for dr in delegation_results:
+                    wid = dr.get("worker_id", "")
+                    result = dr.get("result", {})
+                    # Check if worker was a diagnostic worker
+                    for h in state["_active_hypotheses"]:
+                        if h.get("test_worker") == wid:
+                            conf = result.get("confidence", 0.0)
+                            h["status"] = "confirmed" if isinstance(conf, (int, float)) and conf > 0.5 else "refuted"
+
+            # 8e. Detect low-confidence workers for diagnosis hint (Manager Intelligence)
+            if self._diagnosis_enabled:
+                low_conf_workers = [
+                    dr.get("worker_id", "?")
+                    for dr in delegation_results
+                    if isinstance(dr.get("result", {}).get("confidence"), (int, float))
+                    and dr["result"]["confidence"] < self._diagnosis_threshold
+                ]
+                if low_conf_workers:
+                    state["_diagnosis_suggested"] = low_conf_workers
+
+            # 8f. Budget phase auto-transition (Manager Intelligence)
+            budget_remaining = self._budget.budget_fraction_remaining
+            if self._budget._reservation and self._budget._reservation.enabled:
+                # Auto-transition based on budget consumption
+                phase = self._budget.current_phase
+                if phase == "core_work" and budget_remaining < 0.40:
+                    self._budget.transition_phase("validation_repair", iteration)
+                    logger.info("Budget phase transition: core_work → validation_repair")
+                elif phase == "validation_repair" and budget_remaining < 0.20:
+                    self._budget.transition_phase("synthesis", iteration)
+                    logger.info("Budget phase transition: validation_repair → synthesis")
+                elif phase == "synthesis" and budget_remaining < 0.05:
+                    self._budget.transition_phase("reserve", iteration)
+                    logger.info("Budget phase transition: synthesis → reserve")
+
+            # 9. Stall detection (with strategy switching)
             if self._stall:
                 stall_status = self._stall.record(agg_confidence, key_findings)
-                if stall_status == "stop":
-                    logger.warning("Stall detected — stopping loop")
+                if stall_status == "switch_strategy":
+                    strategy = self._stall.suggested_strategy
+                    state["_strategy_override"] = strategy
+                    logger.warning(
+                        "Stall detected — switching to strategy: %s", strategy
+                    )
+                elif stall_status == "stop":
+                    logger.warning("Stall detected — stopping loop (all strategies exhausted)")
                     return self._build_partial_result(
                         "stall_detected"
                     ), "stall_detected"
@@ -1165,13 +1771,14 @@ class DelegationLoopRunner:
 
         # Use agent.py (or StandaloneAgent fallback) for the manager
         try:
-            llm = LLMClient(model=self._manager_model)
+            llm = self._manager_llm or LLMClient(model=self._manager_model)
+            tokens_before = llm.total_tokens_used
             agent = self._load_agent(manager_dir, llm=llm)
 
             # Build enhanced task with context
             enhanced_task = self._build_manager_task(task, state, iteration)
             result = agent.run(enhanced_task, state)
-            self._budget.tokens_consumed += llm.total_tokens_used
+            self._budget.tokens_consumed += llm.total_tokens_used - tokens_before
 
             # Extract the manager's output
             manager_output = result.get(agent.name, {})
@@ -1217,7 +1824,8 @@ class DelegationLoopRunner:
         Retries once with a shorter prompt if the first attempt fails to
         produce a parseable decision (truncated JSON is the #1 cause).
         """
-        llm = LLMClient(model=self._manager_model)
+        llm = self._manager_llm or LLMClient(model=self._manager_model)
+        tokens_before = llm.total_tokens_used
 
         system_prompt = self._build_manager_system_prompt()
         user_message = self._build_manager_task(task, state, iteration)
@@ -1229,8 +1837,23 @@ class DelegationLoopRunner:
 
         for attempt in range(2):
             try:
-                result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
-                self._budget.tokens_consumed += llm.total_tokens_used
+                # Use streaming on first attempt for faster TTFT
+                if attempt == 0:
+                    try:
+                        result = llm.chat_stream_json(
+                            messages, temperature=0.2, max_tokens=16384
+                        )
+                    except Exception:
+                        # Streaming not supported — fall back to non-streaming
+                        result = llm.chat_json(
+                            messages, temperature=0.2, max_tokens=16384
+                        )
+                else:
+                    result = llm.chat_json(
+                        messages, temperature=0.2, max_tokens=16384
+                    )
+                self._budget.tokens_consumed += llm.total_tokens_used - tokens_before
+                tokens_before = llm.total_tokens_used
                 parsed = self._parse_manager_output(result)
 
                 _is_parse_fail = (
@@ -1263,7 +1886,8 @@ class DelegationLoopRunner:
                 return parsed
 
             except Exception as exc:
-                self._budget.tokens_consumed += llm.total_tokens_used
+                self._budget.tokens_consumed += llm.total_tokens_used - tokens_before
+                tokens_before = llm.total_tokens_used
                 if attempt == 0:
                     logger.warning("Inline manager attempt 1 failed: %s, retrying", exc)
                     continue
@@ -1272,6 +1896,173 @@ class DelegationLoopRunner:
 
         # Should not reach here, but safety fallback
         return {"decision": "fail", "reason": "Inline manager exhausted retries"}
+
+    # -- Manager Intelligence prompt helpers ---------------------------------
+
+    def _build_intelligence_decision_options(self) -> str:
+        """Build optional PLAN and DIAGNOSE decision options for the system prompt."""
+        parts: list[str] = []
+
+        if self._planning_enabled:
+            parts.append("""
+### PLAN — Create a task decomposition (first iteration recommended)
+```json
+{
+  "decision": "plan",
+  "reasoning": "Breaking the task into subtasks for systematic execution",
+  "subtasks": [
+    {
+      "id": "subtask_1",
+      "description": "What this subtask accomplishes",
+      "dependencies": [],
+      "priority": "high",
+      "success_criteria": "How to know this subtask is done"
+    }
+  ]
+}
+```
+Use PLAN **once** on the first iteration to decompose the problem before delegating.
+You can only PLAN once — after that, use DELEGATE to execute the plan.
+After planning, you will see a Task Plan Progress section tracking subtask status.
+Map your DELEGATE worker_ids to subtask IDs to enable automatic progress tracking.
+**IMPORTANT: Do NOT issue PLAN again after the first iteration. Use DELEGATE instead.**
+""")
+
+        if self._diagnosis_enabled:
+            parts.append(f"""
+### DIAGNOSE — Generate failure hypotheses before retrying
+```json
+{{
+  "decision": "diagnose",
+  "reasoning": "Worker failed — generating hypotheses before retrying",
+  "failed_worker": "worker_id_that_failed",
+  "hypotheses": [
+    {{
+      "id": "h1",
+      "cause": "Description of suspected root cause",
+      "test": "How to test this hypothesis",
+      "likelihood": 0.7
+    }}
+  ]
+}}
+```
+Use DIAGNOSE when a worker produces confidence < {self._diagnosis_threshold} or fails entirely.
+Generate up to {self._diagnosis_max_hypotheses} hypotheses. On the next iteration, delegate
+targeted workers to test the most likely hypotheses before doing a full retry.
+""")
+
+        return "\n".join(parts)
+
+    def _build_intelligence_task_sections(self, state: dict, iteration: int) -> str:
+        """Build all Manager Intelligence sections for the user message."""
+        parts: list[str] = []
+
+        # Plan-locked warning (prevents PLAN loops)
+        plan_lock = state.get("_plan_locked")
+        if plan_lock:
+            parts.append(
+                f"## PLAN LOCKED\n"
+                f"**{plan_lock}**\n"
+            )
+
+        # Diagnose-locked warning (prevents DIAGNOSE loops)
+        diag_lock = state.get("_diagnose_locked")
+        if diag_lock:
+            parts.append(
+                f"## DIAGNOSE LOCKED\n"
+                f"**{diag_lock}**\n"
+            )
+
+        # Task Plan Progress
+        if self._task_plan:
+            section = self._task_plan.to_prompt_section()
+            if section:
+                parts.append(section)
+
+        # Budget Phase
+        if self._budget._reservation and self._budget._reservation.enabled:
+            phase = self._budget.current_phase
+            phase_remaining = self._budget.phase_budget_remaining()
+            warning = self._budget.phase_warning()
+            phase_section = (
+                f"## Budget Phase\n"
+                f"- **Current phase**: {phase}\n"
+                f"- **Phase budget remaining**: {phase_remaining * 100:.0f}%\n"
+            )
+            if warning:
+                phase_section += f"- **Warning**: {warning}\n"
+            parts.append(phase_section)
+
+        # Active Hypotheses (Diagnosis)
+        hypotheses = state.get("_active_hypotheses")
+        if hypotheses and self._diagnosis_enabled:
+            lines = ["## Active Hypotheses\n"]
+            lines.append("| ID | Cause | Likelihood | Status |")
+            lines.append("|----|-------|------------|--------|")
+            for h in hypotheses:
+                status = h.get("status", "untested")
+                lines.append(
+                    f"| {h.get('id', '?')} | {h.get('cause', '')[:60]} "
+                    f"| {h.get('likelihood', '?')} | **{status}** |"
+                )
+            confirmed = [h for h in hypotheses if h.get("status") == "confirmed"]
+            if confirmed:
+                lines.append(
+                    f"\n**Confirmed cause(s)**: "
+                    + ", ".join(h.get("cause", "?") for h in confirmed)
+                    + ". Use this to inform your next delegation.\n"
+                )
+            parts.append("\n".join(lines))
+
+        # Diagnosis suggestion
+        suggested = state.get("_diagnosis_suggested")
+        if suggested and self._diagnosis_enabled:
+            parts.append(
+                f"## Diagnosis Suggested\n"
+                f"Worker(s) {', '.join(suggested)} produced low confidence "
+                f"(< {self._diagnosis_threshold}). Consider using DIAGNOSE to "
+                f"generate hypotheses before retrying.\n"
+            )
+
+        # Strategy Directive
+        strategy = state.get("_strategy_override")
+        if strategy:
+            strategy_descriptions = {
+                "decompose_finer": (
+                    "Break current work into smaller, more specific subtasks. "
+                    "Each worker should handle one narrow piece."
+                ),
+                "simplify": (
+                    "Reduce scope — solve a simpler version of the problem first, "
+                    "then extend the solution incrementally."
+                ),
+                "reframe": (
+                    "Reformulate the problem from a different angle. "
+                    "Try a fundamentally different approach."
+                ),
+                "escalate": (
+                    "Use more powerful tools, higher temperature, or a "
+                    "completely different methodology."
+                ),
+            }
+            desc = strategy_descriptions.get(
+                strategy, "Change your approach to break through the stall."
+            )
+            parts.append(
+                f"## Strategy Directive (Stall Recovery)\n"
+                f"**Active strategy: `{strategy}`**\n\n{desc}\n\n"
+                f"Your previous approach was not making progress. "
+                f"You MUST change your delegation strategy according to "
+                f"the directive above.\n"
+            )
+
+        # Decision Journal
+        if self._journal:
+            section = self._journal.to_prompt_section()
+            if section:
+                parts.append(section)
+
+        return "\n".join(parts)
 
     def _build_namespace_capabilities_section(self) -> str:
         """Build a section describing per-namespace capabilities for the manager prompt."""
@@ -1538,7 +2329,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
   "partial_result": {{}}
 }}
 ```
-
+{self._build_intelligence_decision_options()}
 ## Worker Policy (Enforced Limits)
 - Sandbox: {enforced.sandbox.type}, max {enforced.sandbox.max_memory_mb}MB RAM, {enforced.sandbox.max_cpu_seconds}s CPU
 - Max tools per worker: {enforced.codemode.max_tools_per_worker}
@@ -1677,6 +2468,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         summary = summary[:500] + "...(truncated)"
                     parts.append(f"### {k}\n```json\n{summary}\n```\n")
 
+        # Manager Intelligence sections
+        intelligence = self._build_intelligence_task_sections(state, iteration)
+        if intelligence:
+            parts.append(intelligence)
+
         return "\n".join(parts)
 
     def _parse_manager_output(self, output: Any) -> dict:
@@ -1729,7 +2525,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         # Normalize decision field
         if "decision" not in output:
-            if "delegations" in output:
+            if "subtasks" in output:
+                output["decision"] = "plan"
+            elif "hypotheses" in output:
+                output["decision"] = "diagnose"
+            elif "delegations" in output:
                 output["decision"] = "delegate"
             elif any(
                 k in output
@@ -1780,11 +2580,17 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 "submit",
             }
             _FAIL_WORDS = {"fail", "abort", "error", "cancel", "impossible"}
+            _PLAN_WORDS = {"plan", "decompose", "breakdown"}
+            _DIAGNOSE_WORDS = {"diagnose", "diagnosis", "hypothes"}
 
             if any(w in raw for w in _DELEGATE_WORDS):
                 output["decision"] = "delegate"
             elif any(w in raw for w in _COMPLETE_WORDS):
                 output["decision"] = "complete"
+            elif any(w in raw for w in _PLAN_WORDS):
+                output["decision"] = "plan"
+            elif any(w in raw for w in _DIAGNOSE_WORDS):
+                output["decision"] = "diagnose"
             elif any(w in raw for w in _FAIL_WORDS):
                 output["decision"] = "fail"
             # else: keep as-is, will be caught downstream
@@ -2011,8 +2817,9 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     "status": "error",
                 }
 
-        # Fan-out with ThreadPoolExecutor
-        max_workers = min(len(envelopes), 4)
+        # Fan-out with ThreadPoolExecutor (8 threads to avoid blocking
+        # when manager delegates 5+ workers — typical in production runs)
+        max_workers = min(len(envelopes), 8)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {pool.submit(run_worker, env): env for env in envelopes}
             for future in as_completed(futures):

@@ -1,0 +1,320 @@
+========================================================================
+  AWP Manager Intelligence — End-to-End Feature Test
+  Task: Customer Churn Analysis (fictional)
+========================================================================
+
+========================================================================
+  FEATURE 1: Task Decomposition (Planning Phase)
+========================================================================
+
+Task: Analyze the customer_churn.csv dataset (10,000 rows, 15 columns). Identify key churn drivers, build a predictive model with >80% accuracy, and generate a management report with charts.
+
+Manager issued PLAN decision with 5 subtasks:
+
+## Task Plan Progress (0/5 completed, 0 in progress)
+
+| ID | Description | Priority | Dependencies | Status | Result |
+|-----|-------------|----------|--------------|--------|--------|
+| load_data | Load customer_churn.csv and validate schema | high | none | **pending** |  |
+| explore_data | Exploratory data analysis — distributions, correlations, out | high | load_data | **pending** |  |
+| feature_eng | Feature engineering — encode categoricals, create interactio | high | explore_data | **pending** |  |
+| train_model | Train gradient boosting classifier with cross-validation | high | feature_eng | **pending** |  |
+| generate_report | Generate management report with charts and key findings | normal | train_model, explore_data | **pending** |  |
+
+**Next actionable subtasks**: load_data
+
+
+------------------------------------------------------------
+  Iteration 2: Workers complete load_data
+------------------------------------------------------------
+## Task Plan Progress (1/5 completed, 0 in progress)
+
+| ID | Description | Priority | Dependencies | Status | Result |
+|-----|-------------|----------|--------------|--------|--------|
+| load_data | Load customer_churn.csv and validate schema | high | none | **completed** | 10,247 rows loaded, schema valid |
+| explore_data | Exploratory data analysis — distributions, correlations, out | high | load_data | **pending** |  |
+| feature_eng | Feature engineering — encode categoricals, create interactio | high | explore_data | **pending** |  |
+| train_model | Train gradient boosting classifier with cross-validation | high | feature_eng | **pending** |  |
+| generate_report | Generate management report with charts and key findings | normal | train_model, explore_data | **pending** |  |
+
+**Next actionable subtasks**: explore_data
+
+
+------------------------------------------------------------
+  Iteration 3: Workers complete explore_data
+------------------------------------------------------------
+## Task Plan Progress (2/5 completed, 0 in progress)
+
+| ID | Description | Priority | Dependencies | Status | Result |
+|-----|-------------|----------|--------------|--------|--------|
+| load_data | Load customer_churn.csv and validate schema | high | none | **completed** | 10,247 rows loaded, schema valid |
+| explore_data | Exploratory data analysis — distributions, correlations, out | high | load_data | **completed** | 15 correlations found, 3 outlier cols |
+| feature_eng | Feature engineering — encode categoricals, create interactio | high | explore_data | **pending** |  |
+| train_model | Train gradient boosting classifier with cross-validation | high | feature_eng | **pending** |  |
+| generate_report | Generate management report with charts and key findings | normal | train_model, explore_data | **pending** |  |
+
+**Next actionable subtasks**: feature_eng
+
+
+------------------------------------------------------------
+  Iteration 4: feature_eng in progress
+------------------------------------------------------------
+Progress: 2/5 completed, 1 in progress
+Next actionable: []
+
+[OK] Task Decomposition working correctly
+
+========================================================================
+  FEATURE 2: Hypothesis-Driven Debugging
+========================================================================
+
+Scenario: train_model worker returned confidence=0.15 (below threshold 0.3)
+Manager issues DIAGNOSE decision:
+
+## Active Hypotheses
+
+| ID | Cause | Likelihood | Status |
+|----|-------|------------|--------|
+| h1 | Class imbalance — churn is only 8% of dataset, model bi... | 0.7 | **untested** |
+| h2 | Feature leakage — 'last_payment_date' correlates perfec... | 0.5 | **untested** |
+| h3 | Hyperparameter default — learning rate too high causing... | 0.2 | **untested** |
+
+------------------------------------------------------------
+  Diagnostic worker tests H1 (class imbalance)
+------------------------------------------------------------
+H1 status: CONFIRMED (class distribution: 92% no-churn, 8% churn)
+H2 status: untested (skipped — root cause found)
+H3 status: untested (skipped — root cause found)
+
+Confirmed cause: Class imbalance — churn is only 8% of dataset, model biased toward majority
+Manager will now delegate with knowledge: 'Apply SMOTE oversampling before training'
+
+[OK] Hypothesis-Driven Debugging working correctly
+
+========================================================================
+  FEATURE 3: Strategy Switching (Meta-Reasoning)
+========================================================================
+
+Simulating 7 iterations with stalling confidence:
+
+Iter | Confidence |           Status | Strategy
+-----+------------+------------------+----------
+   1 |       0.00 |               ok | -
+   2 |       0.45 |               ok | -
+   3 |       0.47 |  switch_strategy | decompose_finer (Break work into smaller, more specific subtasks)
+   4 |       0.48 |  switch_strategy | simplify (Solve a simpler version first, then extend)
+   5 |       0.75 |               ok | simplify (Solve a simpler version first, then extend)
+   6 |       0.76 |  switch_strategy | reframe (Reformulate the problem from a different angle)
+   7 |       0.77 |  switch_strategy | escalate (Use more powerful tools or different methodology)
+
+Strategies exhausted: True
+
+[OK] Strategy Switching working correctly
+
+========================================================================
+  FEATURE 4: Predictive Budget Reservation
+========================================================================
+
+Budget phases:
+             core_work: 60% — Primary task execution
+     validation_repair: 20% — Validation and repair cycles
+             synthesis: 15% — Final synthesis and output
+               reserve: 5% — Emergency reserve
+
+Iter |                Phase | Workers | Phase % | Warning
+-----+----------------------+---------+---------+--------
+   0 |            core_work |       0 |  100.0% | -
+   5 |            core_work |       8 |   58.3% | -
+  10 |    validation_repair |      14 |  100.0% | -
+  15 |            synthesis |      18 |  100.0% | -
+  18 |              reserve |      19 |  100.0% | -
+
+Full budget dict:
+{
+  "loops": {
+    "used": 18,
+    "max": 20
+  },
+  "workers": {
+    "spawned": 19,
+    "max": 50
+  },
+  "tokens": {
+    "consumed": 0,
+    "max": 1000000
+  },
+  "tool_calls": {
+    "used": 0,
+    "max": 100
+  },
+  "wall_time": {
+    "elapsed_s": 0.0,
+    "max_s": 300
+  },
+  "budget_remaining_pct": 10.0,
+  "phase": {
+    "current": "reserve",
+    "phase_remaining_pct": 100.0
+  }
+}
+
+[OK] Budget Reservation working correctly
+
+========================================================================
+  FEATURE 5: Decision Journal (Reflective Memory)
+========================================================================
+
+Full decision journal from the run:
+
+## Decision Journal (recent decisions and outcomes)
+
+- **Iter 1** [plan]: Breaking churn analysis into 5 subtasks
+- **Iter 2** [delegate]: Delegating data loading to worker → outcomes: load_worker=0.92 | Lesson: High confidence — approach is effective
+- **Iter 3** [delegate]: Delegating EDA and feature engineering → outcomes: eda_worker=0.85, feat_worker=0.78 | Lesson: High confidence — approach is effective
+- **Iter 4** [delegate]: Delegating model training → outcomes: train_worker=0.15 | Lesson: Low confidence — consider changing approach
+- **Iter 5** [diagnose]: Model accuracy only 0.58 — generating hypotheses
+- **Iter 6** [delegate]: Retrying with SMOTE after confirmed class imbalance → outcomes: train_v2=0.88 | Lesson: High confidence — approach is effective
+- **Iter 7** [delegate]: Delegating report generation → outcomes: report_worker=0.82 | Lesson: High confidence — approach is effective
+- **Iter 8** [complete]: All subtasks done, report generated
+
+**Reflection**: Given the pattern of decisions and outcomes above, what adjustment would improve the next iteration?
+
+[OK] Decision Journal working correctly
+
+========================================================================
+  INTEGRATION: All 5 Features — Full Delegation Loop Simulation
+========================================================================
+
+Task: Analyze the customer_churn.csv dataset (10,000 rows, 15 columns). Identify key churn drivers, build a predictive model with >80% accuracy, and generate a management report with charts.
+
+Features enabled:
+  [x] Task Decomposition (max 10 subtasks)
+  [x] Hypothesis Debugging (threshold: 0.3)
+  [x] Strategy Switching (4 strategies)
+  [x] Budget Reservation (60/20/15/5)
+  [x] Decision Journal (max 20 entries)
+
+------------------------------------------------------------
+  Iteration 1: Manager creates PLAN
+------------------------------------------------------------
+Phase: core_work | Phase budget: 92%
+Plan: 0/4 completed, 0 in progress
+Next actionable: ['load']
+
+------------------------------------------------------------
+  Iteration 2: Manager DELEGATES load_worker
+------------------------------------------------------------
+Phase: core_work | Workers: 1
+Plan: 1/4 completed, 0 in progress
+
+------------------------------------------------------------
+  Iteration 3: Manager DELEGATES eda_worker
+------------------------------------------------------------
+Phase: core_work | Workers: 2
+Plan: 2/4 completed, 0 in progress
+
+------------------------------------------------------------
+  Iteration 4: Manager DELEGATES train_worker (LOW CONFIDENCE)
+------------------------------------------------------------
+Worker confidence: 0.15 (below threshold 0.3)
+-> DIAGNOSIS SUGGESTED for train_worker
+Stall status: ok
+
+------------------------------------------------------------
+  Iteration 5: Manager issues DIAGNOSE
+------------------------------------------------------------
+Hypotheses generated:
+  h1: Class imbalance (8% churn) (likelihood: 0.7)
+  h2: Feature leakage from date columns (likelihood: 0.4)
+Stall status: ok
+
+------------------------------------------------------------
+  Iteration 6: Manager DELEGATES train_v2 (with SMOTE)
+------------------------------------------------------------
+Phase: core_work | Workers: 4
+Plan: 3/4 completed, 0 in progress
+
+------------------------------------------------------------
+  Iteration 7: Manager DELEGATES report_worker
+------------------------------------------------------------
+Phase: core_work | Workers: 5
+Plan: 4/4 completed, 0 in progress
+
+------------------------------------------------------------
+  Iteration 8: Manager COMPLETES
+------------------------------------------------------------
+
+========================================================================
+  FINAL SUMMARY
+========================================================================
+
+Task completed in 8 iterations, 5 workers spawned
+Budget used: 35.0%
+
+--- Task Plan Final State ---
+## Task Plan Progress (4/4 completed, 0 in progress)
+
+| ID | Description | Priority | Dependencies | Status | Result |
+|-----|-------------|----------|--------------|--------|--------|
+| load | Load CSV data | high | none | **completed** | 10,247 rows loaded |
+| eda | Exploratory analysis | high | load | **completed** | Key drivers: tenure, contract_type, char |
+| model | Train classifier | high | eda | **completed** | Accuracy=0.84 with SMOTE |
+| report | Generate report | normal | model | **completed** | PDF with 4 charts saved |
+--- Decision Journal ---
+## Decision Journal (recent decisions and outcomes)
+
+- **Iter 1** [plan]: Decomposing churn analysis into subtasks
+- **Iter 2** [delegate]: Loading CSV data → outcomes: load_worker=0.92 | Lesson: High confidence — approach is effective
+- **Iter 3** [delegate]: Running EDA → outcomes: eda_worker=0.85 | Lesson: High confidence — approach is effective
+- **Iter 4** [delegate]: Training gradient boosting model → outcomes: train_worker=0.15 | Lesson: Low confidence — consider changing approach
+- **Iter 5** [diagnose]: Model failed — generating hypotheses
+- **Iter 6** [delegate]: Retrying with SMOTE after H1 confirmed → outcomes: train_v2=0.88 | Lesson: High confidence — approach is effective
+- **Iter 7** [delegate]: Generating management report → outcomes: report_worker=0.82 | Lesson: High confidence — approach is effective
+- **Iter 8** [complete]: All subtasks done, report generated
+
+**Reflection**: Given the pattern of decisions and outcomes above, what adjustment would improve the next iteration?
+
+--- Budget Snapshot ---
+{
+  "loops": {
+    "used": 7,
+    "max": 20
+  },
+  "workers": {
+    "spawned": 5,
+    "max": 50
+  },
+  "tokens": {
+    "consumed": 0,
+    "max": 10000000
+  },
+  "tool_calls": {
+    "used": 0,
+    "max": 250
+  },
+  "wall_time": {
+    "elapsed_s": 0.0,
+    "max_s": 600
+  },
+  "budget_remaining_pct": 65.0,
+  "phase": {
+    "current": "core_work",
+    "phase_remaining_pct": 41.7
+  }
+}
+
+[OK] Integration test PASSED — all 5 features working together
+
+========================================================================
+  ALL TESTS PASSED
+========================================================================
+
+All 5 Manager Intelligence features verified:
+  1. Task Decomposition  — Plan creation, progress tracking, dependency resolution
+  2. Hypothesis Debugging — Failure diagnosis, hypothesis generation and testing
+  3. Strategy Switching   — Stall detection, strategy rotation, exhaustion handling
+  4. Budget Reservation   — Phase tracking, transitions, warnings, budget dict
+  5. Decision Journal     — Recording, outcomes, lessons, reflection prompt
+
+========================================================================
+

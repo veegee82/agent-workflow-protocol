@@ -28,6 +28,7 @@
   <a href="docs/architecture.md">Architecture</a> &middot;
   <a href="docs/evaluation.md">Evaluation</a> &middot;
   <a href="docs/critique.md">Critique</a> &middot;
+  <a href="docs/manager-intelligence.md">Manager Intelligence</a> &middot;
   <a href="examples/">Examples</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
@@ -63,6 +64,11 @@ This makes AWP uniquely suited for **deep data science and engineering problems*
 - :arrows_counterclockwise: **Delegation Loop Engine** — Manager-worker loop with parallel fan-out, rolling context summaries, stall detection, and two-tier validation. The manager decomposes problems, workers solve subtasks, results aggregate iteratively. *[Learn more](#7-the-delegation-loop-in-detail)*
 - :mag: **Reflective Critique Loop** — Built-in critic analyzes every worker output for defects (missing data, hallucinations, format errors), triggers targeted repairs with specific fix instructions, and accumulates failure patterns across workers so later iterations avoid earlier mistakes. *[Learn more](docs/critique.md)*
 - :bar_chart: **Evaluation Layer** — Quality scoring with 5 metric kinds: deterministic tests, assertion lists, LLM-as-judge, budget utility, and policy checks. Weighted aggregation maps scores to accept/retry/fail actions. Persistent artifacts for audit and comparison. *[Learn more](docs/evaluation.md)*
+- :jigsaw: **Task Decomposition** — Manager creates an explicit task graph before delegating, decomposing problems into subtasks with dependencies, priorities, and success criteria tracked across iterations. *[Learn more](docs/manager-intelligence.md#task-decomposition-planning-phase)*
+- :microscope: **Hypothesis-Driven Debugging** — On worker failure, the manager generates causal hypotheses and delegates lightweight diagnostic workers to test them before retrying blindly. *[Learn more](docs/manager-intelligence.md#hypothesis-driven-debugging)*
+- :bulb: **Strategy Switching** — When stall detection fires, the manager rotates through meta-strategies (decompose finer, simplify, reframe, escalate) instead of stopping. *[Learn more](docs/manager-intelligence.md#strategy-switching-meta-reasoning)*
+- :pie: **Predictive Budget Reservation** — Budget is pre-allocated to phases (core work 60%, validation 20%, synthesis 15%, reserve 5%) with per-phase warnings and automatic transitions. *[Learn more](docs/manager-intelligence.md#predictive-budget-reservation)*
+- :notebook: **Decision Journal** — Manager maintains a reflective log of its own decisions and outcomes, enabling pattern recognition and self-correction across iterations. *[Learn more](docs/manager-intelligence.md#decision-journal)*
 - :shield: **6-Limit Budget System** — Hard limits on loops, workers, tokens, wall time, tool calls, and recursion depth. The manager cannot override the safety envelope — graceful termination on any limit breach. *[Learn more](#8-budget-safety-validation)*
 - :ladder: **Autonomy Spectrum (A0-A4)** — Five graduated levels from static DAG to self-organizing recursive delegation. Each level adds capabilities and proportionally more safety requirements. *[Learn more](#9-the-autonomy-spectrum-a0-a4)*
 - :bricks: **7-Layer Architecture** — Manifest, Identity, Capabilities, Communication, Memory, Orchestration, Observability — opt-in from 5 lines of YAML to full enterprise stack. *[Learn more](#10-the-7-layer-model)*
@@ -442,10 +448,10 @@ result = AgentWorkflow(
 | `model` | *(required)* | LLM model (e.g. `openrouter/anthropic/claude-sonnet-4`) |
 | `worker_model` | = `model` | Separate model for workers |
 | `max_loops` | 100 | Max delegation iterations |
-| `max_total_tokens` | 1,000,000 | Total token limit |
-| `max_wall_time` | 3000 | Time limit in seconds |
-| `max_tool_calls` | 100 | Max tool invocations |
-| `max_total_workers` | 100 | Max worker agents |
+| `max_total_tokens` | 10,000,000 | Total token limit |
+| `max_wall_time` | 600 | Time limit in seconds |
+| `max_tool_calls` | 250 | Max tool invocations |
+| `max_total_workers` | 500 | Max worker agents |
 | `max_depth` | 10 | Recursion depth (A4) |
 | `sandbox` | `"subprocess"` | subprocess / docker / venv / none |
 | `packages` | `[]` | Extra pip packages for sandbox |

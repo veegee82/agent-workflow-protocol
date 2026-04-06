@@ -39,6 +39,7 @@ import {
   Tag,
   FlaskConical,
   Sparkles,
+  Brain,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -713,6 +714,80 @@ function RightSidebar() {
               className="mt-1 w-full rounded-md border border-awp-border bg-awp-bg px-2.5 py-1.5 text-sm text-awp-text placeholder:text-awp-muted/50 focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
             />
           </label>
+        </div>
+      </Panel>
+
+      {/* Manager Intelligence */}
+      <Panel
+        title="Manager Intelligence"
+        icon={<Brain className="h-4 w-4 text-awp-purple" />}
+      >
+        <div className="space-y-2">
+          <p className="text-[10px] text-awp-muted/70 leading-relaxed">
+            Enhanced problem-solving for the delegation loop manager.
+          </p>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.critique_enabled}
+                onChange={(e) => updateConfig({ critique_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-purple focus:ring-awp-purple"
+              />
+              Reflective Critique
+            </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.planning_enabled}
+                onChange={(e) => updateConfig({ planning_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-purple focus:ring-awp-purple"
+              />
+              Task Decomposition
+            </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.diagnosis_enabled}
+                onChange={(e) => updateConfig({ diagnosis_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-purple focus:ring-awp-purple"
+              />
+              Hypothesis Debugging
+            </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.strategy_switching_enabled}
+                onChange={(e) => updateConfig({ strategy_switching_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-purple focus:ring-awp-purple"
+              />
+              Strategy Switching
+            </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.budget_reservation_enabled}
+                onChange={(e) => updateConfig({ budget_reservation_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-purple focus:ring-awp-purple"
+              />
+              Budget Reservation
+            </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.decision_journal_enabled}
+                onChange={(e) => updateConfig({ decision_journal_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-purple focus:ring-awp-purple"
+              />
+              Decision Journal
+            </label>
+          </div>
         </div>
       </Panel>
 

@@ -241,6 +241,26 @@ class LLMClient:
             if timeout == 120:  # only bump if user didn't set explicitly
                 self.timeout = 600
 
+        # Persistent HTTP client for connection pooling (reused across calls)
+        self._client = httpx.Client(
+            timeout=self.timeout,
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+                keepalive_expiry=30,
+            ),
+        )
+
+    def close(self) -> None:
+        """Close the persistent HTTP client."""
+        self._client.close()
+
+    def __del__(self) -> None:
+        try:
+            self._client.close()
+        except Exception:
+            pass
+
     def chat(
         self,
         messages: list[dict[str, Any]],
@@ -330,6 +350,12 @@ class LLMClient:
         parallel_tool_calls: Optional[bool] = None,
     ) -> dict[str, Any]:
         """Execute a single chat completion request."""
+        # Apply prompt caching for OpenRouter: mark system messages so the
+        # provider can cache the (large, mostly-static) system prompt across
+        # calls within the same session.
+        if self._provider == "openrouter" and messages:
+            messages = self._apply_prompt_caching(messages)
+
         payload: dict[str, Any] = {
             "model": use_model,
             "messages": messages,
@@ -379,13 +405,12 @@ class LLMClient:
             len(tools or []),
         )
 
-        with httpx.Client(timeout=self.timeout) as client:
-            resp = client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
+        resp = self._client.post(
+            f"{self.base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
 
         result = resp.json()
 
@@ -406,6 +431,138 @@ class LLMClient:
             self.total_tokens_used += total
 
         return result
+
+    @staticmethod
+    def _apply_prompt_caching(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Add cache_control to system messages for provider-side caching.
+
+        OpenRouter and Anthropic support prompt caching via a
+        ``cache_control`` field on message content blocks.  This marks
+        system messages as cacheable so repeated calls with the same
+        system prompt (the common case in the delegation loop) can skip
+        re-processing the prompt prefix.
+        """
+        out: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg.get("role") == "system" and isinstance(msg.get("content"), str):
+                out.append({
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": msg["content"],
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                })
+            else:
+                out.append(msg)
+        return out
+
+    def chat_stream_text(
+        self,
+        messages: list[dict[str, Any]],
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """Stream a chat completion, returning the full text when done.
+
+        Uses SSE streaming to get faster time-to-first-token. The full
+        text is still returned as a single string (streaming is used for
+        network efficiency, not incremental processing).
+        """
+        use_model = model or self.model
+        if not use_model:
+            raise RuntimeError("No model configured")
+
+        payload: dict[str, Any] = {
+            "model": use_model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self.api_key and self.api_key != "ollama":
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        if self._provider == "openrouter":
+            headers["X-Title"] = os.getenv("OPENROUTER_APP_TITLE", "AWP Runtime")
+
+        chunks: list[str] = []
+        with self._client.stream(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    # Try to get usage from the final chunk
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        chunks.append(content)
+                    # Capture usage from final chunk (OpenRouter sends it)
+                    usage = chunk.get("usage")
+                    if isinstance(usage, dict):
+                        total = usage.get("total_tokens", 0)
+                        if not total:
+                            total = (usage.get("prompt_tokens", 0) or 0) + (
+                                usage.get("completion_tokens", 0) or 0
+                            )
+                        try:
+                            self.total_tokens_used += int(total)
+                        except (TypeError, ValueError):
+                            pass
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+
+        return "".join(chunks)
+
+    def chat_stream_json(
+        self,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Stream a chat completion and parse the result as JSON."""
+        text = self.chat_stream_text(messages, **kwargs)
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            cleaned = "\n".join(lines).strip()
+        try:
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        start = cleaned.find("{")
+        if start != -1:
+            depth = 0
+            for i in range(start, len(cleaned)):
+                if cleaned[i] == "{":
+                    depth += 1
+                elif cleaned[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(cleaned[start : i + 1])
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                        break
+        logger.warning("chat_stream_json: could not parse JSON, wrapping raw text")
+        return {"result": text, "confidence": 0.0, "_parse_failure": True}
 
     def chat_text(
         self,

@@ -100,6 +100,21 @@ class WorkflowConfig(BaseModel):
     skills: list[str] = Field(default_factory=list, description="Paths to skill files/dirs.")
     skills_dir: str | None = Field(None, description="Directory containing skills to load.")
 
+    # Critique
+    critique_enabled: bool = True
+    critique_max_repair_attempts: int = 2
+
+    # Manager Intelligence
+    planning_enabled: bool = True
+    planning_max_subtasks: int = 10
+    diagnosis_enabled: bool = True
+    diagnosis_max_hypotheses: int = 3
+    diagnosis_confidence_threshold: float = 0.3
+    strategy_switching_enabled: bool = True
+    budget_reservation_enabled: bool = True
+    decision_journal_enabled: bool = True
+    decision_journal_max_entries: int = 20
+
 
 # ---------------------------------------------------------------------------
 # Run status / detail
@@ -315,6 +330,21 @@ class SettingsUpdate(BaseModel):
     code_mode: bool | None = None
     tool_creation: bool | None = None
     verbose: bool | None = None
+
+    # Critique
+    critique_enabled: bool | None = None
+    critique_max_repair_attempts: int | None = None
+
+    # Manager Intelligence
+    planning_enabled: bool | None = None
+    planning_max_subtasks: int | None = None
+    diagnosis_enabled: bool | None = None
+    diagnosis_max_hypotheses: int | None = None
+    diagnosis_confidence_threshold: float | None = None
+    strategy_switching_enabled: bool | None = None
+    budget_reservation_enabled: bool | None = None
+    decision_journal_enabled: bool | None = None
+    decision_journal_max_entries: int | None = None
 
     # UI state
     sidebar_open: bool | None = None

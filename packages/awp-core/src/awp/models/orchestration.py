@@ -212,6 +212,20 @@ class WorkerPolicy(BaseModel):
     )
 
 
+class StrategySwitchingConfig(BaseModel):
+    """Strategy rotation on stall detection.
+
+    When enabled and the stall detector fires, the manager rotates
+    through meta-strategies instead of stopping. Only stops when
+    all strategies have been exhausted.
+    """
+
+    enabled: bool = False
+    strategies: list[str] = Field(
+        default_factory=lambda: ["decompose_finer", "simplify", "reframe", "escalate"]
+    )
+
+
 class StallDetectionConfig(BaseModel):
     """Detects when the delegation loop makes no progress."""
 
@@ -219,6 +233,7 @@ class StallDetectionConfig(BaseModel):
     window: int = 3  # number of iterations to compare
     min_confidence_delta: float = 0.05
     action: str = "warn_then_stop"  # warn_then_stop | stop | warn
+    strategy_switching: StrategySwitchingConfig = Field(default_factory=StrategySwitchingConfig)
 
 
 class DeterministicValidationConfig(BaseModel):
@@ -273,6 +288,80 @@ class CritiqueConfig(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------
+# Manager Intelligence Models — Enhanced problem-solving capabilities
+# ---------------------------------------------------------------------------
+
+
+class DecisionJournalConfig(BaseModel):
+    """Reflective workspace memory for the manager.
+
+    When enabled, the manager maintains a decision journal that tracks
+    its own decisions and their outcomes across iterations, enabling
+    intra-run learning and self-correction.
+    """
+
+    enabled: bool = False
+    max_entries: int = 20  # oldest entries evicted when exceeded
+
+
+class BudgetPhase(BaseModel):
+    """A named phase in the predictive budget reservation system."""
+
+    name: str
+    fraction: float  # 0.0-1.0, share of total budget
+    description: str = ""
+
+
+class BudgetReservationConfig(BaseModel):
+    """Predictive budget reservation — pre-allocates budget to phases.
+
+    When enabled, the total budget is divided into phases with guaranteed
+    reservations. The manager sees its current phase and remaining phase
+    budget, preventing the common failure mode of exhausting all budget
+    on analysis with nothing left for synthesis.
+    """
+
+    enabled: bool = False
+    phases: list[BudgetPhase] = Field(
+        default_factory=lambda: [
+            BudgetPhase(name="core_work", fraction=0.60, description="Primary task execution"),
+            BudgetPhase(
+                name="validation_repair", fraction=0.20, description="Validation and repair cycles"
+            ),
+            BudgetPhase(name="synthesis", fraction=0.15, description="Final synthesis and output"),
+            BudgetPhase(name="reserve", fraction=0.05, description="Emergency reserve"),
+        ]
+    )
+
+
+class PlanningConfig(BaseModel):
+    """Task decomposition — explicit planning phase before delegation.
+
+    When enabled, the manager can create an explicit task graph on
+    the first iteration (PLAN decision), decomposing the problem into
+    subtasks with dependencies and success criteria. Subsequent
+    iterations track progress against this plan.
+    """
+
+    enabled: bool = False
+    max_subtasks: int = 10  # cap on plan complexity
+
+
+
+class DiagnosisConfig(BaseModel):
+    """Hypothesis-driven debugging for worker failures.
+
+    When enabled and a worker produces low-confidence or failed results,
+    the manager can generate causal hypotheses and optionally delegate
+    lightweight diagnostic workers to test them before retrying.
+    """
+
+    enabled: bool = False
+    max_hypotheses: int = 3
+    confidence_threshold: float = 0.3  # trigger diagnosis below this confidence
+
+
 class HistoryConfig(BaseModel):
     """Rolling summary and history configuration."""
 
@@ -317,6 +406,11 @@ class DelegationLoopConfig(BaseModel):
     history: HistoryConfig = Field(default_factory=HistoryConfig)
     logging: DelegationLoggingConfig = Field(default_factory=DelegationLoggingConfig)
     critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
+    # Manager Intelligence features
+    planning: PlanningConfig = Field(default_factory=PlanningConfig)
+    diagnosis: DiagnosisConfig = Field(default_factory=DiagnosisConfig)
+    budget_reservation: BudgetReservationConfig = Field(default_factory=BudgetReservationConfig)
+    decision_journal: DecisionJournalConfig = Field(default_factory=DecisionJournalConfig)
 
     model_config = {"extra": "allow"}
 

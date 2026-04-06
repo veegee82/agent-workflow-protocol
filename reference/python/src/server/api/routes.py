@@ -53,6 +53,19 @@ _default_settings: dict[str, Any] = {
     "code_mode": True,
     "tool_creation": True,
     "verbose": False,
+    # Critique
+    "critique_enabled": True,
+    "critique_max_repair_attempts": 2,
+    # Manager Intelligence (all enabled by default)
+    "planning_enabled": True,
+    "planning_max_subtasks": 10,
+    "diagnosis_enabled": True,
+    "diagnosis_max_hypotheses": 3,
+    "diagnosis_confidence_threshold": 0.3,
+    "strategy_switching_enabled": True,
+    "budget_reservation_enabled": True,
+    "decision_journal_enabled": True,
+    "decision_journal_max_entries": 20,
     # UI state
     "sidebar_open": True,
     "inspector_open": True,

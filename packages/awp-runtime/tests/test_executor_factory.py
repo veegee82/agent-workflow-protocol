@@ -6,28 +6,29 @@ from awp.models.capabilities import SandboxConfig
 from awp.runtime.base_executor import BaseExecutor
 from awp.runtime.code_executor import CodeExecutor
 from awp.runtime.executor_factory import create_executor
+from awp.runtime.persistent_executor import PersistentExecutor
 from awp.runtime.tools import ToolRegistry
 
 
 class TestExecutorFactory:
-    def test_default_returns_code_executor(self):
+    def test_default_returns_base_executor(self):
         executor = create_executor()
-        assert isinstance(executor, CodeExecutor)
+        assert isinstance(executor, BaseExecutor)
 
-    def test_subprocess_returns_code_executor(self):
+    def test_subprocess_returns_persistent_executor(self):
         config = SandboxConfig(type="subprocess")
         executor = create_executor(config)
-        assert isinstance(executor, CodeExecutor)
+        assert isinstance(executor, (PersistentExecutor, CodeExecutor))
 
-    def test_none_type_returns_code_executor(self):
+    def test_none_type_returns_executor(self):
         config = SandboxConfig(type="none")
         executor = create_executor(config)
-        assert isinstance(executor, CodeExecutor)
+        assert isinstance(executor, BaseExecutor)
 
     def test_unknown_type_falls_back_to_subprocess(self):
         config = SandboxConfig(type="wasm")
         executor = create_executor(config)
-        assert isinstance(executor, CodeExecutor)
+        assert isinstance(executor, BaseExecutor)
 
     def test_venv_returns_venv_executor(self, tmp_path):
         config = SandboxConfig(type="venv", packages=[])

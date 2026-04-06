@@ -1,0 +1,70 @@
+awp: "1.0.0"
+
+workflow:
+  name: manager-intelligence
+  version: "1.0.0"
+  description: "Demonstrates all five Manager Intelligence features working together: task decomposition, hypothesis-driven debugging, strategy switching, predictive budget reservation, and decision journal."
+  author: "AWP Examples"
+  tags: ["example", "manager-intelligence", "delegation-loop"]
+
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    models:
+      manager: openai/gpt-5-nano
+      worker: openai/gpt-5-nano
+    budget:
+      max_loops: 20
+      max_total_workers: 30
+      max_total_tokens: 5000000
+      max_wall_time: 300
+      max_tool_calls: 100
+    termination:
+      enabled: true
+      window: 3
+      min_confidence_delta: 0.05
+      strategy_switching:
+        enabled: true
+        strategies:
+          - decompose_finer
+          - simplify
+          - reframe
+          - escalate
+    planning:
+      enabled: true
+      max_subtasks: 8
+    diagnosis:
+      enabled: true
+      max_hypotheses: 3
+      confidence_threshold: 0.3
+    budget_reservation:
+      enabled: true
+      phases:
+        - name: core_work
+          fraction: 0.60
+          description: Primary data analysis
+        - name: validation_repair
+          fraction: 0.20
+          description: Validation and repair cycles
+        - name: synthesis
+          fraction: 0.15
+          description: Final report generation
+        - name: reserve
+          fraction: 0.05
+          description: Emergency reserve
+    decision_journal:
+      enabled: true
+      max_entries: 20
+    critique:
+      enabled: true
+      max_repair_attempts: 2
+      pattern_memory: true
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+        forbidden_tools:
+          - file.write_outside_workspace
+          - shell.execute

@@ -93,18 +93,38 @@ class CritiqueEngine:
         task: str,
         iteration: int,
     ) -> list[CritiqueEnvelope]:
-        """Critique all worker results from an iteration."""
-        envelopes = []
-        for dr in delegation_results:
+        """Critique all worker results from an iteration (parallel)."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Build work items preserving original order
+        work = []
+        for i, dr in enumerate(delegation_results):
             wid = dr.get("worker_id", "unknown")
             result = dr.get("result", {})
             envelope = dr.get("envelope", {})
-            critique = self.critique_result(wid, result, task, envelope, iteration)
-            envelopes.append(critique)
-            # Record patterns
-            if self._config.pattern_memory:
+            work.append((i, wid, result, envelope))
+
+        # Execute critiques in parallel (LLM calls are I/O-bound)
+        results_map: dict[int, CritiqueEnvelope] = {}
+        max_threads = min(len(work), 8)
+        with ThreadPoolExecutor(max_workers=max_threads) as pool:
+            futures = {
+                pool.submit(
+                    self.critique_result, wid, result, task, envelope, iteration
+                ): idx
+                for idx, wid, result, envelope in work
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                results_map[idx] = future.result()
+
+        # Reassemble in original order
+        envelopes = [results_map[i] for i in range(len(work))]
+
+        # Record patterns (sequential — mutates shared state)
+        if self._config.pattern_memory:
+            for critique in envelopes:
                 for pattern_desc in critique.reusable_patterns:
-                    # Extract category from first defect or use generic
                     cat = critique.defects[0].category if critique.defects else "generic"
                     self._pattern_memory.record(
                         category=cat,

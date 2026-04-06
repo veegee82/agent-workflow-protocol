@@ -202,6 +202,19 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   output_dir: '',
   input_files: [],
   skills_dir: '',
+  // Critique
+  critique_enabled: true,
+  critique_max_repair_attempts: 2,
+  // Manager Intelligence (all enabled by default)
+  planning_enabled: true,
+  planning_max_subtasks: 10,
+  diagnosis_enabled: true,
+  diagnosis_max_hypotheses: 3,
+  diagnosis_confidence_threshold: 0.3,
+  strategy_switching_enabled: true,
+  budget_reservation_enabled: true,
+  decision_journal_enabled: true,
+  decision_journal_max_entries: 20,
 };
 
 const DEFAULT_BUDGET: BudgetState = {

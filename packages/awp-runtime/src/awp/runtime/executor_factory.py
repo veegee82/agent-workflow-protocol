@@ -71,23 +71,39 @@ def create_executor(
         )
 
     else:
-        # Default: subprocess-based executor
-        from .code_executor import CodeExecutor
-
+        # Default: persistent warm-subprocess executor (keeps imports cached)
         if sandbox_type not in ("subprocess", "none"):
             logger.warning(
                 "Sandbox type '%s' is not implemented, falling back to subprocess",
                 sandbox_type,
             )
-        if config.packages:
-            logger.info(
-                "Creating subprocess executor (packages=%s)",
-                config.packages,
+
+        try:
+            from .persistent_executor import PersistentExecutor
+
+            if config.packages:
+                logger.info(
+                    "Creating persistent executor (packages=%s)",
+                    config.packages,
+                )
+            return PersistentExecutor(
+                max_timeout=config.timeout,
+                max_output_bytes=config.max_output_bytes,
+                working_dir=working_dir,
+                packages=config.packages,
+                pip_install=config.pip_install,
             )
-        return CodeExecutor(
-            max_timeout=config.timeout,
-            max_output_bytes=config.max_output_bytes,
-            working_dir=working_dir,
-            packages=config.packages,
-            pip_install=config.pip_install,
-        )
+        except Exception as exc:
+            logger.warning(
+                "PersistentExecutor unavailable (%s), falling back to CodeExecutor",
+                exc,
+            )
+            from .code_executor import CodeExecutor
+
+            return CodeExecutor(
+                max_timeout=config.timeout,
+                max_output_bytes=config.max_output_bytes,
+                working_dir=working_dir,
+                packages=config.packages,
+                pip_install=config.pip_install,
+            )

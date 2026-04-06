@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 450" width="900" height="450" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4CAF50"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f44336"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#CE93D8"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="450" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Strategy Switching — Meta-Reasoning</text>
+  <text x="450" y="60" text-anchor="middle" fill="#888" font-size="13">Rotate through strategies instead of stopping on stall</text>
+
+  <!-- State Machine: horizontal left to right -->
+  <!-- Y center line = 175 -->
+
+  <!-- 1. Normal Execution (green circle) -->
+  <circle cx="80" cy="175" r="40" fill="#1a1a2e" stroke="#4CAF50" stroke-width="2.5"/>
+  <text x="80" y="171" text-anchor="middle" fill="#4CAF50" font-size="11" font-weight="bold">Normal</text>
+  <text x="80" y="185" text-anchor="middle" fill="#4CAF50" font-size="11" font-weight="bold">Execution</text>
+
+  <!-- Arrow: stall detected -->
+  <line x1="120" y1="175" x2="178" y2="175" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="149" y="165" text-anchor="middle" fill="#888" font-size="9">stall detected</text>
+
+  <!-- 2. decompose_finer (purple rounded rect) -->
+  <rect x="185" y="148" width="130" height="54" rx="10" fill="#2a1a3e" stroke="#CE93D8" stroke-width="2"/>
+  <text x="250" y="172" text-anchor="middle" fill="#CE93D8" font-size="12" font-weight="bold">decompose_finer</text>
+  <text x="250" y="186" text-anchor="middle" fill="#888" font-size="9">Split into smaller tasks</text>
+
+  <!-- Arrow: stall again -->
+  <line x1="315" y1="175" x2="368" y2="175" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="341" y="165" text-anchor="middle" fill="#888" font-size="9">stall again</text>
+
+  <!-- 3. simplify (purple rounded rect) -->
+  <rect x="375" y="148" width="130" height="54" rx="10" fill="#2a1a3e" stroke="#CE93D8" stroke-width="2"/>
+  <text x="440" y="172" text-anchor="middle" fill="#CE93D8" font-size="12" font-weight="bold">simplify</text>
+  <text x="440" y="186" text-anchor="middle" fill="#888" font-size="9">Reduce complexity</text>
+
+  <!-- Arrow: stall again -->
+  <line x1="505" y1="175" x2="558" y2="175" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="531" y="165" text-anchor="middle" fill="#888" font-size="9">stall again</text>
+
+  <!-- 4. reframe (purple rounded rect) -->
+  <rect x="565" y="148" width="130" height="54" rx="10" fill="#2a1a3e" stroke="#CE93D8" stroke-width="2"/>
+  <text x="630" y="172" text-anchor="middle" fill="#CE93D8" font-size="12" font-weight="bold">reframe</text>
+  <text x="630" y="186" text-anchor="middle" fill="#888" font-size="9">Rephrase the problem</text>
+
+  <!-- Arrow: stall again -->
+  <line x1="695" y1="175" x2="748" y2="175" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="721" y="165" text-anchor="middle" fill="#888" font-size="9">stall again</text>
+
+  <!-- 5. escalate (purple rounded rect) -->
+  <rect x="600" y="270" width="130" height="54" rx="10" fill="#2a1a3e" stroke="#CE93D8" stroke-width="2"/>
+  <text x="665" y="294" text-anchor="middle" fill="#CE93D8" font-size="12" font-weight="bold">escalate</text>
+  <text x="665" y="308" text-anchor="middle" fill="#888" font-size="9">Request human input</text>
+
+  <!-- Connector from arrow endpoint down to escalate -->
+  <path d="M 755,175 L 780,175 L 780,297 L 730,297" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Arrow: still stalled → Stop -->
+  <line x1="600" y1="297" x2="555" y2="297" stroke="#f44336" stroke-width="2" marker-end="url(#arrowRed)"/>
+  <text x="577" y="288" text-anchor="middle" fill="#f44336" font-size="9">still stalled</text>
+
+  <!-- 6. Stop (red circle) -->
+  <circle cx="515" cy="297" r="35" fill="#1a1a2e" stroke="#f44336" stroke-width="2.5"/>
+  <text x="515" y="301" text-anchor="middle" fill="#f44336" font-size="12" font-weight="bold">Stop</text>
+
+  <!-- Green "progress!" curves back to Normal Execution from each strategy -->
+  <!-- From decompose_finer -->
+  <path d="M 250,148 C 250,90 80,85 80,135" fill="none" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="165" y="95" text-anchor="middle" fill="#4CAF50" font-size="9" font-weight="bold">progress!</text>
+
+  <!-- From simplify -->
+  <path d="M 440,148 C 440,72 80,67 80,135" fill="none" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="280" y="78" text-anchor="middle" fill="#4CAF50" font-size="9" font-weight="bold">progress!</text>
+
+  <!-- From reframe -->
+  <path d="M 630,148 C 630,52 80,47 80,135" fill="none" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="400" y="58" text-anchor="middle" fill="#4CAF50" font-size="9" font-weight="bold">progress!</text>
+
+  <!-- From escalate -->
+  <path d="M 665,324 C 665,380 80,380 80,215" fill="none" stroke="#4CAF50" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="350" y="388" text-anchor="middle" fill="#4CAF50" font-size="9" font-weight="bold">progress!</text>
+
+  <!-- Bottom insight box -->
+  <rect x="30" y="400" width="840" height="38" rx="8" fill="#1a1a2e" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="450" y="424" text-anchor="middle" fill="#888" font-size="11">Each strategy is a different meta-cognitive approach. The manager cycles through them before giving up, maximizing chances of unsticking.</text>
+</svg>

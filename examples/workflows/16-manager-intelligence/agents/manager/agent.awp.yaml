@@ -1,0 +1,38 @@
+awp_agent: "1.0.0"
+
+identity:
+  id: manager
+  role: intelligent_manager
+  description: "Manages a task using all Manager Intelligence features: planning, hypothesis debugging, strategy switching, budget reservation, and decision journal."
+
+model:
+  name: ""
+  parameters:
+    temperature: 0.2
+    max_tokens: 32768
+
+prompt:
+  system: ""
+  user_template: ""
+
+output:
+  format: json
+  contract:
+    decision:
+      type: string
+      description: "One of: plan, delegate, diagnose, complete, fail"
+      required: true
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+      description: "Current confidence in task completion"
+      required: true
+  validation:
+    mode: lenient
+    on_invalid: retry
+    max_retries: 2
+
+capabilities:
+  tools:
+    enabled: false

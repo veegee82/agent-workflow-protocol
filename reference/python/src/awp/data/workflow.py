@@ -19,16 +19,21 @@ from awp.models.evaluation import (
     StepScoreConfig,
 )
 from awp.models.orchestration import (
+    BudgetReservationConfig,
     CodeModeEnforcement,
     CritiqueConfig,
+    DecisionJournalConfig,
     DelegationBudget,
     DelegationLoggingConfig,
     DelegationLoopConfig,
     DelegationLoopModels,
+    DiagnosisConfig,
     HistoryConfig,
+    PlanningConfig,
     RateLimitEnforcement,
     SandboxEnforcement,
     StallDetectionConfig,
+    StrategySwitchingConfig,
     ValidationConfig,
     WorkerPolicy,
     WorkerPolicyEnforced,
@@ -136,6 +141,22 @@ class AgentWorkflow:
         skills: list[str | Path] | None = None,
         external_tools: list[Any] | None = None,
         experiment_context: str | None = None,
+        # Critique
+        critique_enabled: bool = True,
+        critique_max_repair_attempts: int = 2,
+        # Manager Intelligence features
+        planning_enabled: bool = True,
+        planning_max_subtasks: int = 10,
+        diagnosis_enabled: bool = True,
+        diagnosis_max_hypotheses: int = 3,
+        diagnosis_confidence_threshold: float = 0.3,
+        strategy_switching_enabled: bool = True,
+        strategy_switching_strategies: list[str] | None = None,
+        budget_reservation_enabled: bool = True,
+        decision_journal_enabled: bool = True,
+        decision_journal_max_entries: int = 20,
+        # Performance profiling
+        profile: bool = False,
     ) -> None:
         if not model:
             raise ValueError(
@@ -180,6 +201,23 @@ class AgentWorkflow:
         self.skills = skills or []
         self.external_tools = external_tools or []
         self.experiment_context = experiment_context
+        # Critique
+        self.critique_enabled = critique_enabled
+        self.critique_max_repair_attempts = critique_max_repair_attempts
+        # Manager Intelligence
+        self.planning_enabled = planning_enabled
+        self.planning_max_subtasks = planning_max_subtasks
+        self.diagnosis_enabled = diagnosis_enabled
+        self.diagnosis_max_hypotheses = diagnosis_max_hypotheses
+        self.diagnosis_confidence_threshold = diagnosis_confidence_threshold
+        self.strategy_switching_enabled = strategy_switching_enabled
+        self.strategy_switching_strategies = strategy_switching_strategies or [
+            "decompose_finer", "simplify", "reframe", "escalate"
+        ]
+        self.budget_reservation_enabled = budget_reservation_enabled
+        self.decision_journal_enabled = decision_journal_enabled
+        self.decision_journal_max_entries = decision_journal_max_entries
+        self.profile = profile
 
     def run(self) -> dict[str, Any]:
         """Execute the workflow and return results as a dict.
@@ -365,6 +403,7 @@ class AgentWorkflow:
             worker_model=self.worker_model,
             eval_config=eval_cfg,
             llm_client=eval_llm,
+            profile=self.profile,
         )
 
         raw_result = runner.run(self.task)
@@ -405,6 +444,8 @@ class AgentWorkflow:
         }
         if evaluation:
             resp["_evaluation"] = evaluation
+        if self.profile:
+            resp["_timing"] = runner._profiler.get_report()
         return resp
 
     def _build_config(self) -> DelegationLoopConfig:
@@ -448,6 +489,10 @@ class AgentWorkflow:
                 window=3,
                 min_confidence_delta=0.05,
                 action="warn_then_stop",
+                strategy_switching=StrategySwitchingConfig(
+                    enabled=self.strategy_switching_enabled,
+                    strategies=self.strategy_switching_strategies,
+                ),
             ),
             validation=ValidationConfig(),
             history=HistoryConfig(
@@ -460,11 +505,28 @@ class AgentWorkflow:
                 persist_artifacts=True,
             ),
             critique=CritiqueConfig(
-                enabled=True,
+                enabled=self.critique_enabled,
                 mode="inline",
-                max_repair_attempts=2,
+                max_repair_attempts=self.critique_max_repair_attempts,
                 repair_budget_fraction=0.15,
                 pattern_memory=True,
+            ),
+            # Manager Intelligence features
+            planning=PlanningConfig(
+                enabled=self.planning_enabled,
+                max_subtasks=self.planning_max_subtasks,
+            ),
+            diagnosis=DiagnosisConfig(
+                enabled=self.diagnosis_enabled,
+                max_hypotheses=self.diagnosis_max_hypotheses,
+                confidence_threshold=self.diagnosis_confidence_threshold,
+            ),
+            budget_reservation=BudgetReservationConfig(
+                enabled=self.budget_reservation_enabled,
+            ),
+            decision_journal=DecisionJournalConfig(
+                enabled=self.decision_journal_enabled,
+                max_entries=self.decision_journal_max_entries,
             ),
         )
 

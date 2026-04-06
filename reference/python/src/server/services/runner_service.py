@@ -1157,6 +1157,47 @@ class RunnerService:
             if key in config:
                 kwargs[key] = config[key]
 
+        # Manager Intelligence features — only pass if AgentWorkflow supports them
+        # Always inject defaults for MI keys not present in config
+        _mi_defaults = {
+            "critique_enabled": True,
+            "critique_max_repair_attempts": 2,
+            "planning_enabled": True,
+            "planning_max_subtasks": 10,
+            "diagnosis_enabled": True,
+            "diagnosis_max_hypotheses": 3,
+            "diagnosis_confidence_threshold": 0.3,
+            "strategy_switching_enabled": True,
+            "budget_reservation_enabled": True,
+            "decision_journal_enabled": True,
+            "decision_journal_max_entries": 20,
+        }
+        for k, v in _mi_defaults.items():
+            config.setdefault(k, v)
+        _mi_keys = (
+            "critique_enabled",
+            "critique_max_repair_attempts",
+            "planning_enabled",
+            "planning_max_subtasks",
+            "diagnosis_enabled",
+            "diagnosis_max_hypotheses",
+            "diagnosis_confidence_threshold",
+            "strategy_switching_enabled",
+            "budget_reservation_enabled",
+            "decision_journal_enabled",
+            "decision_journal_max_entries",
+        )
+        try:
+            import inspect
+            from awp.data.workflow import AgentWorkflow as _AW
+            _sig = inspect.signature(_AW.__init__)
+            _supported = set(_sig.parameters.keys())
+            for key in _mi_keys:
+                if key in config and key in _supported:
+                    kwargs[key] = config[key]
+        except Exception:
+            pass  # AgentWorkflow doesn't support MI yet — skip gracefully
+
         # Dict/list fields
         if config.get("secrets"):
             kwargs["secrets"] = config["secrets"]

@@ -1,0 +1,23 @@
+awp: "1.0.0"
+
+workflow:
+  name: planning-minimal
+  version: "1.0.0"
+  description: "Minimal example showing only the Task Decomposition feature. The manager creates an explicit plan before delegating any work."
+  author: "AWP Examples"
+  tags: ["example", "planning", "delegation-loop"]
+
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    models:
+      manager: openai/gpt-5-nano
+      worker: openai/gpt-5-nano
+    budget:
+      max_loops: 15
+      max_total_workers: 20
+      max_total_tokens: 3000000
+      max_wall_time: 180
+    planning:
+      enabled: true
+      max_subtasks: 5

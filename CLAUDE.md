@@ -81,7 +81,7 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 - `spec/` — Normative specification (RFC 2119 language)
 - `docs/` — Protocol documentation for each layer
-- `examples/` — 15 runnable examples progressing A0→A4 (including evaluation and critique)
+- `examples/` — 18 runnable examples progressing A0→A4 (including evaluation, critique, and manager intelligence)
 - `conformance/` — Test fixtures for spec compliance
 - `schemas/` — JSON schemas
 - `skill/` — AWP Skill for Claude Desktop (templates, adapters)

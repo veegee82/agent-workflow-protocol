@@ -1060,6 +1060,36 @@ When generating a delegation_loop workflow:
      pattern_memory: true
    ```
 8. If the user needs workflow-level quality scoring, add `evaluation` config under `observability` (see Evaluation section above)
+9. **Manager Intelligence features** — add any of these under `delegation_loop` to enhance problem-solving:
+   ```yaml
+   # Task Decomposition: manager creates explicit plan before delegating
+   planning:
+     enabled: true
+     max_subtasks: 10
+   # Hypothesis-Driven Debugging: systematic failure diagnosis
+   diagnosis:
+     enabled: true
+     max_hypotheses: 3
+     confidence_threshold: 0.3
+   # Strategy Switching: rotate strategies on stall instead of stopping
+   termination:
+     strategy_switching:
+       enabled: true
+       strategies: [decompose_finer, simplify, reframe, escalate]
+   # Budget Reservation: phase-based budget allocation
+   budget_reservation:
+     enabled: true
+     phases:
+       - {name: core_work, fraction: 0.60}
+       - {name: validation_repair, fraction: 0.20}
+       - {name: synthesis, fraction: 0.15}
+       - {name: reserve, fraction: 0.05}
+   # Decision Journal: reflective decision tracking
+   decision_journal:
+     enabled: true
+     max_entries: 20
+   ```
+   These features add two new manager decision types: **PLAN** (task decomposition, first iteration) and **DIAGNOSE** (failure hypothesis generation). All default to disabled.
 
 #### Step 8: Project Skills (if needed)
 
@@ -1141,6 +1171,10 @@ After generating all files, verify:
 - [ ] R28: Evaluation thresholds satisfy accept >= retry >= fail, all in [0, 1].
 - [ ] R29: Evaluation metric weights are >= 0 with at least one > 0.
 - [ ] R30: step_scores.hooks uses valid hooks; retry_policy actions are valid.
+- [ ] If `budget_reservation.enabled`, phase fractions sum to 1.0.
+- [ ] If `planning.enabled`, `max_subtasks` is a positive integer.
+- [ ] If `diagnosis.enabled`, `confidence_threshold` is in [0.0, 1.0].
+- [ ] If `strategy_switching.enabled`, `strategies` list is non-empty.
 
 ### Evaluation / Quality Scoring (Optional)
 

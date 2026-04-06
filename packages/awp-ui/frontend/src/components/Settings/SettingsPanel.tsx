@@ -21,6 +21,7 @@ import {
   Loader2,
   AlertCircle,
   Check,
+  Brain,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Panel } from '@/components/Layout';
@@ -1022,6 +1023,84 @@ export function SettingsPanel() {
             checked={config.tool_creation}
             onChange={(v) => updateConfig({ tool_creation: v })}
           />
+        </div>
+      </Panel>
+
+      {/* Manager Intelligence */}
+      <Panel
+        title="Manager Intelligence"
+        icon={<Brain className="h-3.5 w-3.5 text-awp-purple" />}
+        defaultOpen
+      >
+        <div className="space-y-4">
+          <p className="text-[11px] text-awp-muted leading-relaxed">
+            Enhanced problem-solving capabilities for the delegation loop manager.
+            These features improve planning, debugging, adaptation, and self-reflection.
+          </p>
+          <ToggleSwitch
+            label="Task Decomposition"
+            description="Manager creates an explicit task plan before delegating work"
+            checked={config.planning_enabled}
+            onChange={(v) => updateConfig({ planning_enabled: v })}
+          />
+          {config.planning_enabled && (
+            <SliderInput
+              label="Max Subtasks"
+              description="Maximum subtasks in a plan"
+              value={config.planning_max_subtasks}
+              min={2}
+              max={20}
+              step={1}
+              onChange={(v) => updateConfig({ planning_max_subtasks: v })}
+            />
+          )}
+          <ToggleSwitch
+            label="Hypothesis Debugging"
+            description="On worker failure, generate causal hypotheses before retrying"
+            checked={config.diagnosis_enabled}
+            onChange={(v) => updateConfig({ diagnosis_enabled: v })}
+          />
+          {config.diagnosis_enabled && (
+            <SliderInput
+              label="Confidence Threshold"
+              description="Trigger diagnosis when worker confidence drops below this"
+              value={config.diagnosis_confidence_threshold * 100}
+              min={5}
+              max={80}
+              step={5}
+              onChange={(v) => updateConfig({ diagnosis_confidence_threshold: v / 100 })}
+              format={(v) => `${v}%`}
+            />
+          )}
+          <ToggleSwitch
+            label="Strategy Switching"
+            description="Rotate through meta-strategies on stall instead of stopping"
+            checked={config.strategy_switching_enabled}
+            onChange={(v) => updateConfig({ strategy_switching_enabled: v })}
+          />
+          <ToggleSwitch
+            label="Budget Reservation"
+            description="Pre-allocate budget to phases (60% work, 20% validation, 15% synthesis, 5% reserve)"
+            checked={config.budget_reservation_enabled}
+            onChange={(v) => updateConfig({ budget_reservation_enabled: v })}
+          />
+          <ToggleSwitch
+            label="Decision Journal"
+            description="Manager tracks its decisions and outcomes for self-correction"
+            checked={config.decision_journal_enabled}
+            onChange={(v) => updateConfig({ decision_journal_enabled: v })}
+          />
+          {config.decision_journal_enabled && (
+            <SliderInput
+              label="Max Journal Entries"
+              description="Oldest entries evicted when exceeded"
+              value={config.decision_journal_max_entries}
+              min={5}
+              max={50}
+              step={5}
+              onChange={(v) => updateConfig({ decision_journal_max_entries: v })}
+            />
+          )}
         </div>
       </Panel>
 

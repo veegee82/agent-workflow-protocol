@@ -20,6 +20,19 @@ export interface WorkflowConfig {
   output_dir: string;
   input_files: string[];
   skills_dir: string;
+  // Critique
+  critique_enabled: boolean;
+  critique_max_repair_attempts: number;
+  // Manager Intelligence
+  planning_enabled: boolean;
+  planning_max_subtasks: number;
+  diagnosis_enabled: boolean;
+  diagnosis_max_hypotheses: number;
+  diagnosis_confidence_threshold: number;
+  strategy_switching_enabled: boolean;
+  budget_reservation_enabled: boolean;
+  decision_journal_enabled: boolean;
+  decision_journal_max_entries: number;
 }
 
 /** WebSocket event types pushed from the backend during a run. */

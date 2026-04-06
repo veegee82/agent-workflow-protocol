@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF9800"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="400" rx="12" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="450" y="38" text-anchor="middle" fill="#e0e0e0" font-size="22" font-weight="bold">Predictive Budget Reservation</text>
+  <text x="450" y="60" text-anchor="middle" fill="#888" font-size="13">Phase-based budget allocation with guaranteed reservations</text>
+
+  <!-- ===== Top Section: Horizontal Stacked Bar ===== -->
+  <text x="50" y="95" fill="#e0e0e0" font-size="12" font-weight="bold">Budget Allocation</text>
+
+  <!-- Full bar background -->
+  <rect x="50" y="105" width="800" height="45" rx="6" fill="#111" stroke="#333" stroke-width="1"/>
+
+  <!-- 60% blue: core_work -->
+  <rect x="50" y="105" width="480" height="45" rx="6" fill="#4fc3f7" opacity="0.25"/>
+  <rect x="50" y="105" width="480" height="45" rx="6" fill="none" stroke="#4fc3f7" stroke-width="1.5"/>
+  <text x="290" y="133" text-anchor="middle" fill="#4fc3f7" font-size="13" font-weight="bold">core_work (60%)</text>
+
+  <!-- 20% orange: validation_repair -->
+  <rect x="530" y="105" width="160" height="45" fill="#FF9800" opacity="0.25"/>
+  <rect x="530" y="105" width="160" height="45" fill="none" stroke="#FF9800" stroke-width="1.5"/>
+  <text x="610" y="133" text-anchor="middle" fill="#FF9800" font-size="11" font-weight="bold">validation_repair (20%)</text>
+
+  <!-- 15% green: synthesis -->
+  <rect x="690" y="105" width="120" height="45" fill="#4CAF50" opacity="0.25"/>
+  <rect x="690" y="105" width="120" height="45" fill="none" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="750" y="133" text-anchor="middle" fill="#4CAF50" font-size="11" font-weight="bold">synthesis (15%)</text>
+
+  <!-- 5% red: reserve -->
+  <rect x="810" y="105" width="40" height="45" fill="#f44336" opacity="0.25"/>
+  <rect x="810" y="105" width="40" height="45" rx="0" fill="none" stroke="#f44336" stroke-width="1.5"/>
+  <!-- Round only right corners -->
+  <rect x="844" y="105" width="6" height="45" rx="6" fill="#0a0a1a"/>
+  <text x="830" y="128" text-anchor="middle" fill="#f44336" font-size="8" font-weight="bold">rsv</text>
+  <text x="830" y="140" text-anchor="middle" fill="#f44336" font-size="8">(5%)</text>
+
+  <!-- ===== Bottom Section: Timeline ===== -->
+  <text x="50" y="185" fill="#e0e0e0" font-size="12" font-weight="bold">Execution Timeline</text>
+
+  <!-- Iteration axis -->
+  <line x1="50" y1="210" x2="850" y2="210" stroke="#333" stroke-width="1"/>
+
+  <!-- Phase strips -->
+  <!-- core_work: iterations 1-8 (x: 50 to 530) -->
+  <rect x="50" y="215" width="480" height="50" rx="4" fill="#4fc3f7" opacity="0.12"/>
+  <rect x="50" y="215" width="480" height="50" rx="4" fill="none" stroke="#4fc3f7" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="290" y="245" text-anchor="middle" fill="#4fc3f7" font-size="12" font-weight="bold">core_work</text>
+  <text x="290" y="258" text-anchor="middle" fill="#888" font-size="10">Iterations 1-8</text>
+
+  <!-- Transition marker at 40% remaining -->
+  <rect x="528" y="200" width="4" height="80" rx="2" fill="#FF9800"/>
+  <text x="530" y="196" text-anchor="middle" fill="#FF9800" font-size="9" font-weight="bold">40% left</text>
+
+  <!-- validation_repair strip -->
+  <rect x="532" y="215" width="158" height="50" fill="#FF9800" opacity="0.12"/>
+  <rect x="532" y="215" width="158" height="50" fill="none" stroke="#FF9800" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="611" y="245" text-anchor="middle" fill="#FF9800" font-size="12" font-weight="bold">validation_repair</text>
+
+  <!-- Transition marker at 20% remaining -->
+  <rect x="688" y="200" width="4" height="80" rx="2" fill="#4CAF50"/>
+  <text x="690" y="196" text-anchor="middle" fill="#4CAF50" font-size="9" font-weight="bold">20% left</text>
+
+  <!-- synthesis strip -->
+  <rect x="692" y="215" width="118" height="50" fill="#4CAF50" opacity="0.12"/>
+  <rect x="692" y="215" width="118" height="50" fill="none" stroke="#4CAF50" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="751" y="245" text-anchor="middle" fill="#4CAF50" font-size="12" font-weight="bold">synthesis</text>
+
+  <!-- Transition marker at 5% remaining -->
+  <rect x="808" y="200" width="4" height="80" rx="2" fill="#f44336"/>
+  <text x="810" y="196" text-anchor="middle" fill="#f44336" font-size="9" font-weight="bold">5% left</text>
+
+  <!-- reserve strip -->
+  <rect x="812" y="215" width="38" height="50" fill="#f44336" opacity="0.12"/>
+  <rect x="812" y="215" width="38" height="50" fill="none" stroke="#f44336" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="831" y="245" text-anchor="middle" fill="#f44336" font-size="9" font-weight="bold">reserve</text>
+
+  <!-- Warning indicators (yellow triangles) at 90% consumption of each phase -->
+  <!-- 90% of core_work: at x = 50 + 480*0.9 = 482 -->
+  <polygon points="482,222 488,210 494,222" fill="#FFD54F" stroke="#FFD54F" stroke-width="1"/>
+  <text x="488" y="220" text-anchor="middle" fill="#0a0a1a" font-size="8" font-weight="bold">!</text>
+  <text x="488" y="234" fill="#FFD54F" font-size="8">90%</text>
+
+  <!-- 90% of validation_repair: at x = 532 + 158*0.9 = 674 -->
+  <polygon points="674,222 680,210 686,222" fill="#FFD54F" stroke="#FFD54F" stroke-width="1"/>
+  <text x="680" y="220" text-anchor="middle" fill="#0a0a1a" font-size="8" font-weight="bold">!</text>
+  <text x="680" y="234" fill="#FFD54F" font-size="8">90%</text>
+
+  <!-- 90% of synthesis: at x = 692 + 118*0.9 = 798 -->
+  <polygon points="798,222 804,210 810,222" fill="#FFD54F" stroke="#FFD54F" stroke-width="1"/>
+  <text x="804" y="220" text-anchor="middle" fill="#0a0a1a" font-size="8" font-weight="bold">!</text>
+  <text x="804" y="234" fill="#FFD54F" font-size="8">90%</text>
+
+  <!-- Bottom insight box -->
+  <rect x="30" y="290" width="840" height="95" rx="8" fill="#1a1a2e" stroke="#CE93D8" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="50" y="315" fill="#CE93D8" font-size="12" font-weight="bold">How it works:</text>
+  <text x="50" y="335" fill="#e0e0e0" font-size="11">The manager pre-allocates budget across phases based on historical patterns. Each phase has a guaranteed minimum.</text>
+  <text x="50" y="355" fill="#e0e0e0" font-size="11">Transition triggers fire when remaining budget crosses the threshold, ensuring validation and synthesis always have resources.</text>
+  <text x="50" y="375" fill="#FFD54F" font-size="11">Warning indicators alert the manager when 90% of a phase budget is consumed, enabling proactive adjustment.</text>
+</svg>
