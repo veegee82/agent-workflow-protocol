@@ -1655,36 +1655,23 @@ class DelegationLoopRunner:
                     self._task_plan = TaskPlan(
                         max_subtasks=self._task_plan_max
                     )
-                    # Defense-in-depth for A4: when the manager plans
-                    # 2+ INDEPENDENT subtasks (no dependencies between
-                    # them) and recursive delegation is allowed, auto-tag
-                    # them as submanager subtasks. Weaker manager models
-                    # frequently forget the delegation_strategy field
-                    # even when the task explicitly asks for it. This
-                    # auto-tagging makes the A4 path actually exercised
-                    # without requiring the manager to nail every field.
-                    if (
-                        self._depth < self._budget.max_depth
-                        and len(subtasks) >= 2
-                    ):
-                        ids = {s.get("id") for s in subtasks if s.get("id")}
-                        independent = [
-                            s for s in subtasks
-                            if not (s.get("dependencies") or [])
-                            and s.get("id") in ids
-                        ]
-                        # Only auto-tag when at least 2 of the planned
-                        # subtasks are root-level (no deps) — those are
-                        # the natural submanager candidates.
-                        if len(independent) >= 2:
-                            for s in independent:
-                                if "delegation_strategy" not in s:
-                                    s["delegation_strategy"] = "submanager"
+                    # Defense-in-depth for A4: smart auto-tagging.
+                    #
+                    # The manager *should* set delegation_strategy on each
+                    # subtask itself (the system prompt asks for it). But
+                    # weaker models forget the field. We score each subtask
+                    # for "complexity" and only promote ones that look like
+                    # they actually need their own iteration loop.
+                    #
+                    # Scoring is intentionally cheap and deterministic so
+                    # the user never has to think about it.
+                    if self._depth < self._budget.max_depth:
+                        promoted = self._auto_promote_complex_subtasks(subtasks)
+                        if promoted:
                             logger.info(
-                                "Auto-tagged %d independent subtasks as "
-                                "delegation_strategy='submanager' (A4 "
-                                "defense-in-depth)",
-                                len(independent),
+                                "Auto-promoted %d subtask(s) to submanager "
+                                "based on complexity scoring: %s",
+                                len(promoted), promoted,
                             )
                     self._task_plan.set_subtasks(subtasks)
                     logger.info(
@@ -2340,7 +2327,39 @@ Use PLAN **once** on the first iteration to decompose the problem before delegat
 You can only PLAN once — after that, use DELEGATE to execute the plan.
 After planning, you will see a Task Plan Progress section tracking subtask status.
 **CRITICAL: In every DELEGATE decision, include `"subtask_id": "subtask_X"` in each delegation envelope to link the worker to a plan subtask.** This enables automatic progress tracking. Without `subtask_id`, the plan cannot track which subtasks are done.
-**A4 — Submanager subtasks (optional):** If a subtask itself decomposes into many sub-steps that need their own iteration loop (e.g. multi-source research, end-to-end pipeline), set `"delegation_strategy": "submanager"` and optionally `"submanager_agent": "agents/specialist"`. The runtime will then spawn a child DelegationLoopRunner with a hard-capped budget fraction of the parent. If `max_depth` would be exceeded, the field is silently ignored and a normal worker runs instead — the loop never hangs.
+**A4 — Submanager autonomous decision (REQUIRED on every subtask):**
+For EACH subtask you plan, set `"delegation_strategy"` to either
+`"worker"` (single ephemeral worker is enough) or `"submanager"` (the
+subtask needs its own iteration loop with sub-workers). Use this
+deterministic decision tree:
+
+  Use `"submanager"` when ALL of these hold:
+  - The subtask is independent of others (no `dependencies`) so it can
+    run in parallel with siblings.
+  - The subtask description names ≥ 3 distinct deliverables OR contains
+    keywords like "research", "investigate", "validate", "iteratively",
+    "comprehensive", "end-to-end", "multi-step", "build and test".
+  - A single worker round would not plausibly complete the work — the
+    subtask needs intermediate decisions, retries, or self-evaluation.
+
+  Use `"worker"` when ANY of these hold:
+  - The subtask is a single computation, data load, or transformation.
+  - The subtask depends on the output of another subtask (linear DAG).
+  - The work fits in a single `code.execute` call.
+
+If you set `"delegation_strategy": "submanager"`, you MAY also set
+`"submanager_agent": "agents/specialist"` to use a different manager
+agent for the sub-loop (defaults to the parent's manager). The runtime
+spawns a child DelegationLoopRunner with a hard-capped budget fraction
+of the parent. If `max_depth` would be exceeded, the field is silently
+ignored and a normal worker runs instead — the loop never hangs.
+
+**Defense in depth**: If you forget to set `delegation_strategy`, the
+runtime will score each independent subtask for complexity (description
+length, keyword presence, deliverable count, priority) and auto-promote
+the ones above the threshold. You don't have to worry about getting
+this perfectly right — but explicit choices are honoured over the
+heuristic.
 **IMPORTANT: Do NOT issue PLAN again after the first iteration. Use DELEGATE instead.**
 **IMPORTANT: If a subtask is marked as STUCK or AUTO-ADVANCED, do NOT retry it. Move to the next subtask immediately.**
 """)
@@ -3386,6 +3405,155 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 if resolved and resolved.get("delegation_strategy") == "submanager":
                     return True
         return False
+
+    # ------------------------------------------------------------------
+    # A4 — Smart auto-promotion of complex subtasks
+    # ------------------------------------------------------------------
+
+    # Keywords that signal a subtask is structurally multi-step / iterative.
+    # English + German because workflow tasks come in both.
+    _COMPLEXITY_KEYWORDS = (
+        # English
+        "iterativ", "iteratively", "research", "investigate", "explore",
+        "analyse", "analyze", "validate", "comprehensive", "multi-step",
+        "multi-source", "end-to-end", "pipeline", "deep dive", "decompose",
+        "synthesise", "synthesize", "build and test", "evaluate",
+        "benchmark", "characterise", "characterize", "survey", "audit",
+        # German
+        "mehrstufig", "rekursiv", "umfangreich", "vollständig", "recherche",
+        "untersuche", "validiere", "bewerte", "analysiere", "tiefgehend",
+    )
+
+    def _score_subtask_complexity(self, subtask: dict) -> tuple[int, list[str]]:
+        """Return (score, reasons) for whether a subtask deserves a submanager.
+
+        Score thresholds:
+            >= 3 → submanager candidate
+            < 3  → normal worker
+
+        Reasons are returned for logging so users can see WHY the runtime
+        chose to promote a subtask.
+        """
+        score = 0
+        reasons: list[str] = []
+
+        description = str(subtask.get("description", "")).lower()
+        success = str(subtask.get("success_criteria", "")).lower()
+        combined = f"{description}\n{success}"
+
+        # 1. Manager already explicitly opted in — strong signal
+        if subtask.get("delegation_strategy") == "submanager":
+            score += 10
+            reasons.append("manager-explicit")
+            return score, reasons
+
+        # 2. Manager already explicitly opted out — respect that
+        if subtask.get("delegation_strategy") == "worker":
+            return 0, ["manager-explicit-worker"]
+
+        # 3. Description length — long descriptions usually mean multi-step work
+        word_count = len(description.split())
+        if word_count >= 80:
+            score += 2
+            reasons.append(f"long-description({word_count}w)")
+        elif word_count >= 40:
+            score += 1
+            reasons.append(f"medium-description({word_count}w)")
+
+        # 4. Complexity keywords
+        kw_hits = [kw for kw in self._COMPLEXITY_KEYWORDS if kw in combined]
+        if len(kw_hits) >= 3:
+            score += 2
+            reasons.append(f"keywords:{kw_hits[:3]}")
+        elif len(kw_hits) >= 1:
+            score += 1
+            reasons.append(f"keyword:{kw_hits[0]}")
+
+        # 5. Subtask lists multiple deliverables (numbered list, bullets,
+        #    "and X" enumerations). A subtask that produces 3+ artefacts
+        #    almost certainly needs more than a single worker round.
+        deliverable_signals = (
+            description.count("\n-")
+            + description.count("\n*")
+            + len([m for m in description.split("\n") if m.strip()[:2].rstrip(".") in ("1", "2", "3", "4", "5")])
+        )
+        if deliverable_signals >= 3:
+            score += 2
+            reasons.append(f"deliverables({deliverable_signals})")
+        elif deliverable_signals >= 2:
+            score += 1
+            reasons.append(f"deliverables({deliverable_signals})")
+
+        # 6. High priority + non-trivial description → likely a real workpackage
+        if subtask.get("priority") == "high" and word_count >= 25:
+            score += 1
+            reasons.append("high-priority+nontrivial")
+
+        return score, reasons
+
+    def _auto_promote_complex_subtasks(
+        self, subtasks: list[dict]
+    ) -> list[str]:
+        """Score each subtask and promote complex ones to submanager strategy.
+
+        Returns the list of promoted subtask ids (for logging).
+
+        Promotion rules (deterministic, no LLM call):
+        - A subtask becomes a submanager if its complexity score is >= 3
+          AND it is independent (no incoming dependencies) so it can be
+          dispatched in parallel with siblings.
+        - A subtask the manager explicitly tagged is honoured either way.
+        - We never promote MORE than half of the subtasks at once — if the
+          plan is uniformly "complex" the runtime falls back to normal
+          workers for the lower-scored half so the parent budget isn't
+          blown by parallel sub-loops.
+        """
+        if not subtasks:
+            return []
+
+        # Identify root-level (independent) subtasks first
+        scored: list[tuple[dict, int, list[str]]] = []
+        for st in subtasks:
+            if st.get("dependencies"):
+                continue  # only independent subtasks become submanagers
+            score, reasons = self._score_subtask_complexity(st)
+            scored.append((st, score, reasons))
+
+        if not scored:
+            return []
+
+        # COLLECTIVE UPLIFT: when ≥3 independent subtasks all share at
+        # least one complexity indicator (score ≥ 1) AND look structurally
+        # similar (parallel siblings of the same kind), they form a
+        # natural fan-out pattern that benefits from submanagers even if
+        # each individual subtask is small. This catches the case where
+        # weaker manager models split a "research X, Y, Z" task into 3+
+        # tiny but parallel subtasks.
+        nontrivial = [(st, s, r) for (st, s, r) in scored if s >= 1]
+        if len(nontrivial) >= 3:
+            for st, s, r in nontrivial:
+                idx = scored.index((st, s, r))
+                scored[idx] = (st, s + 2, r + ["collective-fanout"])
+
+        # Sort by score descending, take only those above threshold
+        scored.sort(key=lambda x: -x[1])
+        candidates = [(st, s, r) for (st, s, r) in scored if s >= 3]
+        # Cap at half of all subtasks to avoid budget over-commit
+        max_promotions = max(1, len(subtasks) // 2 + 1)
+        candidates = candidates[:max_promotions]
+
+        promoted: list[str] = []
+        for st, score, reasons in candidates:
+            # Don't override an explicit manager choice
+            if st.get("delegation_strategy") == "worker":
+                continue
+            st["delegation_strategy"] = "submanager"
+            sid = st.get("id", "?")
+            logger.info(
+                "  → %s: score=%d reasons=%s", sid, score, reasons
+            )
+            promoted.append(sid)
+        return promoted
 
     def _spawn_submanager(
         self,
