@@ -8,6 +8,7 @@ import {
   Triangle,
   CheckSquare,
   Wrench,
+  Layers,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useWorkflowStore } from '@/stores/workflowStore';
@@ -431,11 +432,173 @@ export const CompletionNode = memo(function CompletionNode({ id, data }: NodePro
 // Node type registry for React Flow
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// SubRunClusterNode -- A4 recursive delegation. Big translucent container
+// that visually groups everything that belongs to a single sub-run. Header
+// shows the triggering worker, depth, model and budget summary. The actual
+// child nodes (nested manager, iterations, workers, tool calls) are placed
+// inside this node via React Flow's parentNode mechanism.
+// ---------------------------------------------------------------------------
+
+export const SubRunClusterNode = memo(function SubRunClusterNode({ id, data }: NodeProps<NodeData>) {
+  // React Flow passes the configured style on the node itself; we read it
+  // from data.palette so we can recolour the header to match.
+  const dataAny = data as Record<string, unknown>;
+  const palette = (dataAny.palette as { border: string; bg: string; label: string }) || {
+    border: '#7C3AED',
+    bg: 'rgba(124,58,237,0.06)',
+    label: '#A78BFA',
+  };
+  const depth = dataAny.depth as number | undefined;
+  const subRunId = dataAny.sub_run_id as string | undefined;
+  const triggering = dataAny.triggering_worker as string | undefined;
+  const mgrModel = dataAny.manager_model as string | undefined;
+  const budget = (dataAny.budget as Record<string, unknown>) || {};
+  const selected = useIsSelected(id);
+  const selectNode = useSelectNode();
+
+  return (
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        selectNode(id);
+      }}
+      className="relative w-full h-full"
+      style={{ pointerEvents: 'all' }}
+    >
+      {/* Header bar — sticks to the top of the cluster */}
+      <div
+        className="absolute top-0 left-0 right-0 px-3 py-2 rounded-t-xl flex items-center justify-between"
+        style={{
+          background: palette.bg,
+          borderBottom: `1px dashed ${palette.border}`,
+          color: palette.label,
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4" style={{ color: palette.border }} />
+          <span className="font-semibold text-[12px] tracking-wide">
+            SUBMANAGER · depth {depth ?? '?'}
+          </span>
+          {triggering && (
+            <span className="text-[11px] opacity-80 font-mono">
+              {triggering}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-[10px] opacity-80 font-mono">
+          {mgrModel && <span>{mgrModel}</span>}
+          {budget && (budget as any).max_loops !== undefined && (
+            <span>loops≤{String((budget as any).max_loops)}</span>
+          )}
+          {budget && (budget as any).max_total_tokens !== undefined && (
+            <span>tokens≤{String((budget as any).max_total_tokens)}</span>
+          )}
+          {selected && (
+            <span className="px-1.5 py-0.5 rounded bg-awp-cyan/20 text-awp-cyan">selected</span>
+          )}
+        </div>
+      </div>
+      {/* Connection handles for the trigger edge from the parent worker */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: palette.border, borderColor: 'var(--awp-panel)' }}
+        className="!w-2.5 !h-2.5"
+      />
+      {/* Sub-run id watermark in the bottom-right */}
+      {subRunId && (
+        <div
+          className="absolute bottom-1 right-2 text-[9px] font-mono opacity-50"
+          style={{ color: palette.label }}
+        >
+          {subRunId}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// SubmanagerNode -- A4 recursive delegation. Visually distinct from a worker:
+// hexagon-feel via doubled border + Layers icon + depth badge. Sub-runs are
+// rendered recursively beneath this node by the graph builder.
+// ---------------------------------------------------------------------------
+
+export const SubmanagerNode = memo(function SubmanagerNode({ id, data }: NodeProps<NodeData>) {
+  const selected = useIsSelected(id);
+  const selectNode = useSelectNode();
+  const borderColor = confidenceBorderColor(data.confidence);
+  const dataAny = data as Record<string, unknown>;
+  const depth: string = String(dataAny.submanagerDepth ?? '?');
+  const failed: boolean = Boolean(dataAny.submanager_failed) || Boolean(data.hasError);
+
+  return (
+    <div
+      onClick={() => selectNode(id)}
+      className={clsx(
+        'group relative cursor-pointer transition-all duration-200 hover:scale-105',
+        selected && 'scale-105',
+      )}
+    >
+      <Handle type="target" position={Position.Top} className="!bg-awp-purple !border-awp-panel !w-2 !h-2" />
+
+      {/* Outer ring to signal "this is a sub-loop, not a leaf worker" */}
+      <div
+        className={clsx(
+          'rounded-2xl p-1 border-2 border-dashed',
+          failed ? 'border-awp-red' : 'border-awp-purple/60',
+        )}
+      >
+        <div
+          className={clsx(
+            'flex flex-col items-center justify-center rounded-xl border-2 bg-awp-panel min-w-[120px] min-h-[110px] p-3',
+            borderColor,
+            selected && 'ring-2 ring-awp-purple/40 shadow-lg shadow-awp-purple/20',
+            !selected && 'hover:shadow-md',
+            'transition-all duration-200',
+          )}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <Layers className="h-3.5 w-3.5 text-awp-purple" />
+            {statusDot(data.status)}
+            <span className="text-[9px] font-mono px-1 rounded bg-awp-purple/20 text-awp-purple">
+              d{depth}
+            </span>
+          </div>
+          <span className="text-[11px] font-medium text-awp-text text-center max-w-[100px] truncate">
+            {data.label}
+          </span>
+          <span className="text-[9px] text-awp-purple/80 uppercase tracking-wide">
+            submanager
+          </span>
+          {data.confidence !== undefined && (
+            <span className={clsx('text-[10px] font-mono mt-0.5', confidenceColor(data.confidence))}>
+              {(data.confidence * 100).toFixed(0)}%
+            </span>
+          )}
+          {failed && (
+            <span className="text-[9px] text-awp-red mt-0.5">failed</span>
+          )}
+        </div>
+      </div>
+
+      <Handle type="source" position={Position.Bottom} className="!bg-awp-purple !border-awp-panel !w-2 !h-2" />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Node type registry for React Flow
+// ---------------------------------------------------------------------------
+
 export const customNodeTypes = {
   task: TaskNode,
   manager: ManagerNode,
   iteration: IterationNode,
   worker: WorkerNode,
+  submanager: SubmanagerNode,
+  subRunCluster: SubRunClusterNode,
   toolCall: ToolCallNode,
   completion: CompletionNode,
 };

@@ -395,9 +395,15 @@ class GraphNode(BaseModel):
     """A single node in the React Flow graph."""
 
     id: str
-    type: str  # task | manager | iteration | worker | toolCall | completion
+    type: str  # task | manager | iteration | worker | toolCall | completion | submanager | subRunCluster
     position: dict[str, float] = Field(default_factory=lambda: {"x": 0, "y": 0})
     data: dict[str, Any] = Field(default_factory=dict)
+    # React Flow Subflows: parentNode lets a node be rendered inside another
+    # node (used for sub-run clusters in A4 recursive delegation).
+    parentNode: str | None = None
+    extent: str | None = None  # "parent" to clip child to parent bounds
+    style: dict[str, Any] = Field(default_factory=dict)
+    zIndex: int | None = None
 
 
 class GraphEdge(BaseModel):

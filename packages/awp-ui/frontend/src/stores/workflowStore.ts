@@ -1082,18 +1082,48 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       // Only replace if backend returned actual nodes — don't discard
       // real-time nodes with an empty response
       if (!graph.nodes || graph.nodes.length === 0) return;
-      // Map backend nodes to ReactFlow Node format
-      const nodes: Node[] = graph.nodes.map((n, i) => ({
-        id: n.id,
-        type: 'default',
-        position: (n as unknown as Record<string, unknown>).position as { x: number; y: number } ?? { x: 0, y: i * 120 },
-        data: { ...n.data, nodeType: n.type },
-      }));
-      const edges: Edge[] = graph.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      }));
+      // Map backend nodes to ReactFlow Node format. We forward A4
+      // sub-flow fields (parentNode, extent, style, zIndex) verbatim
+      // so the cluster geometry computed by the backend graph builder
+      // is honoured.
+      const nodes: Node[] = graph.nodes.map((n, i) => {
+        const raw = n as unknown as Record<string, unknown>;
+        const node: Node = {
+          id: n.id,
+          // Use the backend-provided type so subRunCluster + submanager
+          // resolve to their custom React Flow renderers
+          type: (n.type as string | undefined) || 'default',
+          position:
+            (raw.position as { x: number; y: number }) ?? { x: 0, y: i * 120 },
+          data: { ...n.data, nodeType: n.type },
+        };
+        if (raw.parentNode) (node as any).parentNode = raw.parentNode;
+        if (raw.extent) (node as any).extent = raw.extent;
+        if (raw.style) (node as any).style = raw.style;
+        if (typeof raw.zIndex === 'number') (node as any).zIndex = raw.zIndex;
+        return node;
+      });
+      // React Flow requires parents to appear BEFORE their children in the
+      // node array. Stable sort: cluster nodes first, then everything else,
+      // preserving relative order within each group.
+      nodes.sort((a, b) => {
+        const aCluster = a.type === 'subRunCluster' ? 0 : 1;
+        const bCluster = b.type === 'subRunCluster' ? 0 : 1;
+        return aCluster - bCluster;
+      });
+      const edges: Edge[] = graph.edges.map((e) => {
+        const raw = e as unknown as Record<string, unknown>;
+        const edge: Edge = {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+        };
+        if (raw.style) (edge as any).style = raw.style;
+        if (raw.animated) (edge as any).animated = raw.animated;
+        if (raw.type) (edge as any).type = raw.type;
+        if (raw.data) (edge as any).data = raw.data;
+        return edge;
+      });
       set({ graphNodes: nodes, graphEdges: edges });
     } catch {
       // silently ignore

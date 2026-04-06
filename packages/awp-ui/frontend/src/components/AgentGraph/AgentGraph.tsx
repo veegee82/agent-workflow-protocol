@@ -21,6 +21,18 @@ import { customNodeTypes } from './CustomNodes';
 function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
+  // A4: when sub-run clusters are present, the backend has already laid out
+  // every node hierarchically (parent-relative positions for cluster
+  // children, absolute for the cluster anchors). Replacing those with our
+  // top-down BFS layout would shred the cluster geometry. Trust the
+  // backend layout in that case.
+  const hasClusters = nodes.some(
+    (n) => n.type === 'subRunCluster' || (n as any).parentNode,
+  );
+  if (hasClusters) {
+    return nodes;
+  }
+
   // Build adjacency for topological sort — O(n+e) using Maps
   const inDegree = new Map<string, number>();
   const children = new Map<string, string[]>();
