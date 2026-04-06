@@ -564,9 +564,11 @@ function processEvent(
       const iterNodeId = iteration ? `iter_${iteration}` : null;
       const iterNodeExists = iterNodeId && store.graphNodes.some((n) => n.id === iterNodeId);
       const parentId = (evt.data.parent_id as string) ?? (iterNodeExists ? iterNodeId! : lastManagerId() ?? 'manager');
+      // Include iteration in node ID to avoid collision when same worker name repeats across iterations
+      const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
 
       store.addGraphNode({
-        id: workerId,
+        id: workerNodeId,
         type: 'default',
         position: { x: 250, y: store.graphNodes.length * 120 },
         data: {
@@ -582,9 +584,9 @@ function processEvent(
         },
       });
       store.addGraphEdge({
-        id: `e-${parentId}-${workerId}`,
+        id: `e-${parentId}-${workerNodeId}`,
         source: parentId,
-        target: workerId,
+        target: workerNodeId,
         animated: true,
       });
       if (isVerbose) {
@@ -599,6 +601,8 @@ function processEvent(
 
     case 'worker.complete': {
       const workerId = (evt.data.worker_id as string) ?? nodeIdFromEvent(evt);
+      const iteration = (evt.data.iteration as string) ?? '';
+      const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
       const hasError = Boolean(evt.data.error || evt.data.has_error);
       const toolsCreated = (evt.data.tools_created as string[]) ?? [];
       const nodeUpdate: Partial<Node['data']> = {
@@ -614,7 +618,9 @@ function processEvent(
         nodeUpdate.eval_action = (evt.data.eval_action as string) ?? '';
         nodeUpdate.eval_metrics = (evt.data.eval_metrics as Array<{name: string; score: number; weight: number}>) ?? [];
       }
-      store.updateGraphNode(workerId, nodeUpdate);
+      // Try iteration-qualified ID first, fall back to plain workerId for backwards compat
+      const nodeExists = store.graphNodes.some((n) => n.id === workerNodeId);
+      store.updateGraphNode(nodeExists ? workerNodeId : workerId, nodeUpdate);
       // Propagate eval score to parent iteration node
       if (typeof evt.data.eval_score === 'number') {
         const iterNum = evt.data.iteration as string | undefined;
@@ -682,10 +688,18 @@ function processEvent(
       const toolName = (evt.data.tool_name as string) ?? (evt.data.tool as string) ?? 'Tool';
       const callerId = (evt.data.worker_id as string) ?? (evt.data.agent_id as string) ?? (evt.data.caller_id as string) ?? '';
       const callIndex = evt.data.call_index as number | undefined;
-      const toolId = `tool-${callerId}-${toolName}-${callIndex ?? store.graphNodes.length}`;
+      const iteration = (evt.data.iteration as string) ?? '';
+      // Use iteration + callIndex for unique IDs; fall back to timestamp to avoid collisions
+      const uniqueSuffix = callIndex != null ? String(callIndex) : `t${Date.now()}_${store.graphNodes.length}`;
+      const iterPrefix = iteration ? `${iteration}_` : '';
+      const toolId = `tool-${iterPrefix}${callerId}-${toolName}-${uniqueSuffix}`;
       const toolOutput = (evt.data.output as string) ?? '';
       const toolError = (evt.data.error as string) ?? '';
       const toolArgs = evt.data.arguments as Record<string, unknown> | undefined;
+      // Resolve caller node ID: try iteration-qualified first
+      const callerNodeId = iteration ? `${callerId}_${iteration}` : callerId;
+      const callerExists = store.graphNodes.some((n) => n.id === callerNodeId);
+      const resolvedCallerId = callerExists ? callerNodeId : callerId;
 
       store.addGraphNode({
         id: toolId,
@@ -701,10 +715,10 @@ function processEvent(
           details: evt.data,
         },
       });
-      if (callerId) {
+      if (resolvedCallerId) {
         store.addGraphEdge({
-          id: `e-${callerId}-${toolId}`,
-          source: callerId,
+          id: `e-${resolvedCallerId}-${toolId}`,
+          source: resolvedCallerId,
           target: toolId,
         });
       }
@@ -1783,16 +1797,19 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             case 'worker.spawn': {
               const workerId = (d.worker_id as string) ?? nodeIdFromEvent(evt);
               const iteration = (d.iteration as string) ?? '';
+              const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
               const iterNodeId = iteration ? `iter_${iteration}` : null;
               const iterExists = iterNodeId && graphNodes.some((n) => n.id === iterNodeId);
               const parentId = (d.parent_id as string) ?? (iterExists ? iterNodeId! : lastManagerId() ?? 'manager');
-              addNode({ id: workerId, type: 'default', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', details: d } });
-              addEdge({ id: `e-${parentId}-${workerId}`, source: parentId, target: workerId });
+              addNode({ id: workerNodeId, type: 'default', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', details: d } });
+              addEdge({ id: `e-${parentId}-${workerNodeId}`, source: parentId, target: workerNodeId });
               break;
             }
             case 'worker.complete': {
               const workerId = (d.worker_id as string) ?? nodeIdFromEvent(evt);
-              const existing = graphNodes.find((n) => n.id === workerId);
+              const iteration = (d.iteration as string) ?? '';
+              const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
+              const existing = graphNodes.find((n) => n.id === workerNodeId) ?? graphNodes.find((n) => n.id === workerId);
               if (existing) {
                 existing.data = { ...existing.data, status: (d.error || d.has_error) ? 'error' : 'complete', confidence: d.confidence as number | undefined };
               }
@@ -1802,9 +1819,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const toolName = (d.tool_name as string) ?? (d.tool as string) ?? 'Tool';
               const callerId = (d.worker_id as string) ?? (d.agent_id as string) ?? (d.caller_id as string) ?? '';
               const callIndex = d.call_index as number | undefined;
-              const toolId = `tool-${callerId}-${toolName}-${callIndex ?? graphNodes.length}`;
+              const iteration = (d.iteration as string) ?? '';
+              const uniqueSuffix = callIndex != null ? String(callIndex) : `t${graphNodes.length}`;
+              const iterPrefix = iteration ? `${iteration}_` : '';
+              const toolId = `tool-${iterPrefix}${callerId}-${toolName}-${uniqueSuffix}`;
+              const callerNodeId = iteration ? `${callerId}_${iteration}` : callerId;
+              const resolvedCallerId = graphNodes.some((n) => n.id === callerNodeId) ? callerNodeId : callerId;
               addNode({ id: toolId, type: 'default', position: { x: 450, y: graphNodes.length * 120 }, data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
-              if (callerId) addEdge({ id: `e-${callerId}-${toolId}`, source: callerId, target: toolId });
+              if (resolvedCallerId) addEdge({ id: `e-${resolvedCallerId}-${toolId}`, source: resolvedCallerId, target: toolId });
               break;
             }
             case 'run.complete': {

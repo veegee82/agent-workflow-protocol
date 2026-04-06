@@ -658,6 +658,14 @@ class _RunDirWatcher:
             data = self._read_json(path)
             if isinstance(data, list):
                 worker_id = path.parent.name
+                # Extract iteration number from path
+                iteration = "?"
+                for i_part in range(len(parts) - 1, -1, -1):
+                    if i_part > 0 and parts[i_part - 1] == "iterations":
+                        iteration = parts[i_part]
+                        break
+                iter_key = f"{parent_worker_id}_" if parent_worker_id else ""
+                unique_iter = f"{iter_key}{iteration}"
                 for i, tc in enumerate(data):
                     if isinstance(tc, dict):
                         result = tc.get("result", {})
@@ -669,6 +677,7 @@ class _RunDirWatcher:
                                 EventType.TOOL_CALL,
                                 {
                                     "worker_id": worker_id,
+                                    "iteration": unique_iter,
                                     "depth": depth,
                                     "call_index": i,
                                     "tool": tc.get("tool", "unknown"),
