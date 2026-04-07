@@ -300,6 +300,22 @@ def _walk_subrun_clustered(
         if n.parentNode is None and n.type == "subRunCluster"
     ]
 
+    # Statistics so the frontend can show meaningful collapse summaries and a
+    # navigator tree without re-walking the graph.
+    descendant_count = len(new_nodes)
+    worker_count = sum(
+        1 for n in new_nodes if n.type in ("worker", "submanager")
+    )
+    iteration_count = sum(1 for n in new_nodes if n.type == "iteration")
+    nested_cluster_count = len(nested_clusters)
+    cluster_node.data["descendant_count"] = descendant_count
+    cluster_node.data["worker_count"] = worker_count
+    cluster_node.data["iteration_count"] = iteration_count
+    cluster_node.data["nested_cluster_count"] = nested_cluster_count
+    # Deep clusters start collapsed so the initial view stays compact;
+    # the user can expand them on demand from the header or the navigator.
+    cluster_node.data["auto_collapse"] = depth >= 2
+
     # 6. Compute bounding box of direct children in their absolute coords
     if direct_children:
         # Each direct child has an (x, y); we also need to know how big

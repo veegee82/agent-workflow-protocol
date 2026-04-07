@@ -1116,6 +1116,21 @@ class RunnerService:
         # Import lazily to avoid circular refs at module level
         from server.app import store
 
+        # If the user already marked this run as 'stopped' via the stop endpoint,
+        # do not overwrite that terminal status with the thread's natural exit
+        # status — otherwise the sidebar would flip back to 'running'/'complete'
+        # after a stop.
+        try:
+            existing = await store.get_run(run_id)
+            existing_status = (
+                existing.get("status") if isinstance(existing, dict) else getattr(existing, "status", None)
+            )
+            if existing_status == "stopped":
+                await store.update_run(run_id, result=result)
+                return
+        except Exception:
+            pass
+
         await store.update_run(
             run_id,
             status=status,

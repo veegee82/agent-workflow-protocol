@@ -254,6 +254,14 @@ export interface WorkflowStore {
   selectedNodeId: string | null;
   selectNode: (id: string | null) => void;
   loadRunGraph: (runId?: string) => Promise<void>;
+  // A4 cluster collapse state — IDs of subRunCluster nodes whose children
+  // are hidden in the graph view. Used by AgentGraph for compact rendering
+  // of deeply nested submanagers.
+  collapsedClusters: Set<string>;
+  toggleCluster: (id: string) => void;
+  expandAllClusters: () => void;
+  collapseAllClusters: () => void;
+  initClusterCollapse: () => void;
 
   // Output
   outputBlocks: OutputBlock[];
@@ -336,6 +344,9 @@ export interface WorkflowStore {
   _sessionCache: Map<string, CachedSessionState>;
   _wsPool: Map<string, WebSocketConnection>;
   _runToSession: Map<string, string>;
+  // Periodic poll of /api/sessions while at least one experiment is running.
+  // The handle is stored so we can clear it on reset/no-running-experiments.
+  _sessionPollIntervalId: ReturnType<typeof setInterval> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -997,8 +1008,13 @@ function routeBackgroundEvent(
   // Append event
   cached.events = [...cached.events, event];
 
-  // Update status on run lifecycle events
-  if (event.type === 'run.complete') {
+  // Update status on run lifecycle events. We track the *full* lifecycle
+  // (start/complete/error) so the cached state stays consistent with what
+  // the backend reports — and so a switch back to this experiment shows
+  // the right status immediately, before the async refresh resolves.
+  if (event.type === 'run.start') {
+    cached.runStatus = 'running';
+  } else if (event.type === 'run.complete') {
     const status = (event.data.status as string) ?? 'complete';
     cached.runStatus = (status === 'error' || status === 'failed') ? 'error' : 'complete';
   } else if (event.type === 'error') {
@@ -1023,6 +1039,9 @@ function routeBackgroundEvent(
           : sess,
       ),
     }));
+    // Authoritative refresh from backend — also re-evaluates the polling
+    // interval so it stops once the last running run finishes.
+    get().loadSessions().catch(() => {});
   }
 }
 
@@ -1074,6 +1093,35 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   selectedNodeId: null,
   selectNode: (id) =>
     set({ selectedNodeId: id, inspectorOpen: id !== null }),
+  collapsedClusters: new Set<string>(),
+  toggleCluster: (id) =>
+    set((s) => {
+      const next = new Set(s.collapsedClusters);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { collapsedClusters: next };
+    }),
+  expandAllClusters: () => set({ collapsedClusters: new Set<string>() }),
+  collapseAllClusters: () =>
+    set((s) => {
+      const next = new Set<string>();
+      for (const n of s.graphNodes) {
+        if (n.type === 'subRunCluster') next.add(n.id);
+      }
+      return { collapsedClusters: next };
+    }),
+  initClusterCollapse: () =>
+    // Apply backend's auto_collapse hint (set for clusters at depth >= 2)
+    // — but only for clusters the user has not yet manually toggled.
+    set((s) => {
+      const next = new Set(s.collapsedClusters);
+      for (const n of s.graphNodes) {
+        if (n.type === 'subRunCluster' && (n.data as any)?.auto_collapse) {
+          next.add(n.id);
+        }
+      }
+      return { collapsedClusters: next };
+    }),
   loadRunGraph: async (runId) => {
     const rid = runId ?? get().currentRunId;
     if (!rid) return;
@@ -1125,6 +1173,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         return edge;
       });
       set({ graphNodes: nodes, graphEdges: edges });
+      // Apply backend auto-collapse hints for newly arrived deep clusters.
+      get().initClusterCollapse();
     } catch {
       // silently ignore
     }
@@ -1412,6 +1462,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           ),
         }));
       }
+      // Kick off the sidebar poller immediately so any other foreground
+      // OR background experiments stay live in the sidebar without waiting
+      // for the next event-driven refresh. loadSessions auto-arms the
+      // polling interval based on what's running.
+      get().loadSessions().catch(() => {});
 
       // Open WebSocket — route events to active store or background cache
       const runSessionId = get().currentSessionId;
@@ -1501,6 +1556,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     state._wsPool.clear();
     state._runToSession.clear();
     state._sessionCache.clear();
+    if (state._sessionPollIntervalId) {
+      clearInterval(state._sessionPollIntervalId);
+    }
     set({
       currentRunId: null,
       runStatus: 'idle',
@@ -1513,6 +1571,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       _wsConnection: null,
       _wsStatus: 'closed',
       attachedFiles: [],
+      _sessionPollIntervalId: null,
     });
   },
 
@@ -1584,6 +1643,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         const store = get() as ReturnType<typeof useWorkflowStore.getState>;
         await store.createSession('Experiment 1');
       }
+      // Auto-manage polling: as long as at least one experiment has a
+      // running run, poll /api/sessions every 3s so the sidebar reflects
+      // live status of ALL parallel runs (not just the foreground one).
+      // The backend computes `last_run_status` fresh from the runs table on
+      // every call, so polling is the simplest robust way to surface
+      // background-run lifecycle in the sidebar without mirroring every
+      // WebSocket event from every experiment into the frontend.
+      const anyRunning = sessions.some(
+        (s) => s.last_run_status === 'running' || s.status === 'running',
+      );
+      const s = get();
+      if (anyRunning && !s._sessionPollIntervalId) {
+        const id = setInterval(() => {
+          // Use the live store reference rather than `s` so polling sees
+          // the freshest state on every tick.
+          get().loadSessions().catch(() => {});
+        }, 3000);
+        set({ _sessionPollIntervalId: id });
+      } else if (!anyRunning && s._sessionPollIntervalId) {
+        clearInterval(s._sessionPollIntervalId);
+        set({ _sessionPollIntervalId: null });
+      }
     } catch {
       // silently ignore -- backend may be down
     }
@@ -1633,6 +1714,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         _wsConnection: wsConn,
         _wsStatus: wsStatus,
       });
+      // Cache reflects the snapshot from the moment we last switched away —
+      // for a still-running background experiment its graph may be stale by
+      // many iterations. Always refresh from the authoritative backend
+      // (the graph_builder rebuilds the full graph from disk on every call,
+      // so this is cheap and correct). Also refresh the sidebar status so
+      // the sidebar dot is always live.
+      if (cached.currentRunId) {
+        get().loadRunGraph(cached.currentRunId).catch(() => {});
+      }
+      get().loadSessions().catch(() => {});
+      get().loadHistory().catch(() => {});
       return;
     }
 
@@ -2219,4 +2311,5 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   _sessionCache: new Map(),
   _wsPool: new Map(),
   _runToSession: new Map(),
+  _sessionPollIntervalId: null,
 }));

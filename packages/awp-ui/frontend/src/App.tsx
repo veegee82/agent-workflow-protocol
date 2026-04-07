@@ -2419,6 +2419,9 @@ export function App() {
   const createSession = useWorkflowStore((s) => s.createSession);
   const deleteSession = useWorkflowStore((s) => s.deleteSession);
   const renameSession = useWorkflowStore((s) => s.renameSession);
+  const startRun = useWorkflowStore((s) => s.startRun);
+  const stopRun = useWorkflowStore((s) => s.stopRun);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
   const loadSessions = useWorkflowStore((s) => s.loadSessions);
   const loadSecrets = useWorkflowStore((s) => s.loadSecrets);
   const loadPersistedSettings = useWorkflowStore((s) => s.loadPersistedSettings);
@@ -2477,6 +2480,29 @@ export function App() {
     createSession();
   }, [createSession]);
 
+  // Toggle start/stop for a session from the sidebar. For the active session
+  // this calls the same store actions as the TaskInput run/stop button so the
+  // two stay in lockstep. For an inactive session we first switch to it, then
+  // start a new run (stopping a non-active session's run is not yet supported
+  // here — the user can switch to it and stop from there).
+  const handleToggleRun = useCallback(
+    async (session: Session) => {
+      if (session.id === currentSessionId) {
+        if (runStatus === 'running') {
+          await stopRun();
+        } else {
+          await startRun();
+        }
+        return;
+      }
+      await selectSession(session.id);
+      // After selectSession resolves, the store has loaded the session's
+      // config — kick off a fresh run.
+      await startRun();
+    },
+    [currentSessionId, runStatus, startRun, stopRun, selectSession],
+  );
+
   return (
     <div className="flex flex-col h-screen bg-awp-bg text-awp-text">
       <TopBar />
@@ -2491,6 +2517,8 @@ export function App() {
               onNewSession={handleNewSession}
               onDeleteSession={deleteSession}
               onRenameSession={renameSession}
+              activeRunStatus={runStatus}
+              onToggleRun={handleToggleRun}
               onOpenFolder={(session) => {
                 // Derive base_dir: session's own > current session's > any session with base_dir
                 const currentBase = sessions.find((s) => s.id === currentSessionId)?.base_dir;

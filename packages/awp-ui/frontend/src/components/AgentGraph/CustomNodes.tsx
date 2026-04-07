@@ -9,6 +9,8 @@ import {
   CheckSquare,
   Wrench,
   Layers,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useWorkflowStore } from '@/stores/workflowStore';
@@ -454,8 +456,14 @@ export const SubRunClusterNode = memo(function SubRunClusterNode({ id, data }: N
   const triggering = dataAny.triggering_worker as string | undefined;
   const mgrModel = dataAny.manager_model as string | undefined;
   const budget = (dataAny.budget as Record<string, unknown>) || {};
+  const descendants = (dataAny.descendant_count as number | undefined) ?? 0;
+  const workers = (dataAny.worker_count as number | undefined) ?? 0;
+  const iters = (dataAny.iteration_count as number | undefined) ?? 0;
+  const nestedClusters = (dataAny.nested_cluster_count as number | undefined) ?? 0;
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
+  const collapsed = useWorkflowStore((s) => s.collapsedClusters.has(id));
+  const toggleCluster = useWorkflowStore((s) => s.toggleCluster);
 
   return (
     <div
@@ -463,41 +471,76 @@ export const SubRunClusterNode = memo(function SubRunClusterNode({ id, data }: N
         e.stopPropagation();
         selectNode(id);
       }}
-      className="relative w-full h-full"
-      style={{ pointerEvents: 'all' }}
+      className={clsx(
+        'relative w-full h-full transition-all duration-200',
+        selected && 'ring-2 ring-offset-2 ring-offset-transparent rounded-xl',
+      )}
+      style={{
+        pointerEvents: 'all',
+        boxShadow: selected
+          ? `0 0 0 2px ${palette.border}, 0 0 24px ${palette.border}66`
+          : `0 0 18px ${palette.border}22`,
+        borderRadius: '12px',
+      }}
     >
-      {/* Header bar — sticks to the top of the cluster */}
+      {/* Header bar — sticks to the top of the cluster. Click toggles collapse. */}
       <div
-        className="absolute top-0 left-0 right-0 px-3 py-2 rounded-t-xl flex items-center justify-between"
+        className={clsx(
+          'absolute top-0 left-0 right-0 px-3 py-2 flex items-center justify-between cursor-pointer select-none',
+          collapsed ? 'rounded-xl' : 'rounded-t-xl',
+        )}
         style={{
-          background: palette.bg,
-          borderBottom: `1px dashed ${palette.border}`,
+          background: `linear-gradient(135deg, ${palette.bg}, ${palette.border}22)`,
+          borderBottom: collapsed ? 'none' : `1px dashed ${palette.border}`,
           color: palette.label,
+          height: collapsed ? '100%' : undefined,
         }}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleCluster(id);
+          selectNode(id);
+        }}
+        title={collapsed ? 'Expand sub-run' : 'Collapse sub-run'}
       >
-        <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4" style={{ color: palette.border }} />
-          <span className="font-semibold text-[12px] tracking-wide">
-            SUBMANAGER · depth {depth ?? '?'}
+        <div className="flex items-center gap-2 min-w-0">
+          {collapsed ? (
+            <ChevronRight className="h-4 w-4 shrink-0" style={{ color: palette.border }} />
+          ) : (
+            <ChevronDown className="h-4 w-4 shrink-0" style={{ color: palette.border }} />
+          )}
+          <Layers className="h-4 w-4 shrink-0" style={{ color: palette.border }} />
+          <span className="font-semibold text-[12px] tracking-wide whitespace-nowrap">
+            SUB · d{depth ?? '?'}
           </span>
           {triggering && (
-            <span className="text-[11px] opacity-80 font-mono">
-              {triggering}
+            <span className="text-[11px] opacity-80 font-mono truncate">
+              ⤷ {triggering}
             </span>
           )}
+          {/* Compact badges — visible always so the collapsed chip stays informative */}
+          <span
+            className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex items-center gap-1"
+            style={{ background: `${palette.border}22`, color: palette.label }}
+          >
+            <span title="iterations">{iters}↻</span>
+            <span title="workers">·{workers}◯</span>
+            {nestedClusters > 0 && (
+              <span title="nested submanagers">·{nestedClusters}⤵</span>
+            )}
+            <span title="total descendants">·{descendants}</span>
+          </span>
         </div>
-        <div className="flex items-center gap-3 text-[10px] opacity-80 font-mono">
-          {mgrModel && <span>{mgrModel}</span>}
-          {budget && (budget as any).max_loops !== undefined && (
-            <span>loops≤{String((budget as any).max_loops)}</span>
-          )}
-          {budget && (budget as any).max_total_tokens !== undefined && (
-            <span>tokens≤{String((budget as any).max_total_tokens)}</span>
-          )}
-          {selected && (
-            <span className="px-1.5 py-0.5 rounded bg-awp-cyan/20 text-awp-cyan">selected</span>
-          )}
-        </div>
+        {!collapsed && (
+          <div className="flex items-center gap-3 text-[10px] opacity-80 font-mono">
+            {mgrModel && <span className="truncate max-w-[140px]">{mgrModel}</span>}
+            {budget && (budget as any).max_loops !== undefined && (
+              <span>loops≤{String((budget as any).max_loops)}</span>
+            )}
+            {budget && (budget as any).max_total_tokens !== undefined && (
+              <span>tok≤{String((budget as any).max_total_tokens)}</span>
+            )}
+          </div>
+        )}
       </div>
       {/* Connection handles for the trigger edge from the parent worker */}
       <Handle
@@ -506,10 +549,16 @@ export const SubRunClusterNode = memo(function SubRunClusterNode({ id, data }: N
         style={{ background: palette.border, borderColor: 'var(--awp-panel)' }}
         className="!w-2.5 !h-2.5"
       />
-      {/* Sub-run id watermark in the bottom-right */}
-      {subRunId && (
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: palette.border, borderColor: 'var(--awp-panel)' }}
+        className="!w-2.5 !h-2.5"
+      />
+      {/* Sub-run id watermark in the bottom-right (only when expanded) */}
+      {!collapsed && subRunId && (
         <div
-          className="absolute bottom-1 right-2 text-[9px] font-mono opacity-50"
+          className="absolute bottom-1 right-2 text-[9px] font-mono opacity-50 pointer-events-none"
           style={{ color: palette.label }}
         >
           {subRunId}

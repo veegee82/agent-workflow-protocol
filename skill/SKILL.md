@@ -146,10 +146,24 @@ Key concepts:
 - **Budget System**: Hard limits on loops, workers, tokens, wall time. Required at A2+.
 - **Safety Envelope**: Immutable security constraints the manager cannot override. Required at A3+.
 - **Two-Tier Validation**: Deterministic (schema, confidence) + LLM semantic (does result address task?)
-- **Stall Detection**: Auto-stop when confidence stops improving
+- **Stall Detection**: Auto-stop when confidence stops improving. Also includes
+  worker-level tool-call repeat-loop detection: if a worker emits 3 identical
+  tool calls in a row, the runner forces a final round with `tool_choice="none"`
+  so the worker completes gracefully instead of looping forever on a broken tool.
 - **Dual Logging**: JSON (machines) + Markdown (humans) in workspace/runs/
 - **Fan-Out**: Multiple workers per iteration, executed in parallel
-- **Recursive Delegation**: Workers can sub-delegate within their budget allocation (A4)
+- **Recursive Delegation (A4)**: Workers can be auto-promoted to submanagers
+  that own their own delegation loop. Promotion is decided by a deterministic
+  **complexity scorer** (subtask word length, presence of keywords like
+  "research"/"validate", deliverable count, declared priority) — only subtasks
+  scoring ≥3 are promoted, with bonuses for collective fan-outs and a 50%
+  promotion cap so the parent budget cannot be blown.
+- **Budget Reservation Model (A4)**: When a submanager is spawned, capacity is
+  **pre-charged** against the parent budget via `allocate_child(fraction)`,
+  so concurrent siblings see a shrinking pool and the no-over-commit invariant
+  always holds. `reclaim_child()` refunds unused capacity when the sub-run
+  finishes. This is what gives A4 its termination guarantees even under
+  parallel recursive delegation.
 
 When generating a delegation loop workflow:
 - The manager agent gets a full agent.awp.yaml with SYSTEM_PROMPT.md

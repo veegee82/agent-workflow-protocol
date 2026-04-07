@@ -487,6 +487,9 @@ async def delete_run(run_id: str) -> dict[str, str]:
 @router.post("/runs/{run_id}/stop")
 async def stop_run(run_id: str) -> dict[str, Any]:
     """Signal a running workflow to stop."""
+    from datetime import datetime, timezone
+
+    from server.app import store
     from server.services.runner_service import runner_service
 
     found = runner_service.stop_run(run_id)
@@ -494,6 +497,17 @@ async def stop_run(run_id: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=404, detail="Run not found or already completed"
         )
+    # Persist 'stopped' status so the sidebar no longer shows the run as live.
+    # The background thread may still be winding down, but from the user's
+    # perspective the experiment has been stopped.
+    try:
+        await store.update_run(
+            run_id,
+            status="stopped",
+            completed_at=datetime.now(tz=timezone.utc).isoformat(),
+        )
+    except Exception:
+        logger.warning("Failed to persist stopped status for run %s", run_id, exc_info=True)
     return {"status": "stopping", "run_id": run_id}
 
 

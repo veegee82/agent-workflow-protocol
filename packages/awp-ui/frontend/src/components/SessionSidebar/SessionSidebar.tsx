@@ -9,6 +9,8 @@ import {
   FlaskConical,
   FolderOpen,
   X,
+  Play,
+  Square,
 } from 'lucide-react';
 import type { Session } from '@/types';
 
@@ -24,6 +26,10 @@ interface SessionSidebarProps {
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
   onOpenFolder?: (session: Session) => void;
+  /** Live run status for the currently active session — drives the active row's button. */
+  activeRunStatus?: 'idle' | 'running' | 'complete' | 'error';
+  /** Toggle start/stop for a given session. App.tsx handles selecting + start/stop. */
+  onToggleRun?: (session: Session) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +103,11 @@ function groupByStatus(
 
   const groups: Record<string, Session[]> = {};
   for (const s of sessions) {
-    const key = s.status ?? 'draft';
+    // Prefer last_run_status (live, computed from the most recent run) over
+    // session.status (a stored draft/manual field that does not reflect live
+    // run lifecycle). This is what makes the sidebar correct for parallel
+    // background runs.
+    const key = s.last_run_status ?? s.status ?? 'draft';
     if (!groups[key]) groups[key] = [];
     groups[key].push(s);
   }
@@ -117,6 +127,8 @@ function statusDotClass(status: string | null | undefined): string {
     case 'error':
     case 'failed':
       return 'bg-awp-red';
+    case 'stopped':
+      return 'bg-awp-muted/60';
     case 'archived':
       return 'bg-awp-muted/30';
     default:
@@ -196,6 +208,8 @@ function SessionItem({
   onRename,
   onDelete,
   onOpenFolder,
+  isRunning,
+  onToggleRun,
 }: {
   session: Session;
   isActive: boolean;
@@ -203,6 +217,8 @@ function SessionItem({
   onRename: (title: string) => void;
   onDelete: () => void;
   onOpenFolder?: () => void;
+  isRunning: boolean;
+  onToggleRun?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.title);
@@ -270,12 +286,39 @@ function SessionItem({
               <span
                 className={clsx(
                   'h-2 w-2 rounded-full shrink-0',
-                  statusDotClass(session.status ?? session.last_run_status),
+                  // Live status (last_run_status, computed from the run table
+                  // on every list_sessions call) takes precedence over the
+                  // stored draft/manual session.status field. Without this
+                  // flip, parallel background runs never show as 'running' in
+                  // the sidebar even though their threads are alive.
+                  statusDotClass(session.last_run_status ?? session.status),
                 )}
               />
               <span className="text-xs font-medium text-awp-text truncate flex-1">
                 {session.title}
               </span>
+              {onToggleRun && (
+                <button
+                  type="button"
+                  title={isRunning ? 'Stop run' : 'Start run'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleRun();
+                  }}
+                  className={clsx(
+                    'shrink-0 transition-colors',
+                    isRunning
+                      ? 'text-awp-red hover:text-awp-red/80'
+                      : 'text-awp-muted hover:text-awp-green',
+                  )}
+                >
+                  {isRunning ? (
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                  )}
+                </button>
+              )}
               {onOpenFolder && (
                 <button
                   type="button"
@@ -368,6 +411,8 @@ export function SessionSidebar({
   onDeleteSession,
   onRenameSession,
   onOpenFolder,
+  activeRunStatus,
+  onToggleRun,
 }: SessionSidebarProps) {
   const [search, setSearch] = useState('');
   const [groupMode, setGroupMode] = useState<'time' | 'status'>('time');
@@ -482,17 +527,28 @@ export function SessionSidebar({
               </span>
             </div>
             <div className="space-y-0.5">
-              {group.sessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  isActive={session.id === currentSessionId}
-                  onSelect={() => onSelectSession(session.id)}
-                  onRename={(title) => onRenameSession(session.id, title)}
-                  onDelete={() => onDeleteSession(session.id)}
-                  onOpenFolder={onOpenFolder ? () => onOpenFolder(session) : undefined}
-                />
-              ))}
+              {group.sessions.map((session) => {
+                const isActive = session.id === currentSessionId;
+                // For the active session, button reflects live runStatus from
+                // the store (kept in sync with the TaskInput run/stop button).
+                // For inactive sessions, fall back to the stored last_run_status.
+                const isRunning = isActive
+                  ? activeRunStatus === 'running'
+                  : (session.last_run_status ?? session.status) === 'running';
+                return (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    isActive={isActive}
+                    onSelect={() => onSelectSession(session.id)}
+                    onRename={(title) => onRenameSession(session.id, title)}
+                    onDelete={() => onDeleteSession(session.id)}
+                    onOpenFolder={onOpenFolder ? () => onOpenFolder(session) : undefined}
+                    isRunning={isRunning}
+                    onToggleRun={onToggleRun ? () => onToggleRun(session) : undefined}
+                  />
+                );
+              })}
             </div>
           </div>
         ))}

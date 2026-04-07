@@ -615,4 +615,33 @@ Manager (depth 0, budget: 1000000 tokens)
 
 Requires `budget.max_depth`, observability tracing, and circuit breaker.
 
+**Submanager auto-promotion (complexity-scored).** A worker is promoted to a
+submanager only when its subtask passes a deterministic complexity scorer
+(subtask description length, keywords like *research*, *validate*, *design*,
+declared deliverable count, priority). Subtasks scoring `≥ 3` are promoted,
+with bonuses for collective fan-outs. A hard 50% promotion cap prevents a
+single iteration from blowing the parent budget on submanagers. This makes
+the submanager decision a property of the work itself rather than a manual
+flag, while still bounded by the budget envelope.
+
+**Budget reservation model.** Allocation uses **pre-charge reservation**:
+`allocate_child(fraction)` immediately books capacity against the parent's
+remaining pool, so three concurrent siblings each asking for 30% see a
+correctly shrinking pool and the no-over-commit invariant
+`sum(children) + self <= allocation` is maintained even under parallel
+spawning. When a sub-run finishes, `reclaim_child()` refunds any unused
+capacity back to the parent. Combined with `max_depth` and the circuit
+breaker, this gives A4 its strong termination guarantees.
+
+**Worker stall detection.** In addition to manager-level stall detection,
+the runtime detects when a worker emits 3 identical tool calls in a row
+(stuck retry loop on a broken tool). It then forces a final completion
+round with `tool_choice="none"`, allowing the worker to gracefully return
+a result instead of looping until budget exhaustion.
+
+**Cluster visualization.** The UI graph view renders each sub-run as a
+nested cluster container, color-coded by recursion depth (violet → pink →
+cyan → amber), so it is visually obvious which submanager spawned which
+children and how much budget each cluster reserved.
+
 **Autonomy level:** A4 Self-Organizing

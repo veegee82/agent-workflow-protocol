@@ -63,19 +63,31 @@ The interface has five areas:
 +------------------------------------------------------------------------+
 ```
 
-### Sessions (left sidebar)
+### Experiments (left sidebar)
 
-- Lists all sessions, searchable, sorted by last update
-- Click a session to fully restore it (config, output, graph, results)
-- Create new sessions, rename, or delete
-- Toggle visibility with the panel button
+- Lists all experiments (formerly "sessions"), searchable, groupable by time or status
+- Click an experiment to fully restore it (config, output, graph, results)
+- Create new experiments, rename, or delete via the context menu
+- Each item shows a live status dot derived from `last_run_status` (computed
+  from the runs table on every list call) so background runs in other
+  experiments stay visible
+- **Per-experiment Play/Stop button** on each row — starts a new run on the
+  selected experiment, or stops the running one. The button is kept in lockstep
+  with the Run/Stop button in the Task Input Bar (both call the same store
+  actions, so toggling one updates the other instantly)
+- Stopped runs are persisted with `status="stopped"` and rendered as a muted
+  dot rather than the pulsing blue "running" indicator
+- Toggle sidebar visibility with the panel button
 
 ### Task Input Bar (bottom center)
 
 - Multi-line textarea for describing the task
 - **Enter** = Run, **Shift+Enter** = new line
 - Attach files button (left) -- uploads files as workflow inputs
-- Run/Stop button (right)
+- Run/Stop button (right) — synchronized with the per-experiment Play/Stop
+  buttons in the sidebar. Stopping a run hits `POST /api/runs/{run_id}/stop`,
+  which both signals the worker thread and persists the terminal `stopped`
+  status to SQLite.
 
 ### Settings (right sidebar)
 
@@ -153,6 +165,14 @@ Each node is expandable and shows:
 - **Budget** -- Token/loop/worker snapshot
 
 Stats bar shows total nodes, iterations, workers, and tool calls.
+
+**A4 sub-run clusters.** When a workflow uses recursive delegation (A4),
+the graph renders nested sub-runs as colored cluster containers (via React
+Flow's `parentNode` mechanism). Clusters are color-coded by recursion depth
+(violet → pink → cyan → amber) and display the triggering worker, recursion
+depth, manager model, and the budget caps reserved for that sub-run. This
+makes it easy to see which submanager spawned which children and how much
+of the parent budget each cluster reserved.
 
 ### History
 
