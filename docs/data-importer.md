@@ -1,5 +1,13 @@
 # Universal Data Importer
 
+## Mental Model
+
+Every non-trivial workflow starts with the same chore: fetch some data, clean it up, drop it where the agents can see it. The Universal Data Importer kills that chore. Instead of writing twenty lines of `httpx`, `pandas`, and `pathlib` before every run, you declare *what* data the workflow needs — a URL, a SQL query, an S3 object, a glob pattern, an API call — and the runtime resolves, caches, retries, and stages it into the agent workspace for you. The agent layer above never sees the difference between data you handed it inline and data the importer fetched on its behalf.
+
+The importer sits **upstream of** [`prepare_workspace()`](runtime.md), the function that lays out the on-disk inputs for the manager and workers. That ordering is the whole trick: by the time `prepare_workspace()` runs, every `Source` has already been turned into a concrete Python value (DataFrame, dict, bytes, file path), so the rest of the runtime treats imported data and inline data identically. This is what makes workflows portable — the same `workflow.awp.yaml` can run against a live API in production and a fixture file in tests without changing a single agent.
+
+The same `Source` descriptors are also the integration point for [secrets injection](security.md): a `$SECRET_NAME` placeholder inside a header or DSN is resolved at fetch time and never appears in any prompt or log.
+
 ## Overview
 
 The Universal Data Importer is a declarative data source layer for `AgentWorkflow` that handles both inline Python objects and remote/offline data sources. Instead of writing boilerplate code to download CSVs, query databases, or call APIs before passing data to your workflow, you declare **what** data you need and the importer fetches, caches, and prepares it automatically.

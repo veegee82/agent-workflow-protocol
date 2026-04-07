@@ -183,15 +183,15 @@ function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[]
 
 const DEFAULT_CONFIG: WorkflowConfig = {
   task: '',
-  model: 'openai/gpt-5-nano',
-  worker_model: undefined,
+  model: 'nvidia/nemotron-3-super-120b-a12b',
+  worker_model: 'openai/gpt-5-nano',
   api_key: undefined,
   max_loops: 100,
   max_total_tokens: 10_000_000,
-  max_wall_time: 7200,
-  max_tool_calls: 250,
+  max_wall_time: 14400,
+  max_tool_calls: 1500,
   max_total_workers: 1000,
-  max_depth: 100,
+  max_depth: 4,
   sandbox: 'subprocess',
   packages: [],
   code_mode: true,
@@ -363,6 +363,29 @@ function nodeIdFromEvent(evt: RunEvent): string {
   );
 }
 
+/**
+ * Resolve a bare reference (typically a worker_id from an event) to an actual
+ * graph node id. Worker nodes are stored with an iteration suffix
+ * (`{worker_id}_{iteration}`), but events carry the bare worker_id. Without
+ * resolution, edges sourced/targeted at the bare id dangle and the graph
+ * fragments into orphan roots, which the layout then stacks vertically.
+ *
+ * Resolution order:
+ *  1. Exact id match → return as-is.
+ *  2. Latest node whose id starts with `{rawId}_` (most recent iteration).
+ *  3. Original rawId unchanged (edge will dangle but at least is consistent).
+ */
+function resolveNodeRef(rawId: string, graphNodes: Node[]): string {
+  if (!rawId) return rawId;
+  if (graphNodes.some((n) => n.id === rawId)) return rawId;
+  const prefix = rawId + '_';
+  let latest: string | null = null;
+  for (const n of graphNodes) {
+    if (n.id.startsWith(prefix)) latest = n.id;
+  }
+  return latest ?? rawId;
+}
+
 function processEvent(
   evt: RunEvent,
   get: () => WorkflowStore,
@@ -449,7 +472,12 @@ function processEvent(
 
     // ----- Sub-manager (recursive delegation) -----
     case 'delegation.start': {
-      const parentId = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
+      const rawParent = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
+      // Events carry bare worker_ids but worker nodes are stored with an
+      // iteration suffix (e.g. `data_fetcher_btc_5m_loader_003`). We must
+      // resolve every parent reference to an actual node id, otherwise the
+      // edge dangles and the target becomes an orphan root → vertical chaos.
+      const parentId = resolveNodeRef(rawParent, store.graphNodes);
       const depth = (evt.data.depth as number) ?? 1;
       const model = (evt.data.model as string) ?? '?';
       const subMgrId = `sub_mgr_${parentId}_d${depth}`;
@@ -484,16 +512,18 @@ function processEvent(
       const iterNum = evt.data.iteration ?? '?';
       const iterId = `iter_${iterNum}`;
       const depth = (evt.data.depth as number) ?? 0;
-      // For sub-run iterations, link to the sub-manager; for root, link to 'manager'
-      const parentWorkerId = evt.data.parent_id as string | undefined;
+      // For sub-run iterations, link to the sub-manager spawned by this
+      // worker. The event carries the bare worker_id; we must resolve it to
+      // the iteration-suffixed node id used as the sub_mgr key.
+      const rawParentWorker = evt.data.parent_id as string | undefined;
       let iterParent = 'manager';
-      if (parentWorkerId && depth > 0) {
-        // Find the sub-manager node for this parent worker
-        const subMgrId = `sub_mgr_${parentWorkerId}_d${depth}`;
+      if (rawParentWorker && depth > 0) {
+        const resolvedParent = resolveNodeRef(rawParentWorker, store.graphNodes);
+        const subMgrId = `sub_mgr_${resolvedParent}_d${depth}`;
         if (store.graphNodes.some((n) => n.id === subMgrId)) {
           iterParent = subMgrId;
-        } else {
-          iterParent = parentWorkerId;
+        } else if (store.graphNodes.some((n) => n.id === resolvedParent)) {
+          iterParent = resolvedParent;
         }
       }
       store.addGraphNode({
@@ -571,10 +601,21 @@ function processEvent(
       const iteration = (evt.data.iteration as string) ?? '';
       const skills = (evt.data.skills as string[]) ?? [];
       const codeMode = evt.data.code_mode;
-      // Link to the iteration node if available, otherwise fall back to manager
+      // Worker parent should be the iteration node (which is a child of the
+      // sub-manager). The event's `parent_id` points to the spawning worker,
+      // which is the wrong granularity for the graph tree — using it would
+      // skip the iteration node and break the manager → iter → worker chain.
+      // Always prefer the iter node if present; fall back to a resolved
+      // parent_id only if no iter node exists.
       const iterNodeId = iteration ? `iter_${iteration}` : null;
-      const iterNodeExists = iterNodeId && store.graphNodes.some((n) => n.id === iterNodeId);
-      const parentId = (evt.data.parent_id as string) ?? (iterNodeExists ? iterNodeId! : lastManagerId() ?? 'manager');
+      const iterNodeExists = !!(iterNodeId && store.graphNodes.some((n) => n.id === iterNodeId));
+      let parentId: string;
+      if (iterNodeExists) {
+        parentId = iterNodeId!;
+      } else {
+        const rawParent = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
+        parentId = resolveNodeRef(rawParent, store.graphNodes);
+      }
       // Include iteration in node ID to avoid collision when same worker name repeats across iterations
       const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
 
@@ -707,10 +748,40 @@ function processEvent(
       const toolOutput = (evt.data.output as string) ?? '';
       const toolError = (evt.data.error as string) ?? '';
       const toolArgs = evt.data.arguments as Record<string, unknown> | undefined;
-      // Resolve caller node ID: try iteration-qualified first
+      // Resolve caller node ID. Tool calls must be parented to their actual
+      // worker, never to the iteration node, so the layout places them
+      // directly under the worker that issued them.
+      //  1. exact iteration-qualified id (`{worker_id}_{iteration}`)
+      //  2. resolve bare worker_id to its iteration-suffixed node
+      //  3. fall back to ANY worker in this iteration — older runs emit
+      //     placeholder worker_ids ('tools') because the runtime watcher
+      //     misread the dir name; we recover by picking a worker from the
+      //     same iteration cluster.
+      //  4. as last resort, attach to the iter node so the tool isn't orphaned.
       const callerNodeId = iteration ? `${callerId}_${iteration}` : callerId;
-      const callerExists = store.graphNodes.some((n) => n.id === callerNodeId);
-      const resolvedCallerId = callerExists ? callerNodeId : callerId;
+      let resolvedCallerId = '';
+      if (store.graphNodes.some((n) => n.id === callerNodeId)) {
+        resolvedCallerId = callerNodeId;
+      } else {
+        const r = resolveNodeRef(callerId, store.graphNodes);
+        if (r !== callerId && store.graphNodes.some((n) => n.id === r)) {
+          resolvedCallerId = r;
+        }
+      }
+      if (!resolvedCallerId && iteration) {
+        // Find any worker node belonging to this iteration
+        const iterSuffix = `_${iteration}`;
+        const workerInIter = store.graphNodes.find(
+          (n) => n.id.endsWith(iterSuffix) && (n.data?.nodeType === 'worker' || n.data?.nodeType === 'submanager'),
+        );
+        if (workerInIter) resolvedCallerId = workerInIter.id;
+      }
+      if (!resolvedCallerId && iteration) {
+        const iterNodeId = `iter_${iteration}`;
+        if (store.graphNodes.some((n) => n.id === iterNodeId)) {
+          resolvedCallerId = iterNodeId;
+        }
+      }
 
       store.addGraphNode({
         id: toolId,
@@ -1886,7 +1957,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               break;
             }
             case 'delegation.start': {
-              const parentId = (d.parent_id as string) ?? lastManagerId() ?? 'manager';
+              const rawParent = (d.parent_id as string) ?? lastManagerId() ?? 'manager';
+              const parentId = resolveNodeRef(rawParent, graphNodes);
               const evtDepth = (d.depth as number) ?? 1;
               const model = (d.model as string) ?? '?';
               const subMgrId = `sub_mgr_${parentId}_d${evtDepth}`;
@@ -1897,12 +1969,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             case 'iteration.start': {
               const iterId = `iter_${d.iteration ?? '?'}`;
               const evtDepth = (d.depth as number) ?? 0;
-              const parentWorkerId = d.parent_id as string | undefined;
+              const rawParentWorker = d.parent_id as string | undefined;
               let iterParent = 'manager';
-              if (parentWorkerId && evtDepth > 0) {
-                const subMgrId = `sub_mgr_${parentWorkerId}_d${evtDepth}`;
+              if (rawParentWorker && evtDepth > 0) {
+                const resolvedParent = resolveNodeRef(rawParentWorker, graphNodes);
+                const subMgrId = `sub_mgr_${resolvedParent}_d${evtDepth}`;
                 if (graphNodes.some((n) => n.id === subMgrId)) iterParent = subMgrId;
-                else iterParent = parentWorkerId;
+                else if (graphNodes.some((n) => n.id === resolvedParent)) iterParent = resolvedParent;
               }
               addNode({ id: iterId, type: 'default', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Iteration ${d.iteration ?? '?'}`, status: 'running', nodeType: 'iteration', depth: evtDepth, details: d } });
               addEdge({ id: `e-${iterParent}-${iterId}`, source: iterParent, target: iterId });
@@ -1921,8 +1994,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const iteration = (d.iteration as string) ?? '';
               const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
               const iterNodeId = iteration ? `iter_${iteration}` : null;
-              const iterExists = iterNodeId && graphNodes.some((n) => n.id === iterNodeId);
-              const parentId = (d.parent_id as string) ?? (iterExists ? iterNodeId! : lastManagerId() ?? 'manager');
+              const iterExists = !!(iterNodeId && graphNodes.some((n) => n.id === iterNodeId));
+              // Always prefer the iter node as parent so the manager → iter →
+              // worker chain stays intact. parent_id from event is the
+              // spawning worker, which would skip the iter and break layout.
+              let parentId: string;
+              if (iterExists) {
+                parentId = iterNodeId!;
+              } else {
+                const rawParent = (d.parent_id as string) ?? lastManagerId() ?? 'manager';
+                parentId = resolveNodeRef(rawParent, graphNodes);
+              }
               addNode({ id: workerNodeId, type: 'default', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', details: d } });
               addEdge({ id: `e-${parentId}-${workerNodeId}`, source: parentId, target: workerNodeId });
               break;
@@ -1945,8 +2027,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const uniqueSuffix = callIndex != null ? String(callIndex) : `t${graphNodes.length}`;
               const iterPrefix = iteration ? `${iteration}_` : '';
               const toolId = `tool-${iterPrefix}${callerId}-${toolName}-${uniqueSuffix}`;
+              // Resolve caller — see live tool.call handler for the rationale.
               const callerNodeId = iteration ? `${callerId}_${iteration}` : callerId;
-              const resolvedCallerId = graphNodes.some((n) => n.id === callerNodeId) ? callerNodeId : callerId;
+              let resolvedCallerId = '';
+              if (graphNodes.some((n) => n.id === callerNodeId)) {
+                resolvedCallerId = callerNodeId;
+              } else {
+                const r = resolveNodeRef(callerId, graphNodes);
+                if (r !== callerId && graphNodes.some((n) => n.id === r)) {
+                  resolvedCallerId = r;
+                }
+              }
+              if (!resolvedCallerId && iteration) {
+                const iterSuffix = `_${iteration}`;
+                const workerInIter = graphNodes.find(
+                  (n) => n.id.endsWith(iterSuffix) && ((n.data as Record<string, unknown>)?.nodeType === 'worker' || (n.data as Record<string, unknown>)?.nodeType === 'submanager'),
+                );
+                if (workerInIter) resolvedCallerId = workerInIter.id;
+              }
+              if (!resolvedCallerId && iteration) {
+                const iterNodeId = `iter_${iteration}`;
+                if (graphNodes.some((n) => n.id === iterNodeId)) resolvedCallerId = iterNodeId;
+              }
               addNode({ id: toolId, type: 'default', position: { x: 450, y: graphNodes.length * 120 }, data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
               if (resolvedCallerId) addEdge({ id: `e-${resolvedCallerId}-${toolId}`, source: resolvedCallerId, target: toolId });
               break;

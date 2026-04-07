@@ -1,6 +1,16 @@
 # AWP Workflow Studio
 
-AWP Workflow Studio is the browser-based UI for running, monitoring, and inspecting agent workflows. It provides real-time visibility into the delegation loop, live output streaming, and full session persistence.
+## Mental Model
+
+Workflow Studio is the human window into a running AWP workflow. CLI runs are great for automation but terrible for *understanding* what a delegation loop is actually doing — which manager decision led to which worker, which worker created which tool, where the budget went, why a sub-tree terminated. Studio is built around a single idea: **make every step of an autonomous agent run visible, replayable, and reproducible**, without forcing the user to read JSON logs.
+
+The UI is organised around three concepts that map directly to the runtime:
+
+1. **Experiments** (formerly *sessions*) — the unit of work the user owns. An experiment groups related runs, settings, secrets, memory, and protocol notes under one persistent identity. You return to an experiment the way you return to a Jupyter notebook: it remembers everything.
+2. **Runs** — the individual executions inside an experiment. Each run produces an event stream, a graph, artifacts, and (optionally) an evaluation score.
+3. **The graph** — the live, recursive view of manager → worker → tool → submanager. For A4 workflows the graph nests sub-runs into colour-coded clusters so the human can see *which submanager spawned which children*, and how much budget each cluster reserved.
+
+Studio is the default surface for the [runtime tool generation pipeline](runtime-tool-generation.md) (you watch tools being created, repaired, and called in real time), the [manager intelligence subsystems](manager-intelligence.md) (planning, hypotheses, decision journal all surface as inline panels), and the [evaluation layer](evaluation.md) (score appears next to each completed run).
 
 <p align="center">
   <img src="../assets/ui.png" alt="AWP Workflow Studio" width="100%"/>
@@ -63,6 +73,17 @@ The interface has five areas:
 +------------------------------------------------------------------------+
 ```
 
+### The Experiment Paradigm
+
+Studio used to call these *sessions*. They are now **experiments** — and the rename is not cosmetic. A session implied a single conversation; an experiment is a long-lived workspace with metadata, scoped history, and multiple tabs of context that survive across runs. The two new tabs make this concrete:
+
+- **Protocol tab** — a free-form, persistent notebook for the human running the experiment. Hypotheses, observations, links to runs, screenshots. The protocol survives every restart and is exported with the experiment.
+- **Memory tab** — the agent-side counterpart: scoped long-term memory entries written by workflows running inside this experiment. Each entry shows its tier (`session`, `daily`, `long_term`), originating run, and timestamp. See [memory.md](memory.md) for the underlying tier model.
+
+Each experiment carries metadata (title, description, tags, default settings, default secrets) and a **scoped history**: the History tab inside an experiment shows only that experiment's runs, while the global History view spans all experiments. Background runs in *other* experiments stay visible via the live status dots in the sidebar — switching experiments never silently kills a run.
+
+This is the paradigm change: an experiment is the smallest unit of *reproducibility* in Studio. Open it tomorrow and you get back the same protocol notes, the same memory entries, the same settings, the same history — exactly the way a Jupyter notebook restores its kernel state on reopen.
+
 ### Experiments (left sidebar)
 
 - Lists all experiments (formerly "sessions"), searchable, groupable by time or status
@@ -100,6 +121,28 @@ The interface has five areas:
 - **Secrets** -- API keys stored in the database (values never exposed in API responses)
 
 All settings are persisted in SQLite and restored on startup.
+
+#### Model fields and provider auto-detect
+
+The **Model** and **Worker model** inputs are deliberately **free-text** — there is no dropdown, and you should never expect one. The backend (`runner_service.py`) and the frontend (`SettingsPanel.tsx::detectProvider`) both inspect the model string and route the call automatically:
+
+| Model string pattern | Routed to | Required key |
+|---|---|---|
+| `provider/model-name` (e.g. `openai/gpt-5-nano`, `nvidia/nemotron-3-super-120b-a12b`) | OpenRouter | `OPENROUTER_API_KEY` |
+| `gpt-*`, `o1-*`, `o3*` | OpenAI direct | `OPENAI_API_KEY` |
+| `claude-*` | Anthropic direct | `ANTHROPIC_API_KEY` |
+| `ollama/*` | Ollama (local) | none |
+
+Defaults:
+
+- **Manager model**: `nvidia/nemotron-3-super-120b-a12b` (OpenRouter)
+- **Worker model**: `openai/gpt-5-nano` (OpenRouter)
+
+When the worker model is left empty, workers inherit the manager model. Setting them separately is the standard pattern for cost control: a strong manager planning the run, cheap workers doing the legwork. The Settings panel shows a small badge under each field indicating the auto-detected provider, so you can verify routing at a glance.
+
+#### Code mode and tool creation defaults
+
+The **Code mode** and **Tool creation** toggles are **enabled by default** in Studio (and in Jupyter when no workflow is loaded). The [B1-B6 robustness pipeline](runtime-tool-generation.md) makes the default-on stance safe; most non-trivial tasks benefit from runtime adaptation, and disabling them only makes sense for strict-conformance regression runs.
 
 ## The Five Tabs
 
@@ -173,6 +216,22 @@ Flow's `parentNode` mechanism). Clusters are color-coded by recursion depth
 depth, manager model, and the budget caps reserved for that sub-run. This
 makes it easy to see which submanager spawned which children and how much
 of the parent budget each cluster reserved.
+
+```text
+┌─ Root manager (depth 0) ────────────────────────────────┐
+│  ┌─ Submanager A  depth 1  budget 40% ──────────────┐   │
+│  │   worker  worker  worker                         │   │
+│  │   ┌─ Submanager A.1  depth 2  budget 16% ───┐    │   │
+│  │   │   worker  worker                        │    │   │
+│  │   └──────────────────────────────────────────┘    │   │
+│  └────────────────────────────────────────────────────┘   │
+│  ┌─ Submanager B  depth 1  budget 35% ──────────────┐   │
+│  │   worker  worker                                 │   │
+│  └────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+The cluster header is the place to look when a sub-tree behaves badly: it shows the *reserved* envelope (from the [reservation model](manager-intelligence.md#budget-reservation-model-and-termination-guarantees)), the *consumed* portion, and a status badge that turns red the instant the child is hard-terminated for budget exhaustion. Auto-promoted submanagers (created via [complexity-scored auto-promotion](manager-intelligence.md#complexity-scored-auto-promotion-a4-trigger)) are tagged with a small ⚙ icon so you can tell them apart from clusters that were declared up front in the YAML.
 
 ### History
 

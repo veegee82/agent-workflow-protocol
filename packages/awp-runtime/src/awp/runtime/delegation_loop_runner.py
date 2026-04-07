@@ -819,6 +819,12 @@ class RunLogger:
 
     File writes are dispatched to a background thread so they don't
     block the hot path (manager → worker → critique chain).
+
+    Also maintains a comprehensive debug logging facility under
+    ``<experiment>/logs/<run_id>/`` with multiple views (chronological
+    debug trace, JSONL event stream, errors-only, manager decisions,
+    gate triggers, tool calls). These files are append-mode and
+    thread-safe so external tools can tail them while the run is live.
     """
 
     def __init__(self, run_dir: Path, fmt: str = "dual") -> None:
@@ -835,6 +841,274 @@ class RunLogger:
         self._queue: queue.Queue[tuple | None] = queue.Queue()
         self._writer = threading.Thread(target=self._bg_writer, daemon=True)
         self._writer.start()
+
+        # ----- Debug logging facility ------------------------------------
+        # Resolve the experiment directory: standard layout is
+        #   <experiment>/workspace/runs/<run_id>/
+        # parents[0] = "runs", parents[1] = "workspace", parents[2] = experiment.
+        self._debug_dir: Optional[Path] = None
+        try:
+            resolved = run_dir.resolve()
+            parts = list(resolved.parts)
+            # Walk up to find ".../<experiment>/workspace/runs/<top_run>/...".
+            # Sub-runs are nested arbitrarily deep under
+            #   <top_run>/iterations/NNN/delegations/<worker>/runs/<sub_id>/...
+            # We extract the experiment dir + the *top-level* run id and route
+            # ALL sub-run logs into <experiment>/logs/<top_run>/sub_<rel>/ so
+            # that everything for one run is collocated under one tree.
+            experiment_dir: Optional[Path] = None
+            top_run: Optional[str] = None
+            for i in range(len(parts) - 2):
+                if parts[i] == "workspace" and parts[i + 1] == "runs":
+                    experiment_dir = Path(*parts[:i])
+                    top_run = parts[i + 2] if i + 2 < len(parts) else None
+                    break
+            if experiment_dir and top_run:
+                # Is this the top-level run, or a deeper sub-run?
+                if resolved.name == top_run and resolved.parent.name == "runs":
+                    # Top-level run: <exp>/logs/<top_run>/
+                    self._debug_dir = experiment_dir / "logs" / top_run
+                else:
+                    # Sub-run: build a slug from the path between top_run and
+                    # the sub run id so deeply-nested sub-sub-managers stay
+                    # uniquely identified.
+                    after_top_idx = parts.index(top_run) + 1
+                    rel_parts = parts[after_top_idx:]
+                    # Compress: keep only delegation worker + sub run id
+                    # segments; drop "iterations/NNN/delegations/" noise.
+                    compressed: list[str] = []
+                    skip_next = 0
+                    for j, p in enumerate(rel_parts):
+                        if skip_next > 0:
+                            skip_next -= 1
+                            continue
+                        if p in ("iterations", "delegations", "runs"):
+                            continue
+                        # numeric iter labels
+                        if p.isdigit() and len(p) == 3:
+                            continue
+                        compressed.append(p)
+                    slug = "__".join(compressed) or "sub"
+                    # Final layout: <exp>/logs/<top_run>/sub_<slug>/
+                    self._debug_dir = (
+                        experiment_dir / "logs" / top_run / f"sub_{slug}"
+                    )
+            else:
+                # Fallback: put logs alongside the run dir itself
+                self._debug_dir = run_dir / "logs"
+            self._debug_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self._debug_dir = None
+
+        self._debug_lock = threading.Lock()
+        self._debug_handles: dict[str, Any] = {}
+        if self._debug_dir is not None:
+            # Open all log files in append mode so the run can resume after
+            # a process restart and external tools can tail them live.
+            for fname in (
+                "debug.log",
+                "events.jsonl",
+                "errors.log",
+                "decisions.log",
+                "gates.log",
+                "tool_calls.jsonl",
+            ):
+                try:
+                    self._debug_handles[fname] = open(
+                        self._debug_dir / fname,
+                        "a",
+                        encoding="utf-8",
+                        buffering=1,  # line-buffered for live tailing
+                    )
+                except Exception:
+                    pass
+            # Initial banner so the file isn't empty on first read
+            self._debug_write(
+                "debug.log",
+                f"==== RunLogger initialized for {run_dir.name} at "
+                f"{datetime.now(timezone.utc).isoformat()} ====\n",
+            )
+
+    # -- Debug log helpers -----------------------------------------------
+
+    def _debug_write(self, fname: str, line: str) -> None:
+        """Thread-safe append to a debug log file."""
+        h = self._debug_handles.get(fname)
+        if h is None:
+            return
+        try:
+            with self._debug_lock:
+                h.write(line)
+        except Exception:
+            pass
+
+    def trace(
+        self,
+        category: str,
+        message: str,
+        level: str = "INFO",
+        **fields: Any,
+    ) -> None:
+        """Record a debug trace event.
+
+        Writes to:
+          - debug.log    (chronological human-readable line)
+          - events.jsonl (structured one-event-per-line JSON)
+          - errors.log   (also, if level is WARNING/ERROR/CRITICAL)
+
+        Categories used by the runtime:
+          run, iteration, manager, worker, tool, critique, gate, budget,
+          delegation, repair, eval, completion
+        """
+        if self._debug_dir is None:
+            return
+        ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        # Sanitize fields for the human line: keep scalars, truncate long strings
+        flat_parts: list[str] = []
+        for k, v in fields.items():
+            if v is None:
+                continue
+            if isinstance(v, (str,)):
+                vv = v.replace("\n", " ⏎ ")
+                if len(vv) > 200:
+                    vv = vv[:197] + "..."
+                flat_parts.append(f"{k}={vv!r}")
+            elif isinstance(v, (int, float, bool)):
+                flat_parts.append(f"{k}={v}")
+            else:
+                # Compact JSON for nested values
+                try:
+                    j = json.dumps(v, default=str, ensure_ascii=False)
+                    if len(j) > 200:
+                        j = j[:197] + "..."
+                    flat_parts.append(f"{k}={j}")
+                except Exception:
+                    flat_parts.append(f"{k}=<unrepr>")
+        flat = " ".join(flat_parts)
+        human = f"{ts} [{level:<8}] [{category:<11}] {message}"
+        if flat:
+            human += f"  {flat}"
+        human += "\n"
+        self._debug_write("debug.log", human)
+
+        if level in ("WARNING", "ERROR", "CRITICAL"):
+            self._debug_write("errors.log", human)
+
+        try:
+            event = {
+                "ts": ts,
+                "level": level,
+                "category": category,
+                "msg": message,
+                "fields": fields,
+            }
+            self._debug_write(
+                "events.jsonl",
+                json.dumps(event, default=str, ensure_ascii=False) + "\n",
+            )
+        except Exception:
+            pass
+
+    def trace_decision(
+        self,
+        iteration: int,
+        decision: str,
+        reasoning: str = "",
+        confidence: Optional[float] = None,
+        delegations: Optional[list] = None,
+        depth: int = 0,
+    ) -> None:
+        """Record a manager decision (also written to decisions.log)."""
+        n_deleg = len(delegations) if delegations else 0
+        self.trace(
+            "manager",
+            f"iter {iteration}: {decision.upper()}",
+            iteration=iteration,
+            depth=depth,
+            decision=decision,
+            confidence=confidence,
+            delegations=n_deleg,
+            reasoning=reasoning,
+        )
+        ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        line = (
+            f"{ts} iter={iteration:03d} depth={depth} decision={decision} "
+            f"conf={confidence} n_deleg={n_deleg}\n"
+        )
+        if reasoning:
+            line += f"  reasoning: {reasoning[:500]}\n"
+        if delegations:
+            for d in delegations[:10]:
+                if isinstance(d, dict):
+                    line += f"  → {d.get('worker', d.get('worker_id', '?'))}: {str(d.get('task', ''))[:120]}\n"
+        self._debug_write("decisions.log", line)
+
+    def trace_gate(
+        self,
+        gate_name: str,
+        triggered: bool,
+        reason: str,
+        **fields: Any,
+    ) -> None:
+        """Record a completion gate firing (critique / placeholder / file / eval)."""
+        level = "WARNING" if triggered else "INFO"
+        verb = "REJECTED completion" if triggered else "PASSED"
+        self.trace(
+            "gate",
+            f"{gate_name} {verb}: {reason}",
+            level=level,
+            gate=gate_name,
+            triggered=triggered,
+            reason=reason,
+            **fields,
+        )
+        ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        line = f"{ts} gate={gate_name} triggered={triggered} reason={reason}"
+        if fields:
+            line += "  " + " ".join(f"{k}={v}" for k, v in fields.items())
+        line += "\n"
+        self._debug_write("gates.log", line)
+
+    def trace_tool_call(
+        self,
+        worker_id: str,
+        iteration: str,
+        tool: str,
+        ok: bool,
+        duration_ms: Optional[float] = None,
+        error: Optional[str] = None,
+        arguments: Optional[dict] = None,
+    ) -> None:
+        """Record a single tool call (tool_calls.jsonl + debug.log)."""
+        self.trace(
+            "tool",
+            f"{tool} {'OK' if ok else 'FAIL'}",
+            level="INFO" if ok else "WARNING",
+            worker=worker_id,
+            iteration=iteration,
+            tool=tool,
+            ok=ok,
+            duration_ms=duration_ms,
+            error=(error[:200] if error else None),
+        )
+        try:
+            ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+            entry = {
+                "ts": ts,
+                "worker_id": worker_id,
+                "iteration": iteration,
+                "tool": tool,
+                "ok": ok,
+                "duration_ms": duration_ms,
+                "error": (error[:500] if error else None),
+                "arguments": arguments,
+            }
+            self._debug_write(
+                "tool_calls.jsonl",
+                json.dumps(entry, default=str, ensure_ascii=False) + "\n",
+            )
+        except Exception:
+            pass
 
     def _bg_writer(self) -> None:
         """Background thread that drains the write queue."""
@@ -893,6 +1167,14 @@ class RunLogger:
             "budget": config.budget.model_dump() if config.budget else {},
         }
         self.write_json(self.run_dir / "run_manifest.json", manifest)
+        self.trace(
+            "run",
+            f"started run {run_id}",
+            run_id=run_id,
+            manager_model=manager_model,
+            worker_model=worker_model,
+            task_preview=task[:200],
+        )
         md = (
             f"# Run: {run_id}\n"
             f"**Task:** {task}\n"
@@ -917,6 +1199,14 @@ class RunLogger:
         iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(iter_dir / "manager_decision.json", manager_decision)
+        self.trace_decision(
+            iteration=iteration,
+            decision=str(manager_decision.get("decision", "?")),
+            reasoning=str(manager_decision.get("reasoning", ""))[:1000],
+            confidence=manager_decision.get("confidence"),
+            delegations=manager_decision.get("delegations") or manager_decision.get("delegate") or [],
+            depth=int(manager_decision.get("depth", 0) or 0),
+        )
 
     def log_worker_envelope(
         self, iteration: int, worker_id: str, envelope: dict
@@ -931,6 +1221,14 @@ class RunLogger:
         )
         worker_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(worker_dir / "envelope.json", envelope)
+        self.trace(
+            "worker",
+            f"spawn {worker_id}",
+            iteration=iteration,
+            worker=worker_id,
+            tools_allowed=envelope.get("tools_allowed") if isinstance(envelope, dict) else None,
+            instructions_preview=str(envelope.get("instructions", "") if isinstance(envelope, dict) else "")[:200],
+        )
 
     def log_worker_result(
         self, iteration: int, worker_id: str, result: dict
@@ -945,6 +1243,19 @@ class RunLogger:
         )
         worker_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(worker_dir / "result.json", result)
+        has_error = bool(result.get("error") or result.get("has_error")) if isinstance(result, dict) else False
+        conf = result.get("confidence") if isinstance(result, dict) else None
+        crit_score = result.get("_critique_score") if isinstance(result, dict) else None
+        self.trace(
+            "worker",
+            f"{'FAIL' if has_error else 'done '} {worker_id}",
+            level="ERROR" if has_error else "INFO",
+            iteration=iteration,
+            worker=worker_id,
+            confidence=conf,
+            critique_score=crit_score,
+            error=(str(result.get("error", ""))[:200] if has_error and isinstance(result, dict) else None),
+        )
 
     def log_critique(
         self, iteration: int, critiques: list[dict], summary: dict
@@ -956,6 +1267,23 @@ class RunLogger:
             "critiques": critiques,
             "summary": summary,
         })
+        # Trace summary line per worker
+        for c in critiques:
+            wid = c.get("worker_id", "?")
+            score = c.get("score")
+            defects = len(c.get("defects", []) or [])
+            critical = c.get("critical_count", 0)
+            level = "WARNING" if (critical or (isinstance(score, (int, float)) and score < 0.5)) else "INFO"
+            self.trace(
+                "critique",
+                f"worker={wid} score={score} defects={defects} critical={critical}",
+                level=level,
+                iteration=iteration,
+                worker=wid,
+                score=score,
+                defects=defects,
+                critical=critical,
+            )
         # Write per-worker critique files
         for c in critiques:
             wid = c.get("worker_id", "unknown")
@@ -1005,6 +1333,19 @@ class RunLogger:
         iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(iter_dir / "budget_snapshot.json", budget.to_dict())
+        try:
+            d = budget.to_dict()
+            self.trace(
+                "budget",
+                f"iter {iteration}",
+                iteration=iteration,
+                loops_used=d.get("loops_used") or (d.get("loops") or {}).get("used"),
+                tokens_used=d.get("tokens_used") or (d.get("tokens") or {}).get("consumed"),
+                workers_spawned=d.get("workers_spawned") or (d.get("workers") or {}).get("spawned"),
+                wall_time_s=d.get("wall_time_elapsed") or (d.get("wall_time") or {}).get("elapsed_s"),
+            )
+        except Exception:
+            pass
 
     # -- Full iteration log (called after iteration for full artifact dump) --
 
@@ -1277,21 +1618,115 @@ class RunLogger:
             "completed": datetime.now(timezone.utc).isoformat(),
         }
         self.write_json(self.run_dir / "run_completion.json", summary)
-
+        self.trace(
+            "completion",
+            f"run {run_id} {status} after {total_iterations} iterations",
+            level="ERROR" if status in ("error", "failed", "eval_fail") else "INFO",
+            run_id=run_id,
+            status=status,
+            total_iterations=total_iterations,
+            tokens=getattr(budget, "tokens_consumed", None),
+            workers=getattr(budget, "workers_spawned", None),
+            wall_time_s=getattr(budget, "wall_time_elapsed", None),
+        )
+        # Append completion section to the per-run RUN_SUMMARY.md
         md = (
             f"\n\n---\n## Completion\n"
             f"**Status:** {status}\n"
             f"**Iterations:** {total_iterations}\n"
-            f"**Wall Time:** {budget.wall_time_elapsed:.1f}s\n"
-            f"**Workers Spawned:** {budget.workers_spawned}\n"
+            f"**Wall Time:** {getattr(budget, 'wall_time_elapsed', 0):.1f}s\n"
+            f"**Workers Spawned:** {getattr(budget, 'workers_spawned', 0)}\n"
         )
         # Flush pending writes so RUN_SUMMARY.md is on disk before we read it
         self.flush()
-        existing = ""
         run_summary = self.run_dir / "RUN_SUMMARY.md"
+        existing = ""
         if run_summary.exists():
-            existing = run_summary.read_text(encoding="utf-8")
+            try:
+                existing = run_summary.read_text(encoding="utf-8")
+            except Exception:
+                pass
         self.write_md(run_summary, existing + md)
+
+        # Write a human-readable summary into the experiment logs dir
+        self._write_debug_summary(run_id, status, total_iterations, budget)
+        # Close debug log handles
+        self._close_debug_handles()
+
+    def _write_debug_summary(
+        self,
+        run_id: str,
+        status: str,
+        total_iterations: int,
+        budget: "BudgetSnapshot",
+    ) -> None:
+        """Generate a final summary.md inside the experiment logs dir."""
+        if self._debug_dir is None:
+            return
+        try:
+            lines: list[str] = []
+            lines.append(f"# Run Debug Summary — {run_id}\n")
+            lines.append(f"- **Status**: `{status}`")
+            lines.append(f"- **Iterations**: {total_iterations}")
+            lines.append(f"- **Workers spawned**: {getattr(budget, 'workers_spawned', '?')}")
+            lines.append(f"- **Tokens consumed**: {getattr(budget, 'tokens_consumed', '?')}")
+            lines.append(f"- **Wall time**: {getattr(budget, 'wall_time_elapsed', 0):.1f}s")
+            lines.append(f"- **Completed**: {datetime.now(timezone.utc).isoformat()}\n")
+
+            # Tail of debug.log
+            debug_path = self._debug_dir / "debug.log"
+            if debug_path.exists():
+                try:
+                    txt = debug_path.read_text(encoding="utf-8", errors="replace")
+                    tail = txt.splitlines()[-50:]
+                    lines.append("## Last 50 trace events\n")
+                    lines.append("```")
+                    lines.extend(tail)
+                    lines.append("```\n")
+                except Exception:
+                    pass
+
+            # Errors
+            err_path = self._debug_dir / "errors.log"
+            if err_path.exists():
+                try:
+                    txt = err_path.read_text(encoding="utf-8", errors="replace")
+                    err_lines = txt.splitlines()
+                    if err_lines:
+                        lines.append(f"## Errors ({len(err_lines)} total)\n")
+                        lines.append("```")
+                        lines.extend(err_lines[-30:])
+                        lines.append("```\n")
+                except Exception:
+                    pass
+
+            # Gates
+            gate_path = self._debug_dir / "gates.log"
+            if gate_path.exists():
+                try:
+                    txt = gate_path.read_text(encoding="utf-8", errors="replace")
+                    gates = [l for l in txt.splitlines() if "triggered=True" in l]
+                    if gates:
+                        lines.append(f"## Completion gates triggered ({len(gates)})\n")
+                        lines.append("```")
+                        lines.extend(gates[-20:])
+                        lines.append("```\n")
+                except Exception:
+                    pass
+
+            (self._debug_dir / "summary.md").write_text(
+                "\n".join(lines), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    def _close_debug_handles(self) -> None:
+        for h in list(self._debug_handles.values()):
+            try:
+                h.close()
+            except Exception:
+                pass
+        self._debug_handles.clear()
 
     def update_rolling_summary(
         self,
@@ -1461,6 +1896,13 @@ class DelegationLoopRunner:
         self._inherited_state = inherited_state or {}
         self._logger = RunLogger(run_dir, fmt=config.logging.format)
 
+        # Iteration label counter — separate from budget.loops_used so that
+        # child-budget reservations (which pre-charge loops to the parent)
+        # don't make the manager iteration counter jump (e.g. 3 → 10 → 16).
+        # This is purely a display/log-path counter; budget.loops_used still
+        # tracks real budget consumption.
+        self._iter_counter = 0
+
         # History
         self._history: list[dict[str, Any]] = []
 
@@ -1564,7 +2006,7 @@ class DelegationLoopRunner:
             self._run_id,
             final_result,
             self._budget,
-            self._budget.loops_used,
+            self._iter_counter,
             status,
         )
         # Flush all async writes to disk before returning
@@ -1587,7 +2029,8 @@ class DelegationLoopRunner:
                 return self._build_partial_result(reason), "budget_exhausted"
 
             self._budget.loops_used += 1
-            iteration = self._budget.loops_used
+            self._iter_counter += 1
+            iteration = self._iter_counter
 
             logger.info("=== Iteration %d ===", iteration)
 
@@ -1617,26 +2060,135 @@ class DelegationLoopRunner:
                     ],
                 )
 
-            # Handle PLAN decision (Manager Intelligence: Task Decomposition)
-            # PLAN is only allowed ONCE. If a plan already exists, treat
-            # repeated PLAN decisions as a signal to continue (the manager
-            # is stuck in a planning loop).
+            # Handle PLAN decision (Manager Intelligence: Task Decomposition).
+            #
+            # The plan is normally accepted once and then locked, but two
+            # important exceptions exist:
+            #
+            #   1. **Refinement before any work starts** — weak manager
+            #      models often issue a first rough plan and then a second,
+            #      better plan a turn later (e.g. with `delegation_strategy:
+            #      submanager` annotations). If no subtask has been worked on
+            #      yet, the second plan is allowed to fully REPLACE the first
+            #      one. Without this, A4 submanager activation is silently
+            #      lost whenever the manager improves its plan in iteration 2.
+            #
+            #   2. **Annotation merge after work started** — if work has
+            #      already begun, we still merge any *new*
+            #      `delegation_strategy` annotations from the new plan into
+            #      pending subtasks of the existing plan. This lets the
+            #      manager promote subtasks to submanagers mid-flight without
+            #      losing progress on completed ones.
             if decision_type == "plan":
+                new_subtasks = manager_decision.get("subtasks", [])
+                # Track consecutive PLAN iterations without any worker progress
+                # so we can force the manager out of an endless planning loop.
+                # Without this cap a weaker model can sit in PLAN forever,
+                # refining the same subtasks across many iterations and
+                # never actually executing anything.
+                pre_progress_plans = int(state.get("_pre_progress_plans", 0))
+                MAX_PRE_PROGRESS_PLANS = 2
                 if self._task_plan is not None:
-                    # Plan already exists — manager is looping. Force it to
-                    # delegate by converting this to a warning and continuing.
+                    has_progress = any(
+                        st.get("status") in ("in_progress", "completed", "failed")
+                        for st in self._task_plan._subtasks
+                    )
+                    if not has_progress:
+                        pre_progress_plans += 1
+                        state["_pre_progress_plans"] = pre_progress_plans
+                        if pre_progress_plans > MAX_PRE_PROGRESS_PLANS:
+                            logger.warning(
+                                "Manager issued PLAN %d times without any "
+                                "worker progress — locking plan and forcing "
+                                "DELEGATE next iteration.",
+                                pre_progress_plans,
+                            )
+                            state["_plan_locked"] = (
+                                f"You have issued PLAN {pre_progress_plans} "
+                                f"times in a row without spawning any workers. "
+                                f"The plan is now LOCKED. You MUST issue a "
+                                f"DELEGATE decision next, picking the first "
+                                f"pending subtask from the existing plan and "
+                                f"assigning it to a worker. Do NOT issue PLAN "
+                                f"or DIAGNOSE again until at least one worker "
+                                f"has produced a result."
+                            )
+                            self._logger.trace_gate(
+                                "plan_loop",
+                                triggered=True,
+                                reason=f"{pre_progress_plans} consecutive PLANs with no progress",
+                                pre_progress_plans=pre_progress_plans,
+                            )
+                            continue
+                    if (
+                        not has_progress
+                        and new_subtasks
+                        and self._planning_enabled
+                    ):
+                        # Case 1: refinement — fully replace the plan.
+                        logger.info(
+                            "Replacing initial plan with refined plan "
+                            "(no work started yet, %d → %d subtasks)",
+                            len(self._task_plan._subtasks),
+                            len(new_subtasks),
+                        )
+                        self._task_plan = TaskPlan(max_subtasks=self._task_plan_max)
+                        if self._depth < self._budget.max_depth:
+                            promoted = self._auto_promote_complex_subtasks(
+                                new_subtasks
+                            )
+                            if promoted:
+                                logger.info(
+                                    "Auto-promoted %d subtask(s) on refined "
+                                    "plan: %s",
+                                    len(promoted), promoted,
+                                )
+                        self._task_plan.set_subtasks(new_subtasks)
+                        logger.info(
+                            "Refined task plan installed with %d subtasks",
+                            len(new_subtasks),
+                        )
+                        continue
+
+                    # Case 2: merge delegation_strategy annotations from
+                    # the new plan into pending subtasks of the existing
+                    # plan. We never touch in_progress / completed entries.
+                    merged = 0
+                    if new_subtasks:
+                        existing_by_id = {
+                            st.get("id"): st for st in self._task_plan._subtasks
+                        }
+                        for nst in new_subtasks:
+                            nid = nst.get("id")
+                            nstrat = nst.get("delegation_strategy")
+                            if not (nid and nstrat):
+                                continue
+                            est = existing_by_id.get(nid)
+                            if not est:
+                                continue
+                            if est.get("status") not in (None, "pending"):
+                                continue
+                            if est.get("delegation_strategy") != nstrat:
+                                est["delegation_strategy"] = nstrat
+                                merged += 1
+                        if merged:
+                            logger.info(
+                                "Merged %d delegation_strategy annotation(s) "
+                                "from re-PLAN into existing plan",
+                                merged,
+                            )
+
                     logger.warning(
-                        "Manager issued PLAN again but a plan already exists "
-                        "(%s). Ignoring repeated plan — manager should DELEGATE.",
+                        "Manager issued PLAN again but plan already in "
+                        "progress (%s). Locking plan — manager should DELEGATE.",
                         self._task_plan.progress_summary(),
                     )
-                    # Inject a hint so the manager sees this on next iteration
                     state["_plan_locked"] = (
-                        "A task plan already exists. You MUST use DELEGATE "
-                        "to assign workers to the pending subtasks, or "
-                        "COMPLETE if the task is done. Do NOT issue PLAN again."
+                        "A task plan already exists and work has started. "
+                        "You MUST use DELEGATE to assign workers to pending "
+                        "subtasks, or COMPLETE if the task is done. "
+                        "Do NOT issue PLAN again."
                     )
-                    # Feed stall detector so repeated PLANs trigger strategy switch
                     if self._stall:
                         stall_status = self._stall.record(0.0, "repeated_plan")
                         if stall_status == "switch_strategy":
@@ -1650,7 +2202,9 @@ class DelegationLoopRunner:
                                 "stall_detected_plan_loop"
                             ), "stall_detected"
                     continue
-                subtasks = manager_decision.get("subtasks", [])
+                subtasks = new_subtasks
+                # First-ever plan also counts toward the pre-progress cap
+                state["_pre_progress_plans"] = pre_progress_plans + 1
                 if subtasks and self._planning_enabled:
                     self._task_plan = TaskPlan(
                         max_subtasks=self._task_plan_max
@@ -1781,6 +2335,103 @@ class DelegationLoopRunner:
                 if "confidence" not in result:
                     result["confidence"] = manager_decision.get("confidence", 0.8)
 
+                # --- Critique gate: reject completion if the latest
+                # iteration's mean critique score is below the configured
+                # threshold. The manager often calls "complete" with low
+                # critique scores because it doesn't weight critique
+                # feedback heavily enough on its own; this gate enforces it.
+                if (
+                    self._critique_engine
+                    and self._critique_engine.enabled
+                    and self._history
+                    and self._budget.can_continue()[0]
+                ):
+                    last = self._history[-1] if self._history else {}
+                    critique_entries = last.get("critique") or []
+                    scores: list[float] = []
+                    defect_count = 0
+                    for ce in critique_entries:
+                        s = ce.get("score") if isinstance(ce, dict) else None
+                        if isinstance(s, (int, float)):
+                            scores.append(float(s))
+                        defs = ce.get("defects") if isinstance(ce, dict) else None
+                        if isinstance(defs, list):
+                            defect_count += len(defs)
+                    threshold = float(
+                        getattr(
+                            self._config.critique,
+                            "min_score_to_complete",
+                            0.5,
+                        )
+                    )
+                    if scores and threshold > 0:
+                        mean_score = sum(scores) / len(scores)
+                        if mean_score < threshold:
+                            logger.warning(
+                                "Manager tried to COMPLETE but mean critique "
+                                "score %.2f is below threshold %.2f "
+                                "(%d critiques, %d defects). Forcing repair.",
+                                mean_score,
+                                threshold,
+                                len(scores),
+                                defect_count,
+                            )
+                            self._logger.trace_gate(
+                                "critique",
+                                triggered=True,
+                                reason=f"mean_score={mean_score:.2f} < {threshold:.2f}",
+                                iteration=iteration,
+                                mean_score=round(mean_score, 4),
+                                threshold=threshold,
+                                n_critiques=len(scores),
+                                defects=defect_count,
+                            )
+                            state["_critique_repair_required"] = {
+                                "mean_score": round(mean_score, 4),
+                                "threshold": threshold,
+                                "defects": defect_count,
+                                "n_critiques": len(scores),
+                            }
+                            state["_last_manager_feedback"] = (
+                                f"COMPLETION REJECTED by critique gate: "
+                                f"mean critique score {mean_score:.2f} is "
+                                f"below the required {threshold:.2f}. "
+                                f"There are {defect_count} unresolved defect(s) "
+                                f"across {len(scores)} worker critique(s). "
+                                f"You MUST address the defects (re-delegate "
+                                f"or repair) before the task can complete."
+                            )
+                            continue  # force another loop iteration
+
+                # --- Deliverable placeholder gate: reject completion if any
+                # required output value or output file still contains obvious
+                # placeholders. Catches cases where the manager terminates
+                # with `XX%`, `TODO`, `???`, or empty values in the
+                # deliverables.
+                placeholder_findings = self._scan_placeholders(result)
+                if placeholder_findings and self._budget.can_continue()[0]:
+                    logger.warning(
+                        "Manager tried to COMPLETE but %d placeholder(s) "
+                        "remain in deliverables: %s",
+                        len(placeholder_findings),
+                        placeholder_findings[:5],
+                    )
+                    self._logger.trace_gate(
+                        "placeholder",
+                        triggered=True,
+                        reason=f"{len(placeholder_findings)} placeholder(s) found",
+                        iteration=iteration,
+                        sample=placeholder_findings[:3],
+                    )
+                    state["_placeholder_repair_required"] = placeholder_findings[:20]
+                    state["_last_manager_feedback"] = (
+                        f"COMPLETION REJECTED: {len(placeholder_findings)} "
+                        f"placeholder value(s) found in deliverables that "
+                        f"must be replaced with real content. Examples: "
+                        + "; ".join(placeholder_findings[:8])
+                    )
+                    continue  # force another loop iteration
+
                 # --- Final output gate: reject completion if critical
                 # placeholder files exist (1x1 PNGs, empty PDFs, etc.)
                 file_warnings = self._validate_output_files()
@@ -1796,6 +2447,13 @@ class DelegationLoopRunner:
                             "output files are broken: %s",
                             len(critical),
                             critical[:5],
+                        )
+                        self._logger.trace_gate(
+                            "file",
+                            triggered=True,
+                            reason=f"{len(critical)} critical broken file(s)",
+                            iteration=iteration,
+                            files=critical[:5],
                         )
                         # Inject the broken-file feedback into state so
                         # the manager sees it on the next iteration and
@@ -1824,6 +2482,13 @@ class DelegationLoopRunner:
                         )
                         if action == "retry_with_repair" and self._budget.can_continue()[0]:
                             self._eval_engine.record_retry()
+                            self._logger.trace_gate(
+                                "eval",
+                                triggered=True,
+                                reason=f"score={final_eval.score:.2f} action={action}",
+                                iteration=iteration,
+                                score=round(final_eval.score, 4),
+                            )
                             state["_eval_repair_required"] = {
                                 "score": round(final_eval.score, 4),
                                 "action": action,
@@ -1854,6 +2519,12 @@ class DelegationLoopRunner:
                     self._budget,
                     [],
                 )
+                # Append-only protection: if any earlier snapshot held
+                # better (=larger) versions of the deliverables, restore them.
+                try:
+                    self._restore_best_deliverables()
+                except Exception as exc:
+                    logger.debug("deliverable restore failed: %s", exc)
                 return result, "complete"
 
             if decision_type == "fail":
@@ -1947,6 +2618,7 @@ class DelegationLoopRunner:
                 state.pop("_repeated_delegation_warning", None)
 
             self._profiler.start(f"workers.iter_{iteration}")
+            self._current_iteration = iteration  # for tool-call debug logging
             delegation_results = self._execute_delegations(
                 envelopes, task, state, iteration=iteration
             )
@@ -2015,6 +2687,13 @@ class DelegationLoopRunner:
                     else ""
                 )
             self._history.append(history_entry)
+
+            # 6d. Snapshot deliverables so a later worker that overwrites
+            # `workspace/outputs/` cannot regress earlier good results.
+            try:
+                self._snapshot_deliverables(iteration)
+            except Exception as exc:
+                logger.debug("deliverable snapshot failed: %s", exc)
 
             # 7. Update rolling summary
             window = self._config.history.full_results_window
@@ -2393,8 +3072,9 @@ targeted workers to test the most likely hypotheses before doing a full retry.
         """Build all Manager Intelligence sections for the user message."""
         parts: list[str] = []
 
-        # Plan-locked warning (prevents PLAN loops)
-        plan_lock = state.get("_plan_locked")
+        # Plan-locked warning (prevents PLAN loops). Consume-once: if the
+        # next iteration also stalls in PLAN the gate will set this fresh.
+        plan_lock = state.pop("_plan_locked", None)
         if plan_lock:
             parts.append(
                 f"## PLAN LOCKED\n"
@@ -2914,15 +3594,26 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         "Do NOT accept placeholder images or empty files as valid output.\n"
                     )
 
-        # Inject completion-rejection feedback (from final output gate)
-        repair_feedback = state.get("_last_manager_feedback")
+        # Inject completion-rejection feedback from any of the completion
+        # gates (file validator, critique threshold, placeholder scanner,
+        # evaluation engine). The specific reason is in the message; we
+        # only need to make the requirement clear.
+        # Consume-once: pop the flag so the model sees it exactly in the
+        # iteration that follows the rejection. If the same gate fires
+        # again, the new feedback will be set fresh.
+        repair_feedback = state.pop("_last_manager_feedback", None)
+        # Also clear the per-gate sentinels so they don't accumulate.
+        state.pop("_critique_repair_required", None)
+        state.pop("_placeholder_repair_required", None)
         if repair_feedback:
             parts.append(
-                f"## 🛑 COMPLETION REJECTED — FILE REPAIR REQUIRED\n"
+                f"## 🛑 COMPLETION REJECTED — REPAIR REQUIRED\n"
                 f"{repair_feedback}\n\n"
-                f"You MUST delegate a worker to fix these broken output "
-                f"files before attempting to complete again. "
-                f"Do NOT mark the task as complete until all files are valid.\n"
+                f"You MUST delegate a worker (or repair the existing "
+                f"results) to address the issue above before attempting "
+                f"to complete again. Do NOT mark the task as complete "
+                f"until the underlying problem is actually fixed — not "
+                f"just renamed or papered over.\n"
             )
 
         # Repeated delegation warning
@@ -3511,26 +4202,31 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if not subtasks:
             return []
 
-        # Identify root-level (independent) subtasks first
+        # Score every subtask. Independent subtasks (no incoming deps)
+        # are the natural fan-out roots and get a +1 bonus, but dependent
+        # subtasks are no longer hard-excluded — realistic plans almost
+        # always have a pipeline shape (subtask_2 depends on subtask_1)
+        # and the previous "independent only" rule meant auto-promotion
+        # was inactive for them. A complex pipeline-stage workpackage is
+        # still a perfectly good submanager candidate.
         scored: list[tuple[dict, int, list[str]]] = []
         for st in subtasks:
-            if st.get("dependencies"):
-                continue  # only independent subtasks become submanagers
             score, reasons = self._score_subtask_complexity(st)
+            if not st.get("dependencies"):
+                score += 1
+                reasons.append("independent-root")
             scored.append((st, score, reasons))
 
         if not scored:
             return []
 
-        # COLLECTIVE UPLIFT: when ≥3 independent subtasks all share at
-        # least one complexity indicator (score ≥ 1) AND look structurally
-        # similar (parallel siblings of the same kind), they form a
-        # natural fan-out pattern that benefits from submanagers even if
-        # each individual subtask is small. This catches the case where
-        # weaker manager models split a "research X, Y, Z" task into 3+
-        # tiny but parallel subtasks.
+        # COLLECTIVE UPLIFT: when ≥2 subtasks all share at least one
+        # complexity indicator (score ≥ 1), they form a natural fan-out
+        # pattern that benefits from submanagers even if each individual
+        # subtask is small. Threshold lowered from 3 → 2 because realistic
+        # plans rarely have 3+ truly independent roots.
         nontrivial = [(st, s, r) for (st, s, r) in scored if s >= 1]
-        if len(nontrivial) >= 3:
+        if len(nontrivial) >= 2:
             for st, s, r in nontrivial:
                 idx = scored.index((st, s, r))
                 scored[idx] = (st, s + 2, r + ["collective-fanout"])
@@ -3673,9 +4369,25 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         try:
             sub_result = child.run(full_sub_task, dict(inherited))
         except Exception as exc:
-            logger.error("Submanager %s raised: %s", worker_id, exc)
+            import traceback as _tb
+            tb_str = _tb.format_exc()
+            logger.error(
+                "Submanager %s raised: %s\n%s", worker_id, exc, tb_str,
+            )
+            try:
+                self._logger.trace(
+                    "submanager",
+                    f"crashed: {worker_id}",
+                    level="ERROR",
+                    worker=worker_id,
+                    error=str(exc),
+                    traceback=tb_str[-1000:],
+                )
+            except Exception:
+                pass
             sub_result = {
                 "error": str(exc),
+                "traceback": tb_str,
                 "confidence": 0.0,
                 "submanager_failed": True,
             }
@@ -3716,6 +4428,45 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         tools_allowed = envelope.get("tools_allowed", [])
         output_contract = envelope.get("output_contract", {})
         codemode = envelope.get("codemode", {})
+
+        # Sanitize tools_allowed: the manager LLM occasionally hallucinates
+        # tool names like "python", "pandas", "timeout", "yaml" — none of
+        # which are real registered tools. Drop unknowns (preserving glob
+        # patterns like "dynamic.*") and, if the worker is supposed to run
+        # code but the resulting list contains nothing useful, fall back to
+        # a sane default so the worker isn't silently rendered tool-less.
+        if tools_allowed and self._tools is not None:
+            known = set(self._tools.tool_names)
+            sanitized: list[str] = []
+            dropped: list[str] = []
+            for t in tools_allowed:
+                if not isinstance(t, str):
+                    continue
+                if "*" in t or t in known:
+                    sanitized.append(t)
+                else:
+                    dropped.append(t)
+            if dropped:
+                logger.warning(
+                    "  Worker %s: dropping unknown/hallucinated tools %s "
+                    "(not registered in ToolRegistry)",
+                    worker_id,
+                    sorted(set(dropped)),
+                )
+            tools_allowed = sanitized
+        # If the worker is supposed to run code but ended up with no usable
+        # tools, restore a minimal default toolset.
+        if (
+            (not tools_allowed)
+            and isinstance(codemode, dict)
+            and codemode.get("enabled", False)
+        ):
+            tools_allowed = ["code.execute", "file.read", "file.write", "file.list"]
+            logger.warning(
+                "  Worker %s: tools_allowed was empty/invalid — restored default "
+                "code-mode toolset",
+                worker_id,
+            )
 
         # Dynamic temperature: envelope value (set by manager) takes priority
         worker_temperature = envelope.get("temperature", 0.2)
@@ -3776,9 +4527,16 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             and codemode.get("tool_creation", False)
         )
 
-        # Build system prompt from envelope
+        # Build system prompt from envelope.
+        # WORKER_PITFALLS is injected unconditionally so workers see the
+        # hard-won bug list (stateless code.execute, .iloc, MultiIndex,
+        # hallucinated APIs, …) regardless of what the manager wrote into
+        # `instructions`. Earlier runs proved that pitfalls placed only in
+        # the manager prompt never reach workers.
+        from awp.data.prompts import WORKER_PITFALLS
         system_parts = [
             f"You are a Worker Agent (ID: {worker_id}) executing a delegated task.\n",
+            WORKER_PITFALLS,
             f"## Instructions\n{instructions}\n",
         ]
 
@@ -4002,15 +4760,34 @@ print("Chart saved")
                 _original_call = self._tools.call
 
                 def _tracking_call(name: str, arguments: dict) -> dict:
+                    import time as _t
+                    _start = _t.perf_counter()
                     result = _original_call(name, arguments)
+                    _dur_ms = (_t.perf_counter() - _start) * 1000.0
                     _tool_call_log.append(
                         {
                             "tool": name,
                             "arguments": arguments,
                             "result": result,
+                            "duration_ms": round(_dur_ms, 2),
                         }
                     )
                     self._budget.tool_calls_used += 1
+                    # Comprehensive debug log
+                    try:
+                        ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+                        err = (result.get("error") if isinstance(result, dict) else None) or None
+                        self._logger.trace_tool_call(
+                            worker_id=worker_id,
+                            iteration=str(getattr(self, "_current_iteration", "?")),
+                            tool=name,
+                            ok=ok,
+                            duration_ms=round(_dur_ms, 2),
+                            error=str(err) if err else None,
+                            arguments=arguments if isinstance(arguments, dict) else None,
+                        )
+                    except Exception:
+                        pass
                     return result
 
                 # Code-mode workers need more rounds: install pkg → run
@@ -4641,6 +5418,252 @@ Rules:
 
         return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings, "file_warnings": file_warnings}
 
+    # Compiled regex for placeholder values that indicate the manager
+    # terminated the run with stub deliverables instead of real content.
+    _PLACEHOLDER_PATTERNS: tuple[str, ...] = (
+        r"\bXX%?",          # XX, XX%
+        r"\bTODO\b",
+        r"\bTBD\b",
+        r"\bN/A\b",
+        r"\?\?\?+",          # ??? or longer
+        r"<placeholder[^>]*>",
+        r"\{\{\s*[A-Za-z_][A-Za-z0-9_ ]*\s*\}\}",  # mustache-style {{ var }}
+        r"\bFIXME\b",
+        r"\blorem ipsum\b",
+    )
+
+    def _scan_placeholders(self, result: dict) -> list[str]:
+        """Scan a final_result dict and any declared output files for
+        obvious placeholder strings. Returns a list of human-readable
+        findings; empty list means the deliverables look real.
+
+        This is a hard gate: if any placeholder is found and budget allows,
+        the manager's "complete" decision is rejected and another iteration
+        is forced. The model often emits stub tables like ``XX%`` or
+        ``Profit Factor: TODO`` and then declares success — without this
+        check those would be persisted as final deliverables.
+        """
+        import re
+
+        if not result:
+            return []
+
+        compiled = [re.compile(p, re.IGNORECASE) for p in self._PLACEHOLDER_PATTERNS]
+        findings: list[str] = []
+
+        def _scan_text(label: str, text: str) -> None:
+            if not text or not isinstance(text, str):
+                return
+            # Skip very large blobs by sampling first 200k chars to avoid
+            # pathological scans on huge logs.
+            sample = text[:200_000]
+            for pat in compiled:
+                m = pat.search(sample)
+                if m:
+                    snippet = sample[max(0, m.start() - 20): m.end() + 20].replace("\n", " ").strip()
+                    findings.append(f"{label}: '{snippet}' (matched /{pat.pattern}/)")
+                    return  # one finding per scope is enough
+
+        def _walk(label: str, value: object) -> None:
+            if isinstance(value, str):
+                _scan_text(label, value)
+            elif isinstance(value, dict):
+                for k, v in value.items():
+                    if isinstance(k, str) and k.startswith("_"):
+                        continue  # skip internal annotations like _critique
+                    _walk(f"{label}.{k}", v)
+            elif isinstance(value, (list, tuple)):
+                for i, v in enumerate(value):
+                    _walk(f"{label}[{i}]", v)
+
+        _walk("result", result)
+
+        # Also scan declared output files (text-based) on disk so we catch
+        # placeholders that the manager wrote into files but didn't reflect
+        # in `final_result`.
+        text_exts = {".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html", ".tex"}
+        scan_dirs: list = []
+        ws_out = self._dir / "workspace" / "outputs"
+        run_out = self._dir / "output" / self._run_id
+        if ws_out.exists():
+            scan_dirs.append(ws_out)
+        if run_out.exists():
+            scan_dirs.append(run_out)
+        for d in scan_dirs:
+            for p in d.rglob("*"):
+                if not p.is_file():
+                    continue
+                if p.suffix.lower() not in text_exts:
+                    continue
+                try:
+                    if p.stat().st_size > 5_000_000:
+                        continue  # skip huge files
+                    txt = p.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                _scan_text(f"file:{p.name}", txt)
+
+        # De-duplicate while preserving order
+        seen: set[str] = set()
+        unique: list[str] = []
+        for f in findings:
+            if f not in seen:
+                seen.add(f)
+                unique.append(f)
+        return unique
+
+    # ----------------------------------------------------------------
+    # Append-only deliverable protection
+    #
+    # After every iteration we snapshot workspace/outputs/ into
+    #   <run_dir>/iterations/<NNN>/_outputs_snapshot/
+    # On termination we walk all snapshots and, for each deliverable
+    # filename, restore the LARGEST version found across history (after
+    # rejecting placeholder content). This guarantees that a later worker
+    # which overwrites a good summary.md / backtest.py / cbot.cs / png
+    # with a shorter buggy version cannot regress the run's final output.
+    # ----------------------------------------------------------------
+
+    def _outputs_dir(self) -> Path:
+        return self._dir / "workspace" / "outputs"
+
+    def _snapshot_deliverables(self, iteration: int) -> None:
+        """Copy workspace/outputs/ into the per-iteration snapshot dir."""
+        src = self._outputs_dir()
+        if not src.exists():
+            return
+        dst = (
+            self._run_dir
+            / "iterations"
+            / f"{iteration:03d}"
+            / "_outputs_snapshot"
+        )
+        if dst.exists():
+            return  # idempotent
+        try:
+            import shutil
+            # Copy as a tree but skip our own snapshot dirs (defensive)
+            def _ignore(_d: str, names: list[str]) -> list[str]:
+                return [n for n in names if n.startswith("_outputs_snapshot")]
+            shutil.copytree(src, dst, ignore=_ignore, dirs_exist_ok=False)
+        except Exception as exc:
+            logger.debug("snapshot copy failed for iter %d: %s", iteration, exc)
+
+    def _restore_best_deliverables(self) -> None:
+        """Walk all per-iteration snapshots and, for each deliverable file
+        path (relative to workspace/outputs/), pick the LARGEST surviving
+        version that does not contain placeholder strings, and restore it
+        if it is bigger than the current on-disk version (or if the
+        current version is missing/empty/placeholder)."""
+        outputs = self._outputs_dir()
+        iters_dir = self._run_dir / "iterations"
+        if not iters_dir.exists():
+            return
+
+        # Build map: rel_path -> (best_size, best_path, iter_number)
+        best: dict[str, tuple[int, Path, int]] = {}
+        placeholder_re = None
+        try:
+            import re
+            placeholder_re = re.compile(
+                r"\bXX%?|\bTODO\b|\bTBD\b|\?\?\?+|<placeholder",
+                re.IGNORECASE,
+            )
+        except Exception:
+            pass
+
+        for iter_dir in sorted(iters_dir.iterdir()):
+            snap = iter_dir / "_outputs_snapshot"
+            if not snap.is_dir():
+                continue
+            try:
+                iter_num = int(iter_dir.name)
+            except ValueError:
+                iter_num = 0
+            for f in snap.rglob("*"):
+                if not f.is_file():
+                    continue
+                try:
+                    rel = str(f.relative_to(snap))
+                except ValueError:
+                    continue
+                size = f.stat().st_size
+                if size == 0:
+                    continue
+                # Reject placeholder content for text-like files
+                if placeholder_re and f.suffix.lower() in {
+                    ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html",
+                    ".py", ".cs", ".js", ".ts",
+                }:
+                    try:
+                        head = f.read_text(encoding="utf-8", errors="replace")[:50_000]
+                        if placeholder_re.search(head):
+                            continue
+                    except Exception:
+                        pass
+                cur = best.get(rel)
+                if cur is None or size > cur[0]:
+                    best[rel] = (size, f, iter_num)
+
+        if not best:
+            return
+
+        restored = 0
+        outputs.mkdir(parents=True, exist_ok=True)
+        text_exts = {
+            ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html",
+            ".py", ".cs", ".js", ".ts",
+        }
+        for rel, (best_size, best_path, iter_num) in best.items():
+            target = outputs / rel
+            need_restore = False
+            if not target.exists():
+                need_restore = True
+            else:
+                try:
+                    cur_size = target.stat().st_size
+                except OSError:
+                    cur_size = 0
+                # Detect placeholder content in current file even if it's
+                # large — bigger ≠ better when the content is "TODO ..." padding.
+                cur_has_placeholder = False
+                if (
+                    placeholder_re
+                    and target.suffix.lower() in text_exts
+                ):
+                    try:
+                        ch = target.read_text(encoding="utf-8", errors="replace")[:50_000]
+                        if placeholder_re.search(ch):
+                            cur_has_placeholder = True
+                    except Exception:
+                        pass
+                if cur_size == 0 or cur_has_placeholder or best_size > cur_size:
+                    need_restore = True
+            if need_restore:
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy2(best_path, target)
+                    restored += 1
+                    logger.info(
+                        "Restored deliverable %s from iter %03d snapshot "
+                        "(%d bytes, larger than current)",
+                        rel, iter_num, best_size,
+                    )
+                except Exception as exc:
+                    logger.debug("restore failed for %s: %s", rel, exc)
+
+        if restored:
+            try:
+                self._logger.trace(
+                    "deliverables",
+                    f"restored {restored} file(s) from snapshots",
+                    level="INFO",
+                    restored=restored,
+                )
+            except Exception:
+                pass
+
     def _validate_output_files(self) -> list[str]:
         """Scan workspace and output dirs for invalid files."""
         from .file_validator import validate_directory
@@ -4943,14 +5966,23 @@ Rules:
         return "; ".join(findings)
 
     def _build_partial_result(self, reason: str) -> dict:
-        """Build a partial result when the loop terminates early."""
+        """Build a partial result when the loop terminates early.
+
+        Always restore the best-known deliverable snapshot so a partial run
+        still ends with the highest-quality outputs we ever produced (not
+        whatever a late buggy worker happened to leave on disk).
+        """
+        try:
+            self._restore_best_deliverables()
+        except Exception as exc:
+            logger.debug("deliverable restore failed: %s", exc)
         last_confidence = (
             self._history[-1].get("confidence", 0.0) if self._history else 0.0
         )
         return {
             "partial": True,
             "termination_reason": reason,
-            "iterations_completed": self._budget.loops_used,
+            "iterations_completed": self._iter_counter,
             "confidence": last_confidence,
             "history_summary": [
                 {"iteration": h["iteration"], "confidence": h.get("confidence", 0)}

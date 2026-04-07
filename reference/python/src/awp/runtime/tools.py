@@ -99,6 +99,39 @@ class ToolRegistry:
         fn = self._tools.get(name)
         if fn is None:
             return _err(f"Unknown tool: {name}", 404)
+
+        # ----- Argument validation against the registered JSON schema -----
+        # Without this gate the LLM can send arbitrary kwargs that crash
+        # deep inside the Python implementation with unhelpful TypeError
+        # messages (e.g. ".join(notes) if not" being passed as a kwarg name
+        # because the LLM emitted code in the wrong field). Validating up
+        # front and returning a structured error gives the model a clear
+        # corrective signal it can act on within the same iteration.
+        defn = self._definitions.get(name, {}).get("function", {})
+        schema = defn.get("parameters") or {}
+        props = schema.get("properties") or {}
+        required = schema.get("required") or []
+        if isinstance(arguments, dict) and props:
+            allowed_keys = set(props.keys())
+            unknown = [k for k in arguments.keys() if k not in allowed_keys and not k.startswith("_")]
+            missing = [k for k in required if k not in arguments]
+            if unknown or missing:
+                parts: list[str] = []
+                if missing:
+                    parts.append(f"missing required arguments: {missing}")
+                if unknown:
+                    parts.append(
+                        f"unknown arguments: {unknown}. "
+                        f"Valid arguments are: {sorted(allowed_keys)}. "
+                        f"HINT: do NOT put code, JSON or shell snippets into "
+                        f"argument names — emit them as VALUES of the declared "
+                        f"parameters instead."
+                    )
+                return _err(
+                    f"Invalid arguments for {name}: " + "; ".join(parts),
+                    400,
+                )
+
         try:
             declared = self._tool_secrets.get(name, [])
             if declared and self._secrets:

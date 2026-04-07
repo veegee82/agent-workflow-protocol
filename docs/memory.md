@@ -1,6 +1,16 @@
 # Memory & State Reference
 
-Layer 4 defines the state model, state sharing strategy, output contracts, and memory architecture. State is the primary mechanism through which agents share data within a workflow execution. Memory provides persistent knowledge across executions.
+## Mental Model
+
+Layer 4 answers two distinct but related questions: **"What does this run know right now?"** (state) and **"What does this workflow remember from past runs?"** (memory). Keeping the two separate is essential — conflating them is the most common modeling mistake in multi-agent systems.
+
+**State** is the ephemeral, per-run scratchpad that agents read from and write to as the DAG executes. It is filtered by a `sharing.strategy` (`full`, `selective`, or `isolated`) so that downstream agents only see what they are explicitly allowed to see. State dies when the run ends (unless persisted for resume/replay).
+
+**Memory** is the durable knowledge store that survives across runs. AWP defines a deliberate **4-tier hierarchy** modeled on cognitive science: long-term (curated facts in `MEMORY.md`), working (append-only daily logs), episodic (per-agent run history), and semantic (vector index). Memory promotes information *upward* over time: today's working-memory observations get curated into tomorrow's long-term knowledge via the `memory.curate` tool. In the [Experiment paradigm](ui.md), memory is **scoped per Experiment** — each Experiment has its own Protocol/Memory tab, so two parallel experiments do not pollute each other's long-term store.
+
+State sharing rules are enforced by the runtime as **rule R16** ([validation.md](validation.md)) and integrate with [security](security.md): `sensitive_fields` and `never_share` are redacted before any [observability](observability.md) sink sees them. Memory access is gated by per-agent `access_control` and audited as `memory.write` events.
+
+State is configured under `state` in [workflow.awp.yaml](manifest.md); memory under `memory`.
 
 ## State Model
 

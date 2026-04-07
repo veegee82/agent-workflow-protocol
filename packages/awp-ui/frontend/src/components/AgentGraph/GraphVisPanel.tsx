@@ -38,6 +38,24 @@ import { customNodeTypes } from './CustomNodes';
 function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
+  // -----------------------------------------------------------------------
+  // 2-Pass block layout
+  //
+  // PASS 1 (buildBlock): walk the tree bottom-up. For each manager node we
+  //   compute a Block { iters, subs[], totalWidthPx, totalHeightPx } that
+  //   describes the bounding box of the entire subtree (manager + iterations
+  //   + workers + tools + nested sub-manager blocks).
+  //
+  // PASS 2 (placeBlock): walk the tree top-down. Each block is placed at an
+  //   absolute (x, y). Sub-manager blocks are packed side-by-side to the
+  //   RIGHT of their parent's own area, all starting at the parent manager's
+  //   Y so the tree grows in width, not depth. Because each block knows its
+  //   own totalWidthPx, sibling sub-blocks never overlap with each other or
+  //   with the parent's content.
+  //
+  // Cycle protection via inProgress set.
+  // -----------------------------------------------------------------------
+
   // Build adjacency
   const childrenMap = new Map<string, string[]>();
   const parentMap = new Map<string, string>();
@@ -55,166 +73,250 @@ function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
   }
 
   const nt = (id: string) => nodeMap.get(id)?.data?.nodeType ?? nodeMap.get(id)?.type ?? '';
+  const isWorkerLike = (id: string) => nt(id) === 'worker' || nt(id) === 'submanager';
 
-  // Layout constants
-  const COL_GAP = 220;   // horizontal gap between columns (workers, tools)
-  const ROW_GAP = 160;   // vertical gap between iteration rows
-  const TOOL_Y_OFFSET = 120; // tool calls sit below their worker within the same row band
+  // Layout constants (px)
+  const COL_GAP = 240;
+  const ROW_GAP = 170;
+  const TOOL_Y_OFFSET = 110;
+  const LANE_GAP = 100;     // horizontal gap between sibling sub-manager blocks
+  const ROOT_GAP_Y = 200;   // vertical gap between independent root subtrees
+  const SAFETY_X = -COL_GAP * 3;
 
   const positions = new Map<string, { x: number; y: number }>();
 
-  // Find roots
-  const roots = nodes.filter((n) => !parentMap.has(n.id)).map((n) => n.id);
-  if (roots.length === 0 && nodes.length > 0) roots.push(nodes[0].id);
+  type WorkerCell = { id: string; col: number; tools: string[] };
+  type IterPlan = {
+    id: string;
+    rowIdx: number;        // row offset from block top (manager row = 0)
+    rowSpan: number;       // 1 normally, 2 if iteration has tool calls
+    workers: WorkerCell[];
+    others: { id: string; col: number }[];
+  };
+  type Block = {
+    mgrId: string;
+    iters: IterPlan[];
+    mgrOthers: string[];   // non-iteration children (e.g. completion nodes)
+    selfCols: number;      // own area width in COL_GAP units (manager + workers)
+    selfRows: number;      // own area height in ROW_GAP units
+    subs: Block[];
+    totalWidthPx: number;
+    totalHeightPx: number;
+  };
 
-  // -----------------------------------------------------------------------
-  // Row-based layout: iterations are rows, workers/tools are columns
-  //
-  // Structure:  root → manager → iter0 → [worker0, worker1, ...]
-  //                             iter1 → [worker2, ...]
-  //                             ...
-  //
-  // Row 0: root (task)
-  // Row 1: manager
-  // Row 2: iter000  |  worker_a  worker_b  (+ tool calls below each worker)
-  // Row 3: iter001  |  worker_c
-  // ...
-  // Last:  completion
-  // -----------------------------------------------------------------------
+  const blockCache = new Map<string, Block>();
+  const inProgress = new Set<string>();
 
-  // Collect iterations ordered under each manager, and workers under each iteration
-  // For each iteration, compute how many "sub-rows" it needs (1 if no tools, 2 if tools)
-  /**
-   * Lay out a manager node and all its iterations/workers/tools/sub-managers.
-   * Returns the next available row after the subtree.
-   */
-  function layoutManager(mgrId: string, startRow: number, xCenter: number): number {
-    let row = startRow;
-    positions.set(mgrId, { x: xCenter, y: row * ROW_GAP });
-    row++;
+  function emptyBlock(mgrId: string): Block {
+    return {
+      mgrId, iters: [], mgrOthers: [],
+      selfCols: 1, selfRows: 1, subs: [],
+      totalWidthPx: COL_GAP, totalHeightPx: ROW_GAP,
+    };
+  }
 
-    const iterChildren = (childrenMap.get(mgrId) ?? []).filter((c) => nodeMap.has(c));
-    const iterIds = iterChildren.filter((c) => nt(c) === 'iteration');
-    const mgrOther = iterChildren.filter((c) => nt(c) !== 'iteration');
+  function buildBlock(mgrId: string): Block {
+    const cached = blockCache.get(mgrId);
+    if (cached) return cached;
+    if (inProgress.has(mgrId)) return emptyBlock(mgrId); // cycle guard
+    inProgress.add(mgrId);
+
+    const allKids = (childrenMap.get(mgrId) ?? []).filter((c) => nodeMap.has(c));
+    const iterIds = allKids.filter((c) => nt(c) === 'iteration');
+    const mgrOthers = allKids.filter((c) => nt(c) !== 'iteration');
+
+    const iters: IterPlan[] = [];
+    const subs: Block[] = [];
+    let rowCursor = 1; // manager header occupies row 0
+    let maxCols = 1;   // at least one col for the manager itself
 
     for (const iterId of iterIds) {
       const iterKids = (childrenMap.get(iterId) ?? []).filter((c) => nodeMap.has(c));
-      const workerIds = iterKids.filter((c) => nt(c) === 'worker');
-      const otherIterKids = iterKids.filter((c) => nt(c) !== 'worker');
+      const workerIds = iterKids.filter(isWorkerLike);
+      const otherIds = iterKids.filter((c) => !isWorkerLike(c));
 
-      const iterY = row * ROW_GAP;
-      positions.set(iterId, { x: xCenter, y: iterY });
-
+      const workers: WorkerCell[] = [];
       let col = 1;
       let hasToolRow = false;
-      let maxSubRow = row + 1;
+
       for (const wId of workerIds) {
-        const wx = xCenter + col * COL_GAP;
-        positions.set(wId, { x: wx, y: iterY });
-
         const wKids = (childrenMap.get(wId) ?? []).filter((c) => nodeMap.has(c));
-        const toolIds = wKids.filter((c) => nt(c) === 'toolCall');
+        const tools = wKids.filter((c) => nt(c) === 'toolCall');
         const subMgrIds = wKids.filter((c) => nt(c) === 'manager');
-        const otherKids = wKids.filter((c) => nt(c) !== 'toolCall' && nt(c) !== 'manager');
 
-        if (toolIds.length > 0) {
+        workers.push({ id: wId, col, tools });
+
+        // Reserve column space for tool fan-out
+        let workerColSpan = 1;
+        if (tools.length > 0) {
           hasToolRow = true;
-          const toolSpacing = Math.min(COL_GAP * 0.55, COL_GAP / Math.max(1, toolIds.length));
-          for (let ti = 0; ti < toolIds.length; ti++) {
-            positions.set(toolIds[ti], {
+          const toolSpacing = Math.min(COL_GAP * 0.55, COL_GAP / Math.max(1, tools.length));
+          const toolSpread = (tools.length - 1) * toolSpacing;
+          workerColSpan = Math.max(1, Math.ceil((toolSpread + COL_GAP * 0.4) / COL_GAP));
+        }
+        col += workerColSpan;
+
+        // Recursively build sub-manager blocks (bottom-up)
+        for (const sub of subMgrIds) {
+          if (!blockCache.has(sub)) subs.push(buildBlock(sub));
+          else subs.push(blockCache.get(sub)!);
+        }
+      }
+
+      // Reserve cols for "others" on the iteration row
+      const others: { id: string; col: number }[] = [];
+      for (const oid of otherIds) {
+        others.push({ id: oid, col });
+        col += 1;
+      }
+
+      const rowSpan = hasToolRow ? 2 : 1;
+      iters.push({ id: iterId, rowIdx: rowCursor, rowSpan, workers, others });
+      maxCols = Math.max(maxCols, col);
+      rowCursor += rowSpan;
+    }
+
+    // Reserve rows for non-iteration children stacked under the manager column
+    const mgrOtherRows = mgrOthers.length;
+    const selfRows = Math.max(1, rowCursor + mgrOtherRows);
+    const selfCols = Math.max(1, maxCols);
+
+    const selfWidthPx = selfCols * COL_GAP;
+    const selfHeightPx = selfRows * ROW_GAP;
+
+    // Sub-blocks are placed side-by-side starting after the self area, all at
+    // the same Y as the parent manager.
+    const subsWidthPx = subs.reduce(
+      (acc, b) => acc + b.totalWidthPx + LANE_GAP,
+      0,
+    );
+    const subsMaxHeightPx = subs.length > 0
+      ? Math.max(...subs.map((b) => b.totalHeightPx))
+      : 0;
+
+    const totalWidthPx = selfWidthPx + (subs.length > 0 ? LANE_GAP + subsWidthPx : 0);
+    const totalHeightPx = Math.max(selfHeightPx, subsMaxHeightPx);
+
+    const block: Block = {
+      mgrId, iters, mgrOthers,
+      selfCols, selfRows, subs,
+      totalWidthPx, totalHeightPx,
+    };
+    blockCache.set(mgrId, block);
+    inProgress.delete(mgrId);
+    return block;
+  }
+
+  function placeBlock(block: Block, x: number, y: number): void {
+    // Manager header
+    positions.set(block.mgrId, { x, y });
+
+    // Iterations + workers + tools
+    for (const iter of block.iters) {
+      const iterY = y + iter.rowIdx * ROW_GAP;
+      positions.set(iter.id, { x, y: iterY });
+
+      for (const w of iter.workers) {
+        const wx = x + w.col * COL_GAP;
+        positions.set(w.id, { x: wx, y: iterY });
+
+        if (w.tools.length > 0) {
+          const toolSpacing = Math.min(COL_GAP * 0.55, COL_GAP / Math.max(1, w.tools.length));
+          for (let ti = 0; ti < w.tools.length; ti++) {
+            positions.set(w.tools[ti], {
               x: wx + ti * toolSpacing,
               y: iterY + TOOL_Y_OFFSET,
             });
           }
-          const toolSpread = (toolIds.length - 1) * toolSpacing;
-          col += Math.max(1, Math.ceil((toolSpread + COL_GAP * 0.3) / COL_GAP));
-        } else {
-          col++;
-        }
-
-        // Sub-managers (A4 recursive delegation) — layout recursively below
-        if (subMgrIds.length > 0) {
-          let subRow = row + (hasToolRow ? 2 : 1);
-          for (const subMgrId of subMgrIds) {
-            subRow = layoutManager(subMgrId, subRow, wx);
-          }
-          maxSubRow = Math.max(maxSubRow, subRow);
-        }
-
-        // Other non-tool, non-manager children
-        for (const otherId of otherKids) {
-          if (!positions.has(otherId)) {
-            const subRow = row + (hasToolRow ? 2 : 1);
-            maxSubRow = Math.max(maxSubRow, collectSubtree(otherId, subRow, wx));
-          }
         }
       }
 
-      for (const otherId of otherIterKids) {
-        positions.set(otherId, { x: xCenter + col * COL_GAP, y: iterY });
-        col++;
+      for (const o of iter.others) {
+        positions.set(o.id, { x: x + o.col * COL_GAP, y: iterY });
       }
-
-      row = Math.max(row + (hasToolRow ? 2 : 1), maxSubRow);
     }
 
-    // Non-iteration children of manager (e.g. completion)
-    for (const otherId of mgrOther) {
+    // Non-iteration children of the manager (completion etc.) stacked under
+    // the iteration column.
+    let stackRow = block.iters.length > 0
+      ? block.iters[block.iters.length - 1].rowIdx + block.iters[block.iters.length - 1].rowSpan
+      : 1;
+    for (const otherId of block.mgrOthers) {
       if (!positions.has(otherId)) {
-        positions.set(otherId, { x: xCenter, y: row * ROW_GAP });
-        row++;
+        positions.set(otherId, { x, y: y + stackRow * ROW_GAP });
+        stackRow++;
       }
     }
 
-    return row;
+    // Sub-manager blocks: side-by-side, all at parent manager's Y. The tree
+    // grows in WIDTH, not depth. Each sub-block is fully self-contained so no
+    // overlap with siblings or parent content is possible.
+    let subX = x + block.selfCols * COL_GAP + LANE_GAP;
+    for (const sub of block.subs) {
+      placeBlock(sub, subX, y);
+      subX += sub.totalWidthPx + LANE_GAP;
+    }
   }
 
-  function collectSubtree(rootId: string, startRow: number, xCenter: number): number {
-    const type = nt(rootId);
-    let row = startRow;
+  // Find roots (nodes without parents in the edge graph)
+  const roots = nodes.filter((n) => !parentMap.has(n.id)).map((n) => n.id);
+  if (roots.length === 0 && nodes.length > 0) roots.push(nodes[0].id);
 
-    // If root is a manager (e.g. sub-manager), layout it and its subtree
-    if (type === 'manager') {
-      return layoutManager(rootId, startRow, xCenter);
+  // Walk roots. A root may be a task (whose first child is a manager) or a
+  // bare manager. Each root subtree gets its own vertical band so independent
+  // roots never overlap.
+  let currentRootY = 0;
+
+  function placeRootSubtree(rootId: string): void {
+    const rootType = nt(rootId);
+
+    if (rootType === 'manager') {
+      const block = buildBlock(rootId);
+      placeBlock(block, 0, currentRootY);
+      currentRootY += block.totalHeightPx + ROOT_GAP_Y;
+      return;
     }
 
-    // Place root (task node)
-    if (type === 'task' || type === 'completion' || (!type && !parentMap.has(rootId))) {
-      positions.set(rootId, { x: xCenter, y: row * ROW_GAP });
+    // Non-manager root: place it at the top of its band, then recurse into
+    // its manager / non-manager children.
+    let row = 0;
+    if (!positions.has(rootId)) {
+      positions.set(rootId, { x: 0, y: currentRootY });
       row++;
     }
 
-    const rootChildren = (childrenMap.get(rootId) ?? []).filter((c) => nodeMap.has(c));
+    const kids = (childrenMap.get(rootId) ?? []).filter((c) => nodeMap.has(c));
+    const mgrKids = kids.filter((c) => nt(c) === 'manager');
+    const otherKids = kids.filter((c) => nt(c) !== 'manager');
 
-    // Find manager children
-    const managerIds = rootChildren.filter((c) => nt(c) === 'manager');
-    const otherChildren = rootChildren.filter((c) => nt(c) !== 'manager');
-
-    for (const mgrId of managerIds) {
-      row = layoutManager(mgrId, row, xCenter);
+    let bandHeightPx = row * ROW_GAP;
+    for (const mgrId of mgrKids) {
+      const block = buildBlock(mgrId);
+      placeBlock(block, 0, currentRootY + bandHeightPx);
+      bandHeightPx += block.totalHeightPx + ROW_GAP;
     }
 
-    // Non-manager children of root (e.g. completion node)
-    for (const otherId of otherChildren) {
+    for (const otherId of otherKids) {
       if (!positions.has(otherId)) {
-        positions.set(otherId, { x: xCenter, y: row * ROW_GAP });
-        row++;
+        positions.set(otherId, { x: 0, y: currentRootY + bandHeightPx });
+        bandHeightPx += ROW_GAP;
       }
     }
 
-    return row;
+    currentRootY += bandHeightPx + ROOT_GAP_Y;
   }
 
-  let currentRow = 0;
   for (const rootId of roots) {
-    currentRow = collectSubtree(rootId, currentRow, 0);
+    placeRootSubtree(rootId);
   }
 
-  // Place any unpositioned nodes (safety net)
+  // Safety net for any unreachable / orphan nodes — push them off to the left
+  // so they don't visually collide with the main layout.
+  let safetyY = 0;
   for (const n of nodes) {
     if (!positions.has(n.id)) {
-      positions.set(n.id, { x: 0, y: currentRow * ROW_GAP });
-      currentRow++;
+      positions.set(n.id, { x: SAFETY_X, y: safetyY });
+      safetyY += ROW_GAP;
     }
   }
 
@@ -1061,13 +1163,22 @@ export function GraphVisPanel() {
     setNodes(laid);
     setEdges(styledEdges(filteredData.edges, laid));
 
-    // Auto-fit view when node count changes (new nodes added)
+    // Auto-fit on EVERY data change while autoFit is on, so the entire graph
+    // stays visible as it grows. Double-RAF defers the fit until ReactFlow has
+    // committed the new node positions to the DOM, otherwise fitView measures
+    // a stale bounding box and the new nodes scroll off-screen.
     const nodeCount = filteredData.nodes.length;
-    if (autoFit && reactFlowInstance && nodeCount > 0 && nodeCount !== prevNodeCountRef.current) {
-      // Small delay to let ReactFlow render the new nodes before fitting
-      setTimeout(() => {
-        reactFlowInstance.fitView({ padding: 0.3, duration: 300 });
-      }, 50);
+    if (autoFit && reactFlowInstance && nodeCount > 0) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          reactFlowInstance.fitView({
+            padding: 0.18,
+            duration: 350,
+            minZoom: 0.02,
+            maxZoom: 1.5,
+          });
+        });
+      });
     }
     prevNodeCountRef.current = nodeCount;
   }, [filteredData, setNodes, setEdges, autoFit, reactFlowInstance]);
@@ -1101,7 +1212,20 @@ export function GraphVisPanel() {
   }, []);
 
   const handleFitView = useCallback(() => {
-    reactFlowInstance?.fitView({ padding: 0.3, duration: 400 });
+    if (!reactFlowInstance) return;
+    // Double-RAF ensures we run after the current layout pass has flushed
+    // node positions to the DOM — otherwise fitView measures stale bounds
+    // and the button appears to do nothing on large graphs.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        reactFlowInstance.fitView({
+          padding: 0.2,
+          duration: 500,
+          minZoom: 0.05,
+          maxZoom: 1.5,
+        });
+      });
+    });
   }, [reactFlowInstance]);
 
   const nodeTypes = useMemo(() => customNodeTypes, []);

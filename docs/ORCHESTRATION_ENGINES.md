@@ -1,8 +1,19 @@
 # AWP Orchestration Engines
 
-AWP Layer 5 (Orchestration) supports two execution engines. Each engine answers
-the same question -- *"In what order and under what conditions do agents run?"* --
-but with fundamentally different philosophies.
+## Mental Model
+
+AWP ships **two orchestration engines** because predictable pipelines and open-ended exploration have fundamentally different control structures, and forcing both into a single abstraction makes both worse.
+
+- The **DAG engine** trusts the *workflow author* to know the steps. Edges are explicit, the graph is static, and the runtime just walks it in topological order. Cost is `N agents * cost_per_agent`. Auditing is reading a YAML file.
+- The **Delegation Loop engine** trusts a *manager LLM* to discover the steps from the task itself, but bounds that trust with a deterministic safety envelope (budgets, forbidden tools, sandbox limits, reservation-based budget arithmetic). Cost is bounded by `budget.max_*`. Auditing is reading a per-iteration audit trail on disk.
+
+Both engines share everything else: the agent contract (R17 confidence output), the tool registry, the memory tiers, the validators, the observability layer. **Choose by the structure of the work**, not by autonomy level for its own sake — though as a heuristic, A0-A1 is DAG territory and A2-A4 is delegation-loop territory.
+
+The two engines also **compose**: a DAG node can *be* a delegation loop, giving you a predictable outer pipeline with a flexible inner step. See [Pattern 4](#pattern-4-dag-with-delegation-loop-inner-step-composed).
+
+> Related reading: [orchestration.md](orchestration.md) (DAG field reference + delegation-loop config), [manifest.md](manifest.md) (envelope declaration), [manager-intelligence.md](manager-intelligence.md) (auto-promotion logic), [critique.md](critique.md) (reflective repair loop), [runtime-tool-generation.md](runtime-tool-generation.md) (B1-B6 tool pipeline).
+
+Each engine answers the same question — *"In what order and under what conditions do agents run?"* — but with fundamentally different philosophies.
 
   <img src="diagrams/inline-orchestration_engines-1.svg" alt="orchestration_engines diagram" width="100%"/>
 

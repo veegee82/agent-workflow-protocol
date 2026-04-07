@@ -1,5 +1,17 @@
 # Protocol Overview
 
+## The Big Picture
+
+AWP is a **declarative contract for multi-agent AI systems**. Instead of writing Python code that wires agents, tools, memory and orchestration together, you write a small set of YAML documents that *describe* the workflow. A runtime — any runtime — reads those documents and executes them. The workflow file is the source of truth; the runtime is interchangeable.
+
+This separation has three immediate consequences:
+
+1. **Portability.** The same `workflow.awp.yaml` runs on a local CLI, a notebook, a cloud orchestrator or an embedded framework — without rewriting agents.
+2. **Static analysis.** Because intent is data, AWP validates 30 rules (R1-R30) before any LLM is called. Naming, dependency cycles, output contracts, budgets and tool namespaces are checked at parse time.
+3. **Graduated autonomy.** The same protocol covers everything from a 10-line static DAG (A0) to recursive self-organizing delegation hierarchies where workers spawn sub-managers and runtime agents create their own tools (A4).
+
+The rest of this document explains *why* this matters relative to the existing landscape, and what AWP unifies that other standards leave fragmented.
+
 ## What AWP Is
 
 The Agent Workflow Protocol (AWP) is an open standard for describing, packaging, and executing multi-agent AI workflows. A single set of YAML documents fully specifies agent identities, capabilities, communication patterns, state management, orchestration logic, and observability requirements. Any conforming runtime can execute these documents without modification.
@@ -94,6 +106,22 @@ Agents operate under the principle of least privilege. Tools must be explicitly 
 | Observability | Manual logging | OpenTelemetry-compatible tracing and metrics |
 | Validation | None (runtime errors) | 30 rules checked before execution (R1-R30) |
 | Portability | Zero | `.awp.zip` and ClawHub registry |
+
+## Beyond Static Workflows: What 1.0 Adds
+
+AWP started as a way to declare DAGs of agents. The current protocol goes considerably further:
+
+- **Two engines, one protocol.** A `dag` engine for prescribed topologies (A0-A1) and a `delegation_loop` engine for adaptive manager/worker execution (A2-A4). Switching is a single YAML field.
+- **Complexity-scored auto-promotion.** In the delegation loop the manager scores each subtask's complexity and *autonomously* promotes complex worker tasks into sub-manager tasks. The decision to recurse is no longer a manual flag — it falls out of the manager's planning loop.
+- **A4 sub-run clusters.** Recursive delegation produces a tree of sub-runs on disk, and the Workflow Studio renders each sub-run as a nested graph cluster (color-coded by depth) so a 4-level recursion is legible at a glance.
+- **Reservation-based budgets.** Budgets at A2+ are not advisory. Each child loop pre-charges its allocation against the parent and refunds the unused remainder on completion. This eliminates over-commitment and provides hard termination guarantees.
+- **Robust tool generation (B1-B6) with auto-repair.** When agents create tools at runtime (A3+), the runtime runs a six-phase pipeline — schema check, AST validation, sandboxed import, smoke test, registry binding, integration — and an auto-repair loop feeds errors back to the LLM to fix its own tool until it passes or the budget is exhausted.
+- **Critique loop and Evaluation layer.** Two complementary quality mechanisms: the *critique loop* diagnoses defects inside the worker iteration and triggers targeted repair, while the *evaluation layer* scores final workflow output against weighted metrics with threshold-based retry policy. Critique repairs *runs*; evaluation scores *outcomes*.
+- **Manager intelligence.** The manager has explicit planning, hypothesis-diagnosis, strategy switching, budget reservation and a decision journal — features the runtime supports rather than the manager LLM having to invent them each time.
+- **Per-role model routing.** Manager and worker LLMs are configured separately and provider is auto-detected from the model string (`provider/model` → OpenRouter, `gpt-*`/`o3*` → OpenAI direct, `claude-*` → Anthropic direct, `ollama/*` → local). A weak local model can drive workers while a strong frontier model plans.
+- **Experiment paradigm in Workflow Studio.** What used to be "sessions" are now Experiments with Protocol/Memory tabs, metadata, and scoped history.
+
+These features are detailed in `architecture.md`, `orchestration.md`, `tools.md`, `critique.md`, `evaluation.md` and `ui.md`.
 
 ## Next Steps
 

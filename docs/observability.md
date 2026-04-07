@@ -1,6 +1,25 @@
 # Observability Reference
 
-Layer 6 defines the observability requirements for AWP workflows: metrics, distributed tracing, structured logging, audit trails, and health checks. Observability is configured in the `observability` section of [workflow.awp.yaml](manifest.md). AWP observability is designed to be compatible with OpenTelemetry standards.
+## Mental Model
+
+Observability in AWP is not an afterthought bolted onto a black box — it is the **price of admission** for autonomous behavior. The higher up the autonomy spectrum a workflow climbs (A0 → A4), the less a human can predict what will happen at runtime, and the more the system must explain itself after the fact. At A4, observability is **mandatory** ([compliance.md](compliance.md)) because the only thing standing between a recursive delegation tree and an opaque runaway is a complete trace of every decision, span, and budget reservation.
+
+Layer 6 defines five complementary streams that together reconstruct *what happened, why, and at what cost*:
+
+1. **Metrics** — quantitative aggregates (token usage, latency, error rates, custom KPIs).
+2. **Tracing** — causal span hierarchy (workflow → agent → tool/LLM, with sub-runs as **clustered subgraphs** for A4 recursive delegation).
+3. **Logging** — structured per-event narrative with redaction.
+4. **Audit Trail** — tamper-evident hash-chained record for compliance.
+5. **Health Checks** — readiness/liveness probes.
+
+On top of these, AWP adds two **decision-grade** observability surfaces unique to autonomous workflows:
+
+- The **Decision Journal** ([manager-intelligence.md](manager-intelligence.md)) captures every manager choice — planning, hypothesis-diagnosis, strategy switches, **complexity-scored auto-promotion** of workers to submanagers, and **budget reservations** under the A4 reservation model. The journal is the single source of truth for "why did the manager do that?" and feeds directly into traces.
+- The **Critique log** ([critique.md](critique.md)) captures defect diagnoses and targeted repairs at the worker level — complementary to workflow-level [evaluation](evaluation.md) scores, which are surfaced as `awp.workflow.evaluation_score` metrics and `evaluation.*` audit events.
+
+The **Experiment paradigm** ([ui.md](ui.md)) scopes traces, metrics, and Decision Journals **per Experiment**, so each Experiment in the UI has its own Protocol tab and metric stream. The **worker model routing** information (which provider/model executed which step, auto-detected from the model string) is recorded as a span attribute (`awp.agent.model`) for audit and cost attribution.
+
+Observability is configured in the `observability` section of [workflow.awp.yaml](manifest.md) and is wire-compatible with OpenTelemetry.
 
 ## Metrics
 
@@ -98,6 +117,8 @@ observability:
 AWP defines a standard span hierarchy:
 
   <img src="diagrams/inline-observability.svg" alt="observability diagram" width="100%"/>
+
+For A2+ delegation-loop workflows, the manager span owns child spans for each dispatched worker. For **A4 recursive delegation**, every submanager creates a nested **sub-run cluster** — a subgraph of spans rooted at the spawning manager — so the full delegation tree can be visualized as a hierarchy of clustered subgraphs in the AWP Studio graph view ([ui.md](ui.md)). Each sub-run cluster carries its **reserved budget** as span attributes (`awp.budget.reserved.tokens`, `awp.budget.reserved.workers`, `awp.budget.depth`), making it possible to verify that no submanager overran its envelope.
 
 ### Span Attributes
 
@@ -332,6 +353,22 @@ observability:
 | `failure_threshold` | integer | `3` | Consecutive failures before the workflow is unhealthy. |
 
 When the failure threshold is reached, the runtime should log a CRITICAL-level message, record a `security.event` in the audit trail, and optionally terminate the workflow.
+
+## Decision Journal (Manager Intelligence)
+
+For A2+ delegation-loop workflows, the manager produces a **Decision Journal** in addition to standard spans and audit entries. Each entry records one manager decision and its rationale, which is essential for diagnosing autonomous behavior. Tracked decision types include:
+
+| Decision | Trigger | Captured Fields |
+|----------|---------|-----------------|
+| `plan` | Initial task decomposition | `subtasks`, `rationale`, `estimated_complexity` |
+| `dispatch` | Worker spawned | `worker_id`, `instructions`, `tools_allowed`, `reserved_budget` |
+| `auto_promote` | Worker → Submanager promotion via complexity score | `complexity_score`, `threshold`, `chosen_role` |
+| `budget_reserve` | A4 sub-tree reservation | `parent_remaining`, `child_reserved`, `depth` |
+| `hypothesis` | Diagnose failure cause | `observed_symptom`, `candidate_causes`, `selected` |
+| `strategy_switch` | Change approach mid-loop | `from_strategy`, `to_strategy`, `reason` |
+| `terminate` | Stop the loop | `reason` (`success`, `budget_exhausted`, `stagnation`, `safety`) |
+
+The Decision Journal is exposed in the AWP Studio Protocol tab per Experiment and is mirrored into the trace as span events. See [manager-intelligence.md](manager-intelligence.md) for the full schema. Decisions related to reservation and depth are the primary evidence for **A4 termination guarantees** ([compliance.md](compliance.md)).
 
 ## Evaluation
 

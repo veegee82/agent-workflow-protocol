@@ -39,15 +39,15 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _default_settings: dict[str, Any] = {
-    "model": "openai/gpt-5-nano",
-    "worker_model": None,
+    "model": "nvidia/nemotron-3-super-120b-a12b",
+    "worker_model": "openai/gpt-5-nano",
     "api_key": None,
     "max_loops": 100,
     "max_total_tokens": 10_000_000,
-    "max_wall_time": 600,
-    "max_tool_calls": 250,
+    "max_wall_time": 14400,
+    "max_tool_calls": 1500,
     "max_total_workers": 500,
-    "max_depth": 10,
+    "max_depth": 4,
     "sandbox": "subprocess",
     "packages": [],
     "code_mode": True,
@@ -106,7 +106,7 @@ async def refactor_task(body: dict[str, Any]) -> dict[str, Any]:
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    model = body.get("model") or _default_settings.get("model") or "openai/gpt-5-nano"
+    model = body.get("model") or _default_settings.get("model") or "nvidia/nemotron-3-super-120b-a12b"
     api_key = body.get("api_key") or ""
 
     # Resolve API key from secrets if not provided directly

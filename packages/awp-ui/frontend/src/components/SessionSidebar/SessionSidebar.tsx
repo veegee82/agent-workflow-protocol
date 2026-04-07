@@ -128,6 +128,7 @@ function statusDotClass(status: string | null | undefined): string {
     case 'failed':
       return 'bg-awp-red';
     case 'stopped':
+    case 'interrupted':
       return 'bg-awp-muted/60';
     case 'archived':
       return 'bg-awp-muted/30';

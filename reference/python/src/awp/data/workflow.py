@@ -126,9 +126,9 @@ class AgentWorkflow:
         max_loops: int = 100,
         max_total_tokens: int = 10_000_000,
         max_wall_time: int = 600,
-        max_tool_calls: int = 250,
+        max_tool_calls: int = 1500,
         max_total_workers: int = 500,
-        max_depth: int = 10,
+        max_depth: int = 4,
         sandbox: str = "subprocess",
         packages: list[str] | None = None,
         output_dir: str | None = None,
@@ -427,10 +427,19 @@ class AgentWorkflow:
         # Extract evaluation summary from result (injected by EvaluationEngine)
         evaluation = loop_result.pop("_evaluation", None)
 
+        # Expose output paths inside the result dict so callers can access
+        # them without globbing the filesystem. Sequential .run() calls on
+        # the same output_dir each get their own run_id-isolated subdir.
+        if isinstance(loop_result, dict):
+            loop_result.setdefault("output_dir", str(output_dir))
+            loop_result.setdefault("output_files", list(artifacts))
+
         resp: dict[str, Any] = {
             "status": status,
             "result": loop_result,
             "artifacts": artifacts,
+            "output_dir": str(output_dir),
+            "output_files": artifacts,
             "metadata": {
                 "run_id": run_id,
                 "loops": budget.loops_used,

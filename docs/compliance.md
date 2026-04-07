@@ -1,8 +1,22 @@
 # Autonomy Levels
 
-AWP defines five autonomy levels (A0-A4) indicating how autonomous a workflow is. Each level builds on the previous. A workflow must satisfy all requirements for its declared level and all levels below it.
+## Mental Model: The Autonomy Spectrum
 
-Communication, memory, and observability are **cross-cutting features** available at any autonomy level -- they are not levels themselves. Security and observability are cross-cutting concerns that apply to all levels.
+AWP's autonomy levels (A0–A4) form a **spectrum of control transfer from human to system**. At A0 a human spells out every step; at A4 the workflow recursively decomposes itself, spawns its own sub-workflows, and even creates the tools it needs along the way. Each level adds *one* fundamental capability and, in exchange, requires *one* additional safety mechanism. The deal is non-negotiable: you cannot adopt the capability without adopting its safety counterpart.
+
+| Level | New capability | New safety requirement |
+|-------|----------------|------------------------|
+| A0 | Static DAG, fixed agents and tools | Schema validation (R1–R30) |
+| A1 | Multi-agent DAG, branching, state sharing | `state.sharing` strategy |
+| A2 | **Delegation loop**: manager spawns workers dynamically | **Budgets** (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`) |
+| A3 | **Self-tooling**: agents create tools at runtime | **Safety envelope** + sandbox + B1–B6 tool auto-repair validation |
+| A4 | **Recursive delegation**: submanagers spawn sub-workflows | **Budget reservation model**, `max_depth`, mandatory observability |
+
+The single most important property of this spectrum is that **the safety envelope is monotone**: a child can never have a *larger* envelope than its parent. The runtime enforces this via the **reservation model** (introduced in commit `7803188`) — when a manager dispatches a worker or promotes one to a submanager, a portion of the parent's remaining budget is *reserved* for the sub-tree before it starts. The submanager inherits a strictly smaller envelope, and the runtime refuses to spawn beyond `budget.max_depth`. **The manager has no API to override the safety envelope.** Together, reservation + depth limit + wall-time + token cap give A4 workflows a **provable termination guarantee**: even an adversarial or buggy manager cannot recurse forever.
+
+The autonomy of *deciding* is also bounded but in a softer way. From A2 onward, the manager is expected to make non-trivial choices: planning, hypothesis-diagnosis, strategy switching, and — new in recent versions — **complexity-scored auto-promotion**. When a worker faces a task whose estimated complexity exceeds a threshold, the manager autonomously promotes that worker to a submanager (A4) rather than executing it inline. This makes the A2-vs-A4 boundary a runtime decision rather than a static design choice. Every such decision is recorded in the [Decision Journal](manager-intelligence.md) and surfaced in the [observability](observability.md) trace.
+
+Communication, memory, and observability are **cross-cutting features** available at any autonomy level — they are not levels themselves. Security and observability are cross-cutting concerns that apply to all levels (mandatory at A4).
 
 ## Level Summary
 
@@ -106,6 +120,8 @@ A manager agent dynamically spawns worker agents. The manager decides at runtime
 
 **Safety:** Budget controls are required at this level to prevent unbounded agent spawning.
 
+**Manager intelligence at A2+:** From A2 onward the manager makes runtime decisions that the static DAG cannot express — initial planning, hypothesis-diagnosis after a worker failure, strategy switching, and **complexity-scored auto-promotion** (a worker whose task complexity exceeds a threshold is autonomously promoted to a submanager, escalating an A2 dispatch into an A4 sub-run). Every such decision is captured in the Decision Journal — see [manager-intelligence.md](manager-intelligence.md) and [observability.md](observability.md).
+
 **Typical use case:** A project manager agent that breaks a task into subtasks and delegates each to a dynamically created specialist agent.
 
 **Delegation loop example:**
@@ -188,6 +204,20 @@ Full recursive delegation with budget distribution. Agents can spawn sub-workflo
 | A4-6 | The delegation depth must be bounded by `budget.max_depth`. |
 
 **Safety:** Observability is required at this level. Budget distribution, depth limits, and circuit breakers prevent runaway recursive delegation.
+
+### A4 Termination Guarantees (Reservation Model)
+
+A4 is the only level that needs a *formal* argument for termination, because recursive delegation could in principle run forever. AWP rules out infinite recursion through three composing constraints:
+
+1. **Budget reservation before dispatch.** When a manager spawns a worker or promotes one to a submanager, the runtime atomically reserves a portion of the parent's remaining budget for the sub-tree. The reservation is recorded as a `budget_reserve` entry in the [Decision Journal](manager-intelligence.md) with `parent_remaining`, `child_reserved`, and `depth`.
+2. **Strictly decreasing envelope.** A child's reserved envelope is always strictly smaller than its parent's remaining budget along *every* dimension (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`). The manager has no override.
+3. **Hard depth cap.** `budget.max_depth` is checked before any spawn. Reaching the cap immediately fails the spawn with a `depth_exceeded` audit event.
+
+Because each recursive step strictly reduces the available budget, and the budget is bounded above, the recursion must terminate in a finite number of steps. This is the **A4 termination guarantee**.
+
+### A4 Sub-Run Cluster Visualization
+
+For tracing and debugging, every submanager creates a **sub-run cluster** in the trace tree — a clustered subgraph rooted at the spawning manager span. AWP Studio renders the full delegation forest as nested clusters in the graph view ([ui.md](ui.md)), with each cluster annotated by its reserved budget envelope and its termination cause. This is the primary post-mortem tool for A4 workflows.
 
 **Typical use case:** A mission-critical enterprise workflow where a top-level coordinator delegates to team leads, who in turn delegate to specialists, with budget and oversight flowing through the hierarchy.
 

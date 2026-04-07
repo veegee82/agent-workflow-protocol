@@ -159,6 +159,28 @@ class StoreService:
                 pass  # Column already exists
         await self.db.commit()
 
+    async def cleanup_orphan_runs(self) -> int:
+        """Mark runs left in 'running' state by a previous process as 'interrupted'.
+
+        When the server is restarted (auto-reload, crash, manual stop) while a
+        run is active, the background thread dies and `_persist_result` never
+        runs — leaving the row stuck on status='running'. The sidebar then
+        shows a permanently pulsing blue dot for those experiments.
+
+        Returns the number of rows fixed.
+        """
+        now = datetime.now(tz=timezone.utc).isoformat()
+        cursor = await self.db.execute(
+            "UPDATE runs SET status = 'interrupted', completed_at = ? "
+            "WHERE status = 'running' AND completed_at IS NULL",
+            (now,),
+        )
+        await self.db.commit()
+        n = cursor.rowcount or 0
+        if n:
+            logger.info("Cleaned up %d orphan 'running' run(s) on startup", n)
+        return n
+
     async def close(self) -> None:
         """Close the database connection."""
         if self._db:

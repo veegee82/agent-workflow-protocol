@@ -1,6 +1,21 @@
 # Validation Rules R1-R30
 
-AWP runtimes must enforce these validation rules when loading a workflow. Each rule has a unique identifier, category, and description. Rules marked RECOMMENDED apply primarily to the Python reference implementation; other runtimes may adapt them.
+## Mental Model: Four Tiers of Validation
+
+AWP uses **four complementary tiers** of validation, each operating at a different point in the workflow lifecycle and answering a different question. They are not redundant — they catch different classes of problems and you almost always want all four enabled in production.
+
+| Tier | When | Cost | Catches | Configured under |
+|------|------|------|---------|------------------|
+| **1. Deterministic schema/rule validation (R1–R30)** | Load time, before any agent runs | Free, instant | Structural bugs: missing fields, cycles, ID collisions, reserved-namespace abuse, missing output contracts, broken sandbox/codemode config | Built into runtime; this document |
+| **2. LLM semantic validation** | Per-agent, after output is produced | 1 LLM call per agent (skippable if confidence is high) | Output that *parses* correctly but is *semantically* wrong (hallucinated facts, ignored instructions) | Implicit in delegation loop; gated by `confidence` threshold |
+| **3. Critique loop** | Per-worker inside delegation loop, after a defect is suspected | LLM calls for diagnose + repair | Defects in worker output, with **targeted repair** rather than full retry; learns cross-worker patterns into a defect memory | `delegation_loop.critique` — see [critique.md](critique.md) |
+| **4. Evaluation layer** | Workflow level, after the run (or step-scored during) | Multiple LLM calls + deterministic tests | Quality scoring against rubrics, deterministic assertions, budget utility, policy checks. Can trigger retry/repair across the whole workflow | `observability.evaluation` — see [evaluation.md](evaluation.md) |
+
+**Rule of thumb:** R1–R30 reject *invalid* workflows; LLM/critique/evaluation reject *bad outputs*. The four tiers compose — a workflow that passes all R-rules can still fail evaluation, and a worker that passes critique can still produce a low evaluation score.
+
+A separate, security-flavored validation runs whenever a worker creates a new tool at runtime: the **B1–B6 sandbox auto-repair pipeline** ([runtime-tool-generation.md](runtime-tool-generation.md)). It is not a workflow validator but a *tool* validator, and it sits between Tier 1 and Tier 2 conceptually.
+
+This document specifies the deterministic Tier 1 rules. AWP runtimes must enforce these when loading a workflow. Each rule has a unique identifier, category, and description. Rules marked RECOMMENDED apply primarily to the Python reference implementation; other runtimes may adapt them.
 
 ## Rule Summary
 

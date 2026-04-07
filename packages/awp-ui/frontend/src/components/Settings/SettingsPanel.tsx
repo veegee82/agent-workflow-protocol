@@ -554,7 +554,7 @@ function detectProvider(model: string): ProviderRoute {
 
 /** Example model strings shown as quick-paste helpers. */
 const MODEL_EXAMPLES = [
-  { id: 'openai/gpt-5-nano',                       label: 'GPT-5 Nano',              provider: 'OpenRouter' },
+  { id: 'nvidia/nemotron-3-super-120b-a12b',      label: 'Nemotron 3 Super 120B',   provider: 'OpenRouter' },
   { id: 'deepseek/deepseek-chat-v3-0324:free',    label: 'DeepSeek V3 (free)',      provider: 'OpenRouter' },
   { id: 'google/gemini-2.5-pro-exp-03-25:free',   label: 'Gemini 2.5 Pro (free)',   provider: 'OpenRouter' },
   { id: 'meta-llama/llama-4-maverick:free',        label: 'Llama 4 Maverick (free)', provider: 'OpenRouter' },
@@ -589,7 +589,7 @@ function ModelSection() {
             type="text"
             value={config.model}
             onChange={(e) => updateConfig({ model: e.target.value })}
-            placeholder="openai/gpt-5-nano"
+            placeholder="nvidia/nemotron-3-super-120b-a12b"
             className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
           />
         </div>
@@ -654,7 +654,7 @@ function ModelSection() {
             type="text"
             value={config.worker_model ?? ''}
             onChange={(e) => updateConfig({ worker_model: e.target.value || undefined })}
-            placeholder="Same as manager model"
+            placeholder="openai/gpt-5-nano"
             className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
           />
         </div>
@@ -853,18 +853,6 @@ export function SettingsPanel() {
     [updateConfig],
   );
 
-  const formatTokens = (v: number) => {
-    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
-    return String(v);
-  };
-
-  const formatTime = (v: number) => {
-    if (v >= 3600) return `${(v / 3600).toFixed(1)}h`;
-    if (v >= 60) return `${(v / 60).toFixed(0)}m`;
-    return `${v}s`;
-  };
-
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
       {/* API Keys */}
@@ -910,23 +898,25 @@ export function SettingsPanel() {
           />
           <SliderInput
             label="Max Tokens"
-            description="Total LLM tokens (input + output) across all agents"
-            value={config.max_total_tokens}
-            min={100_000}
-            max={100_000_000}
-            step={100_000}
-            onChange={(v) => updateConfig({ max_total_tokens: v })}
-            format={formatTokens}
+            description="Total LLM tokens in millions (e.g. 1.2 = 1,200,000)"
+            value={config.max_total_tokens / 1_000_000}
+            min={0.1}
+            max={100}
+            step={0.1}
+            onChange={(v) =>
+              updateConfig({ max_total_tokens: Math.round(v * 1_000_000) })
+            }
+            format={(v) => `${v.toFixed(1)}M`}
           />
           <SliderInput
             label="Max Wall Time"
-            description="Maximum real-world execution time"
-            value={config.max_wall_time}
-            min={10}
-            max={86400}
-            step={10}
-            onChange={(v) => updateConfig({ max_wall_time: v })}
-            format={formatTime}
+            description="Maximum real-world execution time in minutes"
+            value={Math.round(config.max_wall_time / 60)}
+            min={1}
+            max={1440}
+            step={1}
+            onChange={(v) => updateConfig({ max_wall_time: v * 60 })}
+            format={(v) => `${v} min`}
           />
           <SliderInput
             label="Max Workers"

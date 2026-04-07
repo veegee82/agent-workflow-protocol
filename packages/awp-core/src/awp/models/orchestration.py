@@ -111,7 +111,7 @@ class RunBudgetLimits(BaseModel):
 
     max_wall_time: int = 600  # seconds — total execution time
     max_total_tokens: int = 10_000_000  # LLM token cap across all agents
-    max_tool_calls: int = 250  # total tool invocations
+    max_tool_calls: int = 1500  # total tool invocations
     max_agent_runs: int = 50  # total agent executions (incl. retries)
     max_cost_usd: float = 5.0  # monetary cost cap (estimated, ignored for free models)
 
@@ -159,8 +159,8 @@ class DelegationBudget(BaseModel):
     max_total_workers: int = 500
     max_total_tokens: int = 10_000_000
     max_wall_time: int = 600  # seconds
-    max_tool_calls: int = 250
-    max_depth: int = 10
+    max_tool_calls: int = 1500
+    max_depth: int = 4
 
 
 class SandboxEnforcement(BaseModel):
@@ -276,6 +276,11 @@ class CritiqueConfig(BaseModel):
     max_repair_attempts: int = 2  # per worker, before escalating to manager
     repair_budget_fraction: float = 0.15  # max fraction of total budget for repairs
     pattern_memory: bool = True  # accumulate cross-worker failure patterns
+    # Hard gate before run.complete: if the mean critique score across the
+    # most recent iteration is below this threshold, the manager's "complete"
+    # decision is overridden and another iteration is forced (until budget
+    # is exhausted). Setting to 0.0 disables the gate.
+    min_score_to_complete: float = 0.5
     defect_categories: list[str] = Field(
         default_factory=lambda: [
             "missing_data",

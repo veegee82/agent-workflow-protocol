@@ -111,6 +111,10 @@ def main() -> None:
             port = int(sys.argv[idx + 1])
 
     skip_build = "--skip-build" in sys.argv
+    # Auto-reload kills in-flight runs (uvicorn restarts the worker process
+    # when it sees file changes, terminating the runner thread mid-loop).
+    # Pass --no-reload to disable it during long-running experiments.
+    no_reload = "--no-reload" in sys.argv
 
     # Free the port — kill ANY existing server
     if _port_in_use(port):
@@ -130,10 +134,19 @@ def main() -> None:
     if not skip_build:
         _build_frontend()
 
-    # Wire up local source packages so they take priority over installed ones
-    for src_path in [str(_AWP_CORE_SRC), str(_AWP_RUNTIME_SRC), str(_AWP_UI_DIR)]:
+    # Wire up local source packages so they take priority over installed ones.
+    # IMPORTANT: uvicorn with reload=True spawns a subprocess that does NOT
+    # inherit sys.path modifications — only PYTHONPATH is inherited via env.
+    # Without this, the reload worker imports `server`/`awp` from site-packages
+    # (PyPI install) and serves the OLD frontend bundle.
+    local_paths = [str(_AWP_UI_DIR), str(_AWP_RUNTIME_SRC), str(_AWP_CORE_SRC)]
+    for src_path in local_paths:
         if src_path not in sys.path:
             sys.path.insert(0, src_path)
+    existing_pp = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        local_paths + ([existing_pp] if existing_pp else [])
+    )
 
     # Flush any previously imported awp/server modules to guarantee fresh code
     _flush_awp_modules()
@@ -157,12 +170,16 @@ def main() -> None:
         factory=True,
         host="127.0.0.1",
         port=port,
-        reload=True,
-        reload_dirs=[
-            str(_AWP_CORE_SRC),
-            str(_AWP_RUNTIME_SRC),
-            str(_AWP_UI_DIR / "server"),
-        ],
+        reload=not no_reload,
+        reload_dirs=(
+            None
+            if no_reload
+            else [
+                str(_AWP_CORE_SRC),
+                str(_AWP_RUNTIME_SRC),
+                str(_AWP_UI_DIR / "server"),
+            ]
+        ),
         log_level="info",
     )
 

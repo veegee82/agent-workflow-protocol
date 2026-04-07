@@ -217,11 +217,18 @@ AWP solves this with two mechanisms that work together:
 
 **Code Mode** is the paradigm shift. Instead of agents making dozens of individual tool calls (search, extract, transform, analyze — one LLM round-trip each), an agent writes a **complete Python program** and executes it in a single round-trip. For data-heavy tasks, this reduces LLM calls from 50+ to 3-5.
 
-**Dynamic Tool Factory** validates and sandboxes agent-created tools:
-- **AST analysis** ensures no forbidden imports (`os`, `subprocess`, `sys`, `ctypes`)
-- **Capability gating** (NC1-NC3) controls what each namespace can access
-- **Sandbox wrapping** ensures tools run within resource limits
-- **Registry integration** makes tools available to all agents in the workflow
+**Dynamic Tool Factory** validates and sandboxes agent-created tools through a six-phase pipeline (B1-B6) with an auto-repair loop:
+
+| Phase | Check | What happens on failure |
+|-------|-------|-------------------------|
+| **B1 — Schema** | Tool spec parses, name/namespace/parameters well-formed | Reject with structured error |
+| **B2 — AST** | No forbidden imports (`os`, `subprocess`, `sys`, `ctypes`), no `eval`/`exec` | Reject with line-level diagnostic |
+| **B3 — Sandbox import** | Module loads inside the sandbox without side effects | Capture import error |
+| **B4 — Smoke test** | Tool runs against a synthetic input matching its schema | Capture runtime error and traceback |
+| **B5 — Registry binding** | Capability gating (NC1-NC3) and namespace conflict check | Reject duplicates / forbidden namespaces |
+| **B6 — Integration** | Tool becomes visible to all subsequent workers via the ToolRegistry | — |
+
+When any phase fails, the **auto-repair loop** feeds the error back to the generating LLM with the original spec and asks it to repair the tool. The loop iterates until the tool passes B1-B6 or the repair budget is exhausted, at which point the failure is recorded in the decision journal and the manager picks a different strategy. This is what makes runtime tool generation actually reliable rather than aspirational — weak models routinely produce broken tools that get fixed by the second or third repair pass.
 
 ### 5.3 Skill Generation
 
@@ -389,6 +396,14 @@ At A4, the architecture goes fractal. Workers can themselves become managers:
 </p>
 
 **Budget flows down, results flow up.** Each level receives a subset of the parent's budget. A department manager cannot spend more than the CEO allocated. This hierarchical budget enforcement is unique to AWP.
+
+#### Complexity-scored auto-promotion (autonomous sub-manager decision)
+
+The earliest versions of AWP required the manager LLM to *decide* explicitly that a subtask should be a sub-manager. Weak models almost never did, so recursion was effectively dead in practice. The current runtime turns the sub-manager decision into a *property of the subtask*, not a flag the LLM must remember.
+
+During the PLAN phase the runtime computes a **complexity score** for each subtask from a small set of signals — token count of the description, number of required tools, number of distinct sub-goals, presence of multi-stage verbs ("then", "after that", "finally"), and structural markers like nested lists. Subtasks above the complexity threshold are automatically tagged with `delegation_strategy: "submanager"` (subject to the recursion budget and depth gate). The manager can still override the decision, but it does not need to make it. The result is that recursive decomposition becomes the *default* response to genuinely complex subtasks, even with a weak manager LLM.
+
+This complexity-based auto-promotion is the *first* of three independent triggers — combined with the explicit envelope flag and the runtime-detected stall promotion below, the recursion happens whenever it should and never when it should not.
 
 #### How a worker becomes a sub-manager
 
@@ -602,6 +617,23 @@ print(result["final_answer"])
 ```
 
 **Key insight:** The `code_mode=True` + `tool_creation=True` flags enable the full self-tooling capability. Without YAML, without configuration, a scientist in a Jupyter notebook gets the same A3+ capabilities that the full protocol provides.
+
+### 9.4 Per-Role Model Routing
+
+Manager and worker LLMs are configured independently. The provider is auto-detected from the model string — there is no provider field to set:
+
+| Model string pattern | Routed to | Required key |
+|---|---|---|
+| `provider/model-name` (e.g. `openai/gpt-5-nano`, `nvidia/nemotron-3-super-120b-a12b`) | OpenRouter | `OPENROUTER_API_KEY` |
+| `gpt-*`, `o1-*`, `o3*` | OpenAI direct | `OPENAI_API_KEY` |
+| `claude-*` | Anthropic direct | `ANTHROPIC_API_KEY` |
+| `ollama/*` | Local Ollama | none |
+
+This makes it natural to drive workers with a fast cheap model while the manager uses a stronger one (default manager: `nvidia/nemotron-3-super-120b-a12b`, default worker: `openai/gpt-5-nano`). The two roles cost-scale independently.
+
+### 9.5 Workflow Studio and the Experiment Paradigm
+
+The browser UI (`awp studio`) groups runs into **Experiments** — first-class objects with metadata, Protocol and Memory tabs, and scoped history. An Experiment is the unit at which you compare strategies, swap models, replay sub-runs, and inspect the recursive cluster graph (each A4 sub-run is rendered as a nested cluster, color-coded by depth). See `ui.md` for the full UI reference.
 
 ---
 

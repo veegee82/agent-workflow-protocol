@@ -2,6 +2,20 @@
 
 Complete documentation for the Agent Workflow Protocol (AWP) v1.0.0.
 
+## Mental Model
+
+AWP is a **declarative protocol** for multi-agent systems. A workflow is described in YAML across seven semantic layers, then executed by a runtime that interprets the YAML — never the other way around. The same workflow file can run on any conforming runtime, be packaged into a `.awp.zip`, validated statically (rules R1-R30), and graduated through five **autonomy levels** (A0 prescribed DAG → A4 self-organizing recursive delegation).
+
+The documentation below is grouped by *what question it answers*:
+
+- **Foundations** (1-3, 14-15): What is AWP? Why does it exist? How is it structured on disk and over the wire?
+- **Reference per layer** (4-11): Field-by-field description of each YAML section.
+- **Autonomy & validation** (12-13): How safety scales with freedom.
+- **Runtime & quality** (16-19): How the engines actually execute, and how quality is measured (evaluation) and repaired (critique).
+- **Engines, data, UI** (20-23): Concrete pieces — DAG vs. delegation loop, the data importer, Workflow Studio, and OpenClaw integration.
+
+New since 1.0: **complexity-scored auto-promotion** of workers to sub-managers, **A4 sub-run cluster visualization**, **budget reservation with refund** for hard termination guarantees, the **B1-B6 robust tool-generation pipeline with auto-repair**, and the **Experiment paradigm** in Workflow Studio (Sessions are now Experiments with Protocol/Memory tabs). These features are documented in `architecture.md`, `orchestration.md`, `tools.md`, and `ui.md`.
+
 ## Reading Order
 
 | # | Document | Description |

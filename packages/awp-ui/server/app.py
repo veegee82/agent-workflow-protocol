@@ -40,6 +40,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialise the SQLite database
     await store.init_db()
 
+    # Reap runs left in 'running' state by a previous (crashed/reloaded)
+    # process so the sidebar doesn't show a permanently pulsing blue dot
+    # for experiments whose threads no longer exist.
+    await store.cleanup_orphan_runs()
+
     # Load persisted settings into the in-memory defaults
     persisted_settings = await store.get_settings()
     if persisted_settings:

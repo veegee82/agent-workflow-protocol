@@ -653,11 +653,22 @@ class _RunDirWatcher:
                     ),
                 )
 
-        # delegations/<worker>/tool_calls.json -> tool.call (one per call)
-        elif rel.endswith("tool_calls.json") and "delegations" in rel:
+        # tool_calls.json -> tool.call (one per call). Two layouts exist:
+        #   (a) delegations/<worker>/tool_calls.json
+        #         -> path.parent.name = <worker>
+        #   (b) artifacts/tools/<worker>_tool_calls.json
+        #         -> path.parent.name = "tools", worker is in the file stem
+        elif rel.endswith("tool_calls.json"):
             data = self._read_json(path)
             if isinstance(data, list):
-                worker_id = path.parent.name
+                if path.parent.name == "tools":
+                    # Layout (b): strip "_tool_calls" suffix from filename
+                    worker_id = path.stem
+                    if worker_id.endswith("_tool_calls"):
+                        worker_id = worker_id[: -len("_tool_calls")]
+                else:
+                    # Layout (a)
+                    worker_id = path.parent.name
                 # Extract iteration number from path
                 iteration = "?"
                 for i_part in range(len(parts) - 1, -1, -1):

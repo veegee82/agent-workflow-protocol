@@ -1,6 +1,29 @@
 # Manager Intelligence
 
-AWP's Manager Intelligence features enhance the delegation loop manager's problem-solving capabilities with five independently configurable subsystems: task decomposition, hypothesis-driven debugging, strategy switching, predictive budget reservation, and a decision journal.
+## Mental Model
+
+A naive delegation loop manager just dispatches workers, reads results, and re-dispatches until something looks good. That works for simple tasks and falls apart for hard ones — the manager exhausts its budget on dead ends, retries blindly when a worker fails, and has no memory of what it has already tried. **Manager Intelligence** is a small, composable set of cognitive subsystems that turn the manager from a reactive dispatcher into a *deliberate problem solver*: it can plan before acting, diagnose before retrying, switch strategies when stuck, reserve budget for the phases it knows are coming, and keep a journal of its own decisions.
+
+Each subsystem is independently configurable under `orchestration.delegation_loop.*` and **disabled by default**, so you only pay for the cognition you actually need. They are the runtime counterpart to AWP's higher-autonomy ambitions (A2 → A4): without them, A4 recursive delegation tends to thrash; with them, the manager behaves more like a senior engineer triaging a complex incident.
+
+The five subsystems sit alongside two further mechanisms documented in this page: **complexity-scored auto-promotion** of workers into submanagers (the trigger that lifts a run from A2 to A4) and the **reservation model** that gives the system its hard termination guarantees.
+
+```text
+                       ┌──────────────────────────┐
+                       │  Manager Intelligence    │
+                       ├──────────────────────────┤
+   Plan ──┐            │ 1. Task Decomposition    │
+          ├──┐         │ 2. Hypothesis Diagnosis  │
+   Diagnose─┤          │ 3. Strategy Switching    │
+          ├──┼──> run  │ 4. Budget Reservation    │
+   Switch ─┤          │ 5. Decision Journal      │
+          ├──┘         ├──────────────────────────┤
+   Reserve┘            │ + Complexity-scored      │
+                       │   auto-promotion (A4)    │
+                       │ + Reservation/refund     │
+                       │   termination guarantee  │
+                       └──────────────────────────┘
+```
 
 ## Overview
 
@@ -313,6 +336,64 @@ orchestration:
     decision_journal:
       enabled: true
       max_entries: 20
+```
+
+## Complexity-Scored Auto-Promotion (A4 Trigger)
+
+The five subsystems above all operate within a single manager. **Auto-promotion** is what turns one manager into many: when a worker's task is judged too complex to solve in a single shot, the manager promotes that worker into a *submanager* with its own delegation loop, its own budget envelope, and its own intelligence stack.
+
+### How the score is computed
+
+For every delegation, the manager computes a **complexity score** in `[0.0, 1.0]` that combines several signals:
+
+- Estimated subtask count vs. configured `auto_promote_threshold`
+- Worker confidence history (low confidence on related tasks raises the score)
+- Task description length and structural cues (numbered lists, sub-questions)
+- Tool diversity required (network + compute + file → higher score)
+- Inherited recursion depth (deeper sub-trees promote more conservatively)
+
+If the score exceeds the threshold and `max_depth` has not been reached, the worker is spawned with `role: submanager` instead of `role: worker`. The submanager receives a *fraction* of the parent's remaining budget (see Reservation Model below) and runs its own delegation loop until it returns a single consolidated result to the parent. This makes the lift from A2 to A4 **autonomous** — the workflow YAML no longer needs to declare the recursion depth up front.
+
+Auto-promotion decisions are recorded in the [decision journal](#decision-journal) and surfaced in the [Workflow Studio graph view](ui.md) as nested cluster nodes — see *A4 sub-run clusters*.
+
+### Configuration
+
+```yaml
+orchestration:
+  delegation_loop:
+    auto_promotion:
+      enabled: true
+      threshold: 0.65          # Score above which a worker is promoted
+      max_depth: 3             # Hard cap on recursion depth (safety envelope)
+      min_budget_fraction: 0.15  # Refuse promotion if <15% of parent budget left
+```
+
+Cross-references: the [runtime tool generation pipeline](runtime-tool-generation.md) interacts with auto-promotion — submanagers inherit the parent's `dynamic_tools` policy and can register tools visible to their entire sub-tree.
+
+## Budget Reservation Model and Termination Guarantees
+
+The [predictive phase reservation](#predictive-budget-reservation) above splits a single manager's budget across phases. The **reservation model** described here is the broader, A4-aware version: it guarantees that *every sub-tree* gets a hard, refundable budget envelope, so a runaway submanager can never exhaust the parent's reserves.
+
+### The contract
+
+1. **Reservation**. When a submanager is spawned (via auto-promotion or explicit declaration), the parent *reserves* a fraction of its remaining budget for that child. The reservation covers all five dimensions: `loops`, `workers`, `tokens`, `wall_time`, `tool_calls`.
+2. **Isolation**. The child sees only its reserved envelope. It cannot read or borrow from the parent's pool.
+3. **Refund on completion**. When the child finishes (success or failure), unused budget is *refunded* to the parent. This is what makes deeply recursive workflows feasible — early-terminating sub-trees give their slack back.
+4. **Hard termination**. If a child exhausts its envelope, it is terminated immediately. The parent receives a `submanager.exhausted` event and can decide whether to retry, give up, or ask a different worker.
+5. **No override**. The safety envelope is not negotiable: the manager prompt cannot ask for "a bit more budget", and no LLM response can change the reservation after the fact. This is the property that makes the termination guarantee provable.
+
+### Why this matters
+
+Without reservation + refund, recursive delegation has no termination guarantee — a single misbehaving sub-tree can drain the entire run. With it, the worst-case behaviour is bounded by `max_depth × max_loops_per_level`, and you can reason about cost ceilings before pressing Run. The same model is what powers the per-cluster budget read-out in the [Workflow Studio graph view](ui.md#graph).
+
+```yaml
+orchestration:
+  delegation_loop:
+    reservation:
+      enabled: true
+      child_fraction: 0.40     # Each child reserves 40% of parent's remaining budget by default
+      refund_on_complete: true
+      strict: true             # No reservation override; hard terminate on exhaustion
 ```
 
 ## Backward Compatibility

@@ -1,6 +1,21 @@
 # Orchestration Reference
 
-Orchestration defines the execution graph, modes, control flow, error handling, and retry strategies. It is configured in the `orchestration` section of `workflow.awp.yaml`.
+## Mental Model
+
+Orchestration is **Layer 5** of AWP and answers a single question: *In what order, under which conditions, and inside which envelope do agents run?* It is the connective tissue between static agent definitions and a working workflow.
+
+AWP deliberately ships **two orchestration engines** rather than one super-engine, because the two extremes of agent workflows have fundamentally different needs:
+
+- **DAG engine** — a directed acyclic graph of agents with explicit `depends_on` edges. Use it when you can enumerate the steps upfront. It is predictable, cheap to budget (N agents × cost), and easy to audit. This is the right tool for A0-A1 workflows: pipelines, ETL, fan-out/fan-in, conditional branches.
+- **Delegation Loop engine** — a manager agent that dynamically spawns ephemeral workers, validates their output, and iterates until the task is complete or the budget is exhausted. Use it when the steps emerge from the task content itself. This is the right tool for A2-A4 workflows: research, open-ended analysis, recursive sub-delegation.
+
+Both engines share the same agent contract (R17 confidence output), the same tool registry, the same memory tiers, and the same observability layer. The difference is *who decides what runs next*: a static graph (DAG) or a manager LLM bounded by a deterministic envelope (Delegation Loop).
+
+The two engines also **compose**: a DAG node may itself be a delegation loop, giving you a predictable outer flow with an adaptive inner step (see [Pattern 4 in ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md#pattern-4-dag-with-delegation-loop-inner-step-composed)).
+
+This file is the **DAG engine reference** and the configuration surface for delegation-loop fields that live under `orchestration.delegation_loop`. For the engine comparison, philosophy, and patterns, see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md). For the critique and evaluation loops, see [critique.md](critique.md) and [evaluation.md](evaluation.md). For the manager's autonomous decision-making, see [manager-intelligence.md](manager-intelligence.md).
+
+  <img src="diagrams/arch-two-engines.svg" alt="DAG vs Delegation Loop" width="100%"/>
 
 ## Engine
 
@@ -374,7 +389,16 @@ orchestration:
 
 ## Delegation Loop Engine
 
-The delegation loop engine powers A2-A4 workflows. For the complete engine comparison, see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+The delegation loop engine powers A2-A4 workflows. For the complete engine comparison, semantics, budget reservation model, and audit trail layout, see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+
+A few delegation-loop concepts that materially affect orchestration design:
+
+- **Complexity-scored auto-promotion (A4).** The manager does not decide manually whether a worker becomes a submanager. A deterministic complexity scorer (subtask description length, action keywords like *research*/*validate*/*design*, deliverable count, priority) decides automatically. Subtasks scoring `>= complexity_threshold` are promoted; a hard `max_promotions_per_iteration_fraction` cap prevents a single iteration from blowing the parent budget. Configure under `delegation_loop.auto_promotion`. See [manager-intelligence.md](manager-intelligence.md).
+- **Reservation model.** Budget allocation uses pre-charge reservation: when a submanager calls `allocate_child(fraction)`, the parent's pool is immediately debited, so concurrent siblings see a correctly shrinking pool. Unused capacity is refunded via `reclaim_child()` on completion. This is what makes the invariant `sum(children) + self <= allocation` hold even under parallel spawning, and is the source of A4's strong termination guarantees together with `max_depth` and the circuit breaker.
+- **Forbidden tools envelope.** `shell.execute` and `terminal.execute` are by default forbidden inside the delegation loop. Workers do shell-like work via `code.execute` in the sandbox or via dynamically generated MCP tools. See [tools.md](tools.md).
+- **Code mode + tool creation default to enabled** for delegation-loop workers, because token cost and tool coverage are the dominant constraints in A2-A4. The manager can disable them per-worker via the envelope.
+
+### Critique Configuration
 
 ### Critique Configuration
 

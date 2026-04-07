@@ -1,6 +1,26 @@
 # Tools & Capabilities Reference
 
-Layer 2 defines the capabilities available to an agent: tools, skills, data sources, and sandboxed execution. Capabilities are declared in the `capabilities` section of [agent.awp.yaml](agent.md) and in the `capabilities.custom_tools` section of [workflow.awp.yaml](manifest.md).
+## Mental Model
+
+**Layer 2** of AWP — *Capabilities* — defines everything an agent can *do* beyond reasoning over text: which tools it may invoke, which skills are injected into its prompt, which data sources it may read, and which sandbox it may execute code in. Capabilities are the bridge between an LLM's pure-text world and the messy real world of APIs, files, and computation.
+
+AWP treats tools as a **first-class, namespaced registry** rather than ad-hoc function calls. Every tool has a Fully Qualified Name (`namespace.action`), a strict response shape (`{ok, status, data, error, log}`), and an explicit security envelope. This uniformity is what makes tool calls auditable, replayable, and safe to expose to autonomous managers.
+
+Three execution modes coexist for tools, in increasing autonomy:
+
+1. **Classic tool calls** — the LLM invokes one tool at a time, the runtime executes it, returns the result, and the LLM continues. Simple and traceable; high token cost when many tools are involved.
+2. **Code mode** (default: enabled) — instead of N round-trips, the LLM writes a single code block against a *typed SDK* that wraps all allowed tools as methods. The code runs in the sandbox; one round-trip replaces many. The output contract (R17 confidence) is unchanged. This is the dominant execution mode for delegation-loop workers.
+3. **Runtime tool generation** (default: enabled) — when the existing tool set is insufficient for a task, a worker can author a new MCP tool on the fly. The runtime runs the candidate through a six-phase pipeline before exposing it to the LLM (see below).
+
+Tools are also bounded by an **enforced security envelope** declared in the manifest:
+
+- `shell.execute` and `terminal.execute` are by default in `worker_policy.enforced.forbidden_tools` for the delegation loop. Workers do shell-like work via `code.execute` in the sandbox, or via dynamically generated MCP tools that wrap a narrow capability with proper input validation.
+- The sandbox declares hard limits (memory, CPU seconds, network on/off, filesystem read/write/deny) that the manager cannot relax.
+- Secrets are injected through a separate `_secrets` channel and are never visible to the LLM.
+
+Capabilities are declared in the `capabilities` section of [agent.awp.yaml](agent.md) (per-agent) and in the `capabilities.custom_tools` section of [workflow.awp.yaml](manifest.md) (workflow-wide custom tools).
+
+> See also: [agent.md](agent.md), [manifest.md](manifest.md), [runtime.md](runtime.md), [runtime-tool-generation.md](runtime-tool-generation.md), [security.md](security.md), [validation.md](validation.md).
 
 ## Tool Naming Convention
 
@@ -276,6 +296,23 @@ def fetch_data(url: str, timeout: int = 30) -> dict:
     except Exception as e:
         return {"ok": False, "status": 500, "data": {}, "error": str(e), "log": ""}
 ```
+
+## Runtime Tool Generation (B1-B6)
+
+When a delegation-loop worker needs a capability that no existing tool provides, it can **generate a new MCP tool at runtime**. The runtime never trusts the generated code blindly — it runs every candidate through a six-phase pipeline:
+
+| Phase | Name | What happens |
+|---|---|---|
+| **B1** | Brief | Worker emits a structured *tool brief* (name, purpose, signature, expected I/O). |
+| **B2** | Generate | LLM writes the FastMCP tool implementation against the brief. |
+| **B3** | Validate | Static checks: FQN format, response shape, parameter annotations, no reserved namespace, no forbidden imports. |
+| **B4** | Sandbox | The tool is executed inside the agent sandbox against synthetic / probe inputs. |
+| **B5** | Auto-Repair | On failure, the runtime feeds the error back to the LLM for a bounded number of repair attempts. |
+| **B6** | Register | On success, the tool is registered into the workflow's tool registry and exposed to the worker (and only that worker, unless promoted). |
+
+This pipeline is **enabled by default** for delegation-loop workers (`codemode.tool_creation: true` in `manager_controlled`). The manager can disable it per-worker via the delegation envelope. Generated tools are persisted to `workspace/runs/{run_id}/artifacts/tools/` for audit and replay.
+
+For the full specification (brief schema, repair strategy, validation rules, examples) see [runtime-tool-generation.md](runtime-tool-generation.md).
 
 ## Code Mode — Alternative Tool Execution
 

@@ -1,6 +1,40 @@
 # Runtime & Platform Integration
 
-AWP is runtime-agnostic. This document describes the AWPAgent abstract interface, the standalone reference runtime, and how to integrate AWP with any platform.
+## Mental Model
+
+AWP is intentionally **runtime-agnostic**. The protocol (YAML manifests, agent contracts, validation rules) is normative; the runtime that *executes* a workflow is pluggable. This separation is what lets the same `workflow.awp.yaml` run unchanged on the standalone Python runtime, on Cloudflare Workers, inside Jupyter, or on a custom adapter for LangGraph / CrewAI.
+
+A runtime, regardless of platform, has four responsibilities:
+
+1. **Parse and validate** the manifest and all agent files (rules R1-R30, see [validation.md](validation.md)).
+2. **Resolve providers and credentials** for the LLMs each agent declares (see "Provider Routing" below).
+3. **Execute the orchestration engine** — DAG or delegation loop — while honoring the safety envelope (budgets, sandbox, forbidden tools).
+4. **Enforce the agent output contract (R17)**: every `AWPAgent.run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. Without it, the runtime rejects the result.
+
+The reference Python runtime adds two cross-cutting features that are **enabled by default** in modern versions, because they are essential for A2-A4 workloads:
+
+- **Code mode** — workers emit a single code block against a typed SDK instead of issuing many tool calls. Collapses N round-trips into one. See [tools.md](tools.md#code-mode--alternative-tool-execution).
+- **Runtime tool generation (B1-B6)** — workers can generate new MCP tools at runtime when the existing tools are insufficient. The runtime runs them through a six-phase pipeline (Brief → Generate → Validate → Sandbox → Auto-Repair → Register) before exposing them to the LLM. See [runtime-tool-generation.md](runtime-tool-generation.md).
+
+This file documents the abstract `AWPAgent` interface, the standalone reference runtime, environment variables, the Cloudflare Workers adapter, and how to build a new platform adapter. For execution semantics see [orchestration.md](orchestration.md) and [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+
+## Provider Routing
+
+Models are declared as plain strings; the runtime auto-detects the provider from the prefix:
+
+| Model string pattern | Routed to | Required env var |
+|---|---|---|
+| `provider/model-name` (e.g. `openai/gpt-5-nano`, `anthropic/claude-sonnet-4`) | **OpenRouter** | `OPENROUTER_API_KEY` |
+| `gpt-*`, `o1-*`, `o3*` | **OpenAI direct** | `OPENAI_API_KEY` |
+| `claude-*` | **Anthropic direct** | `ANTHROPIC_API_KEY` |
+| `ollama/*` | **Ollama (local)** | none |
+
+Defaults for the delegation loop engine:
+
+- **Manager model**: `nvidia/nemotron-3-super-120b-a12b` (strong reasoning for decomposition and validation)
+- **Worker model**: `openai/gpt-5-nano` (fast and cheap for ephemeral workers)
+
+The manager **cannot** override the worker model at runtime — that decision belongs to the user via the manifest or the CLI flags `--manager-model` / `--worker-model`. This prevents a hallucinating manager from upgrading workers to expensive models.
 
 ## AWPAgent Abstract Interface
 

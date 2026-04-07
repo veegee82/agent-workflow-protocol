@@ -1,6 +1,14 @@
 # Communication Reference
 
-Layer 3 defines the communication infrastructure for inter-agent messaging within an AWP workflow. Communication is configured in the `communication` section of [workflow.awp.yaml](manifest.md). This layer enables agents to exchange messages outside the DAG execution flow.
+## Mental Model
+
+Layer 3 is the **out-of-band nervous system** of an AWP workflow. Where the [orchestration](orchestration.md) graph defines *predictable* data flow ("agent A's output reaches agent B because B `depends_on` A"), communication exists for the cases the DAG cannot express: real-time notifications, dynamic peer-to-peer routing, request/response patterns between unrelated agents, and broadcast events that any subscriber may pick up.
+
+Conceptually, communication sits **next to** orchestration, not under it. The DAG is the spine; the message bus is the lateral wiring. Most A0/A1 workflows can ignore this layer entirely. It becomes important when (a) agents need to react to events emitted by peers, (b) workers in the [delegation loop](ORCHESTRATION_ENGINES.md) need to coordinate without going through the manager, or (c) you want to integrate AWP with external systems via Kafka/NATS/Redis.
+
+The layer is designed around three primitives: a **bus** (transport), **channels** (named topics with ACLs and schemas), and a strict **message envelope** (the only thing that goes on the wire). All three are wired into [security](security.md) (channel ACLs, payload redaction) and [observability](observability.md) (every message carries a `trace_id` and is countable via `awp.bus.messages`).
+
+Communication is configured in the `communication` section of [workflow.awp.yaml](manifest.md).
 
 ## When to Use Communication vs State Sharing
 

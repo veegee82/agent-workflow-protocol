@@ -1,6 +1,26 @@
 # Skill System
 
-The AWP skill system enables AI assistants to generate complete AWP workflows from natural language descriptions. It consists of a base skill, platform adapters, and domain extensions.
+## Mental Model
+
+The skill system is AWP's answer to *"how does a human (or a Claude assistant) actually produce a valid workflow without memorising the entire spec?"*. Instead of asking the user to learn 7 layers, 30 validation rules, and an autonomy ladder, the skill system gives an AI assistant a structured generation procedure: read the user's natural-language description, ask a few targeted questions, then emit a complete, validated workflow project — manifest, agent configs, prompts, schemas, and adapter code — in one go.
+
+There are three moving parts. The **base skill** (`skill/SKILL.md`) encodes the protocol, the validation rules, and a 5-phase generation procedure. **Adapters** (`skill/adapters/*.md`) plug the generated workflow into a concrete runtime — standalone, Cloudflare Workers, ClawHub. **Extensions** (`skill/extensions/*.md`) layer domain knowledge on top — finance, devops, research — using a class-inheritance-style merge model. The same skill that builds workflows also keeps in step with the rest of AWP: when the runtime gains a new feature (B1-B6 tool generation, complexity-scored auto-promotion, the experiment paradigm), the skill is updated in lockstep so generated workflows never carry stale defaults.
+
+A second, smaller skill — the **Code Mode Skill** — is *generated* per-agent at run time, not authored by hand. When an agent has `capabilities.codemode.enabled: true`, the runtime emits a Markdown file describing the typed SDK API the agent should use, and injects it into the system prompt. Together with the [runtime tool generation pipeline](runtime-tool-generation.md), this means generated tools and generated skills can flow back and forth: a skill template describes how to write a tool, the worker writes one, and the new tool's signature can become part of the next iteration's skill.
+
+### Default models the skill must know about
+
+The skill bakes in AWP's current model defaults so that newly generated workflows route correctly without user intervention. These defaults are kept in lockstep with the [Workflow Studio](ui.md#settings-right-sidebar) and the runner service:
+
+| Role | Default model | Provider auto-detect |
+|------|---------------|----------------------|
+| Manager | `nvidia/nemotron-3-super-120b-a12b` | OpenRouter (`provider/model` pattern) |
+| Worker | `openai/gpt-5-nano` | OpenRouter |
+| Direct OpenAI | `gpt-*`, `o1-*`, `o3*` | OpenAI native |
+| Direct Anthropic | `claude-*` | Anthropic native |
+| Local | `ollama/*` | Ollama (no key) |
+
+The skill writes these as free-text fields in the generated `workflow.awp.yaml` (never as a `<select>`), matching the UI's free-text model input. See [ui.md](ui.md#settings-right-sidebar) for the routing rules.
 
 ## Overview
 

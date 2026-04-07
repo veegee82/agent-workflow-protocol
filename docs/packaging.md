@@ -1,5 +1,13 @@
 # Packaging & Distribution
 
+## Why a Package Format At All?
+
+A workflow is only useful if you can hand it to someone else and have it run identically on their machine. For that you need three things: a stable file layout (covered in `file-structure.md`), a deterministic way to verify the contents have not been tampered with, and a registry to share packages through. The `.awp.zip` format provides the first two; ClawHub provides the third.
+
+A `.awp.zip` is a **content-addressed bundle**: every file inside has a SHA-256 checksum recorded in `manifest.json`, the manifest itself records the workflow name, version, AWP protocol version, and creation timestamp, and the unpack process verifies every checksum before the runtime touches any agent code. Runtime artifacts (`workspace/`, `runs/`, `data/state/`, `data/output/`) are excluded by default so a package is reproducible and free of secrets or stale state.
+
+The rest of this document specifies the archive layout, the manifest schema, the verification process, the exclusion rules, the CLI commands (`awp pack`, `awp unpack`, `awp verify`), and the ClawHub publishing flow.
+
 AWP defines a standard packaging format (`.awp.zip`) for distributing and exchanging workflows, along with ClawHub integration for publishing to the open skill registry.
 
 ## The `.awp.zip` Format

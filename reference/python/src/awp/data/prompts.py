@@ -8,6 +8,55 @@ if TYPE_CHECKING:
     from awp.runtime.skill_loader import SkillBundle
 
 
+# Hard-won pitfalls injected into EVERY worker system prompt (not only the
+# manager's). Earlier runs showed that pitfalls placed only in the manager
+# prompt never reach workers — the manager paraphrases them away or omits
+# them entirely. Workers therefore re-hit the same bugs (NameError due to
+# stateless code.execute, .loc int slice on DatetimeIndex, yfinance
+# MultiIndex columns, hallucinated domain APIs, stringified ndarray cells).
+WORKER_PITFALLS = """## Critical Pitfalls (Read Before Writing Code)
+
+### `code.execute` is STATELESS between calls
+Each `code.execute` invocation runs in a **fresh subprocess**. Variables,
+imports, and helper functions defined in one call DO NOT exist in the next
+call. If you see `NameError: name 'foo' is not defined`, the cause is almost
+certainly that `foo` was defined in an earlier `code.execute` call.
+
+Rules:
+- Every `code.execute` call must be **fully self-contained**: re-import
+  modules, re-load files, re-define helpers.
+- Persist intermediate data via `_workspace_dir` files (CSV / Parquet /
+  JSON / .npy) and reload from disk in the next call.
+- If an earlier worker already produced a data file under `_workspace_dir`,
+  **load it from disk** instead of re-fetching it from the network.
+
+### Pandas / data common bugs
+- `df.loc[int_slice, col]` on a `DatetimeIndex` raises
+  `cannot do slice indexing on DatetimeIndex`. Use `df.iloc[start:stop]`
+  for positional access, or pass actual `Timestamp` values to `.loc`.
+- `yfinance.download(...)` may return columns as a **MultiIndex**. Always
+  flatten before selecting:
+  `df.columns = df.columns.get_level_values(0)`
+  Then `df.reset_index()` so the `Date`/`Datetime` column is preserved
+  when you write to CSV.
+- Never write a numpy array into a single CSV cell. Convert to a scalar
+  (`arr.max()`, `arr.mean()`) or expand to multiple columns.
+- Validate every CSV before declaring it a deliverable: no NaN in
+  mandatory metric columns, no stringified arrays, expected row counts.
+
+### Domain code (cBot, SQL, Solidity, etc.)
+- Do **not** invent APIs. If you don't know the exact method signature,
+  state that explicitly in your result rather than producing hallucinated
+  code that won't compile.
+
+### Diagnose stderr; do not resubmit identical broken code
+If a previous `code.execute` call failed, READ the stderr / traceback
+in the tool result before issuing the next call. Change the specific
+line(s) the traceback points at. Re-running the same code is wasted
+budget.
+"""
+
+
 def _build_experiment_context_hint(has_context: bool) -> str:
     """Return a prompt section about experiment context files, or empty string."""
     if not has_context:
@@ -231,6 +280,22 @@ from PIL import Image
 img = Image.open(_workspace_dir + "/inputs/photo.png")
 print(f"size={{img.size}}, mode={{img.mode}}")
 ```
+
+## Critical Pitfalls Workers Must Avoid (instruct them in `instructions`)
+
+State & I/O:
+- `code.execute` calls do **NOT** share Python state — each call is a fresh subprocess. Variables, imports, and helper functions defined in one call are gone in the next. Persist intermediate data via `_workspace_dir` files (CSV / Parquet / JSON / npy) and reload from disk in the next call. Never assume an earlier `code.execute` left a variable in scope.
+- Each worker call must be **self-contained**: re-import, re-load files, re-define helpers.
+- If a previous worker already produced a data file in `_workspace_dir`, **load it** instead of re-fetching from the network.
+
+Pandas / data:
+- `df.loc[int_slice, col]` on a `DatetimeIndex` raises — use `.iloc` for positional indexing.
+- `yfinance.download(...)` may return a **MultiIndex** on columns; flatten with `df.columns = df.columns.get_level_values(0)` before selecting columns.
+- Never write a numpy array into a single CSV cell; convert to scalar (e.g. `arr.max()`) or to a list-column.
+- Validate final CSV / DataFrame outputs: no NaN in mandatory metric columns, no stringified arrays, expected row counts.
+
+Domain code (e.g. C# cBot, SQL, Solidity):
+- Do **not** invent APIs. If unsure of a method signature, say so explicitly in the result rather than producing hallucinated code. The synthesis stage should reject deliverables that were never compiled or syntax-checked.
 
 ## Worker Policy (Enforced Limits)
 - Sandbox: {sandbox_type}

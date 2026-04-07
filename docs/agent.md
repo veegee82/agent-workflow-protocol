@@ -1,6 +1,25 @@
 # agent.awp.yaml Reference
 
-Every agent in an AWP workflow must have an `agent.awp.yaml` file located at `agents/{agent_id}/agent.awp.yaml` within the workflow directory. This file defines the agent's identity, model configuration, prompt structure, output contract, and vision capabilities.
+## Mental Model
+
+An **agent** in AWP is the smallest unit of reasoning: an identity, a model, a system prompt, and a strict output contract. Every agent lives in `agents/{agent_id}/agent.awp.yaml` and is referenced from the workflow manifest. Agents are intentionally small and self-describing — the goal is that you can read a single `agent.awp.yaml` and know exactly *who* this agent is, *which model* it runs on, *what* it must produce, and *which tools* it may touch.
+
+Two contracts make agents composable across runtimes:
+
+1. **The output contract (R17).** Every agent's `run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. The `confidence` field is mandatory for JSON outputs and is what downstream agents, validators, evaluation gates, and the delegation loop use to make decisions. Without it the runtime will reject the result.
+2. **The identity contract.** `identity.id` must match both the agent's directory name and the node `id` used in `orchestration.graph`. This three-way symmetry is what lets the runtime resolve graph nodes deterministically.
+
+Agents come in two flavors:
+
+- **Static agents** — defined as `agent.awp.yaml` files on disk and referenced from the DAG. These are the agents you author.
+- **Ephemeral workers** — generated at runtime by a manager in the delegation loop engine. They never exist as files; the manager produces a *Delegation Envelope* (instructions + skills + allowed tools + output contract) per worker. The same `AWPAgent` interface and the same R17 contract apply. See [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+
+Two cross-cutting features modify how an agent executes — both **default to enabled** in modern AWP runtimes:
+
+- **Code mode** (`capabilities.codemode`) lets the agent emit a single code block against a typed SDK instead of issuing many tool calls. This collapses N LLM round-trips into one and dramatically reduces token cost. The output contract is unchanged. See [tools.md](tools.md#code-mode--alternative-tool-execution).
+- **Tool creation** lets a worker generate new MCP tools at runtime when the existing toolset is insufficient. The runtime validates, sandboxes, and auto-repairs generated tools through a six-phase pipeline (B1-B6). See [runtime-tool-generation.md](runtime-tool-generation.md) and [tools.md](tools.md#runtime-tool-generation-b1-b6).
+
+> See also: [orchestration.md](orchestration.md), [tools.md](tools.md), [runtime.md](runtime.md), [memory.md](memory.md), [validation.md](validation.md), [critique.md](critique.md).
 
 ## Top-Level Field
 

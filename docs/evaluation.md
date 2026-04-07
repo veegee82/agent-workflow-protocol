@@ -1,6 +1,20 @@
 # Evaluation Layer
 
-AWP's evaluation layer provides **quality scoring** for workflow results. While validation (R1-R30) checks whether a workflow is structurally correct and safe, evaluation measures **how well the workflow solved the problem**.
+## Mental Model
+
+Evaluation is AWP's answer to a deceptively simple question: *"after a workflow has finished, was the result actually good?"* Validation tells you whether a workflow is well-formed and safe to run; evaluation tells you whether the run produced something worth keeping. It is the only AWP subsystem that emits a single, comparable **0.0–1.0 score** for an entire run, which makes it the natural home for retry policies, regression dashboards, and A/B comparisons between workflow versions.
+
+Evaluation lives in the [observability layer](observability.md) and runs *after* execution (or on intermediate hooks like `worker_result`). It composes cleanly with the other quality subsystems:
+
+| Subsystem | Question | Granularity | Output |
+|-----------|----------|-------------|--------|
+| [Validation](validation.md) (R1-R30) | "Is this workflow well-formed?" | Whole workflow | pass/fail |
+| [Critique](critique.md) | "Is this worker output broken? Can we fix it now?" | Per worker call | defect list + repair |
+| **Evaluation** (this doc) | "How good is the final result?" | Whole run (or hook point) | 0.0–1.0 score + action |
+
+> **Heads-up — Evaluation vs. Critique.** Critique repairs individual worker outputs *during* the delegation loop. Evaluation scores the *finished* run and decides whether to accept, warn, retry the whole workflow, or fail. When both are enabled, critique runs first (inner repair), evaluation second (outer judgement). They never compete for the same budget slot.
+
+The numeric score also feeds back into the [manager intelligence](manager-intelligence.md) decision journal and the [Workflow Studio UI](ui.md), where it appears next to each completed run.
 
 ## Evaluation vs Validation
 

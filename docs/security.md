@@ -1,5 +1,19 @@
 # Security Reference
 
+## Mental Model
+
+Security in AWP is built around one central idea: the **safety envelope**. As workflows climb the autonomy spectrum (A0 → A4), the runtime gives away increasing amounts of control to the manager — what to spawn, what tools to use, even what new tools to *create*. The safety envelope is the set of constraints the manager **cannot override**, no matter how clever its planning becomes. Everything in this layer ultimately reinforces that envelope.
+
+The defenses are layered (defense-in-depth):
+
+1. **Forbidden tools** — A hard deny-list at the delegation-loop level. `shell.execute` and other dangerous tools are forbidden by default in the worker policy; the manager cannot grant them to a worker even if the worker requests them. See [orchestration.md](orchestration.md) and [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+2. **Sandbox isolation** — Code execution (Code Mode) and runtime tool generation always run in a sandbox (subprocess, venv, Docker, or `isolate`). Sandbox boundaries are enforced by the runtime, not by trust.
+3. **Runtime tool generation auto-repair (B1–B6)** — Newly generated tools are validated in the sandbox before being registered ([runtime-tool-generation.md](runtime-tool-generation.md)). A tool that fails sandbox validation is rejected; the auto-repair loop tries to fix it within budget. This is the security backstop for A3 self-tooling.
+4. **Budget reservation model (A4 termination guarantee)** — Every delegation reserves a portion of the parent's budget *before* the child runs. Submanagers inherit a strictly smaller envelope, and the runtime refuses to spawn beyond `max_depth`. This is what makes recursive delegation provably terminating. See [compliance.md](compliance.md).
+5. **Circuit breakers, rate limits, ACLs** — The classical operational defenses below.
+6. **Secrets management** — Secrets never leave their backend in plain text and are redacted from every observability sink ([observability.md](observability.md)).
+7. **Provider/model routing** — The model string (`openai/gpt-5-nano`, `claude-*`, `ollama/*`, ...) determines which API key gets used; per-step model attribution is recorded in the audit trail so you can answer "which model saw this prompt?" after the fact.
+
 Security is a cross-cutting concern that applies across all AWP layers. It is configured in the `security` section of [workflow.awp.yaml](manifest.md).
 
 ## Circuit Breaker

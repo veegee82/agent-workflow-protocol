@@ -5,15 +5,15 @@
 > `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`,
 > `packages/awp-runtime/src/awp/runtime/tool_repair.py`
 
-In A2+ workflows, AWP **workers can generate their own Python tools at runtime**.
-The Manager flips a worker into *tool creation mode*, the worker emits a JSON
-spec containing Python source code, and AWP must validate, sandbox, run, and
-register the new tool — all in the same iteration, ideally without ever
-asking the Manager to retry.
+## Mental Model
 
-This document describes the full pipeline: every stage, every failure mode,
-every robustness check. It is the canonical reference for the
-`DynamicToolFactory` and the inline LLM repair loop.
+Most agent frameworks ship with a fixed tool catalogue and hope it covers every task. AWP takes the opposite bet: at autonomy level A3 and above, **workers write the tools they need, the moment they need them**. The manager flips a worker into *tool creation mode*, the worker returns a JSON spec containing Python source, and the runtime turns that source into a registered, sandboxed, schema-validated tool that any subsequent worker in the same run can call by name. Tool creation is the mechanism that turns a static workflow into an *adaptive* one.
+
+This is also the riskiest thing AWP does, which is why the pipeline below is paranoid by design. The naive version of "let an LLM write code and run it" fails ~30-40% of the time on first try (forbidden imports, missing returns, schema/signature drift, runtime crashes on edge inputs). Each failure costs a full Manager iteration plus an expensive worker LLM call. The **B1-B6 robustness pipeline + auto-repair loop** described here pushes that close to zero by validating, dry-running, and *repairing* the spec inside the same worker call — the manager only ever sees the polished result.
+
+Code mode and tool creation are **enabled by default** in interactive contexts (Workflow Studio, Jupyter) precisely because the safety envelope is strong enough to make the default safe. The same envelope is what lets the [skill system](skill-system.md) generate tool templates without auditing every line, and what lets [auto-promoted submanagers](manager-intelligence.md#complexity-scored-auto-promotion-a4-trigger) inherit a parent's tool factory without widening the trust boundary.
+
+This document is the canonical reference for the `DynamicToolFactory` and the inline LLM repair loop: every stage, every failure mode, every robustness check.
 
 ---
 
@@ -44,6 +44,21 @@ B1–B6 below.
 ---
 
 ## 3. The six robustness building blocks
+
+```text
+   B1 Prompt   B2 Schema   B3 Dry-run   B4 Repair   B5 Cache   B6 Errors
+   ────────    ─────────   ──────────   ─────────   ────────   ─────────
+   stronger    AST sig.    synthetic    inline      sha256     categories
+   pre-flight  vs schema   inputs       LLM fix     dedup      + metrics
+       │           │            │           │          │            │
+       ▼           ▼            ▼           ▼          ▼            ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  worker spec  ─►  validate  ─►  dry-run  ─►  register  ─►  call │
+   │                       │             │            ▲              │
+   │                       └────fail─────┴────►  repair loop ────────┘
+   └─────────────────────────────────────────────────────────────────┘
+```
+
 
 | ID | What | Where | Effect |
 |---|---|---|---|

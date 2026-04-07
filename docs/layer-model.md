@@ -1,5 +1,17 @@
 # The 7-Layer Architecture
 
+## Why Layers At All?
+
+A multi-agent workflow has many independent concerns: who the agents are, what they can do, how they talk, what they remember, how they are wired together, and how you observe them. Most frameworks mix these concerns in code — agent identity, tool registration and orchestration end up tangled in the same Python class. AWP refuses that mix. It assigns each concern to its own **layer**, with its own YAML section and its own validation rules, and lets you opt into layers as your workflow grows.
+
+The layering produces three concrete benefits:
+
+- **Progressive disclosure.** A 10-line A0 workflow needs only Layer 0 (manifest), Layer 1 (agent identity) and Layer 5 (orchestration). Memory, communication and observability are *opt-in*. You never pay for a layer you do not use.
+- **Local reasoning.** Changing your orchestration strategy (Layer 5) does not touch agent identity (Layer 1) or tool definitions (Layer 2). Validation errors stay scoped to a single layer rather than cascading across the workflow.
+- **Cross-cutting features compose cleanly.** The **critique loop**, **evaluation layer** and **security envelope** are not new layers — they hook into existing ones (orchestration, observability, security) without breaking the layer model. The same is true for the **delegation loop's** advanced features: complexity-scored auto-promotion, reservation budgets and recursive sub-runs all live inside Layer 5.
+
+The diagrams below show the layers as a stack and as a dependency graph. Read them as a map: a workflow inhabits some subset of these boxes, and the rest of this document explains which subset corresponds to which autonomy level.
+
 AWP organizes workflow concerns into seven layers. Each layer answers one question and builds on the layers below it.
 
 ## Layer Diagram
@@ -37,6 +49,22 @@ Each [autonomy level](compliance.md) uses specific layers:
 | A4 | Self-Organizing | All (0-6 + Security) | Recursive delegation, budget distribution |
 
 Communication (Layer 3), Memory (Layer 4), Observability (Layer 6), and Security are cross-cutting features available at any autonomy level.
+
+### Cross-Cutting Mechanisms (Not New Layers)
+
+Several powerful features are *not* layers of their own — they extend existing layers without breaking the seven-layer model:
+
+| Mechanism | Hosted in | What it adds |
+|-----------|-----------|--------------|
+| **Delegation loop** (A2-A4) | Layer 5 | Manager/worker engine with complexity-scored auto-promotion, reservation-based budgets, recursive sub-runs |
+| **Dynamic tool factory** (A3+) | Layer 2 | Six-phase B1-B6 pipeline (schema → AST → sandbox import → smoke test → registry binding → integration) with auto-repair loop |
+| **Critique loop** | Layer 5 + Layer 6 | Per-iteration defect diagnosis and targeted repair inside the worker loop |
+| **Evaluation layer** | Layer 6 | Workflow-level quality scoring with weighted metrics, thresholds, and retry policy |
+| **Manager intelligence** | Layer 5 | Planning, hypothesis-diagnosis, strategy switching, decision journal |
+| **Per-role model routing** | Layer 1 | Manager and worker LLMs configured separately; provider auto-detected from model string |
+| **Experiment paradigm** | UI (Workflow Studio) | Sessions are now Experiments with Protocol/Memory tabs and scoped metadata |
+
+These mechanisms are documented separately (`orchestration.md`, `tools.md`, `critique.md`, `evaluation.md`, `ui.md`) but they all *plug into* the layer model rather than expanding it.
 
 ## How Layers Map to YAML Sections
 

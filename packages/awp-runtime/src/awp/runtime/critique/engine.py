@@ -121,7 +121,15 @@ class CritiqueEngine:
         # Reassemble in original order
         envelopes = [results_map[i] for i in range(len(work))]
 
-        # Record patterns (sequential — mutates shared state)
+        # Record patterns (sequential — mutates shared state).
+        # We record TWO sources so pattern memory actually accumulates:
+        #   1. Explicit reusable_patterns the critic returned.
+        #   2. Every critical/warning defect itself (the critic almost
+        #      never populates reusable_patterns, so without this the
+        #      pattern memory stays empty across the entire run and the
+        #      manager prompt never learns from earlier failures — the
+        #      exact pathology observed when workers were renamed and the
+        #      same bug recurred 4× in a row).
         if self._config.pattern_memory:
             for critique in envelopes:
                 for pattern_desc in critique.reusable_patterns:
@@ -130,6 +138,18 @@ class CritiqueEngine:
                         category=cat,
                         description=pattern_desc,
                         prevention_rule=pattern_desc,
+                        iteration=iteration,
+                    )
+                for d in critique.defects:
+                    if d.severity not in ("critical", "warning"):
+                        continue
+                    rule = f"[{d.category}] {d.description}".strip()
+                    if not rule:
+                        continue
+                    self._pattern_memory.record(
+                        category=d.category or "generic",
+                        description=rule,
+                        prevention_rule=rule,
                         iteration=iteration,
                     )
         return envelopes
@@ -403,17 +423,28 @@ Respond with a JSON object:
     ) -> str:
         """Build repair instructions for a worker based on critique feedback."""
         original_instructions = envelope.get("instructions", "")
-        result_json = json.dumps(worker_result, indent=2, default=str)
+        # Strip the heavy _tool_calls log out of the result echo (we surface
+        # the relevant failure traces separately, below) so the model isn't
+        # drowned in noise.
+        slim_result = {k: v for k, v in worker_result.items() if k != "_tool_calls"}
+        result_json = json.dumps(slim_result, indent=2, default=str)
         if len(result_json) > 4000:
             result_json = result_json[:4000] + "\n...(truncated)"
+
+        # Extract the LAST failing tool_call's stderr + offending code so the
+        # repair worker can actually see *why* its previous attempt blew up.
+        # Without this it tends to resubmit nearly identical code.
+        failure_block = self._extract_failure_evidence(worker_result)
 
         lines = [
             "## REPAIR MODE — Fix specific defects in your previous output\n",
             "You produced the following output which has quality issues. "
             "Fix ONLY the listed defects. Keep everything else unchanged.\n",
             f"## Your Previous Output\n```json\n{result_json}\n```\n",
-            "## Defects to Fix\n",
         ]
+        if failure_block:
+            lines.append(failure_block)
+        lines.append("## Defects to Fix\n")
         for i, d in enumerate(critique.defects, 1):
             if d.severity in ("critical", "warning"):
                 lines.append(
@@ -426,6 +457,99 @@ Respond with a JSON object:
             f"\n## Original Task Instructions (for context)\n{original_instructions[:1500]}"
         )
         return "\n".join(lines)
+
+    # Map stderr substrings → concrete repair hints. Keeps the model from
+    # blindly resubmitting the same broken code (the dominant failure mode
+    # observed in real runs: pandas indexing, yfinance MultiIndex, lost state).
+    _STDERR_HINTS: list[tuple[str, str]] = [
+        (
+            "cannot do slice indexing on DatetimeIndex",
+            "You used a positional/integer slice on a DatetimeIndex via `.loc`. "
+            "Use `.iloc[start:stop]` for positional access, or pass actual "
+            "Timestamps to `.loc`.",
+        ),
+        (
+            "MultiIndex",
+            "yfinance / pandas returned columns as a MultiIndex. Flatten with "
+            "`df.columns = df.columns.get_level_values(0)` before selecting.",
+        ),
+        (
+            "NameError",
+            "`code.execute` calls do NOT share Python state across calls. "
+            "Re-import modules and re-define every helper inside the SAME call, "
+            "or persist data to `_workspace_dir` and reload it.",
+        ),
+        (
+            "FileNotFoundError",
+            "The file you tried to read does not exist. List `_workspace_dir` "
+            "with `os.listdir` first, and only read files that earlier workers "
+            "actually wrote.",
+        ),
+        (
+            "KeyError",
+            "A column / dict key you referenced does not exist. Print the "
+            "available keys (`df.columns.tolist()` / `list(d.keys())`) before "
+            "accessing them and adapt to what is actually present.",
+        ),
+    ]
+
+    def _extract_failure_evidence(self, worker_result: dict[str, Any]) -> str:
+        """Pull stderr + offending code from the last failing tool call.
+
+        Returns a markdown block ready to drop into the repair prompt, or "".
+        """
+        tool_calls = worker_result.get("_tool_calls") or []
+        if not isinstance(tool_calls, list):
+            return ""
+
+        last_failure: dict[str, Any] | None = None
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            res = tc.get("result") or {}
+            data = res.get("data") if isinstance(res, dict) else None
+            stderr = ""
+            if isinstance(data, dict):
+                stderr = data.get("stderr") or ""
+            err = res.get("error") if isinstance(res, dict) else None
+            if stderr or err:
+                last_failure = tc
+
+        if not last_failure:
+            return ""
+
+        res = last_failure.get("result") or {}
+        data = res.get("data") if isinstance(res, dict) else {}
+        stderr = (data or {}).get("stderr", "") if isinstance(data, dict) else ""
+        err = res.get("error", "") if isinstance(res, dict) else ""
+        args = last_failure.get("arguments") or last_failure.get("args") or {}
+        code_snippet = ""
+        if isinstance(args, dict):
+            code_snippet = args.get("code") or args.get("source") or ""
+
+        # Tail of stderr is the most informative part (final traceback frame)
+        stderr_tail = (stderr or err or "")[-1500:]
+
+        hints = []
+        for needle, hint in self._STDERR_HINTS:
+            if needle in stderr_tail:
+                hints.append(f"- {hint}")
+
+        block = ["## Previous Execution Failure (real stderr — diagnose this!)\n"]
+        if code_snippet:
+            snippet = code_snippet
+            if len(snippet) > 1500:
+                snippet = snippet[:1500] + "\n...(truncated)"
+            block.append(f"### Offending code\n```python\n{snippet}\n```\n")
+        if stderr_tail:
+            block.append(f"### Stderr / traceback\n```\n{stderr_tail}\n```\n")
+        if hints:
+            block.append("### Targeted hints\n" + "\n".join(hints) + "\n")
+        block.append(
+            "Do NOT resubmit the same code. Diagnose the traceback above and "
+            "change the specific line(s) it points at.\n"
+        )
+        return "\n".join(block)
 
     def _parse_critique_response(self, worker_id: str, response: Any) -> CritiqueEnvelope:
         """Parse the LLM critique response into a CritiqueEnvelope."""

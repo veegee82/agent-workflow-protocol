@@ -1,6 +1,20 @@
 # Reflective Critique Loop
 
-AWP's critique system provides **automated quality analysis and targeted repair** for worker outputs within the delegation loop. While [evaluation](evaluation.md) scores the overall workflow result, critique operates at the individual worker level — diagnosing specific defects, prescribing fixes, and learning from failures across workers.
+## Mental Model
+
+The critique loop is the delegation loop's **inner self-correction reflex**. Where the manager decides *what* to do next, the critic asks — for every worker output, before the manager ever sees it — *"is this output actually any good, and if not, can we fix it right here?"* This turns each worker call into a small, reviewable artifact instead of a blind hand-off, and lets later workers in the same run learn from earlier failures via accumulated *patterns*.
+
+Critique sits **inside** the [delegation loop engine](ORCHESTRATION_ENGINES.md) (A2+ only). It is one of three quality subsystems in AWP, each operating at a different scope:
+
+| Subsystem | Scope | When | Where to read |
+|-----------|-------|------|---------------|
+| **Validation** (R1-R30) | Static schema/graph correctness | Before/during run | [validation.md](validation.md) |
+| **Critique** (this doc) | Per-worker output, inside delegation loop | After every worker call | here |
+| **Evaluation** | Whole-workflow score | After the run | [evaluation.md](evaluation.md) |
+
+> **Heads-up — Critique vs. Evaluation.** Critique is a *worker-level repair tool*: it diagnoses specific defects in a single worker output and tells *that same worker* how to fix them. Evaluation is a *workflow-level scoring tool*: it produces a numeric quality score for the entire run and can trigger full retries. They are designed to be complementary and can be enabled independently — see the table below.
+
+The critique system also feeds the [manager intelligence](manager-intelligence.md) decision journal: each defect pattern becomes a hint the manager uses on the next iteration.
 
 ## Critique vs Evaluation
 

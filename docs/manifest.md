@@ -1,6 +1,18 @@
 # workflow.awp.yaml Reference
 
-The manifest is the root document of every AWP workflow. It declares the workflow's identity, version, dependencies, environment requirements, and default settings. Every AWP workflow must contain exactly one `workflow.awp.yaml` file at the root of the workflow directory.
+## Mental Model
+
+`workflow.awp.yaml` is the **root document** of every AWP workflow — the single anchor file that ties together identity, dependencies, the orchestration graph, security, memory, and observability. If you only read one file to understand a workflow, read this one. Everything else (`agent.awp.yaml`, custom MCP tools, skills) is referenced from here.
+
+The manifest exists to **separate workflow definition from implementation**. The YAML declares *what* should happen — which agents, in what order, with which budgets, and under which security envelope — while the Python (or other language) implementation declares *how*. This separation is what makes AWP workflows portable across runtimes (standalone Python, Cloudflare Workers, custom adapters) and auditable without reading any code.
+
+A manifest plays three roles at once:
+
+1. **Identity & contract** — name, version, autonomy level, required runtime capabilities, and required environment variables. The runtime uses these for fail-fast validation before any agent runs.
+2. **Composition root** — the manifest references all other layers via top-level sections (`orchestration`, `state`, `memory`, `communication`, `observability`, `security`, `capabilities.custom_tools`). See the cross-reference table below.
+3. **Safety envelope** — for A2-A4 workflows, the manifest declares the **`delegation_loop`** section with budgets, forbidden tools, sandbox limits, and the manager's auto-promotion thresholds. The runtime enforces these envelope fields deterministically; even a hallucinating manager cannot escape them.
+
+> See also: [orchestration.md](orchestration.md), [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [tools.md](tools.md), [runtime.md](runtime.md), [compliance.md](compliance.md), [manager-intelligence.md](manager-intelligence.md).
 
 ## Required Fields
 
@@ -122,6 +134,69 @@ Default settings for the workflow.
 |-------|------|-------------|
 | `llm` | object | Default LLM settings: `default_provider`, `default_model`, `temperature`, `max_tokens`. |
 | `custom` | object | Arbitrary key-value pairs passed through to agents without modification. |
+
+## Manager Envelope (A2-A4 Workflows)
+
+Workflows that use the **delegation loop** engine declare a `delegation_loop` block under `orchestration`. The most safety-critical fields — budgets, forbidden tools, sandbox limits, auto-promotion thresholds, and the worker policy split — live in the manifest because they form the **enforced envelope** that the manager cannot override at runtime.
+
+```yaml
+orchestration:
+  engine: delegation_loop
+  delegation_loop:
+    manager: agents/manager
+
+    models:
+      manager: nvidia/nemotron-3-super-120b-a12b   # default manager model
+      worker:  openai/gpt-5-nano                   # default worker model
+
+    worker_policy:
+      enforced:
+        sandbox:
+          type: subprocess
+          max_memory_mb: 512
+          max_cpu_seconds: 30
+          network: false
+        forbidden_tools:
+          - "shell.execute"        # forbidden in delegation loop by default
+          - "terminal.execute"
+        codemode:
+          max_tools_per_worker: 10
+        rate_limiting:
+          max_llm_calls_per_minute: 30
+      manager_controlled:
+        - instructions
+        - skills
+        - tools_allowed
+        - output_contract
+        - codemode.enabled         # default: enabled
+        - codemode.tool_creation   # default: enabled
+        - temperature
+
+    auto_promotion:                # complexity-scored submanager promotion
+      enabled: true
+      complexity_threshold: 3
+      max_promotions_per_iteration_fraction: 0.5
+
+    budget:
+      max_loops: 20
+      max_total_workers: 30
+      max_total_tokens: 1000000
+      max_wall_time: 600
+      max_depth: 5
+```
+
+Key envelope fields:
+
+| Field | Purpose |
+|---|---|
+| `worker_policy.enforced.forbidden_tools` | Tools the manager **may not** grant to workers. `shell.execute` and `terminal.execute` are forbidden by default in delegation loops — workers use `code.execute` instead. See [tools.md](tools.md). |
+| `worker_policy.enforced.sandbox` | Hard limits for the worker sandbox. Manager cannot relax. |
+| `worker_policy.manager_controlled` | The whitelist of fields the manager *can* set per worker (instructions, skills, tool list, output contract, codemode toggles, temperature). |
+| `auto_promotion.complexity_threshold` | Minimum complexity score for a worker subtask to be promoted to a submanager (A4). See [manager-intelligence.md](manager-intelligence.md). |
+| `budget.*` | Hard envelope: loops, workers, tokens, wall time, depth. Reservation model guarantees `sum(children) + self <= allocation`. |
+| `models.manager` / `models.worker` | Default routing per role. Provider auto-detected from the model string (`provider/model` → OpenRouter, `gpt-*`/`o3*` → OpenAI direct, `claude-*` → Anthropic, `ollama/*` → local). See [runtime.md](runtime.md). |
+
+For the full delegation-loop reference (engine semantics, validation tiers, critique loop, history & spillover) see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) and [orchestration.md](orchestration.md).
 
 ## How the Manifest References Other Sections
 

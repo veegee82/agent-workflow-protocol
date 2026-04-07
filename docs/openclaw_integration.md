@@ -2,6 +2,12 @@
 
 > **OpenClaw is the best-connected AI gateway in open source. AWP gives it a brain — declarative orchestration, runtime tool creation, and budget-bounded multi-agent workflows.**
 
+## Mental Model
+
+OpenClaw is the *body*: 25+ messaging channels, 25+ LLM providers, voice, camera, screen, location. AWP is the *brain*: declarative workflows, two orchestration engines, the [B1-B6 runtime tool generation pipeline](runtime-tool-generation.md), [manager intelligence](manager-intelligence.md) (planning, diagnosis, strategy switching, budget reservation, decision journal), and the [reservation model](manager-intelligence.md#budget-reservation-model-and-termination-guarantees) that gives recursive delegation a hard termination guarantee. The integration is deliberately lopsided — OpenClaw owns everything user-facing, AWP owns everything orchestration-shaped, and the boundary between them is a single dispatch decision: *is this message simple enough for one agent, or does it need a workflow?*
+
+The narrative below is structured for two audiences. **Sections 1-6** are the high-level pitch: the problem, what AWP adds, scenarios, the orchestration gap, the responsibility split. **Sections 7+** are the technical deep-dive for readers who want field-by-field comparisons of every layer (runtime, security, tools, communication, observability). If you only have ten minutes, read 1-6.
+
 [OpenClaw](https://github.com/openclaw/openclaw) is the most connected AI assistant gateway out there. It reaches users on WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, and 19 more platforms. It manages 25+ LLM providers with failover. It integrates cameras, voice, screens, and location.
 
 What it lacks is an **orchestration layer**. Every message goes to one agent, gets one LLM call, and comes back. OpenClaw can spawn subagents (up to depth 5), but there is no declarative workflow definition, no structured state sharing, no output validation with confidence scoring, and no multi-dimensional budget enforcement. Most critically: the tool set is fixed — the system cannot adapt to tasks it was not built for.
