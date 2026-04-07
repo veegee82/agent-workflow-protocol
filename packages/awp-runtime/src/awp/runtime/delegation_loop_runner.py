@@ -4060,7 +4060,7 @@ print("Chart saved")
                         if isinstance(tools_in_result, list)
                         else 0,
                     )
-                    self._process_tool_creation(result, worker_id, codemode)
+                    self._process_tool_creation(result, worker_id, codemode, llm_client=llm)
 
                     logger.info(
                         "Worker %s after tool processing — tools_registered: %s",
@@ -4242,11 +4242,38 @@ def handler(*, query):
 
 You are in TOOL CREATION mode. Your job is to generate reusable Python tools.
 
+### Top failure patterns — AVOID these (each one wastes a full iteration):
+
+1. **Forgot `return`** — handler MUST end with `return {{"ok": True, "status": 200, "data": {{...}}, "error": None}}`. No print, no implicit None.
+2. **Wrong signature** — MUST be `def handler(*, arg1, arg2):` with the `*`. Positional args are rejected.
+3. **Schema/signature mismatch** — every key your handler reads (`arg1`, `arg2`) MUST appear in `parameters.properties`, and vice versa. Validator compares them and rejects mismatches.
+4. **Forbidden imports** — NEVER import `os`, `sys`, `subprocess`, `ctypes`, `importlib`, `signal`, `multiprocessing`. Use the pre-defined helpers (`_output_dir`, `_workspace_dir`, `_ensure_dir`, `_safe_open`/builtin `open`) instead.
+5. **Placeholder outputs** — never write base64 1x1 PNGs or 100-byte "PDF" stubs. Use real libraries (matplotlib for charts, reportlab for PDFs). If a library is missing, request it via the `pip.install` tool BEFORE creating the tool.
+6. **Reading `_secrets` not declared** — if you read `_secrets["FOO"]`, you MUST list `"FOO"` in `required_secrets`.
+7. **Multi-line JSON output** — only the LAST line of stdout is parsed as the result. Do not `print` after the result line.
+
+### DO ✅
+```python
+def handler(*, value, weight):
+    score = min(value / 100.0, 1.0) * weight
+    return {{"ok": True, "status": 200, "data": {{"score": round(score, 4)}}, "error": None}}
+```
+
+### DON'T ❌
+```python
+import os                              # forbidden import
+def handler(value, weight):            # missing '*', positional args
+    score = value * weight
+    print(score)                       # no return
+```
+
+### Required tool spec fields
+
 For each tool you create, include it in the `tools_created` array in your response.
 Each tool object must have:
 - `name`: Fully qualified name in the "{namespace}" namespace (e.g., "{namespace}.calculate_score")
 - `description`: What the tool does
-- `parameters`: JSON Schema for the tool's input parameters
+- `parameters`: JSON Schema for the tool's input parameters. The `properties` keys MUST exactly match the keyword arguments your `handler` reads.
 - `code`: Python code containing a `def handler(*, ...)` function that returns a dict with `{{"ok": True, "status": 200, "data": {{}}, "error": None}}`
 - `required_secrets` (optional): Array of secret key names the tool needs at runtime (e.g., `["OPENAI_API_KEY"]`). The values are injected as a `_secrets` dict variable in the sandbox.
 
@@ -4334,7 +4361,11 @@ Rules:
 {secrets_section}"""
 
     def _process_tool_creation(
-        self, result: dict, worker_id: str, codemode: dict
+        self,
+        result: dict,
+        worker_id: str,
+        codemode: dict,
+        llm_client: Any = None,
     ) -> None:
         """Extract tools from worker result and register them via DynamicToolFactory.
 
@@ -4409,24 +4440,69 @@ Rules:
                         allowed_namespace=namespace,
                         required_secrets=req_secrets if req_secrets else None,
                     )
+                    # B4: Inline LLM repair loop for repairable failures.
+                    if (
+                        not reg_result.get("ok")
+                        and reg_result.get("repairable", False)
+                        and llm_client is not None
+                    ):
+                        from .tool_repair import attempt_repair
+
+                        max_repair = int(codemode.get("repair_attempts", 2))
+                        logger.warning(
+                            "  Tool %s failed (%s) — entering repair loop (max %d)",
+                            name,
+                            reg_result.get("category", "?"),
+                            max_repair,
+                        )
+                        reg_result = attempt_repair(
+                            llm_client=llm_client,
+                            factory=factory,
+                            tool_spec={
+                                "name": name,
+                                "description": description,
+                                "parameters": parameters,
+                                "code": code,
+                                "required_secrets": req_secrets,
+                            },
+                            failed_result=reg_result,
+                            creator_agent=worker_id,
+                            namespace=namespace,
+                            max_tools=codemode.get("max_tools", 10),
+                            max_attempts=max_repair,
+                        )
+
                     if reg_result.get("ok"):
                         logger.info(
-                            "  Worker %s created tool: %s — OK", worker_id, name
+                            "  Worker %s created tool: %s — OK%s",
+                            worker_id,
+                            name,
+                            " (repaired)" if reg_result.get("repaired") else "",
                         )
                         full_record["registered"] = True
+                        if reg_result.get("repaired"):
+                            full_record["repaired"] = True
+                            full_record["repair_attempts"] = reg_result.get(
+                                "repair_attempts", 0
+                            )
+                        if reg_result.get("cache_hit"):
+                            full_record["cache_hit"] = True
                     else:
                         error = reg_result.get("error", "unknown")
                         logger.warning(
                             "  Tool creation FAILED for %s: %s\n"
                             "    Status: %s\n"
+                            "    Category: %s\n"
                             "    Full result: %s",
                             name,
                             error,
                             reg_result.get("status", "?"),
+                            reg_result.get("category", "?"),
                             json.dumps(reg_result, indent=2, default=str),
                         )
                         full_record["registered"] = False
                         full_record["error"] = error
+                        full_record["category"] = reg_result.get("category", "")
                         full_record["validation_result"] = reg_result
                     registered.append(full_record)
                     continue

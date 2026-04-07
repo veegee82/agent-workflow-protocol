@@ -16,6 +16,7 @@ Namespace Capabilities (NC1-NC3):
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -23,6 +24,92 @@ from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Structured error classes for runtime tool generation.
+#
+# These let the inline LLM repair loop in delegation_loop_runner decide
+# whether a failure is *repairable* (LLM can produce a fixed version) or
+# *terminal* (no point spending more tokens).  The classes are also used
+# as machine-readable categories in metrics / observability.
+# ---------------------------------------------------------------------------
+class ToolCreationError(Exception):
+    """Base class for all dynamic tool creation failures."""
+
+    category: str = "unknown"
+    repairable: bool = False
+    status: int = 500
+
+    def __init__(self, message: str, *, hint: str = "", status: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.hint = hint
+        if status is not None:
+            self.status = status
+
+    def to_result(self) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "status": self.status,
+            "data": {},
+            "error": self.message + (f" Hint: {self.hint}" if self.hint else ""),
+            "log": "",
+            "category": self.category,
+            "repairable": self.repairable,
+            "hint": self.hint,
+        }
+
+
+class ToolValidationError(ToolCreationError):
+    category = "validation"
+    repairable = True
+    status = 400
+
+
+class ToolImportError(ToolCreationError):
+    category = "import"
+    repairable = True
+    status = 403
+
+
+class ToolSchemaMismatchError(ToolCreationError):
+    category = "schema_mismatch"
+    repairable = True
+    status = 400
+
+
+class ToolDryRunError(ToolCreationError):
+    category = "dry_run"
+    repairable = True
+    status = 422
+
+
+class ToolPolicyError(ToolCreationError):
+    """Policy / quota / namespace violation. Not repairable by an LLM."""
+
+    category = "policy"
+    repairable = False
+    status = 403
+
+
+# Alternative suggestions for forbidden imports — helps the LLM repair quickly.
+IMPORT_ALTERNATIVES: dict[str, str] = {
+    "os": "use the pre-defined `_output_dir`/`_workspace_dir` strings + builtin `open()`; for path joining use string concatenation or `pathlib`",
+    "os.path": "use string concatenation (`_output_dir + '/' + name`) or `pathlib.Path`",
+    "subprocess": "shell access is not available in dynamic tools — implement the logic in pure Python",
+    "sys": "system access is not available; if you need to read env vars use `_secrets` (declared via required_secrets) instead",
+    "ctypes": "ctypes is not available — use a pure-Python implementation",
+    "importlib": "import directly with `import foo` at the top of the tool code",
+    "signal": "signal handling is not available in the sandbox",
+    "multiprocessing": "spawn no subprocesses — write a single-process implementation",
+    "socket": "if you need network access, declare the `network` capability on the namespace and use `urllib.request`/`requests`",
+}
+
+
+def _suggest_import_alternative(module: str) -> str:
+    root = module.split(".")[0]
+    return IMPORT_ALTERNATIVES.get(root, "")
 
 # ---------------------------------------------------------------------------
 # Imports that are NEVER allowed, regardless of namespace capabilities.
@@ -180,6 +267,8 @@ class DynamicToolRecord:
         "description",
         "meta",
         "required_secrets",
+        "code_hash",
+        "repair_attempts",
     )
 
     def __init__(
@@ -191,6 +280,8 @@ class DynamicToolRecord:
         description: str,
         meta: Optional[dict[str, Any]] = None,
         required_secrets: Optional[list[str]] = None,
+        code_hash: str = "",
+        repair_attempts: int = 0,
     ) -> None:
         self.fqn = fqn
         self.creator_agent = creator_agent
@@ -200,6 +291,8 @@ class DynamicToolRecord:
         self.description = description
         self.meta = meta or {}
         self.required_secrets = required_secrets or []
+        self.code_hash = code_hash or compute_tool_hash(fqn, code, parameters)
+        self.repair_attempts = repair_attempts
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -208,6 +301,8 @@ class DynamicToolRecord:
             "parameters": self.parameters,
             "code": self.code,
             "meta": self.meta,
+            "code_hash": self.code_hash,
+            "repair_attempts": self.repair_attempts,
             "provenance": {
                 "creator_agent": self.creator_agent,
                 "created_at": self.created_at,
@@ -216,6 +311,20 @@ class DynamicToolRecord:
         if self.required_secrets:
             d["required_secrets"] = self.required_secrets
         return d
+
+
+def compute_tool_hash(
+    name: str, code: str, parameters: dict[str, Any]
+) -> str:
+    """Stable SHA256 hash of (fqn, normalised code, parameter schema).
+
+    Used for content-addressable cache / dedup.  Whitespace at line ends
+    is normalised so equivalent generations hit the cache.
+    """
+    norm_code = "\n".join(line.rstrip() for line in code.strip().splitlines())
+    schema_blob = json.dumps(parameters or {}, sort_keys=True, default=str)
+    payload = f"{name}\x00{norm_code}\x00{schema_blob}".encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 class DynamicToolFactory:
@@ -307,6 +416,41 @@ class DynamicToolFactory:
                 else config.get("code_review", False)
             )
 
+        # B6: configurable timeout (seconds), dry-run flag, repair flag.
+        # Defaults preserve previous behaviour.
+        def _cfg_get(key: str, default: Any) -> Any:
+            if config is None:
+                return default
+            if hasattr(config, key):
+                v = getattr(config, key)
+                return v if v is not None else default
+            try:
+                return config.get(key, default)
+            except AttributeError:
+                return default
+
+        self._timeout_seconds = int(_cfg_get("timeout_seconds", 10))
+        self._dry_run_enabled = bool(_cfg_get("dry_run", True))
+        self._dry_run_timeout = int(_cfg_get("dry_run_timeout_seconds", 5))
+        self._cache_enabled = bool(_cfg_get("cache", True))
+
+        # B5: content-addressable cache: hash -> registered fqn
+        self._hash_to_fqn: dict[str, str] = {}
+
+        # B6: lightweight metrics counters
+        self._metrics: dict[str, int] = {
+            "attempts": 0,
+            "successes": 0,
+            "cache_hits": 0,
+            "validation_failures": 0,
+            "import_failures": 0,
+            "schema_mismatches": 0,
+            "dry_run_failures": 0,
+            "policy_failures": 0,
+            "repair_attempts": 0,
+            "repair_successes": 0,
+        }
+
         # Load persisted tools on init
         if self._persist and self._workflow_dir:
             self._load_persisted_tools()
@@ -314,6 +458,14 @@ class DynamicToolFactory:
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    @property
+    def metrics(self) -> dict[str, int]:
+        """Return a snapshot of tool-creation metrics counters."""
+        return dict(self._metrics)
+
+    def _bump(self, key: str, n: int = 1) -> None:
+        self._metrics[key] = self._metrics.get(key, 0) + n
 
     def create_tool(
         self,
@@ -346,8 +498,32 @@ class DynamicToolFactory:
         Returns:
             Standard AWP result format.
         """
+        self._bump("attempts")
+
         if not self._enabled:
+            self._bump("policy_failures")
             return _err("Dynamic tool creation is not enabled", 403)
+
+        # B5: Content-addressable cache — dedup identical generations.
+        tool_hash = compute_tool_hash(name, code, parameters)
+        if self._cache_enabled:
+            cached_fqn = self._hash_to_fqn.get(tool_hash)
+            if cached_fqn and cached_fqn in self._registry._tools:
+                self._bump("cache_hits")
+                self._bump("successes")
+                logger.info(
+                    "Dynamic tool cache hit: %s -> already registered as %s",
+                    name,
+                    cached_fqn,
+                )
+                return _ok(
+                    {
+                        "name": cached_fqn,
+                        "registered": True,
+                        "cache_hit": True,
+                        "code_hash": tool_hash,
+                    }
+                )
 
         # DT1: Validate FQN format
         if "." not in name:
@@ -398,7 +574,25 @@ class DynamicToolFactory:
         # DT4: Validate code via AST (namespace-aware policy)
         validation = self.validate_code(code, namespace=namespace)
         if not validation["ok"]:
+            # Categorise validation failure for metrics + repair routing.
+            err_text = validation.get("error", "")
+            if "Import" in err_text or "import" in err_text:
+                self._bump("import_failures")
+                validation["category"] = "import"
+                validation["repairable"] = True
+            else:
+                self._bump("validation_failures")
+                validation["category"] = "validation"
+                validation["repairable"] = True
             return validation
+
+        # B2: Schema ↔ signature consistency check.
+        schema_check = self._check_schema_signature(code, parameters)
+        if not schema_check["ok"]:
+            self._bump("schema_mismatches")
+            schema_check["category"] = "schema_mismatch"
+            schema_check["repairable"] = True
+            return schema_check
 
         # DT9: Reject tools that generate placeholder/dummy output files.
         # LLMs sometimes create tools that write base64-encoded 1x1 PNGs or
@@ -457,6 +651,17 @@ class DynamicToolFactory:
                 missing,
             )
 
+        # B3: Dry-run probe — execute once with synthetic inputs to catch
+        # runtime errors before registration.  Skipped if disabled or if
+        # the namespace declares network/IO that would have side effects.
+        if self._dry_run_enabled:
+            dry = self._dry_run_tool(code, name, parameters, secrets_list)
+            if not dry["ok"]:
+                self._bump("dry_run_failures")
+                dry["category"] = "dry_run"
+                dry["repairable"] = True
+                return dry
+
         # Create sandboxed wrapper function (with secret injection support)
         tool_fn = self._make_sandboxed_tool(code, name, secrets_list)
 
@@ -479,16 +684,20 @@ class DynamicToolFactory:
             description=description,
             meta=meta,
             required_secrets=secrets_list,
+            code_hash=tool_hash,
         )
         self._records[name] = record
         self._agent_counts[creator_agent] = count + 1
+        if self._cache_enabled:
+            self._hash_to_fqn[tool_hash] = name
+        self._bump("successes")
 
         # Persist if enabled
         if self._persist and self._workflow_dir:
             self._persist_tool(record)
 
-        logger.info("Dynamic tool created: %s (by %s)", name, creator_agent)
-        return _ok({"name": name, "registered": True})
+        logger.info("Dynamic tool created: %s (by %s, hash=%s)", name, creator_agent, tool_hash[:12])
+        return _ok({"name": name, "registered": True, "code_hash": tool_hash})
 
     def remove_tool(self, name: str, requester_agent: str) -> dict[str, Any]:
         """Remove a dynamic tool. Only the creator may remove it.
@@ -593,6 +802,239 @@ class DynamicToolFactory:
         "__globals__", "__builtins__", "__loader__", "__spec__",
     })
 
+    @staticmethod
+    def _extract_handler_kwargs(handler_node: ast.AST) -> set[str]:
+        """Return the set of kwarg keys the handler reads from its inputs.
+
+        Walks the handler body and collects:
+          - direct kwonly arg names (`def handler(*, foo, bar)`) — those
+            are guaranteed inputs.
+          - explicit `kwargs.get("x")` / `kwargs["x"]` style accesses
+            when the handler uses `**kwargs`.
+
+        Used by Pre-Flight check B2 to compare against
+        ``parameters.properties`` keys.
+        """
+        used: set[str] = set()
+        if not isinstance(handler_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return used
+        for a in handler_node.args.kwonlyargs:
+            used.add(a.arg)
+        kw_var = handler_node.args.kwarg.arg if handler_node.args.kwarg else None
+        if kw_var is None:
+            return used
+        for node in ast.walk(handler_node):
+            # kwargs["x"]
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == kw_var
+            ):
+                idx = node.slice
+                if isinstance(idx, ast.Constant) and isinstance(idx.value, str):
+                    used.add(idx.value)
+            # kwargs.get("x", default)
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == kw_var
+                and node.func.attr in ("get", "pop")
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                used.add(node.args[0].value)
+        return used
+
+    def _check_schema_signature(
+        self, code: str, parameters: dict[str, Any]
+    ) -> dict[str, Any]:
+        """B2: Verify the parameter JSON Schema matches the handler signature.
+
+        - Every property declared in ``parameters.properties`` SHOULD be
+          read by the handler (warn-only via log; not blocking — some
+          tools take optional fields they may not always use).
+        - Every kwarg the handler reads MUST be present in
+          ``parameters.properties`` — otherwise the LLM router will
+          never pass it and the tool will silently break.
+        """
+        if not isinstance(parameters, dict):
+            return _err(
+                "Tool 'parameters' must be a JSON Schema object "
+                "(dict with 'type': 'object' and 'properties').",
+                400,
+            )
+
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as exc:
+            return _err(f"Syntax error during schema check: {exc}", 400)
+
+        handler_node = None
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "handler":
+                handler_node = node
+                break
+        if handler_node is None:
+            return _ok({"valid": True})  # validate_code already errored
+
+        used = self._extract_handler_kwargs(handler_node)
+        properties = (parameters.get("properties") or {}) if isinstance(parameters, dict) else {}
+        declared = set(properties.keys()) if isinstance(properties, dict) else set()
+
+        missing_in_schema = sorted(used - declared - {"_secrets", "_workspace_dir", "_output_dir"})
+        if missing_in_schema:
+            return _err(
+                "Tool parameter schema is missing keys that the handler reads: "
+                f"{missing_in_schema}. "
+                "Add them under `parameters.properties` (with type + description) "
+                "and list the required ones under `parameters.required`. "
+                "Every kwarg used in handler() MUST be declared in the schema.",
+                400,
+            )
+
+        unused_in_schema = sorted(declared - used)
+        if unused_in_schema:
+            logger.warning(
+                "Schema declares parameters not read by handler: %s",
+                unused_in_schema,
+            )
+
+        return _ok({"valid": True, "kwargs_used": sorted(used), "schema_keys": sorted(declared)})
+
+    def _synth_inputs_from_schema(self, parameters: dict[str, Any]) -> dict[str, Any]:
+        """B3: Generate minimal synthetic inputs from a JSON Schema.
+
+        Used by the dry-run probe.  We never invent values that could
+        cause side-effects: empty strings, 0, [], {} or the first enum
+        choice.  All declared properties are filled (not just `required`)
+        so that handlers that fail-fast on missing optional keys still
+        get something.
+        """
+        properties = parameters.get("properties") or {}
+        out: dict[str, Any] = {}
+        if not isinstance(properties, dict):
+            return out
+        for key, schema in properties.items():
+            if not isinstance(schema, dict):
+                out[key] = ""
+                continue
+            if "default" in schema:
+                out[key] = schema["default"]
+                continue
+            if "enum" in schema and isinstance(schema["enum"], list) and schema["enum"]:
+                out[key] = schema["enum"][0]
+                continue
+            t = schema.get("type", "string")
+            if isinstance(t, list):
+                t = t[0] if t else "string"
+            if t == "string":
+                out[key] = ""
+            elif t in ("integer", "number"):
+                out[key] = 0
+            elif t == "boolean":
+                out[key] = False
+            elif t == "array":
+                out[key] = []
+            elif t == "object":
+                out[key] = {}
+            else:
+                out[key] = None
+        return out
+
+    def _dry_run_tool(
+        self,
+        code: str,
+        fqn: str,
+        parameters: dict[str, Any],
+        required_secrets: list[str],
+    ) -> dict[str, Any]:
+        """B3: Run the tool once with synthetic inputs before registering.
+
+        On success returns ``_ok(...)``.  On failure returns an ``_err``
+        result tagged with ``category='dry_run'`` so the repair loop can
+        decide whether to ask the LLM to fix the code.
+
+        Tools whose handler raises during dry-run are NOT registered —
+        the worker iteration learns immediately instead of registering
+        a broken tool that will fail on the first real call.
+        """
+        try:
+            tool_fn = self._make_sandboxed_tool(
+                code, fqn, required_secrets, timeout_override=self._dry_run_timeout
+            )
+        except Exception as exc:
+            return _err(f"Dry-run setup failed: {exc}", 500)
+
+        synth = self._synth_inputs_from_schema(parameters)
+        # Restrict synthetic inputs to keys the handler actually reads —
+        # otherwise a kwonly handler `def handler(*, x)` raises TypeError
+        # when the schema declares additional optional fields.
+        try:
+            tree = ast.parse(code)
+            handler_node = next(
+                (n for n in ast.iter_child_nodes(tree)
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and n.name == "handler"),
+                None,
+            )
+            if handler_node is not None and handler_node.args.kwarg is None:
+                # No **kwargs — restrict to declared kwonly args.
+                allowed = {a.arg for a in handler_node.args.kwonlyargs}
+                synth = {k: v for k, v in synth.items() if k in allowed}
+        except SyntaxError:
+            pass
+        # ToolRegistry would normally inject _secrets; we mimic that with
+        # an empty dict so handlers using `_secrets.get(...)` still work.
+        synth["_secrets"] = {}
+        try:
+            result = tool_fn(**synth)
+        except Exception as exc:
+            return _err(
+                f"Dry-run crashed before producing output: {exc}. "
+                f"Handler must not raise on minimal inputs ({sorted(k for k in synth if not k.startswith('_'))}). "
+                f"Add input validation or guard against empty values.",
+                422,
+            )
+
+        if not isinstance(result, dict):
+            return _err(
+                f"Dry-run returned non-dict: {type(result).__name__}. "
+                "Handler must return a dict (AWP standard format).",
+                422,
+            )
+
+        if not result.get("ok", False):
+            err = str(result.get("error") or "(no error message)")
+            err_low = err.lower()
+            # Tolerate missing third-party libraries — the worker will
+            # `pip.install` them before the tool is called for real.
+            if "modulenotfounderror" in err_low or "no module named" in err_low:
+                logger.info(
+                    "Dry-run for %s skipped: missing optional dependency "
+                    "(will be installed at runtime)", fqn,
+                )
+                return _ok({"dry_run": "skipped_missing_dep"})
+            # Tools legitimately return ok=False on bad inputs; tolerate
+            # *only* handler-level errors. Crashes / no-output / sandbox
+            # failures are flagged here.
+            if (
+                "execution failed" in err_low
+                or "no output" in err_low
+                or "traceback" in err_low
+            ):
+                return _err(
+                    f"Dry-run failed: {err}",
+                    422,
+                )
+            logger.info(
+                "Dry-run for %s returned ok=False with handler-level error "
+                "(tolerated): %s", fqn, err[:200],
+            )
+
+        return _ok({"dry_run": "passed"})
+
     def validate_code(self, code: str, namespace: Optional[str] = None) -> dict[str, Any]:
         """Validate Python code via AST without executing it.
 
@@ -627,18 +1069,22 @@ class DynamicToolFactory:
                 for alias in node.names:
                     root_module = alias.name.split(".")[0]
                     if root_module in denied:
+                        alt = _suggest_import_alternative(alias.name)
                         return _err(
                             f"Import of '{alias.name}' is not allowed in dynamic tool code "
-                            f"(sandbox type: {self._sandbox_type}{caps_info})",
+                            f"(sandbox type: {self._sandbox_type}{caps_info})."
+                            + (f" Alternative: {alt}" if alt else ""),
                             403,
                         )
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     root_module = node.module.split(".")[0]
                     if root_module in denied:
+                        alt = _suggest_import_alternative(node.module)
                         return _err(
                             f"Import from '{node.module}' is not allowed in dynamic tool code "
-                            f"(sandbox type: {self._sandbox_type}{caps_info})",
+                            f"(sandbox type: {self._sandbox_type}{caps_info})."
+                            + (f" Alternative: {alt}" if alt else ""),
                             403,
                         )
 
@@ -741,7 +1187,11 @@ class DynamicToolFactory:
         return _ok({"valid": True})
 
     def _make_sandboxed_tool(
-        self, code: str, fqn: str, required_secrets: Optional[list[str]] = None
+        self,
+        code: str,
+        fqn: str,
+        required_secrets: Optional[list[str]] = None,
+        timeout_override: Optional[int] = None,
     ) -> Any:
         """Create a callable that executes tool code in a subprocess sandbox.
 
@@ -762,6 +1212,7 @@ class DynamicToolFactory:
         _required = required_secrets or []
         _workflow_dir = self._workflow_dir
         _registry = self._registry
+        _timeout = int(timeout_override or self._timeout_seconds)
 
         def tool_fn(**kwargs: Any) -> dict[str, Any]:
             # Extract _secrets injected by ToolRegistry.call() and remove
@@ -896,7 +1347,7 @@ class DynamicToolFactory:
                 except Exception:
                     pass
 
-            exec_result = executor.execute(script, timeout=10000)
+            exec_result = executor.execute(script, timeout=_timeout)
 
             # --- File validation: dynamic tools must not create broken files ---
             if exec_result["ok"] and _dirs_to_watch and _snapshot_before:

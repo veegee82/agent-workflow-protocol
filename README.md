@@ -29,7 +29,7 @@
   <a href="docs/evaluation.md">Evaluation</a> &middot;
   <a href="docs/critique.md">Critique</a> &middot;
   <a href="docs/manager-intelligence.md">Manager Intelligence</a> &middot;
-  <a href="examples/">Examples</a> &middot;
+  <a href="docs/runtime-tool-generation.md">Tool Creation</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
@@ -59,7 +59,7 @@ This makes AWP uniquely suited for **deep data science and engineering problems*
 
 ### Feature Overview
 
-- :brain: **Runtime Tool & Skill Creation (A3+)** — Agents build domain-specific Python tools and Markdown skills at runtime. Each tool is AST-validated, namespace-restricted, and sandboxed. Workers compose tools from earlier iterations into pipelines — no pre-registration needed. *[Learn more](#runtime-adaptation-skills-and-tools-a3)*
+- :brain: **Runtime Tool & Skill Creation (A3+)** — Agents build domain-specific Python tools and Markdown skills at runtime. Each tool is AST-validated, schema-checked, dry-run probed, and sandboxed; failed generations are auto-repaired by an inline LLM repair loop without leaving the worker iteration. *[Overview](#runtime-adaptation-skills-and-tools-a3)* · *[Pipeline & sequence diagrams](docs/runtime-tool-generation.md)*
 - :chart_with_upwards_trend: **Deep Data Science Integration** — Native support for DataFrames, numpy arrays, images, SQL queries, S3 objects, REST APIs, and clipboard as workflow inputs. Workers write full Python programs in sandboxes with pip-installable packages. *[Learn more](#2-data-science-integration)*
 - :arrows_counterclockwise: **Delegation Loop Engine** — Manager-worker loop with parallel fan-out, rolling context summaries, stall detection, and two-tier validation. The manager decomposes problems, workers solve subtasks, results aggregate iteratively. *[Learn more](#7-the-delegation-loop-in-detail)*
 - :mag: **Reflective Critique Loop** — Built-in critic analyzes every worker output for defects (missing data, hallucinations, format errors), triggers targeted repairs with specific fix instructions, and accumulates failure patterns across workers so later iterations avoid earlier mistakes. *[Learn more](docs/critique.md)*
@@ -89,6 +89,7 @@ This makes AWP uniquely suited for **deep data science and engineering problems*
 5. [Infrastructure Benchmarking](#5-infrastructure-benchmarking)
 6. [YAML Workflows & CLI](#6-yaml-workflows--cli)
 7. [The Delegation Loop in Detail](#7-the-delegation-loop-in-detail)
+   - [Runtime Tool Generation Pipeline →](docs/runtime-tool-generation.md)
 8. [Budget, Safety, Validation](#8-budget-safety-validation)
 9. [The Autonomy Spectrum (A0-A4)](#9-the-autonomy-spectrum-a0-a4)
 10. [The 7-Layer Model](#10-the-7-layer-model)
@@ -948,6 +949,11 @@ Self-Organizing (A4)     manager -> [sub_mgr_a, sub_mgr_b] -> recursive
 ---
 
 ## 7. The Delegation Loop in Detail
+
+> **Deep dive:** [Runtime Tool Generation Pipeline](docs/runtime-tool-generation.md)
+> — how AWP validates, sandboxes, dry-runs, caches, and auto-repairs
+> LLM-generated tools inside a single worker iteration (with sequence
+> diagrams).
 
 The delegation loop is the engine behind A2-A4 -- and behind `AgentWorkflow`:
 
