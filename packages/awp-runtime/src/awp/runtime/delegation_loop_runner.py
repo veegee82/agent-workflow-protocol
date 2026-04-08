@@ -120,11 +120,20 @@ class BudgetSnapshot:
         self.max_wall_time = budget.max_wall_time
         self.max_tool_calls = budget.max_tool_calls
         self.max_depth = budget.max_depth
+        # Submanager caps (P2)
+        self.max_concurrent_submanagers: int = getattr(
+            budget, "max_concurrent_submanagers", 3
+        )
+        self.max_total_submanagers_per_run: int = getattr(
+            budget, "max_total_submanagers_per_run", 6
+        )
         # Consumed
         self.loops_used = 0
         self.workers_spawned = 0
         self.tokens_consumed = 0
         self.tool_calls_used = 0
+        self.spawned_submanagers_total: int = 0
+        self.active_submanagers: int = 0
         self.start_time = time.monotonic()
         # Budget reservation (Manager Intelligence)
         self._reservation = reservation_config
@@ -198,6 +207,9 @@ class BudgetSnapshot:
         self.workers_spawned += cb.max_total_workers
         self.tokens_consumed += cb.max_total_tokens
         self.tool_calls_used += cb.max_tool_calls
+        # P2: Submanager tracking
+        self.spawned_submanagers_total += 1
+        self.active_submanagers += 1
         return child
 
     def reclaim_child(self, child: "BudgetSnapshot") -> None:
@@ -225,6 +237,8 @@ class BudgetSnapshot:
         self.workers_spawned = max(0, self.workers_spawned)
         self.tokens_consumed = max(0, self.tokens_consumed)
         self.tool_calls_used = max(0, self.tool_calls_used)
+        # P2: release submanager active slot (total stays for run-wide cap)
+        self.active_submanagers = max(0, self.active_submanagers - 1)
         child._reclaimed = True
 
     @property
@@ -1905,6 +1919,9 @@ class DelegationLoopRunner:
 
         # History
         self._history: list[dict[str, Any]] = []
+        # P4: track signatures of past delegation dispatches to detect when
+        # the manager re-issues the same logical subtasks instead of repairing.
+        self._past_delegation_signatures: list[tuple[str, ...]] = []
 
         # Critique engine (Reflective Critique Loop)
         self._critique_engine: Optional[CritiqueEngine] = None
@@ -2088,6 +2105,11 @@ class DelegationLoopRunner:
                         validate_runtime_plan,
                     )
 
+                    # P5: inject default `assumptions: []` so managers that
+                    # forget the field don't trip R31 unnecessarily.
+                    for _st in manager_decision.get("subtasks", []) or []:
+                        if isinstance(_st, dict) and "assumptions" not in _st:
+                            _st["assumptions"] = []
                     _r31_violations = validate_runtime_plan(manager_decision)
                 except Exception as _r31_exc:  # pragma: no cover
                     logger.warning("R31 validator unavailable: %s", _r31_exc)
@@ -2657,6 +2679,60 @@ class DelegationLoopRunner:
             if not envelopes:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
+
+            # P3: Convergence detector — if confidence has stalled, force a
+            # partial complete instead of dispatching yet another round.
+            if self._check_convergence(iteration):
+                partial = self._build_partial_result("forced_convergence")
+                partial["partial"] = True
+                partial["reason"] = "forced_convergence"
+                return partial, "complete"
+
+            # P4: Compute the delegation signature and detect redundancy.
+            current_sig = self._delegation_signature(envelopes)
+            is_redundant = current_sig in self._past_delegation_signatures
+
+            # P1: Critique gate also for DELEGATE — if the last iteration's
+            # mean critique score is below threshold AND the manager wants
+            # to re-issue the same logical subtasks, force a repair path
+            # by overriding the decision to DIAGNOSE.
+            if (
+                is_redundant
+                and self._critique_engine
+                and self._critique_engine.enabled
+                and self._history
+            ):
+                last = self._history[-1] if self._history else {}
+                critique_entries = last.get("critique") or []
+                scores: list[float] = []
+                for ce in critique_entries:
+                    s = ce.get("score") if isinstance(ce, dict) else None
+                    if isinstance(s, (int, float)):
+                        scores.append(float(s))
+                threshold = float(
+                    getattr(self._config.critique, "min_score_to_complete", 0.6)
+                )
+                if scores:
+                    mean_score = sum(scores) / len(scores)
+                    if mean_score < threshold:
+                        logger.warning(
+                            "P1/P4: blocking re-delegation of identical "
+                            "subtasks (sig=%s) — mean critique %.2f < %.2f. "
+                            "Overriding DELEGATE → DIAGNOSE.",
+                            current_sig[:1], mean_score, threshold,
+                        )
+                        state["_critique_blocking_redelegate"] = (
+                            f"FORBIDDEN: re-delegate same subtasks. You MUST "
+                            f"choose diagnose, repair, or complete. Mean "
+                            f"critique score {mean_score:.2f} is below "
+                            f"required {threshold:.2f}."
+                        )
+                        # Hard override: skip dispatch this iteration so the
+                        # manager is forced into a different decision next.
+                        continue
+
+            # Record signature now that we are committed to dispatching.
+            self._past_delegation_signatures.append(current_sig)
 
             # Track delegation history to detect repeated same-worker patterns
             if "_delegation_history" not in state:
@@ -4175,6 +4251,24 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     ) -> list[dict]:
         """Execute all delegations in parallel (fan-out)."""
         results: list[dict] = []
+        # P6: rough count of submanager candidates so the budget fraction can
+        # be divided across this dispatch. We deliberately use a cheap flag
+        # check (no cap-check side effects) — the real submanager decision is
+        # still made by `_is_submanager_envelope` per worker below.
+        def _looks_like_submanager(env: dict) -> bool:
+            if bool(env.get("as_submanager")):
+                return True
+            if self._task_plan is not None:
+                stid = env.get("subtask_id", "")
+                if stid:
+                    for st in self._task_plan._subtasks:
+                        if st.get("id") == stid:
+                            return st.get("delegation_strategy") == "submanager"
+            return False
+
+        sub_candidate_count = sum(
+            1 for env in envelopes if _looks_like_submanager(env)
+        ) or 1
 
         def run_worker(envelope: dict) -> dict:
             worker_id = envelope.get("worker_id", f"worker_{uuid.uuid4().hex[:6]}")
@@ -4192,7 +4286,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             if self._is_submanager_envelope(envelope):
                 try:
                     return self._spawn_submanager(
-                        worker_id, envelope, task, state, iteration
+                        worker_id, envelope, task, state, iteration,
+                        num_submanagers_in_dispatch=sub_candidate_count,
                     )
                 except Exception as exc:
                     logger.error(
@@ -4281,6 +4376,29 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         the manager envelope is sloppy.
         """
         if self._depth >= self._budget.max_depth:
+            return False
+        # P2: hard caps on submanager fan-out
+        if (
+            self._budget.spawned_submanagers_total
+            >= self._budget.max_total_submanagers_per_run
+        ):
+            logger.warning(
+                "Submanager spawn blocked: total cap reached (%d/%d). "
+                "Falling back to ephemeral worker.",
+                self._budget.spawned_submanagers_total,
+                self._budget.max_total_submanagers_per_run,
+            )
+            return False
+        if (
+            self._budget.active_submanagers
+            >= self._budget.max_concurrent_submanagers
+        ):
+            logger.warning(
+                "Submanager spawn blocked: concurrent cap reached (%d/%d). "
+                "Falling back to ephemeral worker.",
+                self._budget.active_submanagers,
+                self._budget.max_concurrent_submanagers,
+            )
             return False
         if bool(envelope.get("as_submanager")):
             return True
@@ -4455,6 +4573,111 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             promoted.append(sid)
         return promoted
 
+    # ------------------------------------------------------------------
+    # P3 / P4 — Convergence + redundancy detection
+    # ------------------------------------------------------------------
+
+    def _check_convergence(self, iteration: int) -> bool:
+        """Return True if the loop has converged and should be force-completed.
+
+        Two heuristics:
+          (a) After at least 3 iterations, if confidence has improved by
+              less than 0.05 across the last two iterations, we're stuck.
+          (b) If the last 3 history entries were all DELEGATE iterations
+              that produced no new key findings, we're spinning.
+        """
+        if iteration < 3 or len(self._history) < 2:
+            return False
+        try:
+            last = float(self._history[-1].get("confidence", 0.0) or 0.0)
+            prev = float(self._history[-2].get("confidence", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return False
+        if abs(last - prev) < 0.05 and last < 0.95:
+            logger.warning(
+                "Convergence detector: confidence delta %.3f < 0.05 "
+                "(last=%.2f, prev=%.2f) — forcing partial complete.",
+                abs(last - prev), last, prev,
+            )
+            return True
+        if len(self._history) >= 3:
+            recent = self._history[-3:]
+            findings = [tuple(h.get("key_findings") or ()) for h in recent]
+            if len(set(findings)) == 1:
+                logger.warning(
+                    "Convergence detector: 3 consecutive iterations with "
+                    "identical key_findings — forcing partial complete."
+                )
+                return True
+        return False
+
+    @staticmethod
+    def _normalize_instructions(text: str) -> str:
+        """Lowercase + collapse whitespace + truncate. Used for signature hashing."""
+        if not isinstance(text, str):
+            return ""
+        return " ".join(text.lower().split())[:500]
+
+    @staticmethod
+    def _delegation_signature(envelopes: list[dict]) -> tuple[str, ...]:
+        """Stable signature for a delegation dispatch (P4 redundancy detection)."""
+        import hashlib
+
+        sigs: list[str] = []
+        for env in envelopes or []:
+            instr = DelegationLoopRunner._normalize_instructions(
+                env.get("instructions", "") if isinstance(env, dict) else ""
+            )
+            sigs.append(hashlib.sha256(instr.encode("utf-8")).hexdigest()[:16])
+        return tuple(sorted(sigs))
+
+    def _merge_submanager_outputs(
+        self, sub_output_dir: Path, submanager_name: str
+    ) -> list[str]:
+        """Copy files from a submanager's _output_dir into the parent _output_dir.
+
+        Files that collide with existing parent files are renamed using a
+        ``<submanager_name>__<filename>`` prefix so nothing is silently lost.
+        Returns the list of merged destination filenames (relative paths).
+        """
+        import shutil
+
+        merged: list[str] = []
+        if not sub_output_dir.exists() or not sub_output_dir.is_dir():
+            return merged
+        parent_output = self._dir / "output" / (self._run_id or "")
+        try:
+            parent_output.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "Could not create parent output dir %s: %s", parent_output, exc
+            )
+            return merged
+        for src in sub_output_dir.rglob("*"):
+            if not src.is_file():
+                continue
+            try:
+                rel = src.relative_to(sub_output_dir)
+            except ValueError:
+                continue
+            dst = parent_output / rel
+            if dst.exists():
+                dst = parent_output / f"{submanager_name}__{rel.name}"
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                merged.append(str(dst.relative_to(parent_output)))
+            except OSError as exc:
+                logger.warning("Failed to merge submanager file %s: %s", src, exc)
+        if merged:
+            logger.info(
+                "Merged %d submanager file(s) from %s into parent output: %s",
+                len(merged),
+                submanager_name,
+                merged[:10],
+            )
+        return merged
+
     def _spawn_submanager(
         self,
         worker_id: str,
@@ -4462,6 +4685,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         task: str,
         state: dict,
         iteration: int,
+        num_submanagers_in_dispatch: int = 1,
     ) -> dict:
         """Spawn a child :class:`DelegationLoopRunner` for this delegation.
 
@@ -4495,8 +4719,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             k: state.get(k) for k in inherited_keys if k in state
         }
 
-        # 3. Allocate child budget (hard-cap fraction)
-        fraction = float(envelope.get("submanager_budget_fraction", 0.3))
+        # 3. Allocate child budget (hard-cap fraction).
+        # P6: dynamic fraction — when several submanagers spawn in the same
+        # dispatch, split 0.8 of the parent budget across them so the total
+        # never exceeds 80% and a single one cannot grab 30% three times.
+        n = max(1, int(num_submanagers_in_dispatch))
+        default_fraction = min(0.3, 0.8 / n)
+        fraction = float(envelope.get("submanager_budget_fraction", default_fraction))
         child_budget = self._budget.allocate_child(fraction=fraction)
 
         # 4. Build sub-run dir under the parent worker dir so the
@@ -4598,6 +4827,32 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         finally:
             # 8. Always reclaim child budget so unused capacity flows back
             self._budget.reclaim_child(child_budget)
+            # P0: merge submanager output dir into parent output dir.
+            # The child runner used `<workflow_dir>/output/<sub_run_id>/` as
+            # its `_output_dir` (its workers wrote there because each runner
+            # builds output paths from its own _run_id). We copy those files
+            # back into the parent's output dir so deliverables surface in
+            # the experiment without "outside the workflow directory" hits.
+            try:
+                sub_output_dir = self._dir / "output" / sub_run_id
+                merged_files = self._merge_submanager_outputs(
+                    sub_output_dir, worker_id
+                )
+                if merged_files:
+                    if isinstance(sub_result, dict):
+                        sub_result.setdefault("_merged_files", merged_files)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Submanager output merge failed for %s: %s", worker_id, exc
+                )
+            # Restore the parent's run_id on the shared tool registry — the
+            # child set it to its own sub_run_id during run() and we need
+            # parent workers to write under the parent run again.
+            if self._tools and hasattr(self._tools, "set_run_id"):
+                try:
+                    self._tools.set_run_id(self._run_id)
+                except Exception:
+                    pass
 
         # 9. Normalise result so downstream aggregation never blocks
         if not isinstance(sub_result, dict):

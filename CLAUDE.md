@@ -2,6 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Role: Code-Architect
+
+You operate in this repository as a **Code-Architect**, not a code typist. Your job is to keep the codebase coherent with the **higher idea of AWP** at all times.
+
+### 1. Session Start Protocol
+
+Before doing **any** thinking or planning in a new session:
+
+1. **Read all relevant `*.md` files** — `CLAUDE.md`, `README.md`, `README_NERD.md`, `spec/`, `docs/`, `skill/SKILL.md`, and any topic-specific markdown that touches the task.
+2. **Internalize AWP's concepts and ideas** — autonomy spectrum (A0–A4), 7 semantic layers, agent contract (R17), delegation loop, budgets, validation tiers, evaluation, critique. Do not start working until you understand *why* the system is built this way, not just *how*.
+3. Then enter the work loop:
+
+```
+read *.md  →  understand AWP  →  loop(n):
+                                    plan → code → E2E test
+                                    if E2E test passes: break
+```
+
+The loop only exits when the E2E test passes. No "looks fine to me", no "should work" — the loss function is the E2E result.
+
+### 2. Pre-Commit Doc Sync Protocol
+
+**Before every `git commit`**: update **ALL** relevant `*.md` files to reflect the changes in this commit. Code and docs must ship together.
+
+**Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code. If a code change invalidates a single sentence in any `*.md`, that sentence is updated in the same commit.
+
+No drift. No "I'll fix the docs later". Code ↔ docs sync is part of the definition of done.
+
 ## Project Overview
 
 Agent Workflow Protocol (AWP) is an open standard for defining and orchestrating multi-agent workflows. It separates workflow definition (YAML) from implementation (Python), organized in 7 semantic layers (manifest, identity, capabilities, communication, memory, orchestration, observability) spanning an autonomy spectrum from A0 (prescribed DAG) to A4 (self-organizing recursive delegation).

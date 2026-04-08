@@ -160,7 +160,12 @@ class DelegationBudget(BaseModel):
     max_total_tokens: int = 10_000_000
     max_wall_time: int = 600  # seconds
     max_tool_calls: int = 1500
-    max_depth: int = 4
+    max_depth: int = 2
+    # Hard caps on the number of submanagers (recursive child runners) the
+    # delegation loop is allowed to spawn. Without these the manager can
+    # cascade into an unbounded submanager forest.
+    max_concurrent_submanagers: int = 3
+    max_total_submanagers_per_run: int = 6
 
 
 class SandboxEnforcement(BaseModel):
@@ -280,7 +285,7 @@ class CritiqueConfig(BaseModel):
     # most recent iteration is below this threshold, the manager's "complete"
     # decision is overridden and another iteration is forced (until budget
     # is exhausted). Setting to 0.0 disables the gate.
-    min_score_to_complete: float = 0.5
+    min_score_to_complete: float = 0.6
     defect_categories: list[str] = Field(
         default_factory=lambda: [
             "missing_data",

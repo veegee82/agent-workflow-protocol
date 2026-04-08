@@ -111,7 +111,9 @@ orchestration:
       max_loops: 10
       max_total_workers: 20
       max_wall_time: 300
-      max_depth: 3
+      max_depth: 2                       # Recursive submanager depth cap (default 2)
+      max_concurrent_submanagers: 3      # Max submanagers running at once
+      max_total_submanagers_per_run: 6   # Hard cap on submanagers per run
     worker_policy:
       enforced:
         sandbox: {type: subprocess, max_memory_mb: 512}

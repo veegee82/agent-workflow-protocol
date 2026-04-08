@@ -420,8 +420,11 @@ forgets to set every field):
    manager's intent.
 1. **Explicit per-delegation:** the manager sets `as_submanager: true` on the
    envelope and optionally specifies `submanager_agent` (path to a manager
-   agent dir), `submanager_budget_fraction` (default 0.3), and
-   `inherited_state_keys` (the only state passed down).
+   agent dir), `submanager_budget_fraction` (default is computed dynamically
+   as `min(0.3, 0.8 / n)` where *n* is the number of submanagers in the
+   same dispatch, so total concurrent submanager spend is bounded at 80%
+   of the parent envelope), and `inherited_state_keys` (the only state
+   passed down).
 2. **Plan-driven:** during the PLAN decision, a subtask is declared with
    `delegation_strategy: "submanager"`. Any subsequent DELEGATE that links
    to that `subtask_id` is upgraded to a sub-manager spawn automatically.
@@ -459,9 +462,27 @@ get stuck on a child:
   cannot exceed its caps. Unused capacity flows back automatically.
   Double-reclaim is a no-op so nested error paths cannot double-charge
   or double-refund.
-- **Depth gate.** `as_submanager` is silently downgraded to a normal
-  worker when `current_depth >= max_depth`. The recursion is provably
-  bounded.
+- **Depth gate and submanager fan-out caps.** `as_submanager` is silently
+  downgraded to a normal worker when `current_depth >= max_depth`
+  (default **2**), when `budget.max_concurrent_submanagers` (default **3**)
+  is reached, or when `budget.max_total_submanagers_per_run` (default
+  **6**) is exhausted. The recursion is provably bounded along all three
+  axes — depth, concurrency, and total fan-out.
+- **Submanager output merging.** Each submanager writes deliverables into
+  its own `output/<sub_run_id>/` sandbox. On completion, the parent runner
+  merges those files back into the parent output dir via
+  `_merge_submanager_outputs`; collisions are renamed
+  `<submanager_name>__<filename>` so nothing is silently lost.
+- **Convergence + redundancy guards.** A `_check_convergence` heuristic
+  force-completes (`partial: true`, `reason: forced_convergence`) when
+  the confidence delta across the last two iterations is below 0.05 or
+  when three consecutive iterations produce identical `key_findings`.
+  In parallel, every dispatch is signed via a sorted hash of normalized
+  worker instructions (`_delegation_signature`); if a new dispatch
+  matches a past signature *and* the last iteration's mean critique
+  score is below `critique.min_score_to_complete` (default **0.6**),
+  the DELEGATE decision is overridden and the manager is forced into
+  DIAGNOSE/REPAIR instead of re-issuing the same subtasks.
 - **Failure normalisation.** Any exception inside a child is caught at
   the spawn boundary and converted to `{confidence: 0.0,
   submanager_failed: true}`. The parent's aggregation logic treats this

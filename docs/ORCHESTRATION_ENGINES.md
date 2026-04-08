@@ -163,7 +163,9 @@ budget:
   max_total_tokens: 1000000  # LLM token limit
   max_wall_time: 600         # Wall clock seconds
   max_tool_calls: 200        # Total tool invocations
-  max_depth: 5               # Safety limit for recursive sub-delegation
+  max_depth: 2               # Safety limit for recursive sub-delegation (default 2)
+  max_concurrent_submanagers: 3     # Max submanagers running at once (default 3)
+  max_total_submanagers_per_run: 6  # Hard cap on submanagers per run (default 6)
 ```
 
 The budget enforces a hard stop when any resource limit is hit. This prevents

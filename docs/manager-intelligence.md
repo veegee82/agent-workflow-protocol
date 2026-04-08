@@ -364,9 +364,11 @@ orchestration:
     auto_promotion:
       enabled: true
       threshold: 0.65          # Score above which a worker is promoted
-      max_depth: 3             # Hard cap on recursion depth (safety envelope)
+      max_depth: 2             # Hard cap on recursion depth (safety envelope, default 2)
       min_budget_fraction: 0.15  # Refuse promotion if <15% of parent budget left
 ```
+
+In addition to `max_depth`, `budget.max_concurrent_submanagers` (default **3**) and `budget.max_total_submanagers_per_run` (default **6**) cap the submanager fan-out. When either cap is hit, the spawn is transparently downgraded to an ephemeral worker instead of failing the dispatch. The submanager child-budget fraction is computed dynamically as `min(0.3, 0.8 / n)` where *n* is the number of submanagers spawned in the same dispatch, so total concurrent submanager spend never exceeds 80% of the parent envelope.
 
 Cross-references: the [runtime tool generation pipeline](runtime-tool-generation.md) interacts with auto-promotion — submanagers inherit the parent's `dynamic_tools` policy and can register tools visible to their entire sub-tree.
 

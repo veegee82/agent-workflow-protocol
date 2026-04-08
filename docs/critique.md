@@ -43,6 +43,7 @@ orchestration:
       model: null                     # LLM model (null = inherit worker model)
       max_repair_attempts: 2          # Per-worker repair cycles
       repair_budget_fraction: 0.15    # Max 15% of total budget for repairs
+      min_score_to_complete: 0.6      # Block COMPLETE/DELEGATE below this mean critique score
       pattern_memory: true            # Accumulate cross-worker failure patterns
       defect_categories:
         - missing_data
@@ -64,6 +65,7 @@ When `enabled: false` (the default), critique is completely disabled and has zer
 | `model` | string | `null` | LLM model for the critic. `null` inherits from the worker model |
 | `max_repair_attempts` | int | `2` | Maximum repair cycles per worker before escalation |
 | `repair_budget_fraction` | float | `0.15` | Maximum fraction of total budget that can be spent on repairs |
+| `min_score_to_complete` | float | `0.6` | Minimum mean critique score required for the manager to be allowed to `complete`. Below this, a COMPLETE decision is overridden into another iteration. The same gate also blocks a DELEGATE decision that re-issues an already-dispatched subtask signature (redundancy guard), forcing the manager into diagnose/repair instead. Setting to `0.0` disables the gate. |
 | `pattern_memory` | bool | `true` | Accumulate failure patterns across workers within a run |
 | `defect_categories` | list | see above | Types of defects the critic should diagnose |
 
