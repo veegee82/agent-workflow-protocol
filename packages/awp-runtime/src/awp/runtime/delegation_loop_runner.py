@@ -2097,8 +2097,9 @@ class DelegationLoopRunner:
                     self._logger.trace_gate(
                         "r31_plan_tool_closure",
                         triggered=True,
+                        reason=f"{len(_r31_violations)} violation(s)",
                         violations=len(_r31_violations),
-                        first=_r31_violations[0] if _r31_violations else "",
+                        first=str(_r31_violations[0]) if _r31_violations else "",
                     )
                     logger.warning(
                         "R31 rejected PLAN with %d violation(s); requesting re-plan",
@@ -2389,6 +2390,29 @@ class DelegationLoopRunner:
                             0.5,
                         )
                     )
+                    # Ground-truth bypass: if the task implies a file
+                    # deliverable AND that deliverable already exists on
+                    # disk with non-trivial size, the LLM critic's
+                    # narrative pessimism is overruled. Critique is
+                    # advisory; the filesystem is authoritative.
+                    deliverable_missing = self._check_missing_deliverable(task)
+                    if scores and threshold > 0 and not deliverable_missing:
+                        # Check if task hints at any file deliverable at all
+                        task_text = (task or "").lower()
+                        any_hint = any(
+                            kw in task_text
+                            for kws, _ in self._DELIVERABLE_HINTS
+                            for kw in kws
+                        )
+                        if any_hint:
+                            logger.info(
+                                "Critique gate bypassed: task implies a "
+                                "file deliverable and it exists on disk; "
+                                "ignoring critic mean_score=%.2f",
+                                sum(scores) / len(scores),
+                            )
+                            scores = []  # disable the critique gate below
+
                     if scores and threshold > 0:
                         mean_score = sum(scores) / len(scores)
                         if mean_score < threshold:
@@ -2492,6 +2516,31 @@ class DelegationLoopRunner:
                             + "; ".join(critical[:10])
                         )
                         continue  # force another loop iteration
+
+                # --- Deliverable presence gate: if the original task implies
+                # a file deliverable (image, document, dataset, ...) but the
+                # output dir is empty, reject completion. This catches the
+                # "manager declares done after only investigating" pathology.
+                missing_deliverable = self._check_missing_deliverable(task)
+                if missing_deliverable and self._budget.can_continue()[0]:
+                    logger.warning(
+                        "Manager tried to COMPLETE but task requires a "
+                        "file deliverable and _output_dir is empty: %s",
+                        missing_deliverable,
+                    )
+                    self._logger.trace_gate(
+                        "deliverable",
+                        triggered=True,
+                        reason=missing_deliverable,
+                        iteration=iteration,
+                    )
+                    state["_deliverable_required"] = missing_deliverable
+                    state["_last_manager_feedback"] = (
+                        f"COMPLETION REJECTED: {missing_deliverable} "
+                        f"You must delegate a worker that actually produces "
+                        f"the file in `_output_dir` before completing."
+                    )
+                    continue
 
                 # --- Evaluation gate: score final result before accepting
                 if self._eval_engine and self._eval_engine.enabled:
@@ -5618,7 +5667,76 @@ Rules:
         r"\{\{\s*[A-Za-z_][A-Za-z0-9_ ]*\s*\}\}",  # mustache-style {{ var }}
         r"\bFIXME\b",
         r"\blorem ipsum\b",
+        # --- Manager template-stub leakage (observed with weak LLMs that
+        #     verbatim copy the example skeleton from their own system prompt)
+        r"\bfinal output here\b",
+        r"\byour final output here\b",
+        r"\bwhy the task is complete\b",
+        r"\b<your[^>]*>",          # <your-text>, <your value>, ...
+        r"\bplaceholder\b",
+        r"\bexample[_ ]value\b",
+        r"\bfill[_ ]in[_ ]here\b",
     )
+
+    # Keys that, when present at any depth in `final_result`, are
+    # unambiguous evidence the manager copied the prompt template stub
+    # instead of producing real content. e.g. {"your": "final output here"}.
+    _PLACEHOLDER_KEYS: frozenset[str] = frozenset({
+        "your", "your_field", "your_key", "your_value",
+        "field_name", "key_name", "example_field",
+    })
+
+    # Keywords (case-insensitive) in the task description that imply a
+    # file deliverable must end up in `_output_dir`. Mapped to a friendly
+    # name used in the rejection message.
+    _DELIVERABLE_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("image", "picture", "photo", "illustration", "render",
+          "bild", "foto", "illustration", "zeichnung", "grafik", "logo"),
+         "an image file"),
+        (("pdf", "document", "report", "dokument", "bericht"),
+         "a document file (pdf/md)"),
+        (("chart", "plot", "graph", "diagram", "figure", "diagramm"),
+         "a chart/figure file"),
+        (("video", "animation", "gif"),
+         "a video/animation file"),
+        (("audio", "sound", "mp3", "wav"),
+         "an audio file"),
+        (("dataset", "csv", "spreadsheet", "table", "tabelle"),
+         "a data file (csv/xlsx)"),
+    )
+
+    def _check_missing_deliverable(self, task: str) -> str:
+        """Return a non-empty string describing the missing deliverable
+        if the task implies a file output but `_output_dir` (the run's
+        output dir) is empty or contains only placeholder-sized files.
+        Empty string means the gate is satisfied.
+        """
+        if not task:
+            return ""
+        text = task.lower()
+        matched: list[str] = []
+        for keywords, label in self._DELIVERABLE_HINTS:
+            if any(k in text for k in keywords):
+                matched.append(label)
+        if not matched:
+            return ""
+        # Inspect the run output dir for any non-trivial file (>=512 B).
+        run_out = self._dir / "output" / (self._run_id or "")
+        if not run_out.exists():
+            return (
+                f"Task implies {matched[0]}, but output directory does not "
+                f"exist yet ({run_out})."
+            )
+        substantial = [
+            p for p in run_out.rglob("*")
+            if p.is_file() and p.stat().st_size >= 512
+        ]
+        if not substantial:
+            return (
+                f"Task implies {matched[0]}, but `_output_dir` is empty "
+                f"(no file >=512 B found in {run_out})."
+            )
+        return ""
 
     def _scan_placeholders(self, result: dict) -> list[str]:
         """Scan a final_result dict and any declared output files for
@@ -5659,6 +5777,11 @@ Rules:
                 for k, v in value.items():
                     if isinstance(k, str) and k.startswith("_"):
                         continue  # skip internal annotations like _critique
+                    if isinstance(k, str) and k.lower() in self._PLACEHOLDER_KEYS:
+                        findings.append(
+                            f"{label}: contains stub key '{k}' "
+                            f"(template skeleton was copied verbatim)"
+                        )
                     _walk(f"{label}.{k}", v)
             elif isinstance(value, (list, tuple)):
                 for i, v in enumerate(value):
