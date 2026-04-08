@@ -579,6 +579,47 @@ class ToolRegistry:
             allowed, reason = self._is_path_allowed(resolved)
             if not allowed:
                 return _err(reason, 403)
+
+            # Binary sniff: peek at the first 4 KiB and reject obvious
+            # binary content with a structured, actionable error instead
+            # of letting Python raise a cryptic UnicodeDecodeError. Real
+            # workers in the wild repeatedly tried to file.read PNG/PDF
+            # outputs with the default utf-8 encoding.
+            _BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".pdf",
+                            ".zip", ".gz", ".tar", ".xz", ".bz2",
+                            ".parquet", ".feather", ".npy", ".npz",
+                            ".so", ".dylib", ".dll", ".exe", ".pyc",
+                            ".woff", ".woff2", ".ttf", ".otf", ".ico"}
+            ext = resolved.suffix.lower()
+            try:
+                with resolved.open("rb") as _bf:
+                    head = _bf.read(4096)
+            except FileNotFoundError:
+                return _err(f"File not found: {path}", 404)
+            looks_binary = (
+                ext in _BINARY_EXT
+                or b"\x00" in head
+                or (head and sum(b > 127 or b < 9 for b in head) / len(head) > 0.30)
+            )
+            if looks_binary:
+                return {
+                    "ok": False,
+                    "status": 415,
+                    "data": {
+                        "path": str(resolved),
+                        "ext": ext,
+                        "size_bytes": resolved.stat().st_size,
+                    },
+                    "error": (
+                        f"file.read refused: '{path}' looks binary "
+                        f"(ext={ext or 'none'}). file.read returns text only. "
+                        f"For images/PDFs/archives use code.execute with "
+                        f"open(path, 'rb') or a domain-specific library "
+                        f"(PIL, pypdf, zipfile). To check existence/size use "
+                        f"file.list."
+                    ),
+                }
+
             content = resolved.read_text(encoding=encoding)
             return _ok({"content": content, "size": len(content)})
         except FileNotFoundError:
@@ -1375,6 +1416,19 @@ class ToolRegistry:
                 f"import sys as _sys\n"
                 f"_workspace_dir = {str(ws)!r}\n"
                 f"_output_dir = {str(out)!r}\n"
+                # Mirror as env vars so LLM-written `os.environ['_workspace_dir']`
+                # / `os.environ['_output_dir']` patterns also work.
+                f"_os.environ['_workspace_dir'] = _workspace_dir\n"
+                f"_os.environ['_output_dir'] = _output_dir\n"
+                # Inject all known secrets as a `_secrets` dict so plain
+                # `code.execute` calls can access API keys via `_secrets.get(...)`
+                # without having to wrap them in a dynamic tool first.
+                f"_secrets = {dict(self._secrets)!r}\n"
+                # Mirror secrets into os.environ as well — many LLM patterns use
+                # `os.environ['HF_TOKEN']` directly.
+                f"for _k, _v in _secrets.items():\n"
+                f"    if _k and _v and _k not in _os.environ:\n"
+                f"        _os.environ[_k] = str(_v)\n"
                 f"def _ensure_dir(path):\n"
                 f"    d = _os.path.dirname(path) if not _os.path.isdir(path) else path\n"
                 f"    _os.makedirs(d, exist_ok=True)\n"

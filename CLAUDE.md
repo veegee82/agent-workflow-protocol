@@ -120,6 +120,8 @@ An **E2E test** in AWP is a full run that exercises the entire system end-to-end
    - **Sub-manager delegation** (recursive manager-worker spawning)
 3. The run **MUST reach state `complete`** and the output **MUST match the expected result**.
 
+**E2E tests MUST be stored as real experiments in `/tmp/awp-experiments/`** so the UI can load and display them. Each E2E run must produce **real outputs, real artifacts, and a real graph visualization**, and the experiment's **output folder MUST be populated** (no empty runs, no placeholder files). Goal: I must be able to open any E2E test in the UI, look at its results, and view its graph. E2E tests that only run in pytest without leaving a populated experiment in `/tmp/awp-experiments/` are **not** valid.
+
 **E2E tests MUST always run against real LLM calls** (e.g. OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded LLM responses are **not** valid E2E coverage — the whole point is to verify behavior under real model output variability.
 
 Treat the run output as a **loss function** and the code fix as **backpropagation**: if the run fails or the output diverges from expectation, locate the root cause in the code and fix it. Iterate until the loss is zero. Always make fixes **production-ready** — no patches, no shortcuts, no "works on my machine".

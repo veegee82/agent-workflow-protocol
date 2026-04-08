@@ -1218,6 +1218,17 @@ class DynamicToolFactory:
         Returns:
             Standard AWP result format.
         """
+        # --- Pre-parse auto-repair: empty kw-only handler signature ---
+        # LLMs sometimes emit `def handler(*, ):` or `def handler(*):` for
+        # zero-argument tools, which is a SyntaxError. Rewrite to a
+        # tolerant signature that accepts (and ignores) any kwargs.
+        import re as _re
+        code = _re.sub(
+            r"def\s+handler\s*\(\s*\*\s*,?\s*\)\s*:",
+            "def handler(**_):",
+            code,
+        )
+
         # Parse
         try:
             tree = ast.parse(code)

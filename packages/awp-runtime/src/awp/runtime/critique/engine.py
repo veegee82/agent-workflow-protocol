@@ -406,6 +406,45 @@ Respond with a JSON object:
             )
         parts.append(f"## Worker Result\n```json\n{result_json}\n```\n")
 
+        # --- Ground-truth filesystem snapshot ---
+        # The critic LLM consistently hallucinates "file not saved" defects
+        # because it only sees the worker's findings JSON (which often contains
+        # an intermediate path) without checking the actual filesystem. Inject
+        # a real listing of workspace/ + output/<run>/ so the critic can verify
+        # claims against ground truth.
+        try:
+            ws = self._workflow_dir / "workspace"
+            out = self._workflow_dir / "output" / (self._run_id or "")
+            tree_lines: list[str] = []
+            for base, label in ((ws, "_workspace_dir"), (out, "_output_dir")):
+                if base.exists():
+                    tree_lines.append(f"{label}/  ({base})")
+                    count = 0
+                    for p in sorted(base.rglob("*")):
+                        if count >= 80:
+                            tree_lines.append("  ... (truncated)")
+                            break
+                        if p.is_file():
+                            try:
+                                size = p.stat().st_size
+                            except OSError:
+                                size = 0
+                            rel = p.relative_to(base)
+                            tree_lines.append(f"  {rel}  ({size} B)")
+                            count += 1
+            if tree_lines:
+                parts.append(
+                    "## Ground-truth filesystem snapshot (REAL files on disk)\n"
+                    "Verify the worker's claims against this listing. "
+                    "If a required file already exists at the expected path with "
+                    "non-trivial size, do NOT flag it as `missing_data` even if "
+                    "the worker's `findings.path` reports a different path.\n```\n"
+                    + "\n".join(tree_lines)
+                    + "\n```\n"
+                )
+        except Exception:
+            pass
+
         # Include known patterns as context
         patterns = self._pattern_memory.get_prevention_rules()
         if patterns:

@@ -1218,6 +1218,14 @@ class DynamicToolFactory:
         Returns:
             Standard AWP result format.
         """
+        # Pre-parse auto-repair: rewrite empty kw-only handler signatures.
+        import re as _re
+        code = _re.sub(
+            r"def\s+handler\s*\(\s*\*\s*,?\s*\)\s*:",
+            "def handler(**_):",
+            code,
+        )
+
         # Parse
         try:
             tree = ast.parse(code)

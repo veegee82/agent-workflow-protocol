@@ -2080,6 +2080,31 @@ class DelegationLoopRunner:
             #      manager promote subtasks to submanagers mid-flight without
             #      losing progress on completed ones.
             if decision_type == "plan":
+                # R31 Plan-Tool-Closure (HARD): every subtask must declare a
+                # tool_manifest. Reject and force a re-plan if violated.
+                try:
+                    from awp.validator.rules_planning import (
+                        format_violations,
+                        validate_runtime_plan,
+                    )
+
+                    _r31_violations = validate_runtime_plan(manager_decision)
+                except Exception as _r31_exc:  # pragma: no cover
+                    logger.warning("R31 validator unavailable: %s", _r31_exc)
+                    _r31_violations = []
+                if _r31_violations:
+                    state["_r31_feedback"] = format_violations(_r31_violations)
+                    self._logger.trace_gate(
+                        "r31_plan_tool_closure",
+                        triggered=True,
+                        violations=len(_r31_violations),
+                        first=_r31_violations[0] if _r31_violations else "",
+                    )
+                    logger.warning(
+                        "R31 rejected PLAN with %d violation(s); requesting re-plan",
+                        len(_r31_violations),
+                    )
+                    continue
                 new_subtasks = manager_decision.get("subtasks", [])
                 # Track consecutive PLAN iterations without any worker progress
                 # so we can force the manager out of an endless planning loop.
@@ -3081,6 +3106,15 @@ targeted workers to test the most likely hypotheses before doing a full retry.
                 f"**{plan_lock}**\n"
             )
 
+        # R31 Plan-Tool-Closure feedback (consume-once). Surfaced when the
+        # previous PLAN was rejected for missing/invalid tool_manifest.
+        r31_feedback = state.pop("_r31_feedback", None)
+        if r31_feedback:
+            parts.append(
+                f"## ⚠ PLAN REJECTED — R31 Plan-Tool-Closure\n"
+                f"{r31_feedback}\n"
+            )
+
         # Diagnose-locked warning (prevents DIAGNOSE loops)
         diag_lock = state.get("_diagnose_locked")
         if diag_lock:
@@ -3671,12 +3705,58 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         summary = summary[:500] + "...(truncated)"
                     parts.append(f"### {k}\n```json\n{summary}\n```\n")
 
+        # Output directory listing — gives the manager hard evidence of
+        # what deliverables already exist on disk.  Without this section
+        # the manager often re-spawns workers (or unnecessary "validate"
+        # workers) for files that are already produced.
+        output_listing = self._build_output_dir_listing()
+        if output_listing:
+            parts.append(output_listing)
+            parts.append("")
+
         # Manager Intelligence sections
         intelligence = self._build_intelligence_task_sections(state, iteration)
         if intelligence:
             parts.append(intelligence)
 
         return "\n".join(parts)
+
+    def _build_output_dir_listing(self, max_entries: int = 30) -> str:
+        """Return a markdown listing of the run's output directory.
+
+        Empty string if the directory does not exist or has no files.
+        """
+        try:
+            run_output_dir = self._dir / "output" / self._run_id
+        except Exception:
+            return ""
+        if not run_output_dir.exists() or not run_output_dir.is_dir():
+            return ""
+        files: list[tuple[str, int]] = []
+        for p in sorted(run_output_dir.rglob("*")):
+            if p.is_file():
+                try:
+                    rel = p.relative_to(run_output_dir).as_posix()
+                    size = p.stat().st_size
+                except Exception:
+                    continue
+                files.append((rel, size))
+                if len(files) >= max_entries:
+                    break
+        if not files:
+            return ""
+        lines = [
+            "## Files Currently in Output Directory",
+            "",
+            "These deliverables already exist in `_output_dir` from previous "
+            "iterations of THIS run. Before delegating more work, check whether "
+            "the task is already satisfied by these files — if so, issue "
+            "**COMPLETE**, do NOT spawn validation workers.",
+            "",
+        ]
+        for rel, size in files:
+            lines.append(f"- `{rel}` ({size} bytes)")
+        return "\n".join(lines)
 
     def _parse_manager_output(self, output: Any) -> dict:
         """Parse and normalize manager output."""
@@ -3822,8 +3902,83 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             if valid:
                 for d in valid:
                     self._enforce_skill_quality(d)
+                    self._enforce_tool_whitelist(d)
 
         return output
+
+    # -- Tool whitelist enforcement ----------------------------------------
+
+    _TOOL_WHITELIST_FALLBACK: tuple[str, ...] = (
+        "code.execute",
+        "file.read",
+        "file.write",
+        "file.list",
+    )
+
+    def _enforce_tool_whitelist(self, delegation: dict) -> None:
+        """Drop hallucinated tool names from a delegation's tools_allowed.
+
+        LLMs frequently invent tools like ``file.stat``, ``system.run``,
+        ``shell.execute``, ``http.get``.  These do not exist and silently
+        leave the worker without the tool the manager intended.  We:
+
+        1. Build the closed set of valid tool names = built-in fallback
+           tools + any externally registered tool names known to the runtime.
+        2. Filter the delegation's ``tools_allowed`` against that set.
+        3. Log a warning for each dropped tool so the cause is visible.
+        4. If the filter empties the list, restore the safe defaults so
+           the worker can still run instead of being silently de-tooled.
+        """
+        raw = delegation.get("tools_allowed")
+        if not isinstance(raw, list) or not raw:
+            return
+
+        # Pull external tool names from the registry if available.
+        external: set[str] = set()
+        registry = getattr(self, "_external_tool_registry", None) or getattr(
+            self, "_tool_registry", None
+        )
+        if registry is not None:
+            try:
+                names = registry.list_external_tool_names()  # type: ignore[attr-defined]
+                external = {str(n) for n in names}
+            except Exception:
+                external = set()
+
+        allowed = set(self._TOOL_WHITELIST_FALLBACK) | external
+        wid = delegation.get("worker_id", "unknown")
+
+        kept: list[str] = []
+        dropped: list[str] = []
+        for name in raw:
+            if not isinstance(name, str):
+                dropped.append(repr(name))
+                continue
+            if name in allowed:
+                kept.append(name)
+            else:
+                dropped.append(name)
+
+        if dropped:
+            logger.warning(
+                "Worker %s: dropping %d hallucinated tool name(s): %s "
+                "(allowed=%s)",
+                wid,
+                len(dropped),
+                dropped,
+                sorted(allowed),
+            )
+
+        if not kept:
+            logger.warning(
+                "Worker %s: tools_allowed was emptied by whitelist filter "
+                "— restoring safe defaults %s",
+                wid,
+                list(self._TOOL_WHITELIST_FALLBACK),
+            )
+            kept = list(self._TOOL_WHITELIST_FALLBACK)
+
+        delegation["tools_allowed"] = kept
 
     # -- Skill quality enforcement -----------------------------------------
 
@@ -4719,6 +4874,36 @@ print("Chart saved")
         context_block = prepare_context(state, workspace_dir, ctx_budget)
         if context_block:
             user_parts.append(context_block)
+
+        try:
+            output_dir = self._dir / "output" / (self._run_id or "")
+            tree_lines: list[str] = []
+            for base, label in ((workspace_dir, "_workspace_dir"), (output_dir, "_output_dir")):
+                if base.exists():
+                    tree_lines.append(f"{label}/  ({base})")
+                    count = 0
+                    for p in sorted(base.rglob("*")):
+                        if count >= 60:
+                            tree_lines.append("  ... (truncated)")
+                            break
+                        if p.is_file():
+                            try:
+                                size = p.stat().st_size
+                            except OSError:
+                                size = 0
+                            rel = p.relative_to(base)
+                            tree_lines.append(f"  {rel}  ({size} B)")
+                            count += 1
+            if tree_lines:
+                user_parts.append(
+                    "## Available files (real, live snapshot)\n"
+                    "These are the ONLY files that exist. Do NOT invent paths.\n"
+                    "Use `_list_files()` inside `code.execute` to refresh.\n```\n"
+                    + "\n".join(tree_lines)
+                    + "\n```\n"
+                )
+        except Exception:
+            pass
 
         user_message = "\n".join(user_parts)
 
@@ -5758,7 +5943,11 @@ Rules:
         LLM output quirk that causes strict parsing to fail.
         """
         if not text or not isinstance(text, str):
-            return {"result": str(text), "_confidence_source": "parse_failure"}
+            return {
+                "result": str(text) if text is not None else "",
+                "confidence": 0.3,
+                "_confidence_source": "parse_failure",
+            }
         cleaned = text.strip()
 
         def _try_parse(s: str) -> dict | None:
@@ -5869,7 +6058,70 @@ Rules:
                         )
                         return result
 
-        return {"result": text, "_confidence_source": "parse_failure"}
+            # Strategy 5: error-site repair — LLMs sometimes forget to close
+            # an inner array/object before moving to the next key, e.g.
+            #   "skills": [ "long string",
+            #   "tools_allowed": [...]
+            # which leaves `[` unclosed mid-structure. The JSONDecodeError
+            # position is typically reported AFTER the unclosed scope, so
+            # we try inserting one or more close-delimiters at every
+            # newline-aligned candidate position walking backward from the
+            # error site, for each plausible combination of `]`/`}`.
+            fragment = cleaned[start:]
+            try:
+                json.loads(fragment, strict=False)
+            except json.JSONDecodeError as exc:
+                err_pos = exc.pos
+                if 0 < err_pos <= len(fragment):
+                    # Candidate insertion points: walk backward from err_pos
+                    # to each newline boundary (skipping leading whitespace).
+                    candidates: list[int] = []
+                    pos = err_pos
+                    while pos > 0:
+                        # Trim trailing whitespace + newlines
+                        while pos > 0 and fragment[pos - 1] in " \t\r\n":
+                            pos -= 1
+                        if pos > 0 and pos not in candidates:
+                            candidates.append(pos)
+                        # Also try position right before a trailing `,` —
+                        # the missing close-delimiter often belongs there
+                        # (e.g. `"skills": ["str"],\n "next":` needs `]`
+                        # inserted before the comma).
+                        if pos > 0 and fragment[pos - 1] == ",":
+                            cpos = pos - 1
+                            # also strip any whitespace before the comma
+                            while cpos > 0 and fragment[cpos - 1] in " \t\r\n":
+                                cpos -= 1
+                            if cpos > 0 and cpos not in candidates:
+                                candidates.append(cpos)
+                        # Step back to previous newline
+                        nl = fragment.rfind("\n", 0, pos)
+                        if nl == -1:
+                            break
+                        pos = nl
+                        if len(candidates) >= 16:
+                            break
+
+                    closer_combos = ("]", "}", "]]", "}}", "]}", "}]",
+                                     "]]]", "}}}", "]]}", "}]]", "]}]", "}]}")
+                    for ipos in candidates:
+                        for closers in closer_combos:
+                            repaired = fragment[:ipos] + closers + fragment[ipos:]
+                            result = _try_parse(repaired)
+                            if result is not None:
+                                logger.warning(
+                                    "Recovered malformed JSON via error-site "
+                                    "repair (inserted %r at pos %d, err_pos %d)",
+                                    closers, ipos, err_pos,
+                                )
+                                result["_repaired"] = True
+                                return result
+
+        return {
+            "result": text,
+            "confidence": 0.3,
+            "_confidence_source": "parse_failure",
+        }
 
     @staticmethod
     def _has_real_confidence(result: dict) -> bool:
