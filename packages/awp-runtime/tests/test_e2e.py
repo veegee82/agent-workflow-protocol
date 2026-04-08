@@ -22,7 +22,7 @@ from awp.runtime.agent import StandaloneAgent
 from awp.runtime.runner import WorkflowRunner
 from awp.agent import AWPAgent as AWPAgentABC
 
-EXAMPLES = Path(__file__).parents[3] / "examples"
+EXAMPLES = Path(__file__).parents[3] / "examples" / "workflows"
 
 
 class TestEndToEnd:
@@ -231,4 +231,8 @@ class TestWorkflowRunner:
 
 class TestVersion:
     def test_version(self):
-        assert __version__ == "1.0.0"
+        # Just verify a parseable PEP 440 version string is exported.
+        # Pinning to a literal would force every release bump to touch
+        # this test.
+        import re
+        assert re.match(r"^\d+\.\d+\.\d+", __version__), __version__

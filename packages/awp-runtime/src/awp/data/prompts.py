@@ -8,6 +8,18 @@ if TYPE_CHECKING:
     from awp.runtime.skill_loader import SkillBundle
 
 
+# Closed set of built-in tool names that workers may legitimately request.
+# Anything outside this set (plus any registered external tools) will be
+# filtered out by the runtime in `_parse_manager_output`.  Common LLM
+# hallucinations: `file.stat`, `system.run`, `shell.execute`, `http.get`.
+ALLOWED_WORKER_TOOLS: tuple[str, ...] = (
+    "code.execute",
+    "file.read",
+    "file.write",
+    "file.list",
+)
+
+
 # Hard-won pitfalls injected into EVERY worker system prompt (not only the
 # manager's). Earlier runs showed that pitfalls placed only in the manager
 # prompt never reach workers — the manager paraphrases them away or omits
@@ -233,6 +245,15 @@ def build_manager_system_prompt(
     else:
         inputs_header = ""
 
+    # R31 Plan-Tool-Closure: render the pattern library index for inclusion
+    # in the PLAN section so the manager can reference reusable patterns by id.
+    try:
+        from awp.patterns import render_index_for_prompt as _render_patterns
+
+        available_patterns = _render_patterns()
+    except Exception:
+        available_patterns = "_(pattern library unavailable)_"
+
     return f"""You are a Universal Data Agent Manager in an AWP Delegation Loop.
 
 Your role is to analyze a task, break it into subtasks,
@@ -302,6 +323,44 @@ Domain code (e.g. C# cBot, SQL, Solidity):
 - Max tools per worker: {max_tools_per_worker}
 - Forbidden tools: {", ".join(forbidden_tools) if forbidden_tools else "none"}
 
+## Allowed Tool Names (CLOSED SET)
+
+Workers may ONLY request tools from this list. Any other tool name is
+**invalid** and will be silently dropped by the runtime — your worker will
+end up without the tool you intended:
+
+- `code.execute` — run Python in a sandboxed subprocess
+- `file.read` — read a file from the workspace
+- `file.write` — write a file to the workspace or output directory
+- `file.list` — list files in a workspace directory
+
+**Do NOT invent tools** like `file.stat`, `system.run`, `shell.execute`,
+`http.get`, `python.run`, `bash.run`. These do not exist. If you need
+filesystem stats, shell execution, HTTP requests, or anything else, the
+worker MUST do it from inside a `code.execute` Python snippet
+(`os.stat()`, `subprocess.run()`, `urllib.request`, etc.).
+
+## Completion Check (MANDATORY before every DELEGATE)
+
+Before issuing another DELEGATE, ask yourself:
+
+1. Did the most recent worker already produce **all** of the deliverables
+   the task asks for? (Check the `Files Currently in Output Directory`
+   section below if present.)
+2. Did its critique score and confidence indicate the work is acceptable
+   (`confidence ≥ 0.7`, no critical defects)?
+3. Does the task explicitly demand a separate validation/QA pass?
+
+If (1) and (2) are true and (3) is false → issue **COMPLETE**, do NOT
+spawn additional validation, double-check, or QA workers. Spurious
+validation rounds waste budget and frequently fail because the validator
+worker re-implements work that is already done.
+
+You may only spawn a validation worker when:
+- the task text explicitly says "validate" / "verify" / "double-check", OR
+- the previous worker reported `confidence < 0.7`, OR
+- the critique flagged a **critical** defect.
+
 ## Your Decision Options
 
 Respond with a JSON object containing ONE of these decisions:
@@ -364,7 +423,38 @@ Respond with a JSON object containing ONE of these decisions:
       "description": "What this subtask accomplishes",
       "dependencies": [],
       "priority": "high",
-      "success_criteria": "How to know this subtask is done"
+      "success_criteria": "How to know this subtask is done",
+      "tool_manifest": [
+        {{
+          "subtask": "subtask_1",
+          "capability": "pandas_csv_summary",
+          "reuse_or_generate": "reuse",
+          "pattern_id": "pandas_csv_summary"
+        }},
+        {{
+          "subtask": "subtask_1",
+          "capability": "fetch_btc_ohlc",
+          "reuse_or_generate": "synthesize",
+          "archetype_id": "fetch",
+          "recipe_params": {{
+            "name": "data.fetch_btc_ohlc",
+            "backend": "http_get",
+            "url_template": "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days={{days}}",
+            "inputs": {{"days": "int"}}
+          }}
+        }},
+        {{
+          "subtask": "subtask_1",
+          "capability": "custom_metric_calc",
+          "reuse_or_generate": "generate",
+          "assumptions": [
+            "input is a pandas DataFrame with a numeric 'close' column",
+            "returns are computed as pct_change on close",
+            "annualisation factor 252 for daily data",
+            "no NaN handling needed because the upstream pattern dropped them"
+          ]
+        }}
+      ]
     }}
   ]
 }}
@@ -374,6 +464,47 @@ You can only PLAN once — after that, use DELEGATE to execute the plan.
 After planning, you will see a Task Plan Progress section tracking subtask status.
 Map your DELEGATE worker_ids to subtask IDs to enable automatic progress tracking.
 **IMPORTANT: Do NOT issue PLAN again after the first iteration. Use DELEGATE instead.**
+
+#### R31 — Plan-Tool-Closure (HARD RULE)
+Every subtask MUST include a non-empty `tool_manifest` array. Each entry
+declares ONE capability the subtask needs and how it will be satisfied.
+Three modes, in order of preference:
+
+  1. `reuse_or_generate: "reuse"` — the capability is provided by an
+     existing **concrete pattern** from the table below. Set
+     `pattern_id` to one of the listed ids. **Cheapest, zero LLM
+     tokens for the body.**
+
+  2. `reuse_or_generate: "synthesize"` — no concrete pattern fits, but
+     the capability matches one of the **archetypes** (compute / fetch
+     / parse / transform / render / probe). Set `archetype_id` to the
+     archetype name and provide `recipe_params` (the parameters that
+     archetype documents as required, e.g. `backend`, `url_template`,
+     `inputs`). The runtime will generate the handler from the
+     archetype skeleton — domain-free, repair-friendly, and the result
+     is auto-captured as a re-usable recipe for future runs.
+     **Strongly preferred over `generate` whenever an archetype fits.**
+
+  3. `reuse_or_generate: "generate"` — last resort. No pattern, no
+     archetype fits. A fresh tool will be generated freeform. You MUST
+     include an `assumptions` list (one item per non-trivial assumption:
+     data shape, API granularity, file format, units, error handling).
+     Use this only when neither `reuse` nor `synthesize` is viable.
+
+Plans that do not satisfy R31 are rejected by the validator and you will
+be asked to re-plan. Think about *which API granularities, file formats,
+and library calls* each subtask actually needs BEFORE listing it as a
+capability — this is the moment to surface assumptions, not at worker
+time.
+
+**Tell the worker about it.** When you `synthesize`, include in the
+worker's `instructions` the exact `archetype_id` and `recipe_params`
+you chose, and tell the worker to pass them as `meta.archetype_id` and
+`meta.recipe_params` when it calls `dynamic.create_tool`. This makes
+the worker's tool creation deterministic and triggers recipe capture.
+
+#### Pattern + Archetype Library
+{available_patterns}
 
 ### DIAGNOSE — Generate failure hypotheses before retrying
 ```json

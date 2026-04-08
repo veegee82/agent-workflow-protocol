@@ -504,6 +504,108 @@ class DynamicToolFactory:
             self._bump("policy_failures")
             return _err("Dynamic tool creation is not enabled", 403)
 
+        # ----------------------------------------------------------------
+        # Tool-Manifest-First Planning hooks (B2 + B3, opt-in via meta).
+        #
+        #   meta = {
+        #       "pattern_id": "<id from awp.patterns>",  # zero-LLM path
+        #       # OR
+        #       "contract":   {...},                      # generate skeleton
+        #       "smoke_test": "<python snippet>",         # custom smoke
+        #       "smoke_packages": ["pkg1", ...],
+        #   }
+        #
+        # When pattern_id is set we override the caller-supplied `code`
+        # with the verified pattern skeleton entirely — the LLM never
+        # needs to write the body. When `contract` is set we synthesise
+        # a typed skeleton and the LLM-supplied `code` is treated as the
+        # filled-in body wrapper.
+        #
+        # If either path is taken, we run a venv smoke test BEFORE
+        # promoting the tool to the registry.
+        # ----------------------------------------------------------------
+        _smoke_required = False
+        _smoke_snippet: str = ""
+        _smoke_packages: list[str] = []
+        _meta = meta or {}
+        try:
+            pattern_id = _meta.get("pattern_id")
+            archetype_id = _meta.get("archetype_id")
+            recipe_params = _meta.get("recipe_params")
+            if pattern_id:
+                from awp.patterns import get_pattern  # local import
+
+                _pat = get_pattern(pattern_id)
+                if _pat is None:
+                    return _err(
+                        f"Unknown pattern_id '{pattern_id}' "
+                        f"(see awp.patterns.PATTERNS)",
+                        400,
+                    )
+                logger.info(
+                    "Tool '%s' instantiated from pattern '%s' (zero-LLM)",
+                    name, pattern_id,
+                )
+                code = _pat.skeleton
+                description = description or _pat.description
+                _smoke_required = True
+                _smoke_snippet = _pat.smoke_test
+                _smoke_packages = list(_pat.packages)
+            elif archetype_id and isinstance(recipe_params, dict):
+                from awp.patterns import get_archetype  # local import
+
+                _arch = get_archetype(archetype_id)
+                if _arch is None:
+                    return _err(
+                        f"Unknown archetype_id '{archetype_id}' "
+                        f"(see awp.patterns.ARCHETYPES)",
+                        400,
+                    )
+                _params = dict(recipe_params)
+                _params.setdefault("name", name)
+                _errs = _arch.validate_params(_params)
+                if _errs:
+                    return _err(
+                        f"archetype '{archetype_id}' params invalid: "
+                        f"{'; '.join(_errs)}",
+                        400,
+                    )
+                try:
+                    _gen_code, _gen_pkgs = _arch.build_skeleton(_params)
+                except Exception as _bexc:
+                    return _err(
+                        f"archetype '{archetype_id}' build_skeleton failed: {_bexc}",
+                        400,
+                    )
+                logger.info(
+                    "Tool '%s' synthesised from archetype '%s' (zero-LLM body)",
+                    name, archetype_id,
+                )
+                code = _gen_code
+                _smoke_required = True
+                _smoke_snippet = _meta.get("smoke_test") or _arch.build_smoke(_params)
+                _smoke_packages = list(_gen_pkgs) + list(_meta.get("smoke_packages") or [])
+            else:
+                contract = _meta.get("contract")
+                if isinstance(contract, dict):
+                    from .tool_skeleton import generate_skeleton
+
+                    skeleton = generate_skeleton(contract)
+                    # We do NOT replace the caller's code wholesale here;
+                    # we expose the generated skeleton in meta for trace
+                    # and let the validator catch structural drift.
+                    _meta = dict(_meta)
+                    _meta["_generated_skeleton"] = skeleton
+                snippet = _meta.get("smoke_test")
+                if isinstance(snippet, str) and snippet.strip():
+                    _smoke_required = True
+                    _smoke_snippet = snippet
+                    _smoke_packages = list(_meta.get("smoke_packages") or [])
+        except Exception as _hook_exc:  # pragma: no cover
+            logger.warning(
+                "Tool-manifest hook failed for '%s': %s", name, _hook_exc
+            )
+
         # B5: Content-addressable cache — dedup identical generations.
         tool_hash = compute_tool_hash(name, code, parameters)
         if self._cache_enabled:
@@ -651,6 +753,43 @@ class DynamicToolFactory:
                 missing,
             )
 
+        # B3 (Tool-Manifest gate): if the caller declared a smoke_test
+        # (either via pattern_id or explicit meta.smoke_test), execute it
+        # in an isolated venv with the declared packages installed BEFORE
+        # promoting the tool. A failing smoke test is repairable: the
+        # caller (delegation loop) gets one repair attempt.
+        if _smoke_required:
+            from .tool_test_gate import smoke_test_tool
+
+            gate = smoke_test_tool(
+                code,
+                smoke_snippet=_smoke_snippet,
+                packages=_smoke_packages,
+                timeout=max(self._timeout_seconds, 30),
+            )
+            if not gate.get("ok"):
+                self._bump("dry_run_failures")
+                err_text = (
+                    gate.get("error")
+                    or gate.get("data", {}).get("stderr", "")
+                    or "smoke test failed"
+                )
+                logger.warning(
+                    "Smoke gate REJECTED tool '%s': %s", name, err_text[:200]
+                )
+                return {
+                    "ok": False,
+                    "status": 422,
+                    "data": gate.get("data", {}),
+                    "error": f"smoke gate rejected '{name}': {err_text[:300]}",
+                    "category": "smoke_gate",
+                    "repairable": True,
+                }
+            logger.info(
+                "Smoke gate ACCEPTED tool '%s' (%d pkgs)",
+                name, len(_smoke_packages),
+            )
+
         # B3: Dry-run probe — execute once with synthetic inputs to catch
         # runtime errors before registration.  Skipped if disabled or if
         # the namespace declares network/IO that would have side effects.
@@ -695,6 +834,33 @@ class DynamicToolFactory:
         # Persist if enabled
         if self._persist and self._workflow_dir:
             self._persist_tool(record)
+
+        # ----------------------------------------------------------------
+        # Recipe capture (auto-learning, opt-in via meta).
+        #
+        # If the manifest declared an ``archetype_id`` + ``recipe_params``
+        # we persist a QUARANTINED recipe candidate so future runs can
+        # find this exact instantiation by capability tag.  Failure here
+        # is non-fatal — the foreground tool creation has already
+        # succeeded.
+        # ----------------------------------------------------------------
+        try:
+            arch_id = (meta or {}).get("archetype_id")
+            recipe_params = (meta or {}).get("recipe_params")
+            if arch_id and isinstance(recipe_params, dict):
+                from awp.patterns import capture_recipe  # local import
+
+                capture_recipe(
+                    archetype_id=arch_id,
+                    capability=(meta or {}).get("capability") or name,
+                    description=description or "",
+                    params=recipe_params,
+                    smoke_test=_smoke_snippet,
+                    smoke_packages=tuple(_smoke_packages),
+                    learned_from_run=(meta or {}).get("run_id"),
+                )
+        except Exception as _cap_exc:  # pragma: no cover
+            logger.warning("Recipe capture failed for '%s': %s", name, _cap_exc)
 
         logger.info("Dynamic tool created: %s (by %s, hash=%s)", name, creator_agent, tool_hash[:12])
         return _ok({"name": name, "registered": True, "code_hash": tool_hash})

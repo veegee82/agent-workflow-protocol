@@ -105,6 +105,41 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 
 **Failure to sync causes cascading bugs**: generated workflows silently fail because they use outdated config patterns (e.g. `shell.execute` in `tools_allowed` when it's forbidden, `dynamic_tools.enabled: false` when tool creation is needed).
 
+## E2E Tests (MANDATORY)
+
+### Definition
+
+An **E2E test** in AWP is a full run that exercises the entire system end-to-end:
+
+1. Create a **new experiment** from scratch.
+2. Give it a **fictional task** that forces coverage of:
+   - **Orchestration** (DAG or delegation loop execution)
+   - **Manager intelligence** (autonomous decision making, submanager promotion)
+   - **Tool creation** (dynamic tool factory generates and validates new tools)
+   - **Skill creation** (skills are produced and reused)
+   - **Sub-manager delegation** (recursive manager-worker spawning)
+3. The run **MUST reach state `complete`** and the output **MUST match the expected result**.
+
+**E2E tests MUST always run against real LLM calls** (e.g. OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded LLM responses are **not** valid E2E coverage — the whole point is to verify behavior under real model output variability.
+
+Treat the run output as a **loss function** and the code fix as **backpropagation**: if the run fails or the output diverges from expectation, locate the root cause in the code and fix it. Iterate until the loss is zero. Always make fixes **production-ready** — no patches, no shortcuts, no "works on my machine".
+
+The guiding question for every E2E run: **"Would this system reach `complete` for an arbitrary task?"** If the answer is no, it is not shippable.
+
+### When to Run
+
+**Before every PyPI build + push, an E2E test MUST be executed.** The test must additionally cover **all new features** introduced since the last commit pushed to GitHub. "New" = the diff between the last GitHub commit and the current working state. Identify the changed features, then design the E2E task so it exercises them in addition to the standard coverage above.
+
+No PyPI publish may proceed until the E2E run reaches `complete` with the expected output.
+
+In addition, **all other test suites MUST be green** before a PyPI build + push:
+
+```bash
+pytest packages/awp-core/tests/ packages/awp-runtime/tests/
+```
+
+A single failing or skipped-due-to-error test blocks the publish. Fix the root cause, do not disable or xfail tests to unblock a release.
+
 ## PyPI Build Rules (MANDATORY)
 
 ### Architecture: What Gets Published

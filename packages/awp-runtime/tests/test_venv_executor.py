@@ -76,7 +76,21 @@ class TestVenvExecutor:
         executor.cleanup()
 
     def test_runtime_install_real_package(self, tmp_path):
-        """Actually install a small package and verify it's importable."""
+        """Actually install a small package and verify it's importable.
+
+        Requires outbound network access to PyPI. If the environment
+        is offline (sandboxed CI, air-gapped dev box) we skip rather
+        than fail — the test verifies the venv install plumbing, not
+        network reachability.
+        """
+        import socket
+
+        try:
+            socket.create_connection(("pypi.org", 443), timeout=3).close()
+        except OSError as exc:
+            import pytest
+            pytest.skip(f"PyPI unreachable, skipping real-install test: {exc}")
+
         executor = VenvExecutor(
             working_dir=tmp_path,
             venv_dir=tmp_path / ".pip-venv",

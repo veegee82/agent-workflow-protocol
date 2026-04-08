@@ -77,6 +77,7 @@ Communication, memory, and observability are cross-cutting features available at
 | Skills | workflow skills/ | Markdown knowledge injected into agent system prompts. |
 | Preprocessor | agent workflow/preprocessor/ | Data extraction and feature engineering before LLM call. |
 | Vision | agent.awp.yaml vision | Image processing via base64-encoded data URLs. |
+| Archetypes & Recipes | runtime, no YAML | Six generic tool archetypes (compute / fetch / parse / transform / render / probe). The manager plans capabilities as `reuse_or_generate: "synthesize"` with `archetype_id` + `recipe_params`, the runtime synthesises a deterministic handler, and successful instantiations are auto-captured as content-addressed Recipes under `~/.awp/recipes/` (Quarantined → Probationary → Trusted) for replay-gated reuse on future runs. Replaces the old hand-rolled pattern library as the primary path for new tools — see R31 below. |
 
 ### Orchestration Engines
 
@@ -321,6 +322,7 @@ These rules define validation requirements for AWP workflows. Rules marked **(re
 - **R16:** `execution.mode` MUST be one of: `sequential`, `parallel`, `conditional`.
 - **R17:** All output schemas MUST include a `confidence` field (number, 0.0-1.0).
 - **R18:** All `output_schema.json` files MUST be valid JSON Schema draft-07 with `"type": "object"` at the root.
+- **R31 (delegation loop, runtime-enforced):** Manager PLAN decisions MUST include a non-empty `tool_manifest` per subtask. Each entry declares a capability and one of three modes: `reuse` (set `pattern_id` from the seeded pattern table), `synthesize` (set `archetype_id` ∈ {compute, fetch, parse, transform, render, probe} + `recipe_params` matching the archetype's required params — PREFERRED for new tools), or `generate` (last resort, requires an `assumptions` list). Workers instantiating archetype-based tools MUST forward `archetype_id` + `recipe_params` via `dynamic.create_tool` meta so the runtime can build the deterministic skeleton and auto-capture the recipe.
 
 
 ## Workflow Generation Phases

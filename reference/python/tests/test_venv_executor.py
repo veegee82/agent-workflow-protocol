@@ -58,20 +58,50 @@ class TestVenvExecutor:
 
         ex1.cleanup()
 
-    def test_runtime_install_disabled_by_default(self, executor):
+    def test_runtime_install_enabled_by_default(self, executor):
+        """pip_install defaults to True — every agent can install packages."""
+        result = executor.install_runtime_packages([])
+        assert result["ok"] is True
+        assert result["data"]["installed"] == []
+
+    def test_runtime_install_disabled_explicitly(self, tmp_path):
+        executor = VenvExecutor(
+            working_dir=tmp_path,
+            venv_dir=tmp_path / ".nopip-venv",
+            pip_install=False,
+        )
         result = executor.install_runtime_packages(["some-package"])
         assert result["ok"] is False
         assert result["status"] == 403
+        executor.cleanup()
 
-    def test_runtime_install_enabled(self, tmp_path):
+    def test_runtime_install_real_package(self, tmp_path):
+        """Actually install a small package and verify it's importable.
+
+        Requires outbound network access to PyPI. If the environment
+        is offline (sandboxed CI, air-gapped dev box) we skip rather
+        than fail — the test verifies the venv install plumbing, not
+        network reachability.
+        """
+        import socket
+
+        try:
+            socket.create_connection(("pypi.org", 443), timeout=3).close()
+        except OSError as exc:
+            import pytest
+            pytest.skip(f"PyPI unreachable, skipping real-install test: {exc}")
+
         executor = VenvExecutor(
             working_dir=tmp_path,
             venv_dir=tmp_path / ".pip-venv",
             pip_install=True,
         )
-        # We don't actually install anything heavy here, just test the path
-        result = executor.install_runtime_packages([])
+        result = executor.install_runtime_packages(["six"])
         assert result["ok"] is True
+        assert "six" in result["data"]["installed"]
+        # Verify the package is importable in the venv
+        run_result = executor.execute("import six; print(six.__version__)")
+        assert run_result["ok"] is True
         executor.cleanup()
 
     def test_cleanup_removes_venv(self, tmp_path):
