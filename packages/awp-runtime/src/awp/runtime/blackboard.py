@@ -76,6 +76,7 @@ class Blackboard:
         # Touch file so readers see it even with no posts yet.
         self._path.touch(exist_ok=True)
         self._counter = 0
+        self._last_ts = 0.0
         self._lock = threading.Lock()
 
     @property
@@ -102,7 +103,21 @@ class Blackboard:
 
         with self._lock:
             self._counter += 1
-            ts = time.time()
+            # Strictly monotonic ts within a single process so that
+            # `since` filtering by timestamp is deterministic even when
+            # the system clock has coarse resolution (the wall-clock
+            # may otherwise return identical values for back-to-back
+            # posts). We bump by 1 microsecond past the previous ts
+            # whenever the wall-clock has not advanced.
+            now = time.time()
+            if now <= self._last_ts:
+                now = self._last_ts + 1e-6
+            self._last_ts = now
+            # Round ts to 6 decimal places so the string representation
+            # in the entry id is an exact round-trip of the stored float.
+            # Without rounding, float repr can have more digits than the
+            # id string format, causing since-filtering precision errors.
+            ts = round(now, 6)
             entry_id = f"{ts:.6f}-{self._counter}-{os.getpid()}"
             entry = {
                 "id": entry_id,

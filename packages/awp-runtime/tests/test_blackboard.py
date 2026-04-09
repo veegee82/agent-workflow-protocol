@@ -39,10 +39,11 @@ def test_topic_filter(tmp_path: Path) -> None:
 
 def test_since_filter(tmp_path: Path) -> None:
     bb = Blackboard(workspace=tmp_path, manager_run_id="run3")
+    # Blackboard guarantees strictly monotonic ts per process, so
+    # sequential posts yield strictly increasing timestamps without
+    # needing wall-clock sleeps.
     first = bb.post("t", {"i": 1}, worker_id="w")
-    time.sleep(0.005)  # ensure strictly newer ts
     bb.post("t", {"i": 2}, worker_id="w")
-    time.sleep(0.005)
     bb.post("t", {"i": 3}, worker_id="w")
 
     new = bb.read(since=first)
