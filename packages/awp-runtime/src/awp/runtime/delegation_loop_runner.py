@@ -1975,6 +1975,14 @@ class DelegationLoopRunner:
         # P4: track signatures of past delegation dispatches to detect when
         # the manager re-issues the same logical subtasks instead of repairing.
         self._past_delegation_signatures: list[tuple[str, ...]] = []
+        # Baustein 4 (auto-curation): track failing delegation signatures
+        # (redundant re-dispatch, worker error, worker confidence < 0.3)
+        # so the Curator can write them as antipatterns at run end.
+        self._failed_signatures: list[dict] = []
+        # Wall-clock run start — used by the curator to bucket facts
+        # into ``memory/facts/YYYY-MM-DD.md``.
+        from datetime import datetime as _dt, timezone as _tz
+        self._run_started_at = _dt.now(_tz.utc)
 
         # Critique engine (Reflective Critique Loop)
         self._critique_engine: Optional[CritiqueEngine] = None
@@ -2110,6 +2118,31 @@ class DelegationLoopRunner:
         wrapped = {"delegation_loop": final_result}
         if self._current_digest_sha:
             wrapped["_digest_sha"] = self._current_digest_sha
+
+        # Baustein 4: Auto-curation — deterministically distill this run
+        # into long-term memory files under ``<workflow_dir>/memory/``.
+        # Only the root manager curates (submanagers share the parent's
+        # workflow_dir but the curator is idempotent so a double-run is
+        # safe — restricting to root keeps the run-id attribution clean).
+        if (
+            getattr(self._config, "auto_curation_enabled", True)
+            and self._parent_digest_sha is None
+        ):
+            try:
+                from .curator import Curator as _Curator
+                report = _Curator(
+                    workflow_dir=self._dir,
+                    run_id=self._run_id,
+                    digest_store=self._digest_store,
+                    final_result=final_result,
+                    dynamic_tools_registry=self._tools,
+                    root_digest_sha=self._current_digest_sha,
+                    failed_signatures=self._failed_signatures,
+                    run_started_at=self._run_started_at,
+                ).curate()
+                wrapped["delegation_loop"]["curation_report"] = report.to_dict()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Auto-curation failed (non-fatal): %s", exc)
         return wrapped
 
     def _loop(self, task: str, state: dict) -> tuple[dict, str]:
@@ -2808,6 +2841,24 @@ class DelegationLoopRunner:
                         # manager is forced into a different decision next.
                         continue
 
+            # Baustein 4: a redundant dispatch (same signature already
+            # seen) is an antipattern — record it for the curator.
+            if is_redundant:
+                first_instr = ""
+                try:
+                    if envelopes and isinstance(envelopes[0], dict):
+                        first_instr = str(envelopes[0].get("instructions", ""))
+                except Exception:
+                    first_instr = ""
+                self._failed_signatures.append(
+                    {
+                        "signature": "|".join(current_sig),
+                        "reason": "redundant",
+                        "iteration": iteration,
+                        "instructions": first_instr,
+                    }
+                )
+
             # Record signature now that we are committed to dispatching.
             self._past_delegation_signatures.append(current_sig)
 
@@ -2854,6 +2905,36 @@ class DelegationLoopRunner:
                 iteration=iteration,
                 worker_count=len(envelopes),
             )
+
+            # Baustein 4: record per-worker failures as antipatterns so
+            # the curator can surface them on the next run.
+            try:
+                for dr in delegation_results or []:
+                    if not isinstance(dr, dict):
+                        continue
+                    res = dr.get("result") if isinstance(dr.get("result"), dict) else {}
+                    status = dr.get("status", "")
+                    conf = res.get("confidence") if isinstance(res, dict) else None
+                    conf_f = float(conf) if isinstance(conf, (int, float)) else None
+                    reason: Optional[str] = None
+                    if status == "error" or (isinstance(res, dict) and "error" in res):
+                        reason = "error"
+                    elif conf_f is not None and conf_f < 0.3:
+                        reason = "low_confidence"
+                    if reason is None:
+                        continue
+                    env = dr.get("envelope") or {}
+                    single_sig = self._delegation_signature([env])
+                    self._failed_signatures.append(
+                        {
+                            "signature": "|".join(single_sig),
+                            "reason": reason,
+                            "iteration": iteration,
+                            "instructions": str(env.get("instructions", ""))[:500],
+                        }
+                    )
+            except Exception as _exc:  # noqa: BLE001
+                logger.debug("failed-signature tracking skipped: %s", _exc)
 
             # 4. Critique phase (Reflective Critique Loop)
             critique_envelopes = []
@@ -3812,6 +3893,23 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     def _build_manager_task(self, task: str, state: dict, iteration: int) -> str:
         """Build the user message for the manager with context."""
         parts = [f"## Original Task\n{task}\n"]
+
+        # Baustein 4: Prior-run memory priming. ONLY on the first
+        # iteration of the ROOT manager (submanagers inherit priors via
+        # the parent digest). Gated by auto_curation_enabled.
+        if (
+            getattr(self._config, "auto_curation_enabled", True)
+            and getattr(self, "_parent_digest_sha", None) is None
+            and iteration <= 1
+        ):
+            try:
+                from .curator import read_prior_memory as _read_prior
+                prior_md = _read_prior(self._dir)
+            except Exception as _exc:  # noqa: BLE001
+                logger.debug("read_prior_memory failed: %s", _exc)
+                prior_md = ""
+            if prior_md:
+                parts.append(prior_md + "\n")
 
         # Sibling coordination: inject any NEW blackboard entries since
         # the last time the manager was invoked. Silent when empty so

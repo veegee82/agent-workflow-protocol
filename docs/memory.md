@@ -30,10 +30,51 @@ duration of a single manager run and are discarded at the end:
   [manager-intelligence.md](manager-intelligence.md#hierarchical-context-digest-hcd).
 
 Both tiers are run-scoped via `ContextVar` bindings so parallel
-delegation runs never cross-contaminate. Neither tier is promoted
-into durable memory automatically — the run-finalization layer is
-free to curate interesting digests into long-term memory, but the
-default is "forget on run end".
+delegation runs never cross-contaminate. At run end, the
+**Auto-Curation** layer deterministically promotes selected
+knowledge from the digest hierarchy, the dynamic-tools registry,
+and the runner's failed-signature log into the durable long-term
+tier (see next section). Everything not curated is discarded with
+the run.
+
+### Auto-Curation (Baustein 4)
+
+When `delegation_loop.auto_curation_enabled` is `true` (the default),
+a deterministic :class:`Curator` runs after the root manager's
+delegation loop terminates. It writes reusable knowledge into
+`<workflow_dir>/memory/`:
+
+- `memory/tools/<recipe>.md` — tool recipes for every tool present
+  in the dynamic-tool registry at run end. Dedupe key is
+  `name + content_hash(spec)`. Same name + new hash appends a
+  `## v{n}` section; same name + same hash is a no-op.
+- `memory/facts/YYYY-MM-DD.md` — cross-confirmed facts. The curator
+  walks the digest hierarchy rooted at `runner._current_digest_sha`,
+  counts each distinct `key_facts` entry across digests, and emits
+  those appearing in **>=2** digests. Daily file is append-only and
+  dedupes by exact line match.
+- `memory/antipatterns/<sha>.md` — failed delegation signatures
+  collected by the runner during the loop: redundant re-dispatch,
+  worker error, or worker confidence `<0.3`. Content-addressed by
+  `sha256(signature)[:16]`, so re-running curate on the same run is
+  idempotent.
+
+The curator is pure-deterministic in v1 — no LLM calls — and is
+wrapped in a try/except so a curator failure NEVER fails a run.
+It runs **only on root managers** (submanagers share the parent's
+workflow_dir; restricting to root keeps `run_id` attribution clean).
+
+**Priming the next run.** On the first iteration of the root
+manager, `Curator.read_prior_memory(workflow_dir)` reads these
+three directories and renders a compact `## PRIOR RUN MEMORY`
+block (capped at ~3000 chars) which `_build_manager_task` injects
+into the manager prompt. Submanagers never see this block — they
+inherit priors through the digest tree from their parent instead.
+
+This closes the loop: runs learn from prior runs without any human
+curation step. With `auto_curation_enabled: false`, both the
+writeback and the priming are skipped and behavior reverts to
+S3's "forget on run end" semantics.
 
 ## State Model
 

@@ -513,6 +513,37 @@ Generation is deterministic: no LLM call, no fabrication. Missing
 fields stay empty. This keeps digests cheap, reproducible, and safe
 inside a budget-bounded delegation loop.
 
+## Prior-Run Memory Priming (Auto-Curation)
+
+On the **first iteration** of the **root manager**, the runner
+injects a compact `## PRIOR RUN MEMORY` block into the manager
+prompt. The block is produced by `Curator.read_prior_memory()`
+which reads `<workflow_dir>/memory/` — the long-term memory
+directory written by the auto-curator at the end of every prior
+run.
+
+The injected block has three sections (capped at ~3000 chars
+total):
+
+- **Known Tools** — every dynamic tool recipe under
+  `memory/tools/` with its one-line purpose. The manager can
+  reference them directly via `dynamic.<name>` in `tools_allowed`.
+- **Confirmed Facts (last 7 days, max 20)** — cross-confirmed
+  facts lifted from prior digest hierarchies.
+- **Antipatterns to Avoid (max 10 most recent)** — delegation
+  signatures that previously failed (redundant dispatch, worker
+  error, or confidence `<0.3`) so the manager can steer around
+  known traps.
+
+Submanagers do **not** receive the prior-memory block directly.
+Their context flows in through the parent digest
+(`__parent_digest_sha`) — only the root pays the prompt cost, so
+depth is not amplified.
+
+Gated by `delegation_loop.auto_curation_enabled` (default `true`).
+See [memory.md](memory.md#auto-curation-baustein-4) for the full
+extraction rules.
+
 ## Backward Compatibility
 
 All Manager Intelligence features default to **disabled**. Existing workflows continue to work without any changes. The features only activate when explicitly enabled in the YAML configuration. No new dependencies or breaking changes are introduced.

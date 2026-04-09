@@ -137,7 +137,7 @@ AWP provides **two engines** optimized for different workflow topologies:
 
 **DAG Engine** (A0-A1): Topological execution of a predetermined graph. Agents run in dependency order. State flows along edges. Simple, fast, predictable. Use this when you know the exact workflow at design time.
 
-**Delegation Loop Engine** (A2-A4): A manager agent dynamically spawns ephemeral workers, each configured with custom instructions, tools, and skills. The manager iterates — analyzing results, spawning new workers, refining strategy — until the task is complete or the budget is exhausted. Use this when the workflow must adapt at runtime.
+**Delegation Loop Engine** (A2-A4): A manager agent dynamically spawns ephemeral workers, each configured with custom instructions, tools, and skills. The manager iterates — analyzing results, spawning new workers, refining strategy — until the task is complete or the budget is exhausted. Use this when the workflow must adapt at runtime. At run end, a deterministic auto-curator promotes reusable knowledge (tool recipes, cross-confirmed facts, failed-delegation antipatterns) from the run into `<workflow_dir>/memory/`, and the next run is primed with a compact `PRIOR RUN MEMORY` block on the root manager's first iteration — so delegation loops learn across runs without any human curation step.
 
 The choice is a single YAML field: `engine: dag` or `engine: delegation_loop`. The rest of the workflow definition is compatible with both.
 

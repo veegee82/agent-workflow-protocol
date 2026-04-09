@@ -153,6 +153,12 @@ orchestration:
     digest_enabled: true
     digest_mode: deterministic   # "deterministic" only; "llm" reserved
     digest_max_depth: 1          # children inlined in the prompt
+    # Auto-Curation (Baustein 4). When true, a deterministic curator
+    # writes reusable knowledge (tool recipes, cross-confirmed facts,
+    # failed-delegation antipatterns) into <workflow_dir>/memory/ at
+    # run end, and the next run's root manager is primed with a
+    # `## PRIOR RUN MEMORY` block on its first iteration.
+    auto_curation_enabled: true
     # Optional selective-forget blacklist for submanager state inheritance.
     # Keys listed here are stripped before being passed to child runs.
     # forbidden_inheritance_keys: [secret_token, raw_dump]
@@ -224,6 +230,25 @@ Key concepts:
   `digest_max_depth` (default `1`). Workers do NOT need to list
   `digest.fetch` in `tools_allowed` — the runtime injects it
   automatically when the feature is on.
+- **Auto-Curation & Prior-Run Memory (A2-A4)**: When
+  `delegation_loop.auto_curation_enabled` is true (default), a
+  deterministic Curator runs at the end of every root-manager run
+  and writes reusable knowledge into `<workflow_dir>/memory/`:
+  * `memory/tools/<recipe>.md` — recipes for every dynamic tool
+    created this run, deduped by `name + content_hash(spec)`;
+    same name with a new hash appends a `## v{n}` section.
+  * `memory/facts/YYYY-MM-DD.md` — cross-confirmed key facts that
+    appeared in `>=2` digests across the run's digest hierarchy.
+  * `memory/antipatterns/<sha>.md` — redundant delegation
+    signatures, worker errors, and worker confidence `<0.3`.
+  On the next run, `Curator.read_prior_memory(workflow_dir)` reads
+  these three directories and the runner injects a compact
+  `## PRIOR RUN MEMORY` block (capped ~3000 chars) into the root
+  manager's very first prompt. Submanagers do NOT receive the
+  block directly — they inherit priors via the parent digest sha
+  to avoid amplifying prompt cost with depth. Set
+  `auto_curation_enabled: false` to disable both writeback and
+  priming.
 - **Content-aware redundancy guard (A2-A4)**: The delegation signature used
   to veto duplicate dispatches now hashes worker instructions **together
   with a canonical JSON of the context the envelope references** (`context`,

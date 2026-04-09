@@ -96,6 +96,11 @@ orchestration:
 #     digest_enabled: true
 #     digest_mode: deterministic           # "deterministic" only; "llm" reserved
 #     digest_max_depth: 1                  # children inlined in prompt
+#     # Auto-Curation (default: true). Deterministically writes tool
+#     # recipes, cross-confirmed facts, and antipatterns into
+#     # <workflow_dir>/memory/ at run end, and primes the root manager's
+#     # first iteration of the NEXT run with a `## PRIOR RUN MEMORY` block.
+#     auto_curation_enabled: true
 #     # Optional blacklist for submanager state inheritance:
 #     # forbidden_inheritance_keys: [secret_token, raw_dump]
 #

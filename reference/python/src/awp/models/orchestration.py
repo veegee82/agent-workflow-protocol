@@ -450,6 +450,13 @@ class DelegationLoopConfig(BaseModel):
     # part of the CHILDREN DIGESTS block. Deeper layers remain reachable
     # via the ``digest.fetch`` tool.
     digest_max_depth: int = 1
+    # Auto-Curation (Baustein 4). When enabled, a deterministic curator
+    # runs at the end of every delegation-loop run and writes reusable
+    # knowledge (tool recipes, cross-confirmed facts, antipatterns) into
+    # ``<workflow_dir>/memory/``. On the next run, the root manager's
+    # first-iteration prompt is primed with a compact ``PRIOR RUN MEMORY``
+    # block read back from that directory.
+    auto_curation_enabled: bool = True
 
     model_config = {"extra": "allow"}
 

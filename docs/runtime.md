@@ -457,3 +457,41 @@ Generation is deterministic and cheap: no LLM call, sorted+deduped
 lists, never fabricates fields. Missing worker outputs leave the
 corresponding digest field empty.
 
+## Auto-Curation (Long-Term Memory Writeback)
+
+After the root manager's delegation loop terminates, the runtime
+instantiates :class:`awp.runtime.curator.Curator` and calls its
+`curate()` method. The curator walks the run's digest hierarchy,
+the `ToolRegistry._dynamic_tools` map, and the runner's
+`_failed_signatures` list, and deterministically writes reusable
+knowledge into `<workflow_dir>/memory/`:
+
+| Path | Source | Dedup rule |
+|------|--------|------------|
+| `memory/tools/<recipe>.md` | Dynamic tools registered during the run | `name + content_hash(spec)` — same hash is a no-op, different hash appends `## v{n}` |
+| `memory/facts/YYYY-MM-DD.md` | `key_facts` appearing in `>=2` digests across the tree | Exact line match within the day file |
+| `memory/antipatterns/<sha>.md` | Redundant signatures + worker errors + confidence `<0.3` | `sha256(signature)[:16]` |
+
+The curator runs **only on root managers** (parent_digest_sha is
+`None`), is wrapped in try/except (never fails a run), and is
+idempotent: re-running on the same run writes nothing.
+
+Configuration on `orchestration.delegation_loop`:
+
+- `auto_curation_enabled: bool = true` — master switch for both
+  writeback at run end AND the `## PRIOR RUN MEMORY` priming
+  block injected by `_build_manager_task` on the first iteration
+  of the root manager.
+
+On the next run, `Curator.read_prior_memory(workflow_dir)` reads
+those three directories back and produces a compact markdown
+block capped at ~3000 chars which the runner injects into the
+root manager's very first prompt. Submanagers inherit priors via
+the parent digest sha, not via this block. See
+[memory.md](memory.md#auto-curation-baustein-4) for the full
+extraction rules.
+
+The curator report (`{tools_added, tools_versioned, facts_added,
+antipatterns_added, errors}`) is attached to the wrapped return
+value at `delegation_loop.curation_report` for observability.
+
