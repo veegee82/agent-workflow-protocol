@@ -57,14 +57,9 @@ def load_openrouter_key() -> str:
 # Base dir for all E2E experiments (matches the path required by CLAUDE.md).
 E2E_BASE_DIR = Path("/tmp/awp-experiments")
 
-# Canonical DB path — must match what start_debug.py uses (local source tree).
-# StoreService defaults to Path(__file__).parent.parent / "data" / awp_ui.db
-# which resolves differently depending on whether server/ is imported from
-# packages/awp-ui/server/ (local dev) or .venv/.../site-packages/server/
-# (installed). We force the local dev path so the UI server and the E2E harness
-# always share the same database.
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_CANONICAL_DB = _PROJECT_ROOT / "packages" / "awp-ui" / "server" / "data" / "awp_ui.db"
+# Canonical DB path — must match what StoreService uses.
+# Default is ~/.awp/awp_ui.db (outside the repo to avoid committing secrets).
+_CANONICAL_DB = Path.home() / ".awp" / "awp_ui.db"
 
 
 def make_experiment_dir(slug: str) -> Path:
@@ -576,7 +571,7 @@ def run_e2e(
 
     # Stop the live event watcher and let it do a final scan
     watcher.stop()
-    watcher_thread.join(timeout=5)
+    watcher_thread.join(timeout=15)
 
     duration = time.time() - t0
     finalize_experiment(session_id, run_id, status, result)
@@ -602,6 +597,10 @@ def run_e2e(
             # long as the artifacts on disk show the feature was used.
             if verify_ok and status == "partial":
                 status = "complete"
+                # Persist the promoted status back to the DB so the UI
+                # shows the correct final state (fixes status mismatch
+                # where DB stayed "partial" after local promotion).
+                finalize_experiment(session_id, run_id, status, result)
         except Exception as exc:
             verification = {"ok": False, "error": str(exc)}
 

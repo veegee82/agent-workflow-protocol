@@ -194,7 +194,7 @@ export interface BudgetState {
 }
 
 /** Active panel in the main content area. */
-export type ActivePanel = 'protocol' | 'output' | 'results' | 'graph' | 'graphvis' | 'memory' | 'history' | 'settings';
+export type ActivePanel = 'protocol' | 'results' | 'workspace' | 'output' | 'graph' | 'graphvis' | 'memory' | 'history' | 'settings';
 
 /** WebSocket connection handle. */
 export interface WebSocketConnection {

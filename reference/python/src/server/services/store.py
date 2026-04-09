@@ -13,7 +13,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "awp_ui.db"
+_DEFAULT_DB_PATH = Path.home() / ".awp" / "awp_ui.db"
 
 
 def _extract_result_answer(result_data: Any) -> str:

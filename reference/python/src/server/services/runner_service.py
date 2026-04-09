@@ -1122,7 +1122,7 @@ class RunnerService:
                     asyncio.run_coroutine_threadsafe(
                         self._persist_result(run_id, status, result, session_id),
                         loop,
-                    ).result(timeout=10)
+                    ).result(timeout=30)
             except Exception:
                 logger.warning(
                     "Failed to persist result for run %s", run_id, exc_info=True

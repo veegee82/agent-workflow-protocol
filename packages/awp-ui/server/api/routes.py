@@ -424,20 +424,23 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
             candidate_output = wf_path / "output"
             if candidate_output.is_dir():
                 output_dir = str(candidate_output)
+                # Also scan the workspace root for intermediate files
+                workspace = workflow_dir
             else:
-                # No output/ yet — fall back to the workflow dir itself
-                output_dir = workflow_dir
+                # No output/ yet — scan the workspace root; output is empty
+                workspace = workflow_dir
 
     artifacts: list[dict[str, Any]] = []
     # Scan output_dir and workspace for renderable files.
     # output_dir contains final artifacts; workspace contains intermediate
     # worker results. Both are scanned so the user sees outputs as they
     # are produced during a live run.
-    scan_dirs = []
+    # Each artifact is tagged with source="output" or source="workspace".
+    scan_dirs: list[tuple[Path, str]] = []
     if output_dir:
-        scan_dirs.append(Path(output_dir))
+        scan_dirs.append((Path(output_dir), "output"))
     if workspace:
-        scan_dirs.append(Path(workspace))
+        scan_dirs.append((Path(workspace), "workspace"))
 
     IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
     TABLE_EXT = {".csv", ".tsv"}
@@ -445,7 +448,7 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
     TEXT_EXT = {".txt", ".md", ".log", ".json", ".yaml", ".yml"}
 
     seen: set[str] = set()
-    for scan_dir in scan_dirs:
+    for scan_dir, source_tag in scan_dirs:
         if not scan_dir.exists():
             continue
         for fpath in sorted(scan_dir.rglob("*")):
@@ -476,6 +479,7 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
                 "kind": kind,
                 "size": fpath.stat().st_size,
                 "run_id": run_id,
+                "source": source_tag,
             })
 
     return {"artifacts": artifacts, "run_id": run_id}
@@ -1107,6 +1111,42 @@ async def delete_memory(session_id: str, memory_id: int) -> dict[str, str]:
     if not deleted:
         raise HTTPException(status_code=404, detail="Memory entry not found")
     return {"status": "deleted"}
+
+
+@router.get("/sessions/{session_id}/memory/long-term")
+async def list_long_term_memory(session_id: str) -> dict[str, Any]:
+    """List long-term memory files (tools, facts, antipatterns) from the experiment's memory/ directory."""
+    from server.app import store
+
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    base_dir = session.get("base_dir", "")
+    if not base_dir:
+        return {"tools": [], "facts": [], "antipatterns": [], "session_id": session_id}
+
+    memory_dir = Path(base_dir) / "memory"
+    result: dict[str, list[dict[str, str]]] = {"tools": [], "facts": [], "antipatterns": []}
+
+    for category in ("tools", "facts", "antipatterns"):
+        cat_dir = memory_dir / category
+        if not cat_dir.is_dir():
+            continue
+        for fpath in sorted(cat_dir.glob("*.md")):
+            if not fpath.is_file():
+                continue
+            try:
+                content = fpath.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                content = ""
+            result[category].append({
+                "name": fpath.stem,
+                "filename": fpath.name,
+                "content": content,
+            })
+
+    return {**result, "session_id": session_id}
 
 
 # ---------------------------------------------------------------------------

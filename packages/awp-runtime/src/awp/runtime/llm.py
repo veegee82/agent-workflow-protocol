@@ -304,39 +304,73 @@ class LLMClient:
                 "No model configured. Set LLM_MODEL env var or pass model=."
             )
 
-        try:
-            return self._do_chat(
-                use_model,
-                messages,
-                temperature,
-                max_tokens,
-                tools,
-                response_format,
-                tool_choice,
-                parallel_tool_calls,
-            )
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if 400 <= status < 500:
-                fallback = _get_fallback_model(use_model)
-                if fallback and fallback != use_model:
+        # Retry with exponential backoff for transient errors (429, 5xx,
+        # timeouts, connection errors).  Max 3 retries with 1s/2s/4s delays.
+        max_retries = 3
+        last_exc: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                return self._do_chat(
+                    use_model,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    tools,
+                    response_format,
+                    tool_choice,
+                    parallel_tool_calls,
+                )
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                # Retryable: 429 (rate limit), 5xx (server errors)
+                if status_code == 429 or status_code >= 500:
+                    last_exc = exc
+                    if attempt < max_retries:
+                        delay = 2 ** attempt  # 1s, 2s, 4s
+                        logger.warning(
+                            "LLM request failed (%d), retry %d/%d in %ds",
+                            status_code, attempt + 1, max_retries, delay,
+                        )
+                        import time as _time
+                        _time.sleep(delay)
+                        continue
+                    # Exhausted retries — fall through to fallback logic
+                # Client errors (400-499 except 429): try fallback model
+                if 400 <= status_code < 500:
+                    fallback = _get_fallback_model(use_model)
+                    if fallback and fallback != use_model:
+                        logger.warning(
+                            "Model '%s' failed (%d), falling back to '%s'",
+                            use_model,
+                            status_code,
+                            fallback,
+                        )
+                        return self._do_chat(
+                            fallback,
+                            messages,
+                            temperature,
+                            max_tokens,
+                            tools,
+                            response_format,
+                            tool_choice,
+                            parallel_tool_calls,
+                        )
+                raise
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                last_exc = exc
+                if attempt < max_retries:
+                    delay = 2 ** attempt
                     logger.warning(
-                        "Model '%s' failed (%d), falling back to '%s'",
-                        use_model,
-                        status,
-                        fallback,
+                        "LLM request %s, retry %d/%d in %ds",
+                        type(exc).__name__, attempt + 1, max_retries, delay,
                     )
-                    return self._do_chat(
-                        fallback,
-                        messages,
-                        temperature,
-                        max_tokens,
-                        tools,
-                        response_format,
-                        tool_choice,
-                        parallel_tool_calls,
-                    )
-            raise
+                    import time as _time
+                    _time.sleep(delay)
+                    continue
+                raise
+        # Should not reach here, but safety net
+        if last_exc:
+            raise last_exc  # pragma: no cover
 
     def _do_chat(
         self,

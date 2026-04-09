@@ -158,9 +158,9 @@ class DelegationBudget(BaseModel):
     max_loops: int = 100
     max_total_workers: int = 500
     max_total_tokens: int = 10_000_000
-    max_wall_time: int = 600  # seconds
+    max_wall_time: int = 3600  # seconds (1 hour)
     max_tool_calls: int = 1500
-    max_depth: int = 2
+    max_depth: int = 4
     # Hard caps on the number of submanagers (recursive child runners) the
     # delegation loop is allowed to spawn. Without these the manager can
     # cascade into an unbounded submanager forest.

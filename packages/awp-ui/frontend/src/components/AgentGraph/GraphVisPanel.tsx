@@ -1164,6 +1164,9 @@ export function GraphVisPanel() {
   const prevStructureRef = useRef(structureKey);
   const layoutCacheRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
 
+  // Track whether a fitView is pending (structure changed but instance wasn't ready)
+  const pendingFitRef = useRef(false);
+
   // Full layout pass — only runs when structure changes
   useEffect(() => {
     const structureChanged = structureKey !== prevStructureRef.current;
@@ -1181,19 +1184,10 @@ export function GraphVisPanel() {
       setNodes(laid);
       setEdges(styled);
 
-      // Auto-fit only when structure changes (new nodes appeared)
+      // Mark that we need a fitView for this structure change
       const nodeCount = filteredData.nodes.length;
-      if (autoFit && reactFlowInstance && nodeCount > 0) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            reactFlowInstance.fitView({
-              padding: 0.18,
-              duration: 350,
-              minZoom: 0.02,
-              maxZoom: 1.5,
-            });
-          });
-        });
+      if (autoFit && nodeCount > 0) {
+        pendingFitRef.current = true;
       }
       prevNodeCountRef.current = nodeCount;
     } else {
@@ -1207,7 +1201,34 @@ export function GraphVisPanel() {
         }),
       );
     }
-  }, [filteredData, structureKey, setNodes, setEdges, autoFit, reactFlowInstance]);
+  }, [filteredData, structureKey, setNodes, setEdges, autoFit]);
+
+  // Separate effect: execute pending fitView whenever the instance is available.
+  // This decouples fitView from the layout pass so it also fires when:
+  //  - reactFlowInstance becomes available after layout already ran
+  //  - new nodes stream in and the instance was already ready
+  useEffect(() => {
+    if (!pendingFitRef.current || !reactFlowInstance) return;
+    pendingFitRef.current = false;
+
+    // Triple-RAF: ReactFlow needs time to measure node dimensions after
+    // setNodes. Double-RAF is often not enough for large graphs.
+    let cancelled = false;
+    const scheduleId = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          reactFlowInstance.fitView({
+            padding: 0.18,
+            duration: 350,
+            minZoom: 0.02,
+            maxZoom: 1.5,
+          });
+        });
+      });
+    });
+    return () => { cancelled = true; cancelAnimationFrame(scheduleId); };
+  }, [reactFlowInstance, structureKey]);
 
   const stats = useMemo(() => computeStats(storeNodes), [storeNodes]);
 
@@ -1287,7 +1308,13 @@ export function GraphVisPanel() {
         onPaneClick={onPaneClick}
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
-        onInit={setReactFlowInstance}
+        onInit={(instance) => {
+          setReactFlowInstance(instance);
+          // If nodes were laid out before the instance was ready, trigger fitView now
+          if (autoFit && filteredData.nodes.length > 0) {
+            pendingFitRef.current = true;
+          }
+        }}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}

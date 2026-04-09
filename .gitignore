@@ -7,6 +7,10 @@ data/state/
 
 # AWP secrets (NEVER commit)
 secrets.yaml
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
 
 # IDE
 .idea/

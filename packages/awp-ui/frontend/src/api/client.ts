@@ -129,6 +129,7 @@ export interface Artifact {
   kind: 'image' | 'table' | 'html' | 'text' | 'code';
   size: number;
   run_id: string;
+  source: 'output' | 'workspace';
 }
 
 /** List all output artifacts for a run. */
@@ -365,6 +366,25 @@ export async function deleteMemoryEntry(
   return request<void>(`/api/sessions/${sessionId}/memory/${memoryId}`, {
     method: 'DELETE',
   });
+}
+
+/** Long-term memory file entry (tools, facts, antipatterns). */
+export interface LongTermMemoryFile {
+  name: string;
+  filename: string;
+  content: string;
+}
+
+/** Long-term memory response. */
+export interface LongTermMemory {
+  tools: LongTermMemoryFile[];
+  facts: LongTermMemoryFile[];
+  antipatterns: LongTermMemoryFile[];
+}
+
+/** List long-term memory files for an experiment. */
+export async function getLongTermMemory(sessionId: string): Promise<LongTermMemory> {
+  return request<LongTermMemory>(`/api/sessions/${sessionId}/memory/long-term`);
 }
 
 // ---------------------------------------------------------------------------

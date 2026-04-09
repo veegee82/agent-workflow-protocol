@@ -422,6 +422,15 @@ class StallDetector:
         delta = recent[-1] - recent[0]
         confidence_stalled = abs(delta) < self.min_delta
 
+        # Channel 1b: oscillation detection — low variance + low mean
+        # indicates the loop is stuck oscillating without progress.
+        if len(self._history) >= self.window + 1:
+            extended = self._history[-(self.window + 1) :]
+            mean_conf = sum(extended) / len(extended)
+            variance = sum((c - mean_conf) ** 2 for c in extended) / len(extended)
+            if variance < 0.01 and mean_conf < 0.7:
+                confidence_stalled = True
+
         # Channel 2: output similarity (compare latest to window-start)
         output_stalled = False
         if len(self._output_history) >= self.window:
@@ -2149,11 +2158,29 @@ class DelegationLoopRunner:
         """Core loop: ask manager → delegate → validate → repeat."""
 
         while True:
-            # Budget check
+            # Budget check — when budget is exhausted, allow a short grace
+            # period for any in-flight context to be captured before returning.
             can_go, reason = self._budget.can_continue()
             if not can_go:
-                logger.warning("Budget exhausted: %s", reason)
-                return self._build_partial_result(reason), "budget_exhausted"
+                logger.warning("Budget exhausted: %s — building partial result", reason)
+                partial = self._build_partial_result(reason)
+                # If the last iteration produced usable work (confidence > 0.5),
+                # promote to partial_complete instead of budget_exhausted.
+                if self._history:
+                    last_conf = 0.0
+                    try:
+                        last_conf = float(
+                            self._history[-1].get("confidence", 0.0) or 0.0
+                        )
+                    except (TypeError, ValueError):
+                        pass
+                    if last_conf >= 0.5:
+                        logger.info(
+                            "Budget exhausted but last confidence=%.2f — "
+                            "promoting to partial_complete", last_conf,
+                        )
+                        return partial, "partial_complete"
+                return partial, "budget_exhausted"
 
             self._budget.loops_used += 1
             self._iter_counter += 1
@@ -2166,6 +2193,29 @@ class DelegationLoopRunner:
             manager_decision = self._run_manager(task, state, iteration)
             self._profiler.stop(f"manager.iter_{iteration}", iteration=iteration)
             decision_type = manager_decision.get("decision", "fail")
+
+            # Circuit breaker: if manager has failed/parse-failed N times
+            # consecutively, return partial result instead of burning budget.
+            MAX_CONSECUTIVE_FAILURES = 5
+            is_manager_failure = (
+                decision_type == "fail"
+                and "missing 'decision' field" in str(manager_decision.get("reason", ""))
+            ) or manager_decision.get("_parse_failure")
+            if is_manager_failure:
+                state["_consecutive_manager_failures"] = (
+                    int(state.get("_consecutive_manager_failures", 0)) + 1
+                )
+                if state["_consecutive_manager_failures"] >= MAX_CONSECUTIVE_FAILURES:
+                    logger.error(
+                        "Circuit breaker: manager failed %d times consecutively "
+                        "— returning partial result",
+                        state["_consecutive_manager_failures"],
+                    )
+                    return self._build_partial_result(
+                        "circuit_breaker_manager_failures"
+                    ), "partial_complete"
+            else:
+                state["_consecutive_manager_failures"] = 0
 
             # Write manager decision to disk immediately (for file watchers)
             self._profiler.start(f"logging.manager_decision_{iteration}")
@@ -2498,11 +2548,19 @@ class DelegationLoopRunner:
                 # threshold. The manager often calls "complete" with low
                 # critique scores because it doesn't weight critique
                 # feedback heavily enough on its own; this gate enforces it.
+                # Track how many times the critique gate has rejected
+                # completion. After MAX_CRITIQUE_REJECTIONS, bypass the
+                # gate to prevent infinite loops with a strict critic.
+                MAX_CRITIQUE_REJECTIONS = 3
+                critique_rejection_count = int(
+                    state.get("_critique_rejection_count", 0)
+                )
                 if (
                     self._critique_engine
                     and self._critique_engine.enabled
                     and self._history
                     and self._budget.can_continue()[0]
+                    and critique_rejection_count < MAX_CRITIQUE_REJECTIONS
                 ):
                     last = self._history[-1] if self._history else {}
                     critique_entries = last.get("critique") or []
@@ -2548,14 +2606,19 @@ class DelegationLoopRunner:
                     if scores and threshold > 0:
                         mean_score = sum(scores) / len(scores)
                         if mean_score < threshold:
+                            critique_rejection_count += 1
+                            state["_critique_rejection_count"] = critique_rejection_count
                             logger.warning(
                                 "Manager tried to COMPLETE but mean critique "
                                 "score %.2f is below threshold %.2f "
-                                "(%d critiques, %d defects). Forcing repair.",
+                                "(%d critiques, %d defects, rejection %d/%d). "
+                                "Forcing repair.",
                                 mean_score,
                                 threshold,
                                 len(scores),
                                 defect_count,
+                                critique_rejection_count,
+                                MAX_CRITIQUE_REJECTIONS,
                             )
                             self._logger.trace_gate(
                                 "critique",
@@ -2566,6 +2629,7 @@ class DelegationLoopRunner:
                                 threshold=threshold,
                                 n_critiques=len(scores),
                                 defects=defect_count,
+                                rejection_count=critique_rejection_count,
                             )
                             state["_critique_repair_required"] = {
                                 "mean_score": round(mean_score, 4),
@@ -2583,6 +2647,18 @@ class DelegationLoopRunner:
                                 f"or repair) before the task can complete."
                             )
                             continue  # force another loop iteration
+                elif critique_rejection_count >= MAX_CRITIQUE_REJECTIONS:
+                    logger.warning(
+                        "Critique gate bypassed after %d rejections — "
+                        "allowing completion to proceed.",
+                        critique_rejection_count,
+                    )
+                    self._logger.trace_gate(
+                        "critique_bypass",
+                        triggered=True,
+                        reason=f"max rejections ({MAX_CRITIQUE_REJECTIONS}) reached",
+                        iteration=iteration,
+                    )
 
                 # --- Deliverable placeholder gate: reject completion if any
                 # required output value or output file still contains obvious
@@ -2748,6 +2824,49 @@ class DelegationLoopRunner:
                     partial = self._build_partial_result(f"manager_parse_failure: {reason}")
                     partial["partial_result"] = manager_decision.get("partial_result", {})
                     return partial, "partial_complete"
+
+                # Graceful degradation: if the manager decides to fail but
+                # we already have accumulated work with decent quality,
+                # return partial_complete instead of discarding everything.
+                # This prevents the common pattern where the manager gives
+                # up after critique finds minor issues in otherwise usable
+                # results (e.g. score 0.8 when threshold is 0.9).
+                if self._history:
+                    last = self._history[-1] if self._history else {}
+                    critique_entries = last.get("critique") or []
+                    scores: list[float] = []
+                    for ce in critique_entries:
+                        s = ce.get("score") if isinstance(ce, dict) else None
+                        if isinstance(s, (int, float)):
+                            scores.append(float(s))
+                    # If mean critique score >= 0.5 (usable quality), or
+                    # if there were no critiques but workers completed,
+                    # degrade gracefully to partial_complete.
+                    mean_score = (
+                        sum(scores) / len(scores) if scores else None
+                    )
+                    has_usable_work = (
+                        mean_score is None  # no critique → trust worker output
+                        or mean_score >= 0.5
+                    )
+                    if has_usable_work:
+                        logger.warning(
+                            "Manager decided FAIL after %d iterations but "
+                            "usable work exists (mean_critique=%.2f, "
+                            "%d workers). Degrading to partial_complete.",
+                            len(self._history),
+                            mean_score if mean_score is not None else -1.0,
+                            sum(1 for h in self._history
+                                for _ in (h.get("workers") or [None])),
+                        )
+                        partial = self._build_partial_result(
+                            f"manager_fail_graceful: {reason}"
+                        )
+                        partial["partial_result"] = manager_decision.get(
+                            "partial_result", {}
+                        )
+                        return partial, "partial_complete"
+
                 return {
                     "error": reason,
                     "partial_result": manager_decision.get("partial_result", {}),
@@ -3855,7 +3974,17 @@ You MUST respond with a JSON object containing ONE of these decisions:
 }}
 ```
 
-### FAIL — Cannot complete the task
+### FAIL — Cannot complete the task (LAST RESORT)
+
+**FAIL is the absolute last resort.** Before choosing FAIL, you MUST consider:
+1. Can you DELEGATE repair workers to fix the specific defects?
+2. Can you COMPLETE with the best available results (partial success)?
+3. Is the work truly unsalvageable, or just imperfect?
+
+If critique found defects but scores are >= 0.5, the work is USABLE — delegate
+targeted repair workers for the specific defects rather than failing. Reserve at
+least 20% of your remaining budget for repair iterations.
+
 ```json
 {{
   "decision": "fail",
@@ -3984,9 +4113,20 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 parts.append("\n".join(child_lines) + "\n")
 
         # Budget status
+        budget_dict = self._budget.to_dict()
         parts.append(
-            f"## Budget Status\n```json\n{json.dumps(self._budget.to_dict(), indent=2)}\n```\n"
+            f"## Budget Status\n```json\n{json.dumps(budget_dict, indent=2)}\n```\n"
         )
+        # Repair reserve reminder when budget is getting low
+        remaining_pct = budget_dict.get("budget_remaining_pct", 1.0)
+        if remaining_pct < 0.4 and self._history:
+            parts.append(
+                "**⚠ Budget below 40%.** Reserve remaining budget for "
+                "targeted repair of defects rather than new delegations. "
+                "If critique found issues, delegate small focused repair "
+                "workers. Do NOT choose FAIL if workers produced usable "
+                "results — choose COMPLETE with partial results instead.\n"
+            )
 
         # Iteration info
         parts.append(f"## Current Iteration: {iteration}\n")
@@ -4298,15 +4438,21 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             _PLAN_WORDS = {"plan", "decompose", "breakdown"}
             _DIAGNOSE_WORDS = {"diagnose", "diagnosis", "hypothes"}
 
-            if any(w in raw for w in _DELEGATE_WORDS):
+            import re as _re
+
+            def _word_match(words: set[str], text: str) -> bool:
+                """Match whole words only to avoid false positives."""
+                return any(_re.search(rf"\b{_re.escape(w)}\b", text) for w in words)
+
+            if _word_match(_DELEGATE_WORDS, raw):
                 output["decision"] = "delegate"
-            elif any(w in raw for w in _COMPLETE_WORDS):
+            elif _word_match(_COMPLETE_WORDS, raw):
                 output["decision"] = "complete"
-            elif any(w in raw for w in _PLAN_WORDS):
+            elif _word_match(_PLAN_WORDS, raw):
                 output["decision"] = "plan"
-            elif any(w in raw for w in _DIAGNOSE_WORDS):
+            elif _word_match(_DIAGNOSE_WORDS, raw):
                 output["decision"] = "diagnose"
-            elif any(w in raw for w in _FAIL_WORDS):
+            elif _word_match(_FAIL_WORDS, raw):
                 output["decision"] = "fail"
             # else: keep as-is, will be caught downstream
 
@@ -5719,7 +5865,7 @@ print("Chart saved")
                     # LLM didn't provide a usable confidence — derive from
                     # tool call outcomes instead of using a meaningless default.
                     result["confidence"] = self._derive_tool_confidence(
-                        _tool_call_log
+                        _tool_call_log, result
                     )
                     result["_confidence_source"] = "derived_from_tools"
 
@@ -6934,14 +7080,15 @@ Rules:
         return True
 
     @staticmethod
-    def _derive_tool_confidence(tool_call_log: list[dict]) -> float:
-        """Derive a confidence score from tool execution outcomes.
+    def _derive_tool_confidence(tool_call_log: list[dict], result: dict | None = None) -> float:
+        """Derive a confidence score from tool execution outcomes and output quality.
 
         When the LLM does not return a parseable confidence value, we
-        estimate one from the tool calls that actually ran:
+        estimate one from the tool calls that actually ran AND the output:
         - No tool calls → 0.1 (almost no evidence)
         - All succeeded → 0.7 (tools worked, but LLM didn't self-assess)
         - Mixed → proportional between 0.1 and 0.7
+        - Penalty for placeholder content in output (TODO, XX%, ???)
         """
         if not tool_call_log:
             return 0.1
@@ -6952,7 +7099,20 @@ Rules:
             if isinstance(tc.get("result"), dict) and tc["result"].get("ok")
         )
         # Scale: 0 ok → 0.1, all ok → 0.7
-        return round(0.1 + 0.6 * (ok_count / total), 2)
+        base = round(0.1 + 0.6 * (ok_count / total), 2)
+
+        # Penalize if the output contains obvious placeholders
+        if result and isinstance(result, dict):
+            import re as _re
+            output_text = json.dumps(result, default=str)[:5000]
+            placeholder_count = len(_re.findall(
+                r"\bXX%|\bTODO\b|\b\?\?\?|\bN/A\b|\bTBD\b|\bPLACEHOLDER\b",
+                output_text, _re.IGNORECASE,
+            ))
+            if placeholder_count > 0:
+                penalty = min(0.3, placeholder_count * 0.05)
+                base = max(0.1, base - penalty)
+        return base
 
     def _aggregate_confidence(self, delegation_results: list[dict]) -> float:
         """Aggregate confidence from multiple workers (weighted average)."""
