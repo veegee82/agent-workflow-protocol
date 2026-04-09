@@ -12,6 +12,29 @@ State sharing rules are enforced by the runtime as **rule R16** ([validation.md]
 
 State is configured under `state` in [workflow.awp.yaml](manifest.md); memory under `memory`.
 
+### Ephemeral Run-Scoped Tiers (Delegation Loop)
+
+Delegation loops add two ephemeral, run-scoped memory channels that
+sit **below** the four durable tiers — they live only for the
+duration of a single manager run and are discarded at the end:
+
+- **Blackboard** — append-only JSONL sibling-coordination channel
+  (`board.post` / `board.read`). One per manager run, isolated per
+  depth. See [runtime.md](runtime.md#blackboard-channel-sibling-coordination).
+- **Hierarchical Context Digest (HCD)** — content-addressed, per-level
+  compact summary (`digest.fetch`) that compresses each manager
+  iteration into a deterministic goal / key_facts / open_questions /
+  confidence_trend record, with child digest SHAs linking the
+  hierarchy together. See
+  [runtime.md](runtime.md#hierarchical-context-digest) and
+  [manager-intelligence.md](manager-intelligence.md#hierarchical-context-digest-hcd).
+
+Both tiers are run-scoped via `ContextVar` bindings so parallel
+delegation runs never cross-contaminate. Neither tier is promoted
+into durable memory automatically — the run-finalization layer is
+free to curate interesting digests into long-term memory, but the
+default is "forget on run end".
+
 ## State Model
 
 The `state` section of [workflow.awp.yaml](manifest.md) configures execution state management.

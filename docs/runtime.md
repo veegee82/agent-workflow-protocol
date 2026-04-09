@@ -406,3 +406,54 @@ The feature is controlled by `orchestration.delegation_loop.blackboard_enabled`
 are injected, and the two tools are not exposed to workers. File-backed
 writes are process-safe via `fcntl.flock` on POSIX.
 
+## Hierarchical Context Digest
+
+Delegation loops also ship with a per-level, content-addressed
+**digest** that compresses each iteration into a compact, deterministic
+summary. The feature targets deep delegation graphs (depth >=3) where a
+full rolling history would blow past the manager prompt budget.
+
+Every manager run owns a :class:`DigestStore` at
+`<workflow_dir>/workspace/runs/<run_id>/digest/<sha>.json`. After each
+iteration the runner calls `build_digest_from_iteration(...)` to build
+a :class:`Digest` (goal, key_facts, open_questions, confidence_trend,
+child_digest_hashes) and persists it — same content, same SHA.
+
+Before each manager iteration the prompt gets two injected blocks:
+
+- `## MY DIGEST` — this level's current digest, rendered via
+  `Digest.to_markdown()`.
+- `## CHILDREN DIGESTS` — up to `digest_max_depth` inlined child
+  digests, each shown as `<sha12> iter=N facts=... questions=...:
+  <goal preview>`. Deeper layers stay reachable via the
+  `digest.fetch` tool.
+
+When the digest is active the rolling-history detail window is capped
+at 3 iterations so the prompt tokens are spent on the structured
+digest, not duplicated key-findings text.
+
+Submanager integration: when the parent spawns a child, its current
+digest SHA rides along in the child's inherited state under the
+reserved key `__parent_digest_sha`. When the child returns, its final
+digest SHA is surfaced on the wrapper result and the parent folds it
+into the next digest's `child_digest_hashes`, forming the hierarchy.
+
+New builtin tool, run-scoped via the ContextVar
+`awp.runtime.digest.current_digest_store`:
+
+- **`digest.fetch`** — `{sha: str}` → `{digest: {...}}`. Returns the
+  digest at this SHA from the current run's store. Cannot read
+  digests from other runs.
+
+Configuration on `orchestration.delegation_loop`:
+
+- `digest_enabled: bool = true` — master switch.
+- `digest_mode: str = "deterministic"` — only mode supported in v1;
+  `"llm"` is reserved and raises `NotImplementedError` if selected.
+- `digest_max_depth: int = 1` — children inlined in the prompt;
+  workers can always go deeper with `digest.fetch`.
+
+Generation is deterministic and cheap: no LLM call, sorted+deduped
+lists, never fabricates fields. Missing worker outputs leave the
+corresponding digest field empty.
+

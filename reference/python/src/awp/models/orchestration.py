@@ -439,6 +439,17 @@ class DelegationLoopConfig(BaseModel):
     # iteration. Submanagers get their OWN blackboard (different run_id);
     # parent and child never share signals.
     blackboard_enabled: bool = True
+    # Hierarchical Context Digest (HCD) — per-level compact summary that
+    # lets deep delegation graphs (depth >=3) keep context without
+    # overflowing the manager prompt. Deterministic generation in v1
+    # (no LLM call); "llm" mode is reserved for a future version and
+    # raises NotImplementedError when invoked.
+    digest_enabled: bool = True
+    digest_mode: str = "deterministic"
+    # How many levels of children to inline in the manager prompt as
+    # part of the CHILDREN DIGESTS block. Deeper layers remain reachable
+    # via the ``digest.fetch`` tool.
+    digest_max_depth: int = 1
 
     model_config = {"extra": "allow"}
 

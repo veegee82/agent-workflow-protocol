@@ -464,6 +464,55 @@ Unlike the other Manager Intelligence features, the blackboard defaults
 to **enabled** — it has zero cost when unused (no entries = no prompt
 injection, silent feature).
 
+## Hierarchical Context Digest (HCD)
+
+At depth >=3, feeding a manager the full rolling history of every
+iteration blows past the prompt budget. The Hierarchical Context Digest
+compresses each manager run into a compact, deterministic summary and
+layers those summaries across the delegation tree.
+
+Each iteration appends a :class:`Digest` (see `runtime/digest.py`) with:
+
+- `goal` — carried forward from the prior digest, or falls back to the
+  manager's original task.
+- `key_facts` — pulled from high-confidence (>=0.8) worker outputs
+  (`summary`, `result`, `findings`, `analysis`, `answer`, `output`),
+  deduped, capped at 10.
+- `open_questions` — explicit `open_questions` fields plus stubs from
+  low-confidence (<0.7) worker outputs, capped at 10.
+- `confidence_trend` — the mean worker confidence appended each
+  iteration.
+- `child_digest_hashes` — SHA-256 hashes of child submanager digests
+  merged in this iteration.
+
+Digests are **content-addressed**: the `DigestStore` at
+`<run_dir>/digest/<sha>.json` deduplicates by SHA. A manager at any
+depth carries only its direct children's hashes; deeper layers stay
+reachable via the run-scoped `digest.fetch` tool.
+
+On each manager iteration, the runner injects a `## MY DIGEST` block
+(this level's current digest) and a `## CHILDREN DIGESTS` block (up to
+`digest_max_depth` inlined child digests) into the prompt, right after
+`SIBLING SIGNALS`. When the digest is active the rolling history detail
+window is capped at 3 iterations, so the prompt tokens flow into the
+structured digest instead of duplicated key-findings text.
+
+When a submanager is spawned, the parent's current digest SHA flows
+into the child via the reserved `__parent_digest_sha` inherited-state
+key. When the child returns, its final digest SHA is folded into the
+parent's next digest's `child_digest_hashes`, forming the hierarchy.
+
+Configuration lives on `orchestration.delegation_loop`:
+
+- `digest_enabled` (bool, default `true`)
+- `digest_mode` (`"deterministic"`, default; `"llm"` is reserved for
+  a future version and raises `NotImplementedError` if selected)
+- `digest_max_depth` (int, default `1`) — children inlined in the prompt
+
+Generation is deterministic: no LLM call, no fabrication. Missing
+fields stay empty. This keeps digests cheap, reproducible, and safe
+inside a budget-bounded delegation loop.
+
 ## Backward Compatibility
 
 All Manager Intelligence features default to **disabled**. Existing workflows continue to work without any changes. The features only activate when explicitly enabled in the YAML configuration. No new dependencies or breaking changes are introduced.

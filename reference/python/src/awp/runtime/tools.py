@@ -526,6 +526,51 @@ class ToolRegistry:
             ),
         )
 
+        # -- Hierarchical Context Digest -----------------------------
+        # `digest.fetch` is run-scoped via `digest.current_digest_store`
+        # (a ContextVar set by DelegationLoopRunner). Workers use it
+        # to pull deeper layers of the per-level digest that are not
+        # inlined in the manager prompt.
+        self._register(
+            "digest.fetch",
+            self._digest_fetch,
+            {
+                "type": "object",
+                "properties": {
+                    "sha": {
+                        "type": "string",
+                        "description": (
+                            "SHA-256 hash of the digest to fetch "
+                            "(as produced by the per-run DigestStore)."
+                        ),
+                    },
+                },
+                "required": ["sha"],
+            },
+            (
+                "Fetch a Hierarchical Context Digest by its sha from the "
+                "current manager run's DigestStore. Run-scoped: cannot "
+                "read digests from other runs."
+            ),
+        )
+
+    # -- Digest tool implementation ---------------------------------
+    def _digest_fetch(self, sha: str, **_: Any) -> dict[str, Any]:
+        from .digest import current_digest_store
+
+        store = current_digest_store.get()
+        if store is None:
+            return _err(
+                "digest.fetch unavailable: no DigestStore bound to this run",
+                503,
+            )
+        if not isinstance(sha, str) or not sha:
+            return _err("sha must be a non-empty string", 400)
+        digest = store.get(sha)
+        if digest is None:
+            return _err(f"digest {sha} not found", 404)
+        return _ok({"digest": digest.to_dict()})
+
     # -- Blackboard tool implementations --------------------------
     def _board_post(
         self,

@@ -544,6 +544,23 @@ blackboard (different run id); parent and child never share signals.
 The feature is on by default and controlled by
 `orchestration.delegation_loop.blackboard_enabled`.
 
+#### Hierarchical Context Digest
+
+Deep delegation graphs also carry a per-level **Hierarchical Context
+Digest** (HCD). After every manager iteration the runner builds a
+compact, deterministic `Digest` (goal, key_facts, open_questions,
+confidence_trend, child_digest_hashes) and stores it content-addressed
+under `<run>/digest/<sha>.json`. The manager prompt gets a `## MY
+DIGEST` block plus a `## CHILDREN DIGESTS` block that inlines up to
+`digest_max_depth` layers of child digests; deeper layers remain
+reachable via the run-scoped `digest.fetch` tool. When the digest is
+active the rolling history detail window is capped at 3 iterations so
+the structured digest absorbs the token budget. Submanagers inherit
+their parent's digest sha via the reserved `__parent_digest_sha`
+state key and feed their final sha back to the parent, forming the
+hierarchy. Controlled by `digest_enabled` / `digest_mode` /
+`digest_max_depth` on `orchestration.delegation_loop`.
+
 #### Visualisation: nested sub-run clusters
 
 The graph builder reflects the sub-run hierarchy on disk one-to-one. For

@@ -146,6 +146,13 @@ orchestration:
     # every manager run gets an append-only JSONL board and workers
     # receive the `board.post` / `board.read` run-scoped tools.
     blackboard_enabled: true
+    # Hierarchical Context Digest (HCD). Per-level deterministic summary
+    # of each manager iteration, injected into the next prompt as
+    # ## MY DIGEST + ## CHILDREN DIGESTS so deep delegation graphs
+    # (depth >=3) keep context without overflowing the prompt.
+    digest_enabled: true
+    digest_mode: deterministic   # "deterministic" only; "llm" reserved
+    digest_max_depth: 1          # children inlined in the prompt
     # Optional selective-forget blacklist for submanager state inheritance.
     # Keys listed here are stripped before being passed to child runs.
     # forbidden_inheritance_keys: [secret_token, raw_dump]
@@ -196,6 +203,27 @@ Key concepts:
   (default `true`). Workers do NOT need to list `board.post` / `board.read`
   in `tools_allowed` — the runtime injects them automatically when the
   feature is on.
+- **Hierarchical Context Digest (A2-A4)**: Every manager run owns a
+  per-level **digest** that compresses each iteration into a compact,
+  deterministic record (goal, key_facts from confidence>=0.8 workers,
+  open_questions from confidence<0.7 workers, confidence_trend, child
+  digest SHAs). Digests live content-addressed at
+  `<workspace>/runs/<run_id>/digest/<sha>.json`. Before every manager
+  iteration the runner injects a `## MY DIGEST` block (this level's
+  current digest) and a `## CHILDREN DIGESTS` block (up to
+  `digest_max_depth` inlined submanager digests); deeper layers stay
+  reachable via the run-scoped **`digest.fetch`** tool. When the
+  digest is active the rolling history detail window auto-caps at 3
+  iterations so the prompt spend flows into the structured digest.
+  Submanagers receive the parent's current digest sha via the
+  reserved `__parent_digest_sha` inherited-state key, and their final
+  digest sha flows back to the parent and is folded into its next
+  digest's `child_digest_hashes`. Controlled by
+  `delegation_loop.digest_enabled` (default `true`), `digest_mode`
+  (`"deterministic"` only; `"llm"` raises NotImplementedError), and
+  `digest_max_depth` (default `1`). Workers do NOT need to list
+  `digest.fetch` in `tools_allowed` — the runtime injects it
+  automatically when the feature is on.
 - **Content-aware redundancy guard (A2-A4)**: The delegation signature used
   to veto duplicate dispatches now hashes worker instructions **together
   with a canonical JSON of the context the envelope references** (`context`,
@@ -1002,6 +1030,7 @@ self-contained and can run without a full AWP runtime providing built-in tool st
 | `memory.write` / `memory.read` / `memory.search` / `memory.curate` | Use file-based storage in a `{workflow_dir}/.memory/` directory. |
 | `agent.send_message` / `agent.list_messages` | Use file-based message queue in `{workflow_dir}/.messages/`. |
 | `arithmetic.*` | Direct Python arithmetic operations. |
+| `digest.fetch` | **Run-scoped Hierarchical Context Digest lookup** (delegation loop only). `digest.fetch(sha)` returns the compact per-level digest at this SHA from the current manager run's DigestStore (`<workspace>/runs/<run_id>/digest/<sha>.json`). Used by workers to pull deeper layers of the digest hierarchy that are not inlined in the manager prompt. Cross-run access is refused. Auto-injected into worker `tools_allowed` when `delegation_loop.digest_enabled` is `true` (the default). |
 | `board.post` / `board.read` | **Run-scoped sibling-coordination blackboard** (delegation loop only). Append-only JSONL at `<workspace>/blackboard/<manager_run_id>.jsonl`. `board.post(topic, payload)` appends an entry, `board.read(topic?, since?)` returns entries (optionally filtered). Siblings in the SAME manager run see each other's signals; other runs (and submanagers, which get their own board) cannot. Workers don't need to list these explicitly — the runtime injects them automatically when `delegation_loop.blackboard_enabled` is `true` (the default). |
 
 **Note:** When tool implementation mode is **disabled** (the default), this step is

@@ -89,6 +89,13 @@ orchestration:
 #     # Sibling coordination blackboard (default: true). Workers get the
 #     # run-scoped `board.post` / `board.read` tools automatically when on.
 #     blackboard_enabled: true
+#     # Hierarchical Context Digest (default: true). Per-level deterministic
+#     # summary of each iteration, injected as `## MY DIGEST` +
+#     # `## CHILDREN DIGESTS` so deep delegation graphs keep context.
+#     # Workers get a run-scoped `digest.fetch` tool automatically.
+#     digest_enabled: true
+#     digest_mode: deterministic           # "deterministic" only; "llm" reserved
+#     digest_max_depth: 1                  # children inlined in prompt
 #     # Optional blacklist for submanager state inheritance:
 #     # forbidden_inheritance_keys: [secret_token, raw_dump]
 #

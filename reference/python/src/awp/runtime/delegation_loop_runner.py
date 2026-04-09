@@ -1932,6 +1932,37 @@ class DelegationLoopRunner:
                 logger.warning("Could not init blackboard: %s", exc)
                 self._blackboard = None
 
+        # Hierarchical Context Digest (HCD) — one DigestStore per manager
+        # run, writing into `<workspace>/digest/<sha>.json`. The store is
+        # bound into a ContextVar during `run()` so the `digest.fetch`
+        # builtin tool serves THIS run and only this run.
+        from .digest import DigestStore as _DigestStore
+        self._digest_store: Optional[_DigestStore] = None
+        self._current_digest: Optional[Any] = None
+        self._current_digest_sha: Optional[str] = None
+        self._pending_child_digest_hashes: list[str] = []
+        # Parent digest sha — set by a parent runner when it spawns a
+        # submanager, so the child can link back to its parent's
+        # latest digest in its own records.
+        self._parent_digest_sha: Optional[str] = None
+        if (inherited_state or {}).get("__parent_digest_sha"):
+            parent_sha = (inherited_state or {}).get("__parent_digest_sha")
+            if isinstance(parent_sha, str):
+                self._parent_digest_sha = parent_sha
+        if getattr(config, "digest_enabled", True):
+            try:
+                self._digest_store = _DigestStore(
+                    workspace=self._dir / "workspace" / "runs" / self._run_id,
+                )
+                logger.info(
+                    "DigestStore active for run %s at %s",
+                    self._run_id,
+                    self._digest_store.path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not init digest store: %s", exc)
+                self._digest_store = None
+
         # Iteration label counter — separate from budget.loops_used so that
         # child-budget reservations (which pre-charge loops to the parent)
         # don't make the manager iteration counter jump (e.g. 3 → 10 → 16).
@@ -2039,7 +2070,9 @@ class DelegationLoopRunner:
         # (and only this run). Submanagers re-bind inside their own
         # `run()` call; the token stack restores the parent on return.
         from .blackboard import current_blackboard as _current_bb
+        from .digest import current_digest_store as _current_ds
         _bb_token = _current_bb.set(self._blackboard)
+        _ds_token = _current_ds.set(self._digest_store)
         try:
             final_result, status = self._loop(task, state)
         except Exception as exc:
@@ -2051,6 +2084,14 @@ class DelegationLoopRunner:
                 _current_bb.reset(_bb_token)
             except Exception:
                 pass
+            try:
+                _current_ds.reset(_ds_token)
+            except Exception:
+                pass
+        # Surface the final digest sha on the run result so parent
+        # runners can fold it into their own digests.
+        if self._current_digest_sha and isinstance(final_result, dict):
+            final_result.setdefault("_digest_sha", self._current_digest_sha)
 
         self._logger.log_completion(
             self._run_id,
@@ -2066,7 +2107,10 @@ class DelegationLoopRunner:
         run_dir = self._dir / "workspace" / "runs" / self._run_id
         self._profiler.write_report(run_dir)
 
-        return {"delegation_loop": final_result}
+        wrapped = {"delegation_loop": final_result}
+        if self._current_digest_sha:
+            wrapped["_digest_sha"] = self._current_digest_sha
+        return wrapped
 
     def _loop(self, task: str, state: dict) -> tuple[dict, str]:
         """Core loop: ask manager → delegate → validate → repeat."""
@@ -2870,6 +2914,61 @@ class DelegationLoopRunner:
                     else ""
                 )
             self._history.append(history_entry)
+
+            # 7b. Build + persist the Hierarchical Context Digest for
+            # this iteration. Deterministic (no LLM): goal carries from
+            # prior digest or falls back to the original task; key facts
+            # come from high-confidence worker outputs; open questions
+            # from low-confidence or explicit `open_questions` fields.
+            if self._digest_store is not None:
+                mode = getattr(self._config, "digest_mode", "deterministic")
+                if mode == "llm":
+                    raise NotImplementedError(
+                        "digest_mode='llm' is reserved for a future version"
+                    )
+                if mode != "deterministic":
+                    logger.warning(
+                        "Unknown digest_mode=%r, falling back to deterministic",
+                        mode,
+                    )
+                try:
+                    from .digest import build_digest_from_iteration as _build_digest
+                    new_digest = _build_digest(
+                        history_entry=history_entry,
+                        prior_digest=self._current_digest,
+                        run_id=self._run_id,
+                        iteration=iteration,
+                        delegation_results=delegation_results,
+                        original_task=task,
+                    )
+                    # Fold in any child digest hashes collected from
+                    # submanagers that returned in this iteration.
+                    if self._pending_child_digest_hashes:
+                        prior_children = (
+                            list(self._current_digest.child_digest_hashes)
+                            if self._current_digest is not None
+                            else []
+                        )
+                        new_digest.child_digest_hashes = (
+                            prior_children + list(self._pending_child_digest_hashes)
+                        )
+                        self._pending_child_digest_hashes = []
+                    elif self._current_digest is not None:
+                        new_digest.child_digest_hashes = list(
+                            self._current_digest.child_digest_hashes
+                        )
+                    sha = self._digest_store.put(new_digest)
+                    self._current_digest = new_digest
+                    self._current_digest_sha = sha
+                    logger.debug(
+                        "Digest iter=%d sha=%s facts=%d questions=%d",
+                        iteration, sha[:12], len(new_digest.key_facts),
+                        len(new_digest.open_questions),
+                    )
+                except NotImplementedError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Digest build failed: %s", exc)
 
             # 6d. Snapshot deliverables so a later worker that overwrites
             # `workspace/outputs/` cannot regress earlier good results.
@@ -3745,6 +3844,47 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 if isinstance(last_id, str):
                     self._last_blackboard_seen_id = last_id
 
+        # Hierarchical Context Digest — inject this level's compact
+        # digest so deep graphs don't lose context between iterations.
+        # Followed by 1 level of inlined child digests (by default),
+        # with deeper layers reachable via the `digest.fetch` tool.
+        digest_active = (
+            getattr(self._config, "digest_enabled", True)
+            and self._current_digest is not None
+        )
+        if digest_active:
+            md = self._current_digest.to_markdown()
+            parts.append(
+                "## MY DIGEST\n"
+                "Compact, deterministic digest of THIS manager run "
+                f"(sha={self._current_digest_sha[:12] if self._current_digest_sha else '?'}).\n"
+                f"{md}\n"
+            )
+            max_depth = int(getattr(self._config, "digest_max_depth", 1) or 0)
+            child_shas = list(self._current_digest.child_digest_hashes or [])
+            if child_shas and max_depth >= 1 and self._digest_store is not None:
+                child_lines = [
+                    "## CHILDREN DIGESTS",
+                    (
+                        "Digests merged from submanagers in prior "
+                        "iterations. Use `digest.fetch` for deeper "
+                        "layers beyond digest_max_depth."
+                    ),
+                ]
+                for sha in child_shas[-10:]:
+                    child = self._digest_store.get(sha)
+                    if child is None:
+                        child_lines.append(f"- {sha[:12]}: (not retrievable)")
+                        continue
+                    goal_preview = (child.goal or "")[:120]
+                    child_lines.append(
+                        f"- {sha[:12]} iter={child.iteration} "
+                        f"facts={len(child.key_facts)} "
+                        f"questions={len(child.open_questions)}: "
+                        f"{goal_preview}"
+                    )
+                parts.append("\n".join(child_lines) + "\n")
+
         # Budget status
         parts.append(
             f"## Budget Status\n```json\n{json.dumps(self._budget.to_dict(), indent=2)}\n```\n"
@@ -3757,6 +3897,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if self._history:
             parts.append("## Previous Results Summary\n")
             window = self._config.history.full_results_window
+            # When the digest is active, cap the rolling detail tail
+            # to the last 3 iterations so the prompt tokens go into
+            # the structured digest instead of duplicated detail.
+            if digest_active:
+                window = min(window, 3)
             recent = self._history[-window:]
             for h in recent:
                 parts.append(
@@ -4858,6 +5003,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 k: v for k, v in (state or {}).items() if k not in forbidden
             }
 
+        # Pass the parent's current digest sha into the child's
+        # inherited state under a reserved key so the child runner
+        # can record its lineage (read in __init__).
+        if self._current_digest_sha:
+            inherited = dict(inherited)
+            inherited["__parent_digest_sha"] = self._current_digest_sha
+
         # 3. Allocate child budget (hard-cap fraction).
         # P6: dynamic fraction — when several submanagers spawn in the same
         # dispatch, split 0.8 of the parent budget across them so the total
@@ -5001,6 +5153,15 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         sub_result["_submanager_depth"] = self._depth + 1
         sub_result["_submanager_run_id"] = sub_run_id
 
+        # Capture the submanager's final digest sha (if any) so the
+        # parent can merge it into its own next-iteration digest.
+        try:
+            child_digest_sha = sub_result.get("_digest_sha")
+            if isinstance(child_digest_sha, str) and child_digest_sha:
+                self._pending_child_digest_hashes.append(child_digest_sha)
+        except Exception:
+            pass
+
         self._logger.log_worker_result(iteration, worker_id, sub_result)
         return {
             "worker_id": worker_id,
@@ -5116,6 +5277,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             for bb_tool in ("board.post", "board.read"):
                 if bb_tool not in tools_allowed:
                     tools_allowed = list(tools_allowed) + [bb_tool]
+
+        # Hierarchical Context Digest — expose `digest.fetch` to
+        # workers so they can pull deeper layers than what's inlined
+        # in the manager prompt. Run-scoped via ContextVar.
+        if self._digest_store is not None:
+            if "digest.fetch" not in tools_allowed:
+                tools_allowed = list(tools_allowed) + ["digest.fetch"]
 
         envelope["codemode"] = codemode
         envelope["tools_allowed"] = tools_allowed
