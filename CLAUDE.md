@@ -17,23 +17,43 @@ Before doing **any** thinking or planning in a new session:
 
 1. **Read all relevant `*.md` files** — `CLAUDE.md`, `README.md`, `README_NERD.md`, `spec/`, `docs/`, `skill/SKILL.md`, and any topic-specific markdown that touches the task.
 2. **Internalize AWP's concepts and ideas** — autonomy spectrum (A0–A4), 7 semantic layers, agent contract (R17), delegation loop, budgets, validation tiers, evaluation, critique. Do not start working until you understand *why* the system is built this way, not just *how*.
-3. Then enter the work loop:
+3. Then enter the **budget-bounded work loop**:
 
 ```
-read *.md  →  understand AWP  →  loop(n):
-                                    plan → code → E2E test
-                                    if E2E test passes: break
+read *.md  →  understand AWP  →  loop(k ≤ K_MAX):
+                                    plan → code → fast gates → E2E (when warranted)
+                                    if all gates green and task done: break
+                                    if k == K_MAX: escalate to user with diagnosis
 ```
 
-The loop only exits when the E2E test passes. No "looks fine to me", no "should work" — the loss function is the E2E result.
+**Loop budget (`K_MAX`)**: default **5 iterations per task**. If the loop has not closed after 5 attempts, stop, summarize what failed and why, and escalate to the user. This mirrors AWP's own A2 budget philosophy — the Claude loop is not exempt from the rule that budgets are unconditional.
 
-### 2. Continuous Doc Sync Protocol
+**Test pyramid, not a single E2E gate**: fast deterministic gates run on every iteration; E2E runs when code-level gates are green and the change warrants it (runtime/engine/prompt/tool changes, pre-release). The pyramid from cheap → expensive:
 
-**After every code change in every Claude Code session**: update **ALL** relevant `*.md` files to reflect the change immediately. Doc sync is not a pre-commit step — it runs continuously, right after the code edit that triggered it. By the time you reach `git commit`, the docs are already in sync.
+1. **Schema + rule validation** — `awp validate` on touched YAML, Pydantic model load.
+2. **Unit + integration tests** — `pytest packages/awp-core/tests/ packages/awp-runtime/tests/ -k "not e2e"`.
+3. **Drift check** — `python scripts/check_docs_drift.py` (see §2).
+4. **E2E** — full run against real LLM (see "E2E Tests" section). Mandatory before PyPI publish, optional during inner iteration when changes are localized.
 
-**Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code. If a code change invalidates a single sentence in any `*.md`, that sentence is updated in the same change cycle — not later.
+The loop only closes when **all applicable tiers** are green. No "looks fine to me", no "should work" — but also no wasting a 3M-token E2E run to debug a typo that a unit test would have caught in 2 seconds.
 
-No drift. No "I'll fix the docs later". No "I'll batch this before commit". Code ↔ docs sync is part of the definition of done for **every** code change, not every commit.
+### 2. Doc Sync as Definition-of-Done
+
+Doc sync is part of the **definition of done per logical task**, not per individual edit. The rule:
+
+- When a task is "done" (code compiles, gates green, ready for commit), **every `*.md` statement invalidated by the change must already be updated**. No "I'll fix the docs later", no separate doc-cleanup commits.
+- Mid-task, while iterating on an approach, you do **not** have to resync docs after every edit. Resync once the approach is settled and before the task closes.
+- **Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code.
+
+**Drift detector** (`scripts/check_docs_drift.py`): verifies that every file/directory path referenced in `CLAUDE.md` still exists in the repo. Run it before declaring a task done:
+
+```bash
+python scripts/check_docs_drift.py
+```
+
+Exit code 0 = clean; non-zero = drift (prints the stale references). This is the automated floor under the discipline rule — it doesn't check prose accuracy, but it catches the most common drift (renamed/moved/deleted files whose paths still live in the docs).
+
+**This section supersedes any other "doc sync" or "pre-commit MD check" rule elsewhere in this file.** There is exactly one doc-sync contract, and it lives here.
 
 ## Working Principles (from usage report 2026-04)
 
@@ -165,7 +185,23 @@ An **E2E test** in AWP is a full run that exercises the entire system end-to-end
    - **Tool creation** (dynamic tool factory generates and validates new tools)
    - **Skill creation** (skills are produced and reused)
    - **Sub-manager delegation** (recursive manager-worker spawning)
-3. The run **MUST reach state `complete`** and the output **MUST match the expected result**.
+3. The run **MUST pass the E2E rubric** (see below).
+
+### E2E Pass Rubric (not a string match)
+
+LLM outputs are variable by nature. A binary "output equals expected string" check turns every release into a flake hunt. Instead, an E2E run passes iff **all** of the following hold:
+
+| Criterion | Check |
+|---|---|
+| **Terminal state** | Experiment reached state `complete` (not `failed`, not `running`, not `partial` unless explicitly expected) |
+| **Artifacts present** | Output folder is populated with real, non-empty files matching the task's declared deliverables |
+| **Budget respected** | Wall time, token count, and loop count stayed within the configured budgets (no runaway) |
+| **Graph integrity** | Experiment graph renders in the UI, manager/worker/tool nodes are consistent with the run log |
+| **Rubric score** | Optional LLM-judge or deterministic scorer gives ≥ threshold on task-specific quality criteria (e.g. "did the synthesized report cover all required sections") |
+
+Exact string matching is allowed **only** for deterministic subcomponents (tool outputs, computed values). For synthesized/generated content, use the rubric, not equality.
+
+### Storage and Observability
 
 **E2E tests MUST be stored as real experiments in `/tmp/awp-experiments/`** so the UI can load and display them. Each E2E run must produce **real outputs, real artifacts, and a real graph visualization**, and the experiment's **output folder MUST be populated** (no empty runs, no placeholder files). Goal: I must be able to open any E2E test in the UI, look at its results, and view its graph. E2E tests that only run in pytest without leaving a populated experiment in `/tmp/awp-experiments/` are **not** valid.
 
@@ -322,29 +358,15 @@ When bumping versions, update ALL of these in one commit:
 
 - When implementing multi-file changes, do a dry-run validation pass after all edits: check imports resolve, function signatures match callers, and config references exist. Do not wait for runtime errors.
 
-## Documentation Consistency (MANDATORY)
+## Documentation Consistency — Scope Reference
 
-### Pre-Commit MD Sync Check
+The doc-sync contract is defined once in **§2 "Doc Sync as Definition-of-Done"** and the **Session Start Protocol** (§1). This section only lists the artifacts in scope:
 
-**Before every commit, all `.md` files MUST be checked for consistency with the current code.** This includes:
-
-- `CLAUDE.md` — architecture descriptions, file paths, CLI commands, and feature references must match actual code
-- `README.md` / `README_NERD.md` — installation instructions, examples, and API descriptions must reflect current behavior
-- `docs/` — layer documentation must match model fields, validation rules, and runtime behavior
-- `spec/` — normative spec must align with implemented features
+- `CLAUDE.md` — architecture descriptions, file paths, CLI commands, feature references
+- `README.md` / `README_NERD.md` — installation, examples, API descriptions
+- `docs/` — layer documentation (model fields, validation rules, runtime behavior)
+- `spec/` — normative spec
 - `skill/SKILL.md` — see Skill Synchronization section above
-- `examples/` — YAML and README files must use current schema and valid field values
+- `examples/` — YAML and READMEs must use current schema
 
-If a code change invalidates any statement in an MD file, update the MD file in the same commit. Do not leave stale documentation behind.
-
-### Session Bootstrap — Read All MD Files
-
-**At the start of every new session, Claude MUST read the key documentation files** to build a mental model of the project's higher-level vision and current state before making any changes. At minimum, read:
-
-1. `CLAUDE.md` (this file)
-2. `README.md`
-3. `spec/` — at least the overview/index file
-4. `docs/` — scan the layer docs for current structure
-5. `skill/SKILL.md`
-
-This ensures that all changes are informed by the project's overarching design intent, not just local code context.
+Automated check: `python scripts/check_docs_drift.py`. See §2 for the full contract.
