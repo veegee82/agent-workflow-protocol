@@ -68,7 +68,7 @@ This separation has consequences that ripple through every design decision:
 
 **1. Portability.** A `workflow.awp.yaml` is a contract. Any runtime that speaks AWP can execute it. Today that runtime is Python. Tomorrow it could be Rust, Go, or a cloud service. The workflow doesn't change.
 
-**2. Validation before execution.** Because the intent is declarative, AWP can statically analyze a workflow *before any LLM call is made*. The 30 validation rules (R1-R30) catch structural errors, naming violations, missing dependencies, and unsafe configurations at parse time — not at runtime.
+**2. Validation before execution.** Because the intent is declarative, AWP can statically analyze a workflow *before any LLM call is made*. The 32 validation rules (R1-R32) catch structural errors, naming violations, missing dependencies, and unsafe configurations at parse time — not at runtime.
 
 **3. Reproducibility.** The same YAML produces the same execution plan. The LLM outputs vary, but the orchestration topology, budget constraints, and safety boundaries are deterministic.
 

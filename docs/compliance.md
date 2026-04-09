@@ -6,7 +6,7 @@ AWP's autonomy levels (A0–A4) form a **spectrum of control transfer from human
 
 | Level | New capability | New safety requirement |
 |-------|----------------|------------------------|
-| A0 | Static DAG, fixed agents and tools | Schema validation (R1–R30) |
+| A0 | Static DAG, fixed agents and tools | Schema validation (R1–R32) |
 | A1 | Multi-agent DAG, branching, state sharing | `state.sharing` strategy |
 | A2 | **Delegation loop**: manager spawns workers dynamically | **Budgets** (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`) |
 | A3 | **Self-tooling**: agents create tools at runtime | **Safety envelope** + sandbox + B1–B6 tool auto-repair validation |

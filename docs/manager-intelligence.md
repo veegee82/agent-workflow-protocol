@@ -87,6 +87,20 @@ orchestration:
 }
 ```
 
+### R31 Plan-Tool-Closure (Archetypes, Recipes, Synthesize Mode)
+
+The PLAN decision is graded by a runtime validator before the manager is allowed to leave the planning phase. The validator enforces **R31 plan-tool-closure**: every subtask in the plan MUST declare a non-empty `tool_manifest` that closes over the capabilities it needs. Each entry in the manifest picks one of three modes, in order of preference:
+
+1. **`reuse_or_generate: "reuse"`** — the capability is already satisfied by a concrete **pattern** in `awp.patterns` (e.g. `pandas_csv_summary`, `matplotlib_line_plot_png`, `coingecko_ohlc_daily`). The entry sets `pattern_id` to the pattern identifier. Cheapest mode — zero LLM tokens on the tool body.
+
+2. **`reuse_or_generate: "synthesize"`** — no concrete pattern fits, but the capability matches one of the **archetypes** (`compute`, `fetch`, `parse`, `transform`, `render`, `probe`). The entry sets `archetype_id` plus the `recipe_params` required by that archetype (for `fetch` for instance: `backend`, `url_template`, `inputs`). The runtime instantiates the handler from the archetype skeleton, runs it through the smoke-test gate, and — on success — auto-captures the result as a reusable **recipe** in the recipe store for future runs. Strongly preferred over free-form generation whenever an archetype fits.
+
+3. **`reuse_or_generate: "generate"`** — last resort. No pattern and no archetype fits. A fresh tool is generated free-form by the LLM. The entry MUST include a non-empty `assumptions` list; a `generate` entry without assumptions is a hard validator rejection and the entire PLAN is thrown out. If the manager cannot articulate at least one assumption it is a signal that the capability is too vague and should be split or re-expressed through `synthesize`.
+
+The closed set of capability families the validator recognises is the union of `{p.capability for p in PATTERNS}` and `archetype_capability_families()`; patterns are concrete shortcuts while archetypes give the planner AWP's *structural* reach (what the runtime can always synthesise on demand).
+
+The archetype + recipe layer is configuration-free — seeded patterns are auto-promoted to TRUSTED recipes at startup via `seed_recipes()`, synthesised recipes are captured as PROBATIONARY and promoted once their success counter reaches the public threshold. The replay gate in the tool generator consults the recipe store before invoking an LLM, so repeat capabilities across runs reuse prior work without cost.
+
 ## Hypothesis-Driven Debugging
 
 When a worker produces low-confidence results (below a configurable threshold) or fails, the manager can issue a **DIAGNOSE** decision instead of blindly retrying.

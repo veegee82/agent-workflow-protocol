@@ -1,6 +1,6 @@
 # Validation Rules
 
-**AWP Specification v1.0.0 — Validation Rules R1–R30**
+**AWP Specification v1.0.0 — Validation Rules R1–R32**
 **Status:** Draft Standard
 
 ---
@@ -497,6 +497,12 @@ orchestration:
 | CT10 | Custom Tools | MUST | Code Mode tools must be async |
 | R25 | Capabilities | MUST | Dynamic tool namespace not reserved and in allowed list |
 | R26 | Capabilities | MUST | Dynamic tool creation requires Code Mode and workflow flag |
+| R27 | Evaluation | MUST | Evaluation metric `kind` must be valid |
+| R28 | Evaluation | MUST | Evaluation thresholds in `[0,1]` and satisfy `accept >= retry >= fail` |
+| R29 | Evaluation | MUST | Metric weights non-negative; at least one `> 0` |
+| R30 | Evaluation | MUST | `step_scores.hooks` and `retry_policy.actions` must be valid |
+| R31 | Orchestration (A4) | MUST | `delegation_loop.budget.max_depth` required and `>= 0` |
+| R32 | Orchestration (A4) | MUST | `max_depth` must not exceed the hard ceiling of 10 |
 
 ---
 
@@ -610,3 +616,49 @@ capabilities:
 # workflow.awp.yaml has no dynamic_tools section or dynamic_tools.enabled: false
 # agent.awp.yaml has tool_creation: true
 ```
+
+---
+
+## 6. Evaluation Rules (R27–R30)
+
+### R27: Evaluation Metric Kind Valid
+
+- **Category:** Evaluation
+- **Requirement:** When `observability.evaluation.enabled: true`, every metric's `kind` MUST be one of the valid kinds (`llm_rubric`, `deterministic`, `schema`, `budget`, `policy`).
+- **Rationale:** Invalid metric kinds would be silently skipped at scoring time, causing misleading pass/fail decisions.
+
+### R28: Evaluation Thresholds Consistent
+
+- **Category:** Evaluation
+- **Requirement:** Thresholds `accept`, `retry`, `fail` MUST each lie in `[0.0, 1.0]` and MUST satisfy `accept >= retry >= fail`.
+- **Rationale:** Inverted or out-of-range thresholds make the retry/accept decision undefined.
+
+### R29: Evaluation Metric Weights Non-Negative
+
+- **Category:** Evaluation
+- **Requirement:** Every metric `weight` MUST be `>= 0` and at least one metric MUST have a strictly positive weight.
+- **Rationale:** A weighted aggregation with all-zero weights always produces 0 and is never meaningful.
+
+### R30: Evaluation Hooks and Retry Actions Valid
+
+- **Category:** Evaluation
+- **Requirement:** `step_scores.hooks` MUST only contain valid hook names and `retry_policy.actions.below_retry` / `below_fail` MUST reference valid actions.
+- **Rationale:** Ensures the evaluation loop can always resolve a concrete action when a threshold is crossed.
+
+---
+
+## 7. A4 Recursive Delegation Rules (R31–R32)
+
+### R31: A4 max_depth Required and Non-Negative
+
+- **Category:** Orchestration (A4)
+- **Requirement:** When `orchestration.delegation_loop.budget` is present, `max_depth` MUST be an integer `>= 0`. `max_depth: 0` disables recursive submanager spawning; `>= 1` allows A4 delegation up to that depth.
+- **Rationale:** Unbounded recursion has no termination guarantee. Requiring an explicit finite depth makes the worst-case envelope (`max_depth × max_loops_per_level`) provable before execution.
+
+> **Label clarification.** The validator rule `R31` in this document is the *static A4 max_depth gate*. A separate prompt-level label also called "R31" (Plan-Tool-Closure) appears in the manager system prompt at `packages/awp-runtime/src/awp/data/prompts.py` and grades each PLAN subtask's `tool_manifest`. The two rules live in different layers and share the label only by historical accident.
+
+### R32: A4 max_depth Within Safety Ceiling
+
+- **Category:** Orchestration (A4)
+- **Requirement:** `delegation_loop.budget.max_depth` MUST NOT exceed the hard ceiling of 10. Values `> 5` emit a warning.
+- **Rationale:** Deep recursion makes budget reasoning and debugging intractable. Most A4 workflows complete with depth `<= 3`; the ceiling guarantees the recursion tree always terminates within human-debuggable bounds.

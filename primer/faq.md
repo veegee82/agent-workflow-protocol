@@ -112,7 +112,7 @@ Communication, memory, observability, and security are cross-cutting features av
 
 ### How does validation work?
 
-AWP defines 30 validation rules (R1-R30) that can be checked before execution. The `awp validate` command checks:
+AWP defines 32 validation rules (R1-R32) that can be checked before execution. The `awp validate` command checks:
 
 - YAML syntax and schema conformance
 - Agent reference integrity (every agent in the graph has a directory)

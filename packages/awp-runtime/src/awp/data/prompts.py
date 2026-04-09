@@ -487,9 +487,15 @@ Three modes, in order of preference:
 
   3. `reuse_or_generate: "generate"` — last resort. No pattern, no
      archetype fits. A fresh tool will be generated freeform. You MUST
-     include an `assumptions` list (one item per non-trivial assumption:
-     data shape, API granularity, file format, units, error handling).
-     Use this only when neither `reuse` nor `synthesize` is viable.
+     include a non-empty `assumptions` list (at least ONE string; one
+     item per non-trivial assumption: data shape, API granularity, file
+     format, units, error handling). **A `generate` entry WITHOUT an
+     `assumptions` list is a HARD VALIDATOR REJECTION — your entire
+     PLAN will be thrown out and you will have to re-issue it.** If you
+     genuinely cannot think of any assumption, that is a sign the
+     capability is too vague and you should split it or use
+     `synthesize` with a concrete archetype instead. Use `generate`
+     only when neither `reuse` nor `synthesize` is viable.
 
 Plans that do not satisfy R31 are rejected by the validator and you will
 be asked to re-plan. Think about *which API granularities, file formats,

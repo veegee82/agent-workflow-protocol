@@ -6,7 +6,7 @@ AWP is intentionally **runtime-agnostic**. The protocol (YAML manifests, agent c
 
 A runtime, regardless of platform, has four responsibilities:
 
-1. **Parse and validate** the manifest and all agent files (rules R1-R30, see [validation.md](validation.md)).
+1. **Parse and validate** the manifest and all agent files (rules R1-R32, see [validation.md](validation.md)).
 2. **Resolve providers and credentials** for the LLMs each agent declares (see "Provider Routing" below).
 3. **Execute the orchestration engine** — DAG or delegation loop — while honoring the safety envelope (budgets, sandbox, forbidden tools).
 4. **Enforce the agent output contract (R17)**: every `AWPAgent.run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. Without it, the runtime rejects the result.
@@ -17,6 +17,17 @@ The reference Python runtime adds two cross-cutting features that are **enabled 
 - **Runtime tool generation (B1-B6)** — workers can generate new MCP tools at runtime when the existing tools are insufficient. The runtime runs them through a six-phase pipeline (Brief → Generate → Validate → Sandbox → Auto-Repair → Register) before exposing them to the LLM. See [runtime-tool-generation.md](runtime-tool-generation.md).
 
 This file documents the abstract `AWPAgent` interface, the standalone reference runtime, environment variables, the Cloudflare Workers adapter, and how to build a new platform adapter. For execution semantics see [orchestration.md](orchestration.md) and [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+
+### Delegation Loop Termination Envelope
+
+The delegation loop runner is **bounded on every axis** — this is what makes an A2-A4 run provably terminating regardless of LLM behaviour:
+
+- **Hard budget** — `max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`. The manager cannot override any of them.
+- **Submanager caps** — `max_concurrent_submanagers` (default 3) and `max_total_submanagers_per_run` (default 6); each submanager's child budget is `min(0.3, 0.8 / n)` of the parent's remaining envelope, where *n* is the number of submanagers spawned in the same dispatch.
+- **Convergence detector** — the loop force-completes with `partial: true, reason: forced_convergence` when confidence deltas across the last two iterations drop below 0.05 or three consecutive iterations emit identical `key_findings`.
+- **Redundancy guard** — every dispatch is fingerprinted by a sorted hash of normalised worker instructions; if a new dispatch matches an earlier signature and the mean critique score is below `critique.min_score_to_complete`, the manager is forced into DIAGNOSE instead of re-issuing the same subtasks.
+- **Submanager output merging** — each submanager writes into its own `output/<sub_run_id>/` sandbox; on completion the parent runner's `_merge_submanager_outputs` copies those files back into the parent's `_output_dir`, prefixing colliding names with `<submanager_name>__` so nothing is silently overwritten. The merged filenames are attached to the sub-result as `_merged_files` so the manager can see what the child produced.
+- **Completion gates** — placeholder scanner, file-validator gate, deliverable-presence gate, and critique-score gate must all pass before a `COMPLETE` decision is accepted (see [critique.md](critique.md)).
 
 ## Provider Routing
 

@@ -78,7 +78,7 @@ class TestDelegationLoopModels:
     def test_delegation_budget_defaults(self):
         b = DelegationBudget()
         assert b.max_loops == 100
-        assert b.max_depth == 4
+        assert b.max_depth == 2
         assert b.max_wall_time == 600
 
     def test_worker_policy_enforced_fields(self):

@@ -7,7 +7,7 @@ AWP is a **declarative contract for multi-agent AI systems**. Instead of writing
 This separation has three immediate consequences:
 
 1. **Portability.** The same `workflow.awp.yaml` runs on a local CLI, a notebook, a cloud orchestrator or an embedded framework — without rewriting agents.
-2. **Static analysis.** Because intent is data, AWP validates 30 rules (R1-R30) before any LLM is called. Naming, dependency cycles, output contracts, budgets and tool namespaces are checked at parse time.
+2. **Static analysis.** Because intent is data, AWP validates 32 rules (R1-R32) before any LLM is called. Naming, dependency cycles, output contracts, budgets and tool namespaces are checked at parse time.
 3. **Graduated autonomy.** The same protocol covers everything from a 10-line static DAG (A0) to recursive self-organizing delegation hierarchies where workers spawn sub-managers and runtime agents create their own tools (A4).
 
 The rest of this document explains *why* this matters relative to the existing landscape, and what AWP unifies that other standards leave fragmented.
@@ -104,7 +104,7 @@ Agents operate under the principle of least privilege. Tools must be explicitly 
 | Memory | Custom per-project | 4-tier standard (long-term, daily, episodic, semantic) |
 | Communication | Not standardized | Message bus with typed channels |
 | Observability | Manual logging | OpenTelemetry-compatible tracing and metrics |
-| Validation | None (runtime errors) | 30 rules checked before execution (R1-R30) |
+| Validation | None (runtime errors) | 30 rules checked before execution (R1-R32) |
 | Portability | Zero | `.awp.zip` and ClawHub registry |
 
 ## Beyond Static Workflows: What 1.0 Adds

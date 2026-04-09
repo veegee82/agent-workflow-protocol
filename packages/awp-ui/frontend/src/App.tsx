@@ -1377,12 +1377,48 @@ function ResultsPanel() {
 
   useEffect(() => {
     if (!effectiveRunId) return;
-    setLoading(true);
-    api.getRunArtifacts(effectiveRunId)
-      .then(setArtifacts)
-      .catch(() => setArtifacts([]))
-      .finally(() => setLoading(false));
-  }, [effectiveRunId, runStatus]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchOnce = async (showSpinner: boolean) => {
+      if (showSpinner) setLoading(true);
+      try {
+        const next = await api.getRunArtifacts(effectiveRunId);
+        if (cancelled) return;
+        setArtifacts((prev) => {
+          // Avoid pointless re-renders if nothing changed
+          if (prev.length === next.length) {
+            const prevKey = prev.map((a) => `${a.path}:${a.size}`).join('|');
+            const nextKey = next.map((a) => `${a.path}:${a.size}`).join('|');
+            if (prevKey === nextKey) return prev;
+          }
+          return next;
+        });
+      } catch {
+        if (!cancelled) setArtifacts([]);
+      } finally {
+        if (!cancelled && showSpinner) setLoading(false);
+      }
+    };
+
+    // Initial load
+    fetchOnce(true);
+
+    // Live polling while the effective run is the live run and still running
+    const isLive = !selectedRunId && runStatus === 'running';
+    if (isLive) {
+      const tick = async () => {
+        await fetchOnce(false);
+        if (!cancelled) timer = setTimeout(tick, 2000);
+      };
+      timer = setTimeout(tick, 2000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [effectiveRunId, runStatus, selectedRunId]);
 
   if (!currentRunId) {
     return (

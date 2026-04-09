@@ -140,7 +140,7 @@ AWP is organized into seven layers, each addressing a distinct concern. Layers a
 | Document | Description |
 |----------|-------------|
 | [compliance.md](compliance.md) | Autonomy levels A0–A4 |
-| [validation-rules.md](validation-rules.md) | Validation rules R1–R30 |
+| [validation-rules.md](validation-rules.md) | Validation rules R1–R32 |
 | [file-structure.md](file-structure.md) | Required directory layout |
 | [packaging.md](packaging.md) | `.awp.zip` exchange format |
 

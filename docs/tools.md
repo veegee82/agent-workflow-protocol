@@ -12,6 +12,15 @@ Three execution modes coexist for tools, in increasing autonomy:
 2. **Code mode** (default: enabled) — instead of N round-trips, the LLM writes a single code block against a *typed SDK* that wraps all allowed tools as methods. The code runs in the sandbox; one round-trip replaces many. The output contract (R17 confidence) is unchanged. This is the dominant execution mode for delegation-loop workers.
 3. **Runtime tool generation** (default: enabled) — when the existing tool set is insufficient for a task, a worker can author a new MCP tool on the fly. The runtime runs the candidate through a six-phase pipeline before exposing it to the LLM (see below).
 
+### `code.execute` Sandbox Preamble
+
+Every `code.execute` snippet is wrapped by a small deterministic preamble that the runtime prepends before the LLM-written code. It exists to close recurring classes of NameError / TypeError leaks from LLM-generated snippets:
+
+- **Pre-imported standard-library modules**: `json`, `pathlib`, `re`, `math`, `datetime`, plus `os`, `sys`, and `builtins` aliased as `_os`, `_sys`, `_builtins`. Snippets can use these without an explicit `import`.
+- **Pre-injected workspace helpers**: `_workspace_dir`, `_output_dir`, `_secrets`, plus helpers `_ensure_dir()`, `_output_file()`, `_input_file()`, `_list_files()`, `_verify_png()`.
+- **Safe `open()` wrapper**: writes (`"w"`, `"a"`, `"x"`) auto-create parent directories. Text-mode writes are additionally wrapped in an `_AWPFileProxy` that transparently re-opens the file in binary mode if the caller writes `bytes` / `bytearray` / `memoryview` — preventing the common "write() argument must be str, not bytes" failure mode.
+- **Fresh subprocess per call**: each `code.execute` invocation is an isolated Python subprocess (unless a persistent executor is configured). Python-level state (variables, DataFrames, imports done by the snippet) does NOT persist across calls; pass state via files under `_workspace_dir` or via declared `share_output` fields.
+
 Tools are also bounded by an **enforced security envelope** declared in the manifest:
 
 - `shell.execute` and `terminal.execute` are by default in `worker_policy.enforced.forbidden_tools` for the delegation loop. Workers do shell-like work via `code.execute` in the sandbox, or via dynamically generated MCP tools that wrap a narrow capability with proper input validation.

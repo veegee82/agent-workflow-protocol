@@ -8,7 +8,7 @@ Evaluation lives in the [observability layer](observability.md) and runs *after*
 
 | Subsystem | Question | Granularity | Output |
 |-----------|----------|-------------|--------|
-| [Validation](validation.md) (R1-R30) | "Is this workflow well-formed?" | Whole workflow | pass/fail |
+| [Validation](validation.md) (R1-R32) | "Is this workflow well-formed?" | Whole workflow | pass/fail |
 | [Critique](critique.md) | "Is this worker output broken? Can we fix it now?" | Per worker call | defect list + repair |
 | **Evaluation** (this doc) | "How good is the final result?" | Whole run (or hook point) | 0.0–1.0 score + action |
 

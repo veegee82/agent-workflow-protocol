@@ -36,7 +36,7 @@ The base skill defines:
 
 - The AWP 7-layer model overview
 - [Autonomy levels](compliance.md) and when to use each
-- [Validation rules](validation.md) R1-R30 (the strict rules)
+- [Validation rules](validation.md) R1-R32 (the strict rules)
 - The generation process (5 phases)
 - References to templates for every file type
 
@@ -105,7 +105,7 @@ This applies equally to static project skills and dynamically generated delegati
 
 #### Phase 3: Validation
 
-After generating all files, the AI verifies compliance with rules R1-R30:
+After generating all files, the AI verifies compliance with rules R1-R32:
 
 - R1: `workflow.name` matches directory name.
 - R2: All agent IDs are snake_case.
@@ -228,7 +228,7 @@ tools:
 
 When an extension is loaded alongside the base skill:
 
-- **Rules are additive.** Extension rules (F1, D1, etc.) apply on top of R1-R30.
+- **Rules are additive.** Extension rules (F1, D1, etc.) apply on top of R1-R32.
 - **Defaults use last-wins.** The extension overrides base defaults.
 - **Required agents are merged.** Union of all required agents, no duplicates by ID.
 - **Constraints are additive.** Denied tools from extension are added to the deny list.
@@ -359,6 +359,6 @@ The `skill/references/` directory contains condensed documentation for AI contex
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification. |
 | `compliance-levels.md` | Quick reference for A0-A4 autonomy levels. |
-| `validation-rules.md` | R1-R30 checklist format. |
+| `validation-rules.md` | R1-R32 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |

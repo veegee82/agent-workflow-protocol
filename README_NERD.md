@@ -20,7 +20,7 @@ AWP solves a fundamental problem in modern AI development: How do you orchestrat
 9. [Two-Tier Validation: Determinism Meets Semantics](#9-two-tier-validation-determinism-meets-semantics)
 10. [Mental Models: Analogies and Metaphors](#10-mental-models-analogies-and-metaphors)
 11. [Emergence and Control: The Paradox of Autonomous Systems](#11-emergence-and-control-the-paradox-of-autonomous-systems)
-12. [Validation Rules R1-R30: Formal Guarantees](#12-validation-rules-r1-r26-formal-guarantees)
+12. [Validation Rules R1-R32: Formal Guarantees](#12-validation-rules-r1-r32-formal-guarantees)
 
 **Part II -- Implementation**
 13. [SDK Implementation: The Programmatic API](#13-sdk-implementation-the-programmatic-api)
@@ -682,7 +682,7 @@ For the security architecture:
 |-------------|-------------------|
 | Safety Envelope | Constitution |
 | Manager | Government (executive branch) |
-| Validation Rules R1-R30 | Laws (legislative branch) |
+| Validation Rules R1-R32 | Laws (legislative branch) |
 | Compliance check | Constitutional court (judicial branch) |
 | Budget | National budget (approved by parliament) |
 | Forbidden Tools | Fundamental rights (immutable) |
@@ -744,7 +744,7 @@ AWP makes this tradeoff *explicit* and lets the workflow creator decide which au
 
 ---
 
-## 12. Validation Rules R1-R30: Formal Guarantees
+## 12. Validation Rules R1-R32: Formal Guarantees
 
 AWP enforces 26 rules that check every workflow before execution. These rules form a formal safety net:
 
@@ -956,7 +956,7 @@ orchestration:
 ## 15. CLI Tools
 
 ```bash
-# Validate against R1-R30
+# Validate against R1-R32
 awp validate <path>
 
 # Check autonomy level compliance
@@ -1046,7 +1046,7 @@ AWP offers enterprise governance not as a feature, but as an *inherent property*
 | Audit trail | Dual logging (JSON + Markdown) per iteration |
 | Cost control | Budget system with 6 hard limits |
 | Isolation | Sandbox (subprocess / Docker / venv) |
-| Compliance | Validation R1-R30 + compliance levels A0-A4 |
+| Compliance | Validation R1-R32 + compliance levels A0-A4 |
 | Versioning | YAML in Git, `.awp.zip` for distribution |
 | Secrets | `required_secrets` mechanism |
 
@@ -1103,7 +1103,7 @@ AWP offers enterprise governance not as a feature, but as an *inherent property*
 
 **Democratization and transparency**: Powerful AI workflows become accessible -- not just for Big Tech. Every agent decision is documented and verifiable. Safety scales with autonomy -- the principle addresses upcoming AI regulation (EU AI Act).
 
-**Trust through structure**: The combination of formal validation (R1-R30), deterministic + semantic checking, and complete traceability creates a foundation of trust that monolithic AI systems cannot offer.
+**Trust through structure**: The combination of formal validation (R1-R32), deterministic + semantic checking, and complete traceability creates a foundation of trust that monolithic AI systems cannot offer.
 
 ---
 
@@ -1131,7 +1131,7 @@ packages/awp-core/src/awp/          # Protocol layer (models, parser, validator,
 |   +-- manifest_parser.py          # Workflow manifest parser
 |   +-- agent_parser.py             # Agent definition parser
 |   +-- template.py                 # Template handling
-+-- validator/                      # Rule engine R1-R30
++-- validator/                      # Rule engine R1-R32
 |   +-- rules.py                    # All 26 validation rules
 |   +-- schema_validator.py         # JSON Schema validation
 |   +-- contract_validator.py       # Output contract validation

@@ -22,13 +22,27 @@ read *.md  →  understand AWP  →  loop(n):
 
 The loop only exits when the E2E test passes. No "looks fine to me", no "should work" — the loss function is the E2E result.
 
-### 2. Pre-Commit Doc Sync Protocol
+### 2. Continuous Doc Sync Protocol
 
-**Before every `git commit`**: update **ALL** relevant `*.md` files to reflect the changes in this commit. Code and docs must ship together.
+**After every code change in every Claude Code session**: update **ALL** relevant `*.md` files to reflect the change immediately. Doc sync is not a pre-commit step — it runs continuously, right after the code edit that triggered it. By the time you reach `git commit`, the docs are already in sync.
 
-**Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code. If a code change invalidates a single sentence in any `*.md`, that sentence is updated in the same commit.
+**Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code. If a code change invalidates a single sentence in any `*.md`, that sentence is updated in the same change cycle — not later.
 
-No drift. No "I'll fix the docs later". Code ↔ docs sync is part of the definition of done.
+No drift. No "I'll fix the docs later". No "I'll batch this before commit". Code ↔ docs sync is part of the definition of done for **every** code change, not every commit.
+
+## Working Principles (from usage report 2026-04)
+
+These rules come from analyzing recurring frictions in past AWP sessions. They are aligned with the AWP philosophy of **deterministic validation before LLM-based work**, **budget-bounded autonomy**, and **conceptual clarity over local fixes**:
+
+- **Mermaid → SVG, never inline code blocks.** All diagrams in docs must be generated as standalone SVG files for GitHub rendering. **No `feDropShadow` filters** (they break GitHub's SVG sanitizer).
+- **English only.** All docs, diagrams, READMEs, comments, and artifacts are English. Never produce German content in committed files. (German is only allowed in chat replies to the user.)
+- **After every multi-file change**: run the full test suite **and** verify environment sync — `packages/` ↔ `reference/python/src/` mirror, venv packages, model config. Don't declare done until both are green.
+- **Schema validation is the first step** when generating or editing any `*.awp.yaml` — validate before doing anything else with the file.
+- **Confirm assumptions before sweeping changes.** For any change touching >50 files or restructuring a package, state the assumptions explicitly and get a go signal first. This is the human-in-the-loop equivalent of an A2 manager validation gate.
+- **Required env vars belong in `CLAUDE.md`.** If a code path needs an env var (API key, model, path), document it here so future sessions don't stall on missing config.
+- **Delegate big releases.** Edits >500 lines and full PyPI release pipelines go to a general-purpose subagent, not the main loop.
+
+These are not stylistic preferences — they are loss-reducing constraints. Treat a violation the same as a failed E2E test: find the root cause, fix it production-ready, do not paper over it.
 
 ## Project Overview
 
@@ -58,7 +72,7 @@ pytest packages/awp-runtime/tests/ -k "not e2e"
 pytest packages/awp-core/tests/test_validator.py::test_function_name -v
 
 # CLI commands (after install)
-awp validate <path>              # Validate workflow (rules R1-R30)
+awp validate <path>              # Validate workflow (rules R1-R32)
 awp compliance <path> --level A2 # Check autonomy level (A0-A4)
 awp visualize <path> --format mermaid  # Render DAG
 awp pack <path>                  # Archive as .awp.zip
@@ -87,7 +101,7 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 - `models/` — Pydantic models for all 7 layers (manifest, agent, orchestration, capabilities, communication, memory, security, observability, evaluation)
 - `parser/` — Parses `workflow.awp.yaml` and `agent.awp.yaml` into Pydantic models, resolves imports
-- `validator/` — Rule engine (R1-R30) covering naming, graph structure, confidence, tool namespaces, budgets, evaluation. Key file: `rules.py`
+- `validator/` — Rule engine (R1-R32) covering naming, graph structure, confidence, tool namespaces, budgets, evaluation. Key file: `rules.py`
 - `agent.py` — Abstract `AWPAgent` interface: agents must return `{self.name: {result_dict}}` with a `confidence` float (R17)
 - `cli.py` — CLI entry point (`awp` command)
 
@@ -101,7 +115,7 @@ The Python code lives in `packages/` as two independent, publishable packages:
 - **Agent output contract**: Every agent `run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. This is validation rule R17.
 - **State sharing**: DAG nodes declare `share_output` fields; downstream agents receive them in the `state` dict.
 - **Budget system** (A2+): Hard limits (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`) enforce termination. Manager cannot override the safety envelope.
-- **Validation tiers**: Deterministic validation (schema, rules R1-R30) runs always; LLM-based semantic validation is optional (skipped when confidence exceeds threshold).
+- **Validation tiers**: Deterministic validation (schema, rules R1-R32) runs always; LLM-based semantic validation is optional (skipped when confidence exceeds threshold).
 - **Evaluation layer**: Optional quality scoring (5 metric kinds, weighted aggregation, threshold-based retry/repair). Configured under `observability.evaluation`.
 - **Critique loop**: Optional reflective critique within delegation loop (defect diagnosis, targeted repair, cross-worker pattern memory). Configured under `delegation_loop.critique`.
 
@@ -127,7 +141,7 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 | Changed defaults (token budget, timeouts, etc.) | SKILL.md reference values + templates |
 | New/removed tools (`code.execute`, etc.) | SKILL.md tool reference + templates + adapters |
 | Changed forbidden_tools or security policy | SKILL.md delegation loop section + templates |
-| New validation rules (R1-R30+) | SKILL.md Phase 4 checklist |
+| New validation rules (R1-R32+) | SKILL.md Phase 4 checklist |
 | Changed delegation loop behavior | SKILL.md delegation loop section + Step 7d |
 | New debug/observability features | SKILL.md relevant sections |
 
@@ -149,6 +163,8 @@ An **E2E test** in AWP is a full run that exercises the entire system end-to-end
 3. The run **MUST reach state `complete`** and the output **MUST match the expected result**.
 
 **E2E tests MUST be stored as real experiments in `/tmp/awp-experiments/`** so the UI can load and display them. Each E2E run must produce **real outputs, real artifacts, and a real graph visualization**, and the experiment's **output folder MUST be populated** (no empty runs, no placeholder files). Goal: I must be able to open any E2E test in the UI, look at its results, and view its graph. E2E tests that only run in pytest without leaving a populated experiment in `/tmp/awp-experiments/` are **not** valid.
+
+**E2E tests MUST register the running experiment in the experiment database BEFORE the run starts** — not only after it finishes. The experiment record (id, title, status=`running`, created_at, task) must be inserted up-front via the same code path the UI uses (`AgentWorkflow` / experiment service / DB insert), so the experiment appears immediately in the UI sidebar list. Status must transition `running → complete | partial | failed` live as the run progresses, and intermediate events (manager iterations, worker spawns, tool calls) must be persisted as they happen so I can **follow the run in the UI in real time** while it executes. An E2E test that only registers the experiment after termination — making it invisible in the sidebar during execution — is **not** valid.
 
 **E2E tests MUST always run against real LLM calls** (e.g. OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded LLM responses are **not** valid E2E coverage — the whole point is to verify behavior under real model output variability.
 

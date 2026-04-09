@@ -74,7 +74,7 @@ This makes AWP uniquely suited for **deep data science and engineering problems*
 - :bricks: **7-Layer Architecture** — Manifest, Identity, Capabilities, Communication, Memory, Orchestration, Observability — opt-in from 5 lines of YAML to full enterprise stack. *[Learn more](#10-the-7-layer-model)*
 - :page_facing_up: **YAML-First Protocol** — Workflow definition is pure YAML, decoupled from implementation. Version in Git, validate in CI, run on any conformant runtime. *[Learn more](#6-yaml-workflows--cli)*
 - :desktop_computer: **Workflow Studio** — Browser-based UI for running, monitoring, and inspecting agent workflows in real time. Agent graph, live output streaming, artifact viewer, session persistence. *[Learn more](#3-workflow-studio-ui)*
-- :white_check_mark: **30 Validation Rules** — Deterministic rule engine (R1-R30) covering naming, graph structure, budgets, confidence, tools, evaluation metrics, and thresholds. Run as CI/CD gate. *[Learn more](#8-budget-safety-validation)*
+- :white_check_mark: **32 Validation Rules** — Deterministic rule engine (R1-R32) covering naming, graph structure, budgets, confidence, tools, evaluation metrics, and thresholds. Run as CI/CD gate. *[Learn more](#8-budget-safety-validation)*
 - :test_tube: **Infrastructure Benchmarking** — Same workflow, different backends — objectively compare LLMs, vector DBs, sandboxes, and tracing platforms on real tasks. *[Learn more](#5-infrastructure-benchmarking)*
 
 ---
@@ -143,7 +143,7 @@ pip install -e "reference/python/"
 |--------|------------------|
 | `awp.models` | Pydantic models for all 7 AWP layers |
 | `awp.parser` | Parse `workflow.awp.yaml` and `agent.awp.yaml` into typed objects |
-| `awp.validator` | Rule engine (R1-R30): naming, graph structure, budgets, evaluation |
+| `awp.validator` | Rule engine (R1-R32): naming, graph structure, budgets, evaluation |
 | `awp.runtime` | DAG engine + delegation loop engine, evaluation engine, critique engine, LLM client, tool registry, code executors |
 | `awp.data` | Programmatic API — `AgentWorkflow` for 3-line workflows |
 | `awp.cli` | CLI: `awp studio`, `awp validate`, `awp compliance`, `awp visualize`, `awp run` |
@@ -676,7 +676,7 @@ The YAML never changes -- only the backend behind the MCP tool interface.
 | **Audit Trail** | Dual logging: JSON (machines) + Markdown (humans) per iteration |
 | **Cost Control** | Budget system: 6 hard limits (tokens, time, workers, loops, tools, depth) |
 | **Isolation** | Sandbox: subprocess, Docker, venv -- code never runs directly on the host |
-| **Compliance** | `awp validate` (R1-R30) + `awp compliance --level A2` as CI/CD gate |
+| **Compliance** | `awp validate` (R1-R32) + `awp compliance --level A2` as CI/CD gate |
 | **Versioning** | YAML in Git, `.awp.zip` for registry and distribution |
 | **Secrets** | `required_secrets` mechanism, never stored in YAML |
 | **Traceability** | Every manager decision, worker delegation, and tool call documented |
@@ -928,7 +928,7 @@ orchestration:
 ```bash
 awp run <dir> --task "..."                        # Execute workflow
 awp run <dir> --task "..." --manager-model opus   # Model split
-awp validate <dir>                                # Check rules R1-R30
+awp validate <dir>                                # Check rules R1-R32
 awp compliance <dir> --level A2                   # Check autonomy level
 awp visualize <dir> --format mermaid              # Visualize DAG
 awp pack <dir>                                    # Create .awp.zip
@@ -1137,7 +1137,7 @@ termination:
   action: warn_then_stop
 ```
 
-### Validation Rules R1-R30
+### Validation Rules R1-R32
 
 ```bash
 awp validate ./my-workflow/    # Checks all 30 rules

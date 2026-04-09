@@ -8,7 +8,7 @@ Critique sits **inside** the [delegation loop engine](ORCHESTRATION_ENGINES.md) 
 
 | Subsystem | Scope | When | Where to read |
 |-----------|-------|------|---------------|
-| **Validation** (R1-R30) | Static schema/graph correctness | Before/during run | [validation.md](validation.md) |
+| **Validation** (R1-R32) | Static schema/graph correctness | Before/during run | [validation.md](validation.md) |
 | **Critique** (this doc) | Per-worker output, inside delegation loop | After every worker call | here |
 | **Evaluation** | Whole-workflow score | After the run | [evaluation.md](evaluation.md) |
 
@@ -190,6 +190,21 @@ workspace/runs/<run-id>/
         <worker-id>/
           critique.json          # Per-worker critique detail
 ```
+
+## Filesystem Grounding
+
+The LLM critic is grounded in the actual filesystem state of the run so it cannot hallucinate "file missing" defects when the file really exists on disk. Before each critique call, the engine captures a ground-truth snapshot of the worker's `_workspace_dir` and the run's `_output_dir` (file list with sizes) and injects it into the critic prompt. The critic is instructed to treat the snapshot as authoritative: if a file is listed there, claiming it is missing is a hallucination and must be suppressed. This closed a class of failure modes in which pessimistic LLM narratives would reject otherwise-valid worker output and push the delegation loop into endless repair cycles.
+
+## Completion Gates (beyond critique score)
+
+The `min_score_to_complete` threshold is only one of several completion gates the delegation loop enforces before accepting a manager `COMPLETE` decision. The others work in concert with critique:
+
+- **Placeholder gate.** Before accepting completion, the runner scans the manager's `final_result` and all text-based files under `_output_dir` / `workspace/outputs` for placeholder patterns ("TODO", "final output here", "XX%", stub key names like `your`, `field_name`, `<your-...>`). Any hit forces another iteration with a `_placeholder_repair_required` state entry telling the manager exactly which stubs to replace.
+- **File-validator gate.** Trivial deliverables (1x1 PNGs, empty PDFs, files `< 512 B`) are rejected as placeholders even if the filename exists.
+- **Deliverable presence gate.** When the task text implies a file deliverable (keywords like *image*, *chart*, *pdf*, *csv*, *dataset*, ...) the runner refuses `complete` until at least one file of `>= 512 B` exists in the run's `_output_dir`. This catches the pathological case where the manager finishes after only "investigating capabilities" without actually producing the artifact the user asked for.
+- **Critique ground-truth bypass.** When a task implies a file deliverable **and** that file already exists on disk at completion time, the LLM critic's pessimistic narrative is overruled — the filesystem is authoritative. This prevents endless repair loops on output that is already correct but that the critic keeps flagging on stylistic grounds. The bypass is advisory: the placeholder and file-size gates above still apply.
+
+All four gates share a single trace channel so the experiment UI shows which gate fired on which iteration. Gates never *accept* an incomplete run — they only *reject* premature completions. When the overall budget envelope is exhausted the runner falls back to a `partial` result rather than blocking forever.
 
 ## Manager Integration
 

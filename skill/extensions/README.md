@@ -77,7 +77,7 @@ fields:
 
 ## Additional Rules
 
-{Domain-specific rules on top of R1-R30.}
+{Domain-specific rules on top of R1-R32.}
 
 - **{ID}:** {rule description}
 
@@ -130,7 +130,7 @@ When a user says "build me a financial workflow", the AI:
 2. Loads the adapter (e.g., `adapters/standalone.md`)
 3. Loads the extension (e.g., `extensions/examples/financial.md`)
 4. Merges the instructions:
-   - Base rules R1-R30 apply
+   - Base rules R1-R32 apply
    - Extension rules (F1, F2, ...) apply additionally
    - Extension defaults override base defaults
    - Required agents from the extension are added to the graph

@@ -4,7 +4,7 @@ Complete documentation for the Agent Workflow Protocol (AWP) v1.0.0.
 
 ## Mental Model
 
-AWP is a **declarative protocol** for multi-agent systems. A workflow is described in YAML across seven semantic layers, then executed by a runtime that interprets the YAML — never the other way around. The same workflow file can run on any conforming runtime, be packaged into a `.awp.zip`, validated statically (rules R1-R30), and graduated through five **autonomy levels** (A0 prescribed DAG → A4 self-organizing recursive delegation).
+AWP is a **declarative protocol** for multi-agent systems. A workflow is described in YAML across seven semantic layers, then executed by a runtime that interprets the YAML — never the other way around. The same workflow file can run on any conforming runtime, be packaged into a `.awp.zip`, validated statically (rules R1-R32), and graduated through five **autonomy levels** (A0 prescribed DAG → A4 self-organizing recursive delegation).
 
 The documentation below is grouped by *what question it answers*:
 
@@ -32,7 +32,7 @@ New since 1.0: **complexity-scored auto-promotion** of workers to sub-managers, 
 | 10 | [observability.md](observability.md) | Metrics, tracing, audit trails, health checks |
 | 11 | [security.md](security.md) | Circuit breaker, rate limiting, access control |
 | 12 | [compliance.md](compliance.md) | Autonomy levels A0 through A4 |
-| 13 | [validation.md](validation.md) | Validation rules R1 through R30 |
+| 13 | [validation.md](validation.md) | Validation rules R1 through R32 |
 | 14 | [file-structure.md](file-structure.md) | Required directory layout |
 | 15 | [packaging.md](packaging.md) | `.awp.zip` format and ClawHub publishing |
 | 16 | [runtime.md](runtime.md) | AWPAgent interface, standalone runtime, WorkflowRunner |

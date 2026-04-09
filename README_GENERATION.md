@@ -53,7 +53,7 @@ The LLM doesn't just template-fill. It:
 2. **Asks** targeted questions (pre-filled with smart defaults you can accept or override)
 3. **Plans** the full architecture — agents, data flow, tools, budget — and presents it for approval
 4. **Generates** every file: YAML configs, Python agents, system prompts, output schemas, tool implementations
-5. **Validates** the result against rules R1-R30
+5. **Validates** the result against rules R1-R32
 
 The output is a directory you can `awp run` immediately.
 
@@ -139,7 +139,7 @@ Files are generated in dependency order: manifest → agent configs → implemen
 ### Phase 4: Validation
 
 ```bash
-awp validate ./competitor_analysis/    # R1-R30 pass
+awp validate ./competitor_analysis/    # R1-R32 pass
 awp compliance ./competitor_analysis/ --level A1  # Autonomy check
 ```
 
@@ -490,7 +490,7 @@ Three properties of AWP enable LLM-driven generation:
 
 1. **Layered architecture** — The 7-layer model gives the LLM a structured decision space. It doesn't face a blank canvas; it fills in layers bottom-up, each constrained by the previous.
 
-2. **Validation rules** — R1-R30 are checkable constraints. The LLM can verify its own output against them during generation, catching errors before the user sees them.
+2. **Validation rules** — R1-R32 are checkable constraints. The LLM can verify its own output against them during generation, catching errors before the user sees them.
 
 3. **Separation of definition and execution** — The LLM generates YAML and Markdown, never runtime code beyond thin `StandaloneAgent` subclasses. The runtime engine handles execution. This keeps the generated surface area small and auditable.
 

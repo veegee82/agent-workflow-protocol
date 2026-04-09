@@ -1,4 +1,4 @@
-# Validation Rules R1-R30
+# Validation Rules R1-R32
 
 ## Mental Model: Four Tiers of Validation
 
@@ -6,12 +6,12 @@ AWP uses **four complementary tiers** of validation, each operating at a differe
 
 | Tier | When | Cost | Catches | Configured under |
 |------|------|------|---------|------------------|
-| **1. Deterministic schema/rule validation (R1–R30)** | Load time, before any agent runs | Free, instant | Structural bugs: missing fields, cycles, ID collisions, reserved-namespace abuse, missing output contracts, broken sandbox/codemode config | Built into runtime; this document |
+| **1. Deterministic schema/rule validation (R1–R32)** | Load time, before any agent runs | Free, instant | Structural bugs: missing fields, cycles, ID collisions, reserved-namespace abuse, missing output contracts, broken sandbox/codemode config, A4 max_depth termination | Built into runtime; this document |
 | **2. LLM semantic validation** | Per-agent, after output is produced | 1 LLM call per agent (skippable if confidence is high) | Output that *parses* correctly but is *semantically* wrong (hallucinated facts, ignored instructions) | Implicit in delegation loop; gated by `confidence` threshold |
 | **3. Critique loop** | Per-worker inside delegation loop, after a defect is suspected | LLM calls for diagnose + repair | Defects in worker output, with **targeted repair** rather than full retry; learns cross-worker patterns into a defect memory | `delegation_loop.critique` — see [critique.md](critique.md) |
 | **4. Evaluation layer** | Workflow level, after the run (or step-scored during) | Multiple LLM calls + deterministic tests | Quality scoring against rubrics, deterministic assertions, budget utility, policy checks. Can trigger retry/repair across the whole workflow | `observability.evaluation` — see [evaluation.md](evaluation.md) |
 
-**Rule of thumb:** R1–R30 reject *invalid* workflows; LLM/critique/evaluation reject *bad outputs*. The four tiers compose — a workflow that passes all R-rules can still fail evaluation, and a worker that passes critique can still produce a low evaluation score.
+**Rule of thumb:** R1–R32 reject *invalid* workflows; LLM/critique/evaluation reject *bad outputs*. The four tiers compose — a workflow that passes all R-rules can still fail evaluation, and a worker that passes critique can still produce a low evaluation score.
 
 A separate, security-flavored validation runs whenever a worker creates a new tool at runtime: the **B1–B6 sandbox auto-repair pipeline** ([runtime-tool-generation.md](runtime-tool-generation.md)). It is not a workflow validator but a *tool* validator, and it sits between Tier 1 and Tier 2 conceptually.
 
@@ -45,6 +45,14 @@ This document specifies the deterministic Tier 1 rules. AWP runtimes must enforc
 | R22 | Capabilities | MUST | Explicit SDK surface has tools |
 | R23 | Capabilities | MUST | SDK excludes reference valid tools |
 | R24 | Capabilities | MUST | Isolate sandbox requires network config |
+| R25 | Capabilities | MUST | Dynamic tool namespace compliance |
+| R26 | Capabilities | MUST | Dynamic tool creation requires Code Mode and workflow-level flag |
+| R27 | Evaluation | MUST | Evaluation metric IDs unique and well-formed |
+| R28 | Evaluation | MUST | Evaluation weights normalized and metric kinds valid |
+| R29 | Evaluation | MUST | Thresholds consistent (e.g. `warn <= fail`) |
+| R30 | Evaluation | MUST | `step_scores.hooks` use valid hooks; `retry_policy.actions` valid |
+| R31 | Orchestration (A4) | MUST | `delegation_loop.budget.max_depth` present and >= 0 for A4 workflows |
+| R32 | Orchestration (A4) | MUST | `max_depth` must not exceed the hard ceiling that guarantees termination |
 
 ## R1: Valid AWP Version
 
@@ -366,3 +374,53 @@ See [Observability Reference](observability.md) for details.
 - **Category:** Capabilities
 - **Level:** MUST
 - **Description:** If `capabilities.sandbox.type` is `"isolate"`, the `capabilities.sandbox.network` section MUST be present with at least `network.enabled` defined.
+
+## R25: Dynamic Tool Namespace Compliance
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** When an agent has `capabilities.codemode.tool_creation: true`, its `tool_creation_namespace` MUST NOT match any reserved namespace, and it MUST be listed in the workflow-level `dynamic_tools.allowed_namespaces`. Default namespace is `"dynamic"`. Prevents runtime-generated tools from shadowing built-ins or using undeclared namespaces.
+
+## R26: Dynamic Tool Creation Requires Code Mode and Workflow Flag
+
+- **Category:** Capabilities
+- **Level:** MUST
+- **Description:** When `capabilities.codemode.tool_creation: true`, both `capabilities.codemode.enabled` and workflow-level `dynamic_tools.enabled` MUST be `true`. Tool creation operates through the Code Mode SDK and requires an active `DynamicToolFactory` on the runtime.
+
+## R27: Evaluation Metric Kind Valid
+
+- **Category:** Evaluation
+- **Level:** MUST
+- **Description:** When `observability.evaluation.enabled: true`, every metric's `kind` MUST be one of the valid metric kinds (`llm_rubric`, `deterministic`, `schema`, `budget`, `policy`). Invalid kinds are rejected at load time so misconfigured evaluators cannot silently skip scoring.
+
+## R28: Evaluation Thresholds Consistent
+
+- **Category:** Evaluation
+- **Level:** MUST
+- **Description:** Evaluation thresholds (`accept`, `retry`, `fail`) MUST each lie in `[0.0, 1.0]` and MUST satisfy `accept >= retry >= fail`. Inverted or out-of-range thresholds are rejected so retry/accept decisions remain well-defined.
+
+## R29: Evaluation Metric Weights Non-Negative
+
+- **Category:** Evaluation
+- **Level:** MUST
+- **Description:** Every evaluation metric's `weight` MUST be `>= 0`, and at least one metric MUST have a strictly positive weight. Prevents degenerate aggregations where the weighted score is always zero.
+
+## R30: Evaluation Hooks and Retry Actions Valid
+
+- **Category:** Evaluation
+- **Level:** MUST
+- **Description:** `step_scores.hooks` MUST only contain valid hook names and `retry_policy.actions.below_retry` / `below_fail` MUST reference valid actions. Ensures the evaluation loop can always resolve a concrete action when a threshold is crossed.
+
+## R31: A4 max_depth Required and Non-Negative
+
+- **Category:** Orchestration (A4)
+- **Level:** MUST
+- **Description:** When `orchestration.delegation_loop.budget` is present, `max_depth` MUST be set to an integer `>= 0`. Use `max_depth: 0` to disable recursive submanager spawning, or `>= 1` to allow A4 delegation. Missing or negative values are rejected so recursion always has a finite ceiling.
+
+> **Note on the R31 label.** The validator rule `R31` above is the *A4 max_depth gate*. A different label also called "R31" appears inside the manager prompt in `packages/awp-runtime/src/awp/data/prompts.py` as "R31 Plan-Tool-Closure" — that is an unrelated prompt-level plan validator applied to each PLAN subtask's `tool_manifest`. The two live in different layers (static YAML validation vs. runtime plan grading) and share the label only by historical accident; do not conflate them.
+
+## R32: A4 max_depth Within Safety Ceiling
+
+- **Category:** Orchestration (A4)
+- **Level:** MUST
+- **Description:** `delegation_loop.budget.max_depth` MUST NOT exceed the hard ceiling of `10`. Values `> 5` emit a warning ("most A4 workflows complete with depth <= 3"). Deep recursion makes budget reasoning and debugging intractable; a flatter decomposition is always preferred.

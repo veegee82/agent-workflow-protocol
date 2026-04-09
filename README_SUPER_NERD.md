@@ -135,7 +135,7 @@ At every level, AWP maintains a fundamental invariant:
 
 > **Capability(level) ≤ Safety(level)**
 
-No agent can exercise a capability for which the system has not established the corresponding safety mechanism. This is not a guideline — it is enforced by the validator (rules R1–R30) and the compliance checker.
+No agent can exercise a capability for which the system has not established the corresponding safety mechanism. This is not a guideline — it is enforced by the validator (rules R1–R32) and the compliance checker.
 
 This invariant has a deep consequence: **you cannot accidentally build an unsafe system**. If you give an agent the ability to create tools (A3 capability) without defining a safety envelope (A3 requirement), the validator rejects the workflow. Safety is not something you add later — it is a structural precondition.
 
@@ -437,7 +437,7 @@ The ultimate promise of AWP in the enterprise is not automating individual tasks
 
 **Cross-domain intelligence**: When the product team's A/B test analysis reveals a revenue impact, the finance workflow automatically incorporates this signal. When operations detects a capacity constraint, the product prioritization workflow adjusts. Information flows through the agent network like signals through a nervous system.
 
-**Consistent methodology**: Every analysis across every department uses the same validation framework (R1–R30), the same confidence scoring, the same output contracts. The CFO can compare a finance team's quarterly forecast (confidence: 0.87) with a product team's growth projection (confidence: 0.73) using the same trust framework.
+**Consistent methodology**: Every analysis across every department uses the same validation framework (R1–R32), the same confidence scoring, the same output contracts. The CFO can compare a finance team's quarterly forecast (confidence: 0.87) with a product team's growth projection (confidence: 0.73) using the same trust framework.
 
 **Elastic scaling**: When quarter-end reporting creates a spike in analytical demand, the A4 orchestrator can dynamically allocate more workers to the finance domain by increasing its budget allocation — within the global safety envelope. This is infrastructure-as-code for cognitive work.
 

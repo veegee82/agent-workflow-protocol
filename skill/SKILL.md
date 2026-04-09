@@ -167,6 +167,27 @@ Key concepts:
   always holds. `reclaim_child()` refunds unused capacity when the sub-run
   finishes. This is what gives A4 its termination guarantees even under
   parallel recursive delegation.
+- **Submanager output merging (A4)**: Each submanager writes into its own
+  `output/<sub_run_id>/` sandbox under the parent workflow dir. On completion
+  the parent runner merges those files back into the parent `_output_dir`;
+  name collisions are renamed `<submanager_name>__<filename>`. The merged
+  filenames are attached to the child result as `_merged_files`.
+- **Completion gates**: before accepting a `COMPLETE` decision the runner
+  enforces (1) a **placeholder scanner** over `final_result` and text
+  deliverables (`TODO`, `XX%`, template stubs like `your`/`field_name`),
+  (2) a **file-validator gate** rejecting 1x1 PNGs and files `< 512 B`,
+  (3) a **deliverable-presence gate** that refuses completion when the task
+  text implies an artifact (image / pdf / csv / ...) and `_output_dir` is
+  empty, and (4) the critique-score gate (`min_score_to_complete`, default
+  `0.6`). Any gate firing forces another iteration with a targeted repair
+  hint in state. When a task-implied deliverable already exists on disk,
+  the critic's narrative pessimism is overruled (ground-truth bypass).
+- **Convergence detector**: the loop force-completes with
+  `reason: forced_convergence` when confidence delta across the last two
+  iterations is `< 0.05` or three consecutive iterations produce identical
+  `key_findings`. A sorted instruction-hash signature detects redundant
+  re-delegation and pushes the manager into DIAGNOSE instead of re-issuing
+  the same subtasks.
 
 When generating a delegation loop workflow:
 - The manager agent gets a full agent.awp.yaml with SYSTEM_PROMPT.md
@@ -282,6 +303,14 @@ The manager should include `code.execute` in the delegation envelope `tools_allo
 ```
 
 In `code.execute`, the variables `_workspace_dir` and `_output_dir` are automatically available.
+
+The runtime also auto-injects a small standard preamble into every `code.execute` snippet so common modules do not need to be imported in every call:
+
+- Pre-imported modules: `json`, `pathlib`, `re`, `math`, `datetime`, plus `os`/`sys`/`builtins` (aliased as `_os`, `_sys`, `_builtins`)
+- Pre-injected helpers: `_workspace_dir`, `_output_dir`, `_secrets`, `_ensure_dir()`, `_output_file()`, `_input_file()`, `_list_files()`, `_verify_png()`
+- Text-mode `open(path, "w")` is auto-upgraded to binary mode if the caller writes `bytes` (prevents `TypeError: write() argument must be str, not bytes` from LLM-written snippets).
+
+Note: each `code.execute` call is a **fresh subprocess** (unless a persistent executor is configured), so Python-level state (variables, DataFrames) does NOT persist across calls. Pass state via files under `_workspace_dir`.
 
 ### Dynamic Skill Generation
 
@@ -702,7 +731,7 @@ State the total file count and the target autonomy level.
 
 #### Step 6: Validation Preview
 
-List which of the 30 rules (R1-R30) apply and confirm they will be satisfied:
+List which of the 32 rules (R1-R32) apply and confirm they will be satisfied:
 
 > **Autonomy Target:** A{N} {Level Name}
 > **Applicable Rules:** R1-R{max} (all satisfied by this plan, up to R30 if evaluation enabled)
@@ -1996,6 +2025,6 @@ The `references/` directory contains condensed documentation for AI context:
 |-----------|---------|
 | `spec-summary.md` | Condensed AWP specification (~2000 words). |
 | `compliance-levels.md` | Quick reference for A0-A4 autonomy levels. |
-| `validation-rules.md` | R1-R30 checklist format. |
+| `validation-rules.md` | R1-R32 checklist format. |
 | `tools-reference.md` | Built-in MCP tool catalog. |
 | `architecture.md` | Architecture overview. |
