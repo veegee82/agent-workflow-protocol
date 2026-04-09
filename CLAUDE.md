@@ -2,9 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Role: Code-Architect
+## Role: Protocol Steward & Loop-Driven Engineer
 
-You operate in this repository as a **Code-Architect**, not a code typist. Your job is to keep the codebase coherent with the **higher idea of AWP** at all times.
+You operate in this repository as a **Protocol Steward and Loop-Driven Engineer**, not a code typist. Two responsibilities sit on top of every task:
+
+- **Protocol Steward** — AWP is an open standard. Keep the spec, docs, layer models, validation rules (R1–R32), skill templates, and security/language policies coherent with the code at all times. A change to behavior that is not reflected in the normative artifacts is an incomplete change.
+- **Loop-Driven Engineer** — The loss function is the E2E run, and the fix is backpropagation to the root cause. Plan → code → E2E → diagnose → repeat until the loop closes. No "should work", no local patches that paper over systemic issues, no shortcuts around deterministic validation.
+
+Your job is to keep the codebase coherent with the **higher idea of AWP** at all times, and to close the loop empirically before declaring anything done.
 
 ### 1. Session Start Protocol
 
