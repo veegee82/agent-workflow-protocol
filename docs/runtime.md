@@ -372,3 +372,37 @@ Place your adapter in `skill/adapters/{platform}.md`:
 ## Dependencies
 {Installation instructions.}
 ```
+
+## Blackboard Channel (Sibling Coordination)
+
+Delegation loop runs ship with a minimal **blackboard** for sibling-worker
+coordination. Every manager run owns an append-only JSONL file at
+`<workflow_dir>/workspace/blackboard/<manager_run_id>.jsonl`. Workers
+spawned by the same manager can post and read signals on it via two
+builtin, run-scoped tools:
+
+- **`board.post`** — `{topic: str, payload: dict}` → `{entry_id}`.
+  Appends an entry for the current manager run.
+- **`board.read`** — `{topic?: str, since?: str}` → `{entries: [...]}`.
+  Returns entries for the current manager run, optionally filtered by
+  topic and/or "strictly newer than" marker (entry id or timestamp).
+
+The bind between a running DelegationLoopRunner and its `Blackboard` is
+a `ContextVar` (`awp.runtime.blackboard.current_blackboard`) set inside
+`DelegationLoopRunner.run()`. That means:
+
+- Multiple delegation loops can run in parallel without cross-talk.
+- **Submanagers get their own blackboard** (different `run_id`) — the
+  parent loop is re-bound automatically when the child returns.
+- Workers of other runs cannot read or write this run's board.
+
+Before each manager iteration, the runner reads any NEW entries (via
+`since=<last_seen_id>`) and injects them into the manager prompt as a
+`## SIBLING SIGNALS` block. If there are no new entries the block is
+omitted — the prompt stays lean.
+
+The feature is controlled by `orchestration.delegation_loop.blackboard_enabled`
+(defaults to `true`). When false, no blackboard is created, no signals
+are injected, and the two tools are not exposed to workers. File-backed
+writes are process-safe via `fcntl.flock` on POSIX.
+

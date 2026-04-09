@@ -86,6 +86,12 @@ orchestration:
 #   # NOTE: shell.execute is forbidden — manager must use code.execute in tools_allowed.
 #   # Workers with codemode need: tools_allowed: [code.execute, file.read, file.write]
 #
+#     # Sibling coordination blackboard (default: true). Workers get the
+#     # run-scoped `board.post` / `board.read` tools automatically when on.
+#     blackboard_enabled: true
+#     # Optional blacklist for submanager state inheritance:
+#     # forbidden_inheritance_keys: [secret_token, raw_dump]
+#
 #     termination:
 #       enabled: true
 #       window: 3                              # Compare last N iterations

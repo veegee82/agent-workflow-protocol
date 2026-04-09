@@ -529,6 +529,21 @@ get stuck on a child:
   models can burn an entire `max_rounds=10` window calling the same
   broken `code.execute` payload over and over, blocking the parent loop.
 
+#### Sibling coordination: the per-run blackboard
+
+The communication layer (Layer 4) is not limited to parent↔child state
+hand-offs. Each manager run also owns a **run-scoped blackboard** — an
+append-only JSONL file under
+`<workspace>/blackboard/<manager_run_id>.jsonl` — that sibling workers
+can post to and read from via the builtin `board.post` / `board.read`
+tools. Before every manager iteration, any new entries are injected
+into the manager prompt as a `## SIBLING SIGNALS` block so the next
+decision can react to partial findings without waiting for the manager
+to stitch worker outputs together by hand. Submanagers get their own
+blackboard (different run id); parent and child never share signals.
+The feature is on by default and controlled by
+`orchestration.delegation_loop.blackboard_enabled`.
+
 #### Visualisation: nested sub-run clusters
 
 The graph builder reflects the sub-run hierarchy on disk one-to-one. For

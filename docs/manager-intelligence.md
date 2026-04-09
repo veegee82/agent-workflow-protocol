@@ -422,6 +422,48 @@ orchestration:
       strict: true             # No reservation override; hard terminate on exhaustion
 ```
 
+## Sibling Coordination via Blackboard
+
+Manager intelligence is not just about the manager loop — it is also about
+letting workers tell each other what they have learned, without round-
+tripping everything through the manager. AWP provides a minimal,
+run-scoped **blackboard** for that.
+
+Each manager run owns an append-only JSONL log at
+`<workspace>/blackboard/<run_id>.jsonl`. Workers call two builtin tools:
+
+- `board.post(topic, payload)` — broadcast a finding to siblings.
+- `board.read(topic?, since?)` — retrieve sibling signals, optionally
+  filtered by topic and "strictly newer than" marker.
+
+Typical uses:
+
+- **De-duplication** — a worker posts `{topic: "fetched", payload:
+  {url: "…"}}`, siblings skip URLs they see on the board.
+- **Dead-end signalling** — a worker posts `{topic: "dead_end",
+  payload: {path, reason}}` so siblings avoid the same hole.
+- **Partial hand-off** — structured intermediates that the next
+  iteration's workers can pick up without waiting for the manager
+  to summarise.
+
+Before every manager iteration, the runner injects NEW entries into the
+manager prompt as a `## SIBLING SIGNALS` block (silent when empty). The
+manager can then react (cancel a redundant sub-task, promote a follow-
+up, repair a reported failure).
+
+**Isolation rules**:
+
+- The board is bound to the currently-executing manager run via a
+  `ContextVar`. Other runs cannot see it.
+- **Submanagers get their OWN board** — they never share signals with
+  the parent. Recursion stays clean.
+- Controlled by `orchestration.delegation_loop.blackboard_enabled`
+  (default `true`). Set to `false` to disable the feature entirely.
+
+Unlike the other Manager Intelligence features, the blackboard defaults
+to **enabled** — it has zero cost when unused (no entries = no prompt
+injection, silent feature).
+
 ## Backward Compatibility
 
 All Manager Intelligence features default to **disabled**. Existing workflows continue to work without any changes. The features only activate when explicitly enabled in the YAML configuration. No new dependencies or breaking changes are introduced.

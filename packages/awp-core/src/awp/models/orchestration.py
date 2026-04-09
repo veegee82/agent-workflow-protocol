@@ -430,6 +430,15 @@ class DelegationLoopConfig(BaseModel):
     # field, and an explicit per-delegation ``inherited_state_keys`` whitelist
     # still wins over this default (full backward compatibility).
     forbidden_inheritance_keys: list[str] = Field(default_factory=list)
+    # Blackboard channel for sibling-worker coordination.
+    #
+    # When enabled (default), every manager run gets its own append-only
+    # JSONL blackboard at `<workspace>/blackboard/<manager_run_id>.jsonl`.
+    # Workers receive two run-scoped tools (`board.post` / `board.read`)
+    # so siblings can broadcast partial findings to the next manager
+    # iteration. Submanagers get their OWN blackboard (different run_id);
+    # parent and child never share signals.
+    blackboard_enabled: bool = True
 
     model_config = {"extra": "allow"}
 

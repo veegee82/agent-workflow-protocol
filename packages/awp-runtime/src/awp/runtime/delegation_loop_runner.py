@@ -1910,6 +1910,28 @@ class DelegationLoopRunner:
         self._inherited_state = inherited_state or {}
         self._logger = RunLogger(run_dir, fmt=config.logging.format)
 
+        # Blackboard (sibling coordination) — one per manager run.
+        # Submanagers automatically get their own because every
+        # DelegationLoopRunner construction picks a distinct run_id
+        # and a fresh Blackboard instance (see blackboard.py).
+        from .blackboard import Blackboard as _Blackboard
+        self._blackboard: Optional[_Blackboard] = None
+        self._last_blackboard_seen_id: Optional[str] = None
+        if getattr(config, "blackboard_enabled", True):
+            try:
+                self._blackboard = _Blackboard(
+                    workspace=self._dir / "workspace",
+                    manager_run_id=self._run_id,
+                )
+                logger.info(
+                    "Blackboard active for run %s at %s",
+                    self._run_id,
+                    self._blackboard.path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not init blackboard: %s", exc)
+                self._blackboard = None
+
         # Iteration label counter — separate from budget.loops_used so that
         # child-budget reservations (which pre-charge loops to the parent)
         # don't make the manager iteration counter jump (e.g. 3 → 10 → 16).
@@ -2012,12 +2034,23 @@ class DelegationLoopRunner:
         final_result: Dict[str, Any] = {}
         status = "unknown"
 
+        # Bind this run's blackboard to the contextvar so the
+        # `board.post` / `board.read` builtin tools serve THIS run
+        # (and only this run). Submanagers re-bind inside their own
+        # `run()` call; the token stack restores the parent on return.
+        from .blackboard import current_blackboard as _current_bb
+        _bb_token = _current_bb.set(self._blackboard)
         try:
             final_result, status = self._loop(task, state)
         except Exception as exc:
             logger.error("DelegationLoop error: %s", exc)
             final_result = {"error": str(exc), "confidence": 0.0}
             status = "error"
+        finally:
+            try:
+                _current_bb.reset(_bb_token)
+            except Exception:
+                pass
 
         self._logger.log_completion(
             self._run_id,
@@ -3681,6 +3714,37 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         """Build the user message for the manager with context."""
         parts = [f"## Original Task\n{task}\n"]
 
+        # Sibling coordination: inject any NEW blackboard entries since
+        # the last time the manager was invoked. Silent when empty so
+        # the prompt stays lean. Scoped to this manager run only.
+        if self._blackboard is not None:
+            try:
+                new_entries = self._blackboard.read(
+                    since=self._last_blackboard_seen_id
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Blackboard read failed: %s", exc)
+                new_entries = []
+            if new_entries:
+                bb_lines = [
+                    "## SIBLING SIGNALS",
+                    (
+                        "Signals posted by workers in THIS manager run "
+                        "since the last iteration. Use them to avoid "
+                        "duplicate work and to react to partial findings."
+                    ),
+                ]
+                for e in new_entries[-20:]:  # cap to keep prompt bounded
+                    bb_lines.append(
+                        f"- [{e.get('topic', '?')}] "
+                        f"by {e.get('worker_id', '?')}: "
+                        f"{json.dumps(e.get('payload', {}), default=str, ensure_ascii=False)[:400]}"
+                    )
+                parts.append("\n".join(bb_lines) + "\n")
+                last_id = new_entries[-1].get("id")
+                if isinstance(last_id, str):
+                    self._last_blackboard_seen_id = last_id
+
         # Budget status
         parts.append(
             f"## Budget Status\n```json\n{json.dumps(self._budget.to_dict(), indent=2)}\n```\n"
@@ -5043,6 +5107,15 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             logger.info(
                 "Worker %s: auto-added code.execute (codemode.enabled=true)", worker_id
             )
+
+        # Expose the sibling-coordination blackboard tools when the
+        # feature is enabled. They are run-scoped (bound via ContextVar
+        # in `run()`), so every worker in this manager run sees the
+        # same board, while workers in other runs cannot touch it.
+        if self._blackboard is not None:
+            for bb_tool in ("board.post", "board.read"):
+                if bb_tool not in tools_allowed:
+                    tools_allowed = list(tools_allowed) + [bb_tool]
 
         envelope["codemode"] = codemode
         envelope["tools_allowed"] = tools_allowed

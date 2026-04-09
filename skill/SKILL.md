@@ -142,6 +142,13 @@ orchestration:
     logging:
       format: dual
       persist_artifacts: true
+    # Sibling-coordination blackboard (default: true). When enabled,
+    # every manager run gets an append-only JSONL board and workers
+    # receive the `board.post` / `board.read` run-scoped tools.
+    blackboard_enabled: true
+    # Optional selective-forget blacklist for submanager state inheritance.
+    # Keys listed here are stripped before being passed to child runs.
+    # forbidden_inheritance_keys: [secret_token, raw_dump]
 ```
 
 Key concepts:
@@ -176,6 +183,19 @@ Key concepts:
      workflow config — add `forbidden_inheritance_keys: [secret_token, ...]`
      under `delegation_loop` to strip sensitive/oversized keys globally).
   3. If neither is set, the full parent state is passed through.
+- **Sibling coordination via blackboard (A2-A4)**: Every manager run owns
+  a run-scoped append-only JSONL board at
+  `<workspace>/blackboard/<manager_run_id>.jsonl`. Workers get two
+  builtin tools — **`board.post`** (`topic`, `payload`) and
+  **`board.read`** (`topic?`, `since?`) — to broadcast partial findings,
+  dead ends, and de-duplication hints to their siblings. Before every
+  manager iteration, new entries are injected into the manager prompt as
+  a `## SIBLING SIGNALS` block (silent when empty). Submanagers get
+  their OWN blackboard (different run id) and never share signals with
+  the parent. Controlled by `delegation_loop.blackboard_enabled`
+  (default `true`). Workers do NOT need to list `board.post` / `board.read`
+  in `tools_allowed` — the runtime injects them automatically when the
+  feature is on.
 - **Content-aware redundancy guard (A2-A4)**: The delegation signature used
   to veto duplicate dispatches now hashes worker instructions **together
   with a canonical JSON of the context the envelope references** (`context`,
@@ -982,6 +1002,7 @@ self-contained and can run without a full AWP runtime providing built-in tool st
 | `memory.write` / `memory.read` / `memory.search` / `memory.curate` | Use file-based storage in a `{workflow_dir}/.memory/` directory. |
 | `agent.send_message` / `agent.list_messages` | Use file-based message queue in `{workflow_dir}/.messages/`. |
 | `arithmetic.*` | Direct Python arithmetic operations. |
+| `board.post` / `board.read` | **Run-scoped sibling-coordination blackboard** (delegation loop only). Append-only JSONL at `<workspace>/blackboard/<manager_run_id>.jsonl`. `board.post(topic, payload)` appends an entry, `board.read(topic?, since?)` returns entries (optionally filtered). Siblings in the SAME manager run see each other's signals; other runs (and submanagers, which get their own board) cannot. Workers don't need to list these explicitly — the runtime injects them automatically when `delegation_loop.blackboard_enabled` is `true` (the default). |
 
 **Note:** When tool implementation mode is **disabled** (the default), this step is
 skipped entirely. Built-in tool FQNs in `tools.allowed` are assumed to be provided

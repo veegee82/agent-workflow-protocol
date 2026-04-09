@@ -462,6 +462,117 @@ class ToolRegistry:
             "Make an HTTP request",
         )
 
+        # -- Blackboard (sibling coordination) ------------------------
+        # These two tools are run-scoped: they only touch the
+        # Blackboard instance bound to the currently-executing
+        # manager run via `blackboard.current_blackboard` (a
+        # ContextVar set by DelegationLoopRunner). Workers cannot
+        # read or write blackboards of other runs — sibling
+        # coordination only.
+        self._register(
+            "board.post",
+            self._board_post,
+            {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": (
+                            "Short topic label (e.g. 'findings', "
+                            "'dead_end', 'progress'). Siblings filter by this."
+                        ),
+                    },
+                    "payload": {
+                        "type": "object",
+                        "description": (
+                            "Arbitrary JSON-serialisable dict with the "
+                            "signal content you want siblings to see."
+                        ),
+                    },
+                },
+                "required": ["topic", "payload"],
+            },
+            (
+                "Post a signal to the sibling-coordination blackboard for "
+                "the current manager run. Run-scoped: other runs cannot see it."
+            ),
+        )
+        self._register(
+            "board.read",
+            self._board_read,
+            {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": (
+                            "Optional topic filter — only return entries "
+                            "with this exact topic."
+                        ),
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": (
+                            "Optional: entry id or timestamp — only return "
+                            "entries strictly newer than this marker."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+            (
+                "Read signals from the sibling-coordination blackboard for "
+                "the current manager run. Run-scoped: cannot read other runs."
+            ),
+        )
+
+    # -- Blackboard tool implementations --------------------------
+    def _board_post(
+        self,
+        topic: str,
+        payload: dict,
+        **_: Any,
+    ) -> dict[str, Any]:
+        from .blackboard import current_blackboard
+
+        board = current_blackboard.get()
+        if board is None:
+            return _err(
+                "board.post unavailable: no blackboard bound to this run",
+                503,
+            )
+        if not isinstance(payload, dict):
+            return _err("payload must be a dict", 400)
+        try:
+            entry_id = board.post(
+                topic=topic,
+                payload=payload,
+                worker_id=self._current_agent_id or "",
+            )
+        except Exception as exc:
+            return _err(f"board.post failed: {exc}", 500)
+        return _ok({"entry_id": entry_id})
+
+    def _board_read(
+        self,
+        topic: Optional[str] = None,
+        since: Optional[str] = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        from .blackboard import current_blackboard
+
+        board = current_blackboard.get()
+        if board is None:
+            return _err(
+                "board.read unavailable: no blackboard bound to this run",
+                503,
+            )
+        try:
+            entries = board.read(topic=topic, since=since)
+        except Exception as exc:
+            return _err(f"board.read failed: {exc}", 500)
+        return _ok({"entries": entries})
+
     def _register(
         self,
         name: str,
