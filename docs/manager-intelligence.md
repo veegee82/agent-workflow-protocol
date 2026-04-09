@@ -386,6 +386,16 @@ In addition to `max_depth`, `budget.max_concurrent_submanagers` (default **3**) 
 
 Cross-references: the [runtime tool generation pipeline](runtime-tool-generation.md) interacts with auto-promotion — submanagers inherit the parent's `dynamic_tools` policy and can register tools visible to their entire sub-tree.
 
+### Submanager state inheritance (default inherit-all + selective forget)
+
+Submanagers inherit the parent's full state dict by default so children are never "born blind". The precedence for resolving the inherited slice is:
+
+1. **Explicit whitelist (legacy, still wins).** If the envelope carries a non-empty `inherited_state_keys` list, only those keys are copied. Existing workflows that rely on explicit filtering keep working unchanged.
+2. **Selective-forget blacklist.** Otherwise, every parent key is inherited *except* those listed in the envelope's `forbidden_inheritance_keys` or in the workflow-wide `delegation_loop.forbidden_inheritance_keys` config (per-envelope overrides merge with the config-level default). Use this for secrets, oversized blobs, or scratch data that would only confuse the child.
+3. **Default.** If neither is set, the child sees the full parent state. This is the common case for recursive decomposition where a submanager needs the same context as its parent to reason about the sub-task.
+
+Because the blacklist can live on the config (not just the envelope), workflow authors can set a single forget-list once and every spawned submanager honours it automatically.
+
 ## Budget Reservation Model and Termination Guarantees
 
 The [predictive phase reservation](#predictive-budget-reservation) above splits a single manager's budget across phases. The **reservation model** described here is the broader, A4-aware version: it guarantees that *every sub-tree* gets a hard, refundable budget envelope, so a runaway submanager can never exhaust the parent's reserves.

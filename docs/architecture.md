@@ -423,8 +423,13 @@ forgets to set every field):
    agent dir), `submanager_budget_fraction` (default is computed dynamically
    as `min(0.3, 0.8 / n)` where *n* is the number of submanagers in the
    same dispatch, so total concurrent submanager spend is bounded at 80%
-   of the parent envelope), and `inherited_state_keys` (the only state
-   passed down).
+   of the parent envelope). State inheritance follows a three-level
+   precedence: an explicit per-envelope `inherited_state_keys` whitelist wins
+   over everything (legacy behavior), otherwise every parent state key is
+   inherited *except* those listed in `forbidden_inheritance_keys` (readable
+   from the envelope or from the top-level `delegation_loop.forbidden_inheritance_keys`
+   config as a workflow-wide default); when neither is set the child inherits
+   the full parent state (children are no longer "born blind").
 2. **Plan-driven:** during the PLAN decision, a subtask is declared with
    `delegation_strategy: "submanager"`. Any subsequent DELEGATE that links
    to that `subtask_id` is upgraded to a sub-manager spawn automatically.
@@ -478,7 +483,13 @@ get stuck on a child:
   the confidence delta across the last two iterations is below 0.05 or
   when three consecutive iterations produce identical `key_findings`.
   In parallel, every dispatch is signed via a sorted hash of normalized
-  worker instructions (`_delegation_signature`); if a new dispatch
+  worker instructions **combined with a stable canonical JSON of any
+  context payload the envelope references** (`context`, `input_context`,
+  or the set of `inherited_state_keys`). This makes `_delegation_signature`
+  content-aware so two workers with identical instructions but different
+  input context are no longer flagged as redundant; envelopes that
+  reference no context hash identically to the legacy signature (fully
+  backward compatible). If a new dispatch
   matches a past signature *and* the last iteration's mean critique
   score is below `critique.min_score_to_complete` (default **0.6**),
   the DELEGATE decision is overridden and the manager is forced into
@@ -491,10 +502,14 @@ get stuck on a child:
   `StallDetector` and per-subtask iteration tracking as the top-level
   manager. A stuck branch detects itself, force-completes within its own
   budget window, and propagates back as a low-confidence result.
-- **State subset only.** Children see only the keys listed in
-  `inherited_state_keys`, never the full parent state. This prevents
-  cross-branch leakage and keeps the child's prompt small enough to
-  finish within its allocated tokens.
+- **Default inherit-all with selective forget.** Submanagers inherit the
+  full parent state by default so children are never "born blind". Keys
+  listed in `forbidden_inheritance_keys` (per-envelope or in the workflow-
+  wide `delegation_loop.forbidden_inheritance_keys` config) are stripped
+  before the child sees them, and an explicit per-envelope
+  `inherited_state_keys` whitelist still wins over both (backward
+  compatible). This closes the "blind child" failure mode while still
+  allowing sensitive or oversized keys to be withheld at will.
 - **Auto-promotion of stuck subtasks.** When a normal-worker subtask is
   stuck for more than `MAX_SUBTASK_ITERATIONS` (default 5) and recursion
   is still allowed, the runtime promotes the subtask to

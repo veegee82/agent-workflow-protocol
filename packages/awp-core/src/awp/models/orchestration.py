@@ -421,6 +421,15 @@ class DelegationLoopConfig(BaseModel):
     diagnosis: DiagnosisConfig = Field(default_factory=DiagnosisConfig)
     budget_reservation: BudgetReservationConfig = Field(default_factory=BudgetReservationConfig)
     decision_journal: DecisionJournalConfig = Field(default_factory=DecisionJournalConfig)
+    # Selective-forget blacklist for submanager state inheritance.
+    #
+    # By default, a spawned submanager inherits ALL parent state keys so
+    # children are not "born blind". Any key listed here is stripped from
+    # the inherited state before it reaches the child. Per-delegation
+    # overrides are supported via the envelope's ``forbidden_inheritance_keys``
+    # field, and an explicit per-delegation ``inherited_state_keys`` whitelist
+    # still wins over this default (full backward compatibility).
+    forbidden_inheritance_keys: list[str] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
 

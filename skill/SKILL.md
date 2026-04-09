@@ -167,6 +167,22 @@ Key concepts:
   always holds. `reclaim_child()` refunds unused capacity when the sub-run
   finishes. This is what gives A4 its termination guarantees even under
   parallel recursive delegation.
+- **Submanager state inheritance (A4)**: Submanagers inherit the parent's
+  **full state dict by default** (children are no longer "born blind").
+  Precedence when resolving the inherited slice:
+  1. Explicit per-envelope `inherited_state_keys` whitelist wins (legacy).
+  2. Otherwise, inherit all keys except those in `forbidden_inheritance_keys`
+     (per-envelope or at `delegation_loop.forbidden_inheritance_keys` in the
+     workflow config — add `forbidden_inheritance_keys: [secret_token, ...]`
+     under `delegation_loop` to strip sensitive/oversized keys globally).
+  3. If neither is set, the full parent state is passed through.
+- **Content-aware redundancy guard (A2-A4)**: The delegation signature used
+  to veto duplicate dispatches now hashes worker instructions **together
+  with a canonical JSON of the context the envelope references** (`context`,
+  `input_context`, or the set of `inherited_state_keys`). Identical
+  instructions run against different input contexts are no longer falsely
+  flagged as redundant. Envelopes that carry no context hash identically
+  to the legacy signature, so existing workflows are unaffected.
 - **Submanager output merging (A4)**: Each submanager writes into its own
   `output/<sub_run_id>/` sandbox under the parent workflow dir. On completion
   the parent runner merges those files back into the parent `_output_dir`;

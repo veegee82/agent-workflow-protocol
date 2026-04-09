@@ -4619,8 +4619,52 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         return " ".join(text.lower().split())[:500]
 
     @staticmethod
+    def _canonical_context(env: dict) -> str:
+        """Build a stable canonical JSON representation of the context the
+        envelope references. Used to make delegation signatures content-aware
+        so two workers with identical instructions but different input context
+        are no longer flagged as redundant.
+
+        Sources considered, in order of precedence:
+          1. explicit ``context`` dict on the envelope (preferred by newer
+             manager prompts),
+          2. ``input_context`` dict (legacy alias),
+          3. ``inherited_state_keys`` list — if present we emit a sorted
+             marker list (the keys themselves are part of the context
+             because the *set of referenced keys* differentiates two
+             otherwise identical delegations).
+
+        Returns an empty string when the envelope references no context, so
+        behavior is fully backward compatible with the legacy instructions-
+        only signature.
+        """
+        if not isinstance(env, dict):
+            return ""
+        ctx = env.get("context")
+        if not isinstance(ctx, dict) or not ctx:
+            ctx = env.get("input_context")
+        if isinstance(ctx, dict) and ctx:
+            try:
+                return json.dumps(ctx, sort_keys=True, default=str)
+            except (TypeError, ValueError):
+                return repr(sorted(ctx.items()))
+        keys = env.get("inherited_state_keys")
+        if isinstance(keys, (list, tuple)) and keys:
+            return json.dumps(
+                {"_inherited_keys": sorted(str(k) for k in keys)},
+                sort_keys=True,
+            )
+        return ""
+
+    @staticmethod
     def _delegation_signature(envelopes: list[dict]) -> tuple[str, ...]:
-        """Stable signature for a delegation dispatch (P4 redundancy detection)."""
+        """Stable signature for a delegation dispatch (P4 redundancy detection).
+
+        Content-aware: hashes both the normalized instructions *and* a stable
+        canonical representation of any context payload referenced by the
+        envelope. Envelopes that reference no context hash identically to
+        the legacy instructions-only signature (backward compatible).
+        """
         import hashlib
 
         sigs: list[str] = []
@@ -4628,7 +4672,15 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             instr = DelegationLoopRunner._normalize_instructions(
                 env.get("instructions", "") if isinstance(env, dict) else ""
             )
-            sigs.append(hashlib.sha256(instr.encode("utf-8")).hexdigest()[:16])
+            ctx_repr = DelegationLoopRunner._canonical_context(
+                env if isinstance(env, dict) else {}
+            )
+            if ctx_repr:
+                payload = instr + "\x1f" + ctx_repr
+            else:
+                # Legacy path — pure instructions hash for backward compat.
+                payload = instr
+            sigs.append(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16])
         return tuple(sorted(sigs))
 
     def _merge_submanager_outputs(
@@ -4713,11 +4765,34 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if not sub_agent_path:
             sub_agent_path = self._config.manager  # fall back to parent's manager
 
-        # 2. Build inherited state subset (explicit keys only — no leakage)
-        inherited_keys = envelope.get("inherited_state_keys", [])
-        inherited = {
-            k: state.get(k) for k in inherited_keys if k in state
-        }
+        # 2. Build inherited state subset.
+        #
+        # Precedence (highest to lowest):
+        #   (a) Explicit whitelist — envelope ``inherited_state_keys`` set
+        #       and non-empty. Only the listed keys are copied (legacy
+        #       behavior, fully backward compatible for workflows that
+        #       already set it).
+        #   (b) Blacklist + default inherit-all — pass every parent state
+        #       key except those listed in ``forbidden_inheritance_keys``
+        #       (read from the envelope first, then from the delegation
+        #       loop config as a workflow-wide default).
+        #   (c) Default — inherit everything the parent currently holds.
+        inherited: dict
+        whitelist = envelope.get("inherited_state_keys")
+        if isinstance(whitelist, (list, tuple)) and len(whitelist) > 0:
+            inherited = {k: state.get(k) for k in whitelist if k in state}
+        else:
+            forbidden_env = envelope.get("forbidden_inheritance_keys") or []
+            forbidden_cfg = list(
+                getattr(self._config, "forbidden_inheritance_keys", []) or []
+            )
+            forbidden = set()
+            for item in list(forbidden_env) + forbidden_cfg:
+                if isinstance(item, str):
+                    forbidden.add(item)
+            inherited = {
+                k: v for k, v in (state or {}).items() if k not in forbidden
+            }
 
         # 3. Allocate child budget (hard-cap fraction).
         # P6: dynamic fraction — when several submanagers spawn in the same
