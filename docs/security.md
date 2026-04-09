@@ -12,7 +12,7 @@ The defenses are layered (defense-in-depth):
 4. **Budget reservation model (A4 termination guarantee)** — Every delegation reserves a portion of the parent's budget *before* the child runs. Submanagers inherit a strictly smaller envelope, and the runtime refuses to spawn beyond `max_depth`. This is what makes recursive delegation provably terminating. See [compliance.md](compliance.md).
 5. **Circuit breakers, rate limits, ACLs** — The classical operational defenses below.
 6. **Secrets management** — Secrets never leave their backend in plain text and are redacted from every observability sink ([observability.md](observability.md)).
-7. **Provider/model routing** — The model string (`openai/gpt-5-nano`, `claude-*`, `ollama/*`, ...) determines which API key gets used; per-step model attribution is recorded in the audit trail so you can answer "which model saw this prompt?" after the fact.
+7. **Provider/model routing** — The model string (`openai/gpt-5-mini`, `claude-*`, `ollama/*`, ...) determines which API key gets used; per-step model attribution is recorded in the audit trail so you can answer "which model saw this prompt?" after the fact.
 
 Security is a cross-cutting concern that applies across all AWP layers. It is configured in the `security` section of [workflow.awp.yaml](manifest.md).
 

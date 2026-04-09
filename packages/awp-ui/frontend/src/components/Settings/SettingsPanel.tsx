@@ -654,7 +654,7 @@ function ModelSection() {
             type="text"
             value={config.worker_model ?? ''}
             onChange={(e) => updateConfig({ worker_model: e.target.value || undefined })}
-            placeholder="openai/gpt-5-nano"
+            placeholder="openai/gpt-5-mini"
             className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
           />
         </div>

@@ -147,7 +147,7 @@ orchestration:
 
     models:
       manager: nvidia/nemotron-3-super-120b-a12b   # default manager model
-      worker:  openai/gpt-5-nano                   # default worker model
+      worker:  openai/gpt-5-mini                   # default worker model
 
     worker_policy:
       enforced:

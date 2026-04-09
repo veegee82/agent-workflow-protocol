@@ -23,6 +23,26 @@ logger = logging.getLogger(__name__)
 _X_SPACING = 280
 _Y_SPACING = 160
 
+# Sub-run cluster geometry
+_CLUSTER_PAD_X = 60
+_CLUSTER_PAD_Y = 30
+_CLUSTER_HEADER_H = 70
+
+# Distinct hue per recursion depth so the eye can quickly tell levels apart
+_DEPTH_PALETTE = [
+    {"border": "#7C3AED", "bg": "rgba(124, 58, 237, 0.06)", "label": "#A78BFA"},  # depth 1: violet
+    {"border": "#EC4899", "bg": "rgba(236, 72, 153, 0.06)", "label": "#F472B6"},  # depth 2: pink
+    {"border": "#06B6D4", "bg": "rgba(6, 182, 212, 0.06)", "label": "#22D3EE"},   # depth 3: cyan
+    {"border": "#F59E0B", "bg": "rgba(245, 158, 11, 0.06)", "label": "#FBBF24"},  # depth 4: amber
+]
+
+
+def _palette_for_depth(depth: int) -> dict[str, str]:
+    """Return a colour theme for a recursion depth (cycles for very deep trees)."""
+    if depth <= 0:
+        depth = 1
+    return _DEPTH_PALETTE[(depth - 1) % len(_DEPTH_PALETTE)]
+
 # Colors
 _COLORS = {
     "green": "#00E676",
@@ -187,6 +207,191 @@ def build_graph(run_dir: Path) -> GraphData:
     return GraphData(nodes=nodes, edges=edges, stats=stats)
 
 
+def _walk_subrun_clustered(
+    sub_dir: Path,
+    triggering_worker_node_id: str,
+    triggering_worker_data: dict[str, Any],
+    nodes: list[GraphNode],
+    edges: list[GraphEdge],
+    stats: dict[str, Any],
+    prefix: str,
+    depth: int,
+) -> int:
+    """Walk a sub-run and wrap all of its nodes inside a ``subRunCluster``.
+
+    The cluster acts as a visual container (rendered as a coloured outlined
+    box in the frontend). Children inside the cluster are repositioned to
+    be parent-relative as required by React Flow's subflow API.
+
+    Returns the depth level (in the parent's coordinate space) reached by
+    the sub-run, which is one — the cluster collapses the entire sub-run
+    into a single visual unit so the parent layout doesn't have to grow.
+    """
+    # 1. Snapshot list lengths so we can identify which nodes/edges this
+    #    walk is responsible for
+    nodes_before = len(nodes)
+    edges_before = len(edges)
+
+    # 2. Create the cluster placeholder. We will set its position + style
+    #    after the inner walk has finished and we know its bounding box.
+    cluster_id = _uid(f"{prefix}cluster")
+    sub_manifest = _read_json(sub_dir / "run_manifest.json") or {}
+    sub_run_id = sub_manifest.get("run_id", sub_dir.name)
+    sub_models = sub_manifest.get("models", {})
+    sub_budget = sub_manifest.get("budget", {})
+    palette = _palette_for_depth(depth)
+
+    cluster_node = GraphNode(
+        id=cluster_id,
+        type="subRunCluster",
+        position={"x": 0, "y": 0},  # placeholder, set below
+        data={
+            "label": (
+                f"⤷ Submanager: {triggering_worker_data.get('worker_id', '?')}"
+                f"  ·  depth {depth}"
+            ),
+            "nodeType": "subRunCluster",
+            "depth": depth,
+            "sub_run_id": sub_run_id,
+            "triggering_worker": triggering_worker_data.get("worker_id"),
+            "triggering_node_id": triggering_worker_node_id,
+            "manager_model": sub_models.get("manager"),
+            "worker_model": sub_models.get("worker"),
+            "budget": sub_budget,
+            "palette": palette,
+        },
+        style={
+            "background": palette["bg"],
+            "border": f"2px dashed {palette['border']}",
+            "borderRadius": "12px",
+            "padding": "0px",
+        },
+        zIndex=-(10 + depth),  # negative so children render above the box
+    )
+    nodes.append(cluster_node)
+
+    # 3. Walk the sub-run normally. The triggering worker is the visual
+    #    parent so the connecting edge points into the cluster, but the
+    #    walk uses an internal coordinate system starting at (0, 0).
+    inner_max_level = _walk_run(
+        sub_dir,
+        triggering_worker_node_id,
+        base_level=0,
+        x_offset=0,
+        nodes=nodes,
+        edges=edges,
+        stats=stats,
+        prefix=f"{prefix}sub_{triggering_worker_data.get('worker_id', '?')}_",
+        depth=depth,
+    )
+
+    # 4. Identify the nodes added by THIS walk (excluding the cluster itself)
+    new_nodes = nodes[nodes_before + 1 :]
+    if not new_nodes:
+        # Empty sub-run — drop the cluster entirely so the layout stays clean
+        nodes.pop(nodes_before)
+        return 0
+
+    # 5. Find the direct children (nodes that were not assigned to a deeper
+    #    cluster by a recursive call). These are what we re-parent.
+    direct_children = [n for n in new_nodes if n.parentNode is None]
+    nested_clusters = [
+        n for n in new_nodes
+        if n.parentNode is None and n.type == "subRunCluster"
+    ]
+
+    # Statistics so the frontend can show meaningful collapse summaries and a
+    # navigator tree without re-walking the graph.
+    descendant_count = len(new_nodes)
+    worker_count = sum(
+        1 for n in new_nodes if n.type in ("worker", "submanager")
+    )
+    iteration_count = sum(1 for n in new_nodes if n.type == "iteration")
+    nested_cluster_count = len(nested_clusters)
+    cluster_node.data["descendant_count"] = descendant_count
+    cluster_node.data["worker_count"] = worker_count
+    cluster_node.data["iteration_count"] = iteration_count
+    cluster_node.data["nested_cluster_count"] = nested_cluster_count
+    # Deep clusters start collapsed so the initial view stays compact;
+    # the user can expand them on demand from the header or the navigator.
+    cluster_node.data["auto_collapse"] = depth >= 2
+
+    # 6. Compute bounding box of direct children in their absolute coords
+    if direct_children:
+        # Each direct child has an (x, y); we also need to know how big
+        # they are so the cluster doesn't clip them. Use generous defaults.
+        NODE_W = 220
+        NODE_H = 130
+        min_x = min(n.position["x"] for n in direct_children)
+        min_y = min(n.position["y"] for n in direct_children)
+        max_x = max(n.position["x"] for n in direct_children) + NODE_W
+        max_y = max(n.position["y"] for n in direct_children) + NODE_H
+
+        cluster_w = (max_x - min_x) + 2 * _CLUSTER_PAD_X
+        cluster_h = (max_y - min_y) + _CLUSTER_HEADER_H + 2 * _CLUSTER_PAD_Y
+    else:
+        min_x = min_y = 0
+        cluster_w, cluster_h = 400, 200
+
+    # 7. Re-parent direct children to the cluster and re-position relative
+    #    to its origin (cluster's top-left corner sits at (0, 0) in its own
+    #    coordinate system; children get _CLUSTER_PAD_X and _CLUSTER_HEADER_H
+    #    offsets so they don't overlap the header).
+    for child in direct_children:
+        child.parentNode = cluster_id
+        child.extent = "parent"
+        child.position = {
+            "x": child.position["x"] - min_x + _CLUSTER_PAD_X,
+            "y": child.position["y"] - min_y + _CLUSTER_HEADER_H,
+        }
+
+    # 8. Set cluster geometry
+    cluster_node.style.update(
+        {
+            "width": cluster_w,
+            "height": cluster_h,
+        }
+    )
+
+    # 9. Position the cluster itself relative to the triggering worker
+    #    (the parent's coordinate frame). Stack vertically below the worker.
+    triggering_node = next(
+        (n for n in nodes if n.id == triggering_worker_node_id), None
+    )
+    if triggering_node is not None:
+        cluster_node.position = {
+            "x": triggering_node.position["x"] - cluster_w / 2 + 50,
+            "y": triggering_node.position["y"] + 180,
+        }
+
+    # 10. Mark every edge created INSIDE this cluster with a hint so the
+    #     frontend can render them in the depth-palette colour
+    for e in edges[edges_before:]:
+        e.data = e.data or {}
+        e.data["clusterDepth"] = depth
+        e.data["clusterColor"] = palette["border"]
+
+    # 11. Add a fat connection edge from the triggering worker into the
+    #     cluster to make the parent→cluster relationship visually obvious
+    edges.append(
+        GraphEdge(
+            id=f"edge_{triggering_worker_node_id}_to_{cluster_id}",
+            source=triggering_worker_node_id,
+            target=cluster_id,
+            type="default",
+            animated=True,
+            style={
+                "stroke": palette["border"],
+                "strokeWidth": 3,
+                "strokeDasharray": "8,4",
+            },
+            data={"clusterEdge": True, "depth": depth},
+        )
+    )
+
+    return 1
+
+
 def _walk_run(
     run_path: Path,
     parent_id: str,
@@ -196,6 +401,7 @@ def _walk_run(
     edges: list[GraphEdge],
     stats: dict[str, Any],
     prefix: str,
+    depth: int = 0,
 ) -> int:
     """Recursively walk a run directory and build nodes/edges."""
     manifest = _read_json(run_path / "run_manifest.json")
@@ -327,6 +533,13 @@ def _walk_run(
             tools_allowed = envelope.get("tools_allowed", [])
             w_confidence = result.get("confidence")
             has_error = bool(result.get("error"))
+            # A4: detect submanager workers (set by DelegationLoopRunner._spawn_submanager)
+            is_submanager = bool(
+                result.get("_submanager")
+                or envelope.get("as_submanager")
+            )
+            sub_depth = result.get("_submanager_depth")
+            sub_run_id = result.get("_submanager_run_id")
             if "_eval_score" in result:
                 _iter_eval_scores.append(result["_eval_score"])
 
@@ -344,14 +557,20 @@ def _walk_run(
             nodes.append(
                 GraphNode(
                     id=w_node_id,
-                    type="worker",
+                    type="submanager" if is_submanager else "worker",
                     position={
                         "x": x_offset + iter_idx * _X_SPACING + w_idx * (_X_SPACING // 2),
                         "y": worker_level * _Y_SPACING,
                     },
                     data={
-                        "label": worker_id_str,
-                        "nodeType": "worker",
+                        "label": (
+                            f"⤷ {worker_id_str} (submanager d{sub_depth})"
+                            if is_submanager else worker_id_str
+                        ),
+                        "nodeType": "submanager" if is_submanager else "worker",
+                        "isSubmanager": is_submanager,
+                        "submanagerDepth": sub_depth,
+                        "submanagerRunId": sub_run_id,
                         "worker_id": worker_id_str,
                         "confidence": w_confidence,
                         "confidenceLabel": conf_label,
@@ -451,41 +670,36 @@ def _walk_run(
                 )
                 max_level = max(max_level, tc_level)
 
-            # Sub-runs (A4 recursive delegation)
+            # Sub-runs (A4 recursive delegation) — wrap each in a cluster
+            triggering_data = {"worker_id": worker_id_str}
             sub_run_dir = worker_dir / "runs"
             if sub_run_dir.exists():
                 for sub_dir in sorted(sub_run_dir.iterdir()):
                     if sub_dir.is_dir() and (sub_dir / "run_manifest.json").exists():
-                        max_level = max(
-                            max_level,
-                            _walk_run(
-                                sub_dir,
-                                w_node_id,
-                                max_level + 1,
-                                x_offset + iter_idx * _X_SPACING,
-                                nodes,
-                                edges,
-                                stats,
-                                f"{prefix}sub_{worker_id_str}_",
-                            ),
+                        _walk_subrun_clustered(
+                            sub_dir,
+                            w_node_id,
+                            triggering_data,
+                            nodes,
+                            edges,
+                            stats,
+                            prefix,
+                            depth + 1,
                         )
 
             if (
                 (worker_dir / "iterations").exists()
                 and (worker_dir / "run_manifest.json").exists()
             ):
-                max_level = max(
-                    max_level,
-                    _walk_run(
-                        worker_dir,
-                        w_node_id,
-                        max_level + 1,
-                        x_offset + iter_idx * _X_SPACING,
-                        nodes,
-                        edges,
-                        stats,
-                        f"{prefix}sub_{worker_id_str}_",
-                    ),
+                _walk_subrun_clustered(
+                    worker_dir,
+                    w_node_id,
+                    triggering_data,
+                    nodes,
+                    edges,
+                    stats,
+                    prefix,
+                    depth + 1,
                 )
 
         # Propagate avg eval score to iteration node

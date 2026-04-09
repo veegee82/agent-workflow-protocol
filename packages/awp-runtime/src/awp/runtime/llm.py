@@ -294,7 +294,7 @@ class LLMClient:
         """
         # Only strip prefix from explicit overrides; self.model is already
         # stripped during __init__, so stripping again would mangle model
-        # names like "openai/gpt-5-nano" into just "gpt-5-nano".
+        # names like "openai/gpt-5-mini" into just "gpt-5-mini".
         if model:
             use_model = _strip_provider_prefix(model)
         else:

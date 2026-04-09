@@ -327,8 +327,8 @@ function Start-SetupWizard {
             Write-Host "  Get a free API key at: https://openrouter.ai/keys"
             Write-Host ""
             $config.OpenRouterKey = Read-Host "OpenRouter API key"
-            $model = Read-Host "Model [openai/gpt-5-nano]"
-            if (-not $model) { $model = "openai/gpt-5-nano" }
+            $model = Read-Host "Model [openai/gpt-5-mini]"
+            if (-not $model) { $model = "openai/gpt-5-mini" }
             $config.Model = $model
         }
         "2" {
@@ -388,7 +388,7 @@ function Start-SetupWizard {
         }
         default {
             $config.Primary = "openrouter"
-            $config.Model = "openai/gpt-5-nano"
+            $config.Model = "openai/gpt-5-mini"
         }
     }
 
@@ -458,7 +458,7 @@ function Write-EnvFile {
 
     # OpenRouter
     if ($Config.OpenRouterKey -or $Config.Primary -eq "openrouter" -or $Config.Fallback -eq "openrouter") {
-        $orModel = if ($Config.Primary -eq "openrouter") { $Config.Model } else { "openai/gpt-5-nano" }
+        $orModel = if ($Config.Primary -eq "openrouter") { $Config.Model } else { "openai/gpt-5-mini" }
         $lines += @(
             ""
             "# --- OpenRouter Configuration ---"
@@ -561,14 +561,14 @@ function Write-MinimalEnv {
         ""
         "# --- OpenRouter (get free key at https://openrouter.ai/keys) ---"
         "OPENROUTER_API_KEY="
-        "OPENROUTER_MODEL=openai/gpt-5-nano"
+        "OPENROUTER_MODEL=openai/gpt-5-mini"
         ""
         "# --- Ollama (cloud models by default) ---"
         "OLLAMA_BASE_URL=https://ollama.com"
         "OLLAMA_MODEL=nemotron-3-super:cloud"
         ""
         "# --- Active Model ---"
-        "LLM_MODEL=openai/gpt-5-nano"
+        "LLM_MODEL=openai/gpt-5-mini"
     ) | Set-Content -Path $AWP_ENV -Encoding UTF8
     Write-Success "Minimal config written to $AWP_ENV -- edit to add your API keys"
 }

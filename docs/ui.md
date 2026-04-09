@@ -128,7 +128,7 @@ The **Model** and **Worker model** inputs are deliberately **free-text** — the
 
 | Model string pattern | Routed to | Required key |
 |---|---|---|
-| `provider/model-name` (e.g. `openai/gpt-5-nano`, `nvidia/nemotron-3-super-120b-a12b`) | OpenRouter | `OPENROUTER_API_KEY` |
+| `provider/model-name` (e.g. `openai/gpt-5-mini`, `nvidia/nemotron-3-super-120b-a12b`) | OpenRouter | `OPENROUTER_API_KEY` |
 | `gpt-*`, `o1-*`, `o3*` | OpenAI direct | `OPENAI_API_KEY` |
 | `claude-*` | Anthropic direct | `ANTHROPIC_API_KEY` |
 | `ollama/*` | Ollama (local) | none |
@@ -136,7 +136,7 @@ The **Model** and **Worker model** inputs are deliberately **free-text** — the
 Defaults:
 
 - **Manager model**: `nvidia/nemotron-3-super-120b-a12b` (OpenRouter)
-- **Worker model**: `openai/gpt-5-nano` (OpenRouter)
+- **Worker model**: `openai/gpt-5-mini` (OpenRouter)
 
 When the worker model is left empty, workers inherit the manager model. Setting them separately is the standard pattern for cost control: a strong manager planning the run, cheap workers doing the legwork. The Settings panel shows a small badge under each field indicating the auto-detected provider, so you can verify routing at a glance.
 

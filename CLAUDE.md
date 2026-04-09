@@ -210,6 +210,43 @@ Exact string matching is allowed **only** for deterministic subcomponents (tool 
 
 **E2E tests MUST always run against real LLM calls** (e.g. OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded LLM responses are **not** valid E2E coverage — the whole point is to verify behavior under real model output variability.
 
+### Tags & Live Monitoring (MANDATORY)
+
+Every E2E test **MUST** have one or more **tags**. Tags are passed to `run_e2e(tags=[...])` in `examples/e2e/_harness.py`. The `"e2e"` tag is added automatically; additional tags describe the test's focus areas.
+
+**Required tag conventions:**
+
+| Tag | When to use |
+|---|---|
+| `e2e` | Always (auto-added by harness) |
+| `s5` | S5-level features (delegation, tool creation, critique, etc.) |
+| `tool-creation` | Test exercises dynamic tool factory |
+| `critique` | Test exercises critique loop |
+| `sub-manager` | Test exercises recursive delegation / sub-managers |
+| `memory` | Test exercises cross-run memory persistence |
+| `planning` | Test exercises manager planning features |
+| `quick` | Lightweight smoke test (≤5 loops, ≤1M tokens) |
+
+**Live monitoring**: Every E2E run is tracked live in the UI. The E2E harness:
+
+1. **Registers** the experiment (session + run) in the SQLite DB **before** starting, with `status=running`.
+2. **Streams events** (iterations, worker spawns/completions, tool calls, budget updates, critique results) to the DB in real time via `_E2ERunDirWatcher`.
+3. **Finalizes** status to `complete | partial | failed` when done.
+
+To **watch an E2E test live** while it runs:
+
+```bash
+# Terminal 1: start the UI server
+python packages/awp-ui/start_debug.py --skip-build --no-reload
+
+# Terminal 2: run the E2E test
+python examples/e2e/deep_research_tree.py
+```
+
+The experiment appears immediately in the sidebar with a pulsing "running" indicator. Click it to see the graph build up, workers spawn, tool calls execute, and budget decrease — all in real time.
+
+**An E2E test without tags is not valid.** The tags serve as machine-readable metadata for filtering, reporting, and regression tracking.
+
 Treat the run output as a **loss function** and the code fix as **backpropagation**: if the run fails or the output diverges from expectation, locate the root cause in the code and fix it. Iterate until the loss is zero. Always make fixes **production-ready** — no patches, no shortcuts, no "works on my machine".
 
 The guiding question for every E2E run: **"Would this system reach `complete` for an arbitrary task?"** If the answer is no, it is not shippable.
@@ -309,13 +346,13 @@ When bumping versions, update ALL of these in one commit:
 
 ## Default Model & Provider Routing
 
-- **Default model**: `openai/gpt-5-nano` (via OpenRouter)
+- **Default model**: `openai/gpt-5-mini` (via OpenRouter)
 - The UI uses a **free text input** for model selection — no dropdowns. Never add `<select>` dropdowns for model selection.
 - Provider is auto-detected from the model string:
 
 | Model string pattern | Routed to | Required API key |
 |---|---|---|
-| `provider/model-name` (e.g. `openai/gpt-5-nano`) | **OpenRouter** | `OPENROUTER_API_KEY` |
+| `provider/model-name` (e.g. `openai/gpt-5-mini`) | **OpenRouter** | `OPENROUTER_API_KEY` |
 | `gpt-*`, `o1-*`, `o3*` | **OpenAI (direct)** | `OPENAI_API_KEY` |
 | `claude-*` | **Anthropic (direct)** | `ANTHROPIC_API_KEY` |
 | `ollama/*` | **Ollama (local)** | none |

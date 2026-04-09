@@ -160,26 +160,132 @@ class StoreService:
         await self.db.commit()
 
     async def cleanup_orphan_runs(self) -> int:
-        """Mark runs left in 'running' state by a previous process as 'interrupted'.
+        """Mark runs left in 'running' state by a dead process as 'interrupted'.
 
         When the server is restarted (auto-reload, crash, manual stop) while a
         run is active, the background thread dies and `_persist_result` never
         runs — leaving the row stuck on status='running'. The sidebar then
         shows a permanently pulsing blue dot for those experiments.
 
+        E2E tests running in a **separate process** write a PID lock file
+        (``data/run_locks/{run_id}.pid``) while active.  This method checks
+        those files and only marks a run as interrupted if no live process
+        owns it.  This prevents the server from killing live E2E runs on
+        restart.
+
         Returns the number of rows fixed.
         """
+        import os as _os
+
+        lock_dir = Path(self._db_path).parent / "run_locks"
         now = datetime.now(tz=timezone.utc).isoformat()
+
         cursor = await self.db.execute(
-            "UPDATE runs SET status = 'interrupted', completed_at = ? "
-            "WHERE status = 'running' AND completed_at IS NULL",
-            (now,),
+            "SELECT id FROM runs WHERE status = 'running' AND completed_at IS NULL"
         )
-        await self.db.commit()
-        n = cursor.rowcount or 0
-        if n:
-            logger.info("Cleaned up %d orphan 'running' run(s) on startup", n)
-        return n
+        rows = await cursor.fetchall()
+
+        fixed = 0
+        for row in rows:
+            run_id = row["id"]
+            pid_file = lock_dir / f"{run_id}.pid"
+
+            # Check if an external process still owns this run
+            if pid_file.is_file():
+                try:
+                    pid = int(pid_file.read_text(encoding="utf-8").strip())
+                    _os.kill(pid, 0)  # signal 0 = existence check
+                    # Process is alive — skip this run
+                    logger.info(
+                        "Run %s owned by live process %d — keeping 'running'",
+                        run_id, pid,
+                    )
+                    continue
+                except (ValueError, ProcessLookupError, PermissionError, OSError):
+                    # PID file is stale — process is dead
+                    try:
+                        pid_file.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
+            # No live owner — mark as interrupted
+            await self.db.execute(
+                "UPDATE runs SET status = 'interrupted', completed_at = ? "
+                "WHERE id = ?",
+                (now, run_id),
+            )
+            fixed += 1
+
+        if fixed:
+            await self.db.commit()
+            logger.info("Cleaned up %d orphan 'running' run(s) on startup", fixed)
+
+        return fixed
+
+    async def reconcile_session_status(self) -> int:
+        """Derive session status from linked runs and fix inconsistencies.
+
+        A session whose **all** runs have finished (complete/failed/interrupted/
+        partial/…) but whose own status is still ``running`` is updated to
+        reflect the actual outcome.  This handles the case where a process
+        died without calling ``finalize_experiment``.
+
+        Returns the number of sessions fixed.
+        """
+        # Sessions still marked as running
+        cursor = await self.db.execute(
+            "SELECT id FROM sessions WHERE status = 'running'"
+        )
+        sessions = await cursor.fetchall()
+
+        fixed = 0
+        for sess in sessions:
+            sid = sess["id"]
+            # Check if any run in this session is still running
+            cur = await self.db.execute(
+                "SELECT r.status FROM runs r "
+                "JOIN session_runs sr ON sr.run_id = r.id "
+                "WHERE sr.session_id = ?",
+                (sid,),
+            )
+            run_rows = await cur.fetchall()
+            statuses = [r["status"] for r in run_rows]
+
+            if not statuses:
+                # No runs at all — mark as draft
+                await self.db.execute(
+                    "UPDATE sessions SET status = 'draft', updated_at = ? "
+                    "WHERE id = ?",
+                    (datetime.now(tz=timezone.utc).isoformat(), sid),
+                )
+                fixed += 1
+                continue
+
+            if "running" in statuses or "pending" in statuses:
+                # At least one run is still active — leave as running
+                continue
+
+            # All runs finished — pick the "best" terminal status
+            if "complete" in statuses:
+                new_status = "complete"
+            elif "partial" in statuses:
+                new_status = "partial"
+            else:
+                new_status = "failed"
+
+            await self.db.execute(
+                "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+                (new_status, datetime.now(tz=timezone.utc).isoformat(), sid),
+            )
+            fixed += 1
+            logger.info(
+                "Reconciled session %s: running → %s (runs: %s)",
+                sid, new_status, statuses,
+            )
+
+        if fixed:
+            await self.db.commit()
+        return fixed
 
     async def close(self) -> None:
         """Close the database connection."""

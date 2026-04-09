@@ -692,12 +692,12 @@ Manager and worker LLMs are configured independently. The provider is auto-detec
 
 | Model string pattern | Routed to | Required key |
 |---|---|---|
-| `provider/model-name` (e.g. `openai/gpt-5-nano`, `nvidia/nemotron-3-super-120b-a12b`) | OpenRouter | `OPENROUTER_API_KEY` |
+| `provider/model-name` (e.g. `openai/gpt-5-mini`, `nvidia/nemotron-3-super-120b-a12b`) | OpenRouter | `OPENROUTER_API_KEY` |
 | `gpt-*`, `o1-*`, `o3*` | OpenAI direct | `OPENAI_API_KEY` |
 | `claude-*` | Anthropic direct | `ANTHROPIC_API_KEY` |
 | `ollama/*` | Local Ollama | none |
 
-This makes it natural to drive workers with a fast cheap model while the manager uses a stronger one (default manager: `nvidia/nemotron-3-super-120b-a12b`, default worker: `openai/gpt-5-nano`). The two roles cost-scale independently.
+This makes it natural to drive workers with a fast cheap model while the manager uses a stronger one (default manager: `nvidia/nemotron-3-super-120b-a12b`, default worker: `openai/gpt-5-mini`). The two roles cost-scale independently.
 
 ### 9.5 Workflow Studio and the Experiment Paradigm
 

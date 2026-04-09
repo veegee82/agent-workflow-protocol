@@ -25,8 +25,8 @@ critique:
 ```bash
 awp run examples/workflows/15-critique-loop/ \
   --task "Analyze market trends for renewable energy sector: identify key players, growth metrics, and risk factors" \
-  --manager-model openai/gpt-5-nano \
-  --worker-model openai/gpt-5-nano
+  --manager-model openai/gpt-5-mini \
+  --worker-model openai/gpt-5-mini
 ```
 
 Or via AWP Studio:

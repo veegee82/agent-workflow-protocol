@@ -1023,6 +1023,21 @@ function ProtocolPanel() {
         )}
       </div>
 
+      {/* Task */}
+      {config.task ? (
+        <div className="rounded-lg border border-awp-border bg-awp-bg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <FileText className="h-3.5 w-3.5 text-awp-muted shrink-0" />
+            <span className="text-xs font-medium text-awp-muted uppercase tracking-wider">Task</span>
+          </div>
+          <div className="prose prose-sm prose-invert max-w-none break-words text-awp-text">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+              {config.task}
+            </ReactMarkdown>
+          </div>
+        </div>
+      ) : null}
+
       {/* Hypothesis */}
       <div>
         <label className="text-xs font-medium text-awp-muted uppercase tracking-wider block mb-1">

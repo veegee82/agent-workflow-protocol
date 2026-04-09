@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awp-runtime"
+version = "1.0.34"
+description = "Agent Workflow Protocol — execution runtime (DAG + delegation loop engines)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{name = "Silvio Jurk"}, {name = "AWP Contributors"}]
+keywords = [
+    "agents", "multi-agent", "workflow", "orchestration", "llm",
+    "delegation", "dag", "protocol", "awp", "ai", "runtime",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+dependencies = [
+    "awp-core>=1.0.34",
+    "httpx>=0.25",
+    "pyvis>=0.3.2",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "sqlalchemy>=2.0",
+    "boto3>=1.28",
+    "docker>=7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/veegee82/agent-workflow-protocol"
+Repository = "https://github.com/veegee82/agent-workflow-protocol"
+Documentation = "https://github.com/veegee82/agent-workflow-protocol/tree/main/docs"
+Issues = "https://github.com/veegee82/agent-workflow-protocol/issues"
+Changelog = "https://github.com/veegee82/agent-workflow-protocol/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["awp.runtime", "awp.runtime.*", "awp.data", "awp.data.*", "awp.data.resolvers", "awp.data.resolvers.*", "awp.patterns", "awp.patterns.*"]

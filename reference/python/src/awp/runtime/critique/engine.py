@@ -406,6 +406,12 @@ Respond with a JSON object:
             )
         parts.append(f"## Worker Result\n```json\n{result_json}\n```\n")
 
+        # --- Ground-truth filesystem snapshot ---
+        # The critic LLM consistently hallucinates "file not saved" defects
+        # because it only sees the worker's findings JSON (which often contains
+        # an intermediate path) without checking the actual filesystem. Inject
+        # a real listing of workspace/ + output/<run>/ so the critic can verify
+        # claims against ground truth.
         try:
             ws = self._workflow_dir / "workspace"
             out = self._workflow_dir / "output" / (self._run_id or "")

@@ -36,7 +36,7 @@ Models are declared as plain strings; the runtime auto-detects the provider from
 
 | Model string pattern | Routed to | Required env var |
 |---|---|---|
-| `provider/model-name` (e.g. `openai/gpt-5-nano`, `anthropic/claude-sonnet-4`) | **OpenRouter** | `OPENROUTER_API_KEY` |
+| `provider/model-name` (e.g. `openai/gpt-5-mini`, `anthropic/claude-sonnet-4`) | **OpenRouter** | `OPENROUTER_API_KEY` |
 | `gpt-*`, `o1-*`, `o3*` | **OpenAI direct** | `OPENAI_API_KEY` |
 | `claude-*` | **Anthropic direct** | `ANTHROPIC_API_KEY` |
 | `ollama/*` | **Ollama (local)** | none |
@@ -44,7 +44,7 @@ Models are declared as plain strings; the runtime auto-detects the provider from
 Defaults for the delegation loop engine:
 
 - **Manager model**: `nvidia/nemotron-3-super-120b-a12b` (strong reasoning for decomposition and validation)
-- **Worker model**: `openai/gpt-5-nano` (fast and cheap for ephemeral workers)
+- **Worker model**: `openai/gpt-5-mini` (fast and cheap for ephemeral workers)
 
 The manager **cannot** override the worker model at runtime — that decision belongs to the user via the manifest or the CLI flags `--manager-model` / `--worker-model`. This prevents a hallucinating manager from upgrading workers to expensive models.
 

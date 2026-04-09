@@ -1153,35 +1153,61 @@ export function GraphVisPanel() {
     return { nodes: visibleNodes, edges: visibleEdges };
   }, [storeNodes, storeEdges, filters]);
 
-  // Layout and style — auto-fit when new nodes arrive
-  useEffect(() => {
-    const mapped = filteredData.nodes.map((n) => ({
-      ...n,
-      type: n.data?.nodeType ?? 'task',
-    }));
-    const laid = layoutNodes(mapped, filteredData.edges);
-    setNodes(laid);
-    setEdges(styledEdges(filteredData.edges, laid));
+  // Structural fingerprint: only recompute layout when the set of node IDs
+  // or edge IDs changes (i.e. nodes added/removed), not on data-only updates
+  // like status or confidence changes. This eliminates O(n) layout + fitView
+  // recalculations on every worker.complete or tool.call event.
+  const structureKey = useMemo(
+    () => filteredData.nodes.map((n) => n.id).join('|') + '::' + filteredData.edges.map((e) => e.id).join('|'),
+    [filteredData],
+  );
+  const prevStructureRef = useRef(structureKey);
+  const layoutCacheRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
 
-    // Auto-fit on EVERY data change while autoFit is on, so the entire graph
-    // stays visible as it grows. Double-RAF defers the fit until ReactFlow has
-    // committed the new node positions to the DOM, otherwise fitView measures
-    // a stale bounding box and the new nodes scroll off-screen.
-    const nodeCount = filteredData.nodes.length;
-    if (autoFit && reactFlowInstance && nodeCount > 0) {
-      requestAnimationFrame(() => {
+  // Full layout pass — only runs when structure changes
+  useEffect(() => {
+    const structureChanged = structureKey !== prevStructureRef.current;
+    prevStructureRef.current = structureKey;
+
+    if (structureChanged || !layoutCacheRef.current) {
+      // Structure changed: recompute layout
+      const mapped = filteredData.nodes.map((n) => ({
+        ...n,
+        type: n.data?.nodeType ?? 'task',
+      }));
+      const laid = layoutNodes(mapped, filteredData.edges);
+      const styled = styledEdges(filteredData.edges, laid);
+      layoutCacheRef.current = { nodes: laid, edges: styled };
+      setNodes(laid);
+      setEdges(styled);
+
+      // Auto-fit only when structure changes (new nodes appeared)
+      const nodeCount = filteredData.nodes.length;
+      if (autoFit && reactFlowInstance && nodeCount > 0) {
         requestAnimationFrame(() => {
-          reactFlowInstance.fitView({
-            padding: 0.18,
-            duration: 350,
-            minZoom: 0.02,
-            maxZoom: 1.5,
+          requestAnimationFrame(() => {
+            reactFlowInstance.fitView({
+              padding: 0.18,
+              duration: 350,
+              minZoom: 0.02,
+              maxZoom: 1.5,
+            });
           });
         });
-      });
+      }
+      prevNodeCountRef.current = nodeCount;
+    } else {
+      // Data-only change: update node data in-place without re-layouting.
+      // This preserves positions and avoids the O(n) layout pass.
+      const dataMap = new Map(filteredData.nodes.map((n) => [n.id, n.data]));
+      setNodes((prev) =>
+        prev.map((n) => {
+          const newData = dataMap.get(n.id);
+          return newData ? { ...n, data: newData } : n;
+        }),
+      );
     }
-    prevNodeCountRef.current = nodeCount;
-  }, [filteredData, setNodes, setEdges, autoFit, reactFlowInstance]);
+  }, [filteredData, structureKey, setNodes, setEdges, autoFit, reactFlowInstance]);
 
   const stats = useMemo(() => computeStats(storeNodes), [storeNodes]);
 

@@ -490,7 +490,7 @@ class ToolRegistry:
                         ),
                     },
                 },
-                "required": ["topic", "payload"],
+                "required": ["topic"],
             },
             (
                 "Post a signal to the sibling-coordination blackboard for "
@@ -575,11 +575,13 @@ class ToolRegistry:
     def _board_post(
         self,
         topic: str,
-        payload: dict,
+        payload: dict | None = None,
         **_: Any,
     ) -> dict[str, Any]:
         from .blackboard import current_blackboard
 
+        if payload is None:
+            payload = {}
         board = current_blackboard.get()
         if board is None:
             return _err(

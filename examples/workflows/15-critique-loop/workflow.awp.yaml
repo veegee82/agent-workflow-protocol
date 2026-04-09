@@ -22,8 +22,8 @@ orchestration:
       max_wall_time: 180
       max_tool_calls: 50
     models:
-      manager: "openai/gpt-5-nano"
-      worker: "openai/gpt-5-nano"
+      manager: "openai/gpt-5-mini"
+      worker: "openai/gpt-5-mini"
     worker_policy:
       enforced:
         sandbox:

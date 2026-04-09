@@ -184,7 +184,7 @@ function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[]
 const DEFAULT_CONFIG: WorkflowConfig = {
   task: '',
   model: 'nvidia/nemotron-3-super-120b-a12b',
-  worker_model: 'openai/gpt-5-nano',
+  worker_model: 'openai/gpt-5-mini',
   api_key: undefined,
   max_loops: 100,
   max_total_tokens: 10_000_000,
@@ -251,6 +251,11 @@ export interface WorkflowStore {
   addGraphNode: (node: Node) => void;
   addGraphEdge: (edge: Edge) => void;
   updateGraphNode: (id: string, data: Partial<Node['data']>) => void;
+  batchGraphUpdate: (
+    newNodes: Node[],
+    newEdges: Edge[],
+    nodeUpdates: Array<{ id: string; data: Record<string, unknown> }>,
+  ) => void;
   selectedNodeId: string | null;
   selectNode: (id: string | null) => void;
   loadRunGraph: (runId?: string) => Promise<void>;
@@ -398,8 +403,61 @@ function processEvent(
   const isVerbose = get().config.verbose;
   const store = get();
 
+  // ---- Batched graph mutations ----
+  // Collect all node/edge additions and updates during event processing,
+  // then flush them to the store in a single batchGraphUpdate() call.
+  // This eliminates 2-3 separate set() calls (and re-renders) per event.
+  const _pendingNodes: Node[] = [];
+  const _pendingEdges: Edge[] = [];
+  const _pendingUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
+
+  // Shadow the store methods to collect mutations instead of applying them.
+  // The original store.addGraphNode / addGraphEdge / updateGraphNode still
+  // exist but are not called during event processing — we use these locals.
+  const addNode = (node: Node) => _pendingNodes.push(node);
+  const addEdge = (edge: Edge) => _pendingEdges.push(edge);
+  const updateNode = (id: string, data: Record<string, unknown>) =>
+    _pendingUpdates.push({ id, data });
+
+  const flushGraphBatch = () => {
+    if (_pendingNodes.length || _pendingEdges.length || _pendingUpdates.length) {
+      store.batchGraphUpdate(_pendingNodes, _pendingEdges, _pendingUpdates);
+    }
+  };
+
+  // Build a fast node-id index for O(1) lookups (replaces O(n) resolveNodeRef
+  // scans). Includes both existing nodes and pending additions.
+  const _nodeIndex = new Map<string, Node>();
+  for (const n of store.graphNodes) _nodeIndex.set(n.id, n);
+
+  const resolveRef = (rawId: string): string => {
+    if (!rawId) return rawId;
+    if (_nodeIndex.has(rawId)) return rawId;
+    // Check pending nodes too
+    for (const pn of _pendingNodes) {
+      if (pn.id === rawId) return rawId;
+    }
+    const prefix = rawId + '_';
+    let latest: string | null = null;
+    for (const id of _nodeIndex.keys()) {
+      if (id.startsWith(prefix)) latest = id;
+    }
+    for (const pn of _pendingNodes) {
+      if (pn.id.startsWith(prefix)) latest = pn.id;
+    }
+    return latest ?? rawId;
+  };
+
+  const hasNode = (id: string): boolean =>
+    _nodeIndex.has(id) || _pendingNodes.some((n) => n.id === id);
+
   // Track the last iteration/manager node for linking workers
   const lastManagerId = () => {
+    // Check pending nodes first (most recent)
+    for (let i = _pendingNodes.length - 1; i >= 0; i--) {
+      const nt = (_pendingNodes[i].data as Record<string, unknown>).nodeType ?? _pendingNodes[i].type;
+      if (nt === 'manager' || nt === 'iteration') return _pendingNodes[i].id;
+    }
     const nodes = store.graphNodes;
     for (let i = nodes.length - 1; i >= 0; i--) {
       const nt = (nodes[i].data as Record<string, unknown>).nodeType ?? nodes[i].type;
@@ -416,7 +474,7 @@ function processEvent(
         ((evt.data.models as Record<string, string>)?.manager) ??
         get().config.model;
       // Create root task node
-      store.addGraphNode({
+      addNode({
         id: 'task_root',
         type: 'default',
         position: { x: 0, y: 0 },
@@ -428,7 +486,7 @@ function processEvent(
         },
       });
       // Create manager node
-      store.addGraphNode({
+      addNode({
         id: 'manager',
         type: 'default',
         position: { x: 0, y: 120 },
@@ -439,7 +497,7 @@ function processEvent(
           details: evt.data,
         },
       });
-      store.addGraphEdge({
+      addEdge({
         id: 'e-task-manager',
         source: 'task_root',
         target: 'manager',
@@ -456,7 +514,7 @@ function processEvent(
     // ----- Agent start -----
     case 'agent.start': {
       const id = nodeIdFromEvent(evt);
-      store.addGraphNode({
+      addNode({
         id,
         type: 'default',
         position: { x: 0, y: store.graphNodes.length * 120 },
@@ -477,11 +535,11 @@ function processEvent(
       // iteration suffix (e.g. `data_fetcher_btc_5m_loader_003`). We must
       // resolve every parent reference to an actual node id, otherwise the
       // edge dangles and the target becomes an orphan root → vertical chaos.
-      const parentId = resolveNodeRef(rawParent, store.graphNodes);
+      const parentId = resolveRef(rawParent);
       const depth = (evt.data.depth as number) ?? 1;
       const model = (evt.data.model as string) ?? '?';
       const subMgrId = `sub_mgr_${parentId}_d${depth}`;
-      store.addGraphNode({
+      addNode({
         id: subMgrId,
         type: 'default',
         position: { x: 0, y: store.graphNodes.length * 120 },
@@ -493,7 +551,7 @@ function processEvent(
           details: evt.data,
         },
       });
-      store.addGraphEdge({
+      addEdge({
         id: `e-${parentId}-${subMgrId}`,
         source: parentId,
         target: subMgrId,
@@ -518,15 +576,15 @@ function processEvent(
       const rawParentWorker = evt.data.parent_id as string | undefined;
       let iterParent = 'manager';
       if (rawParentWorker && depth > 0) {
-        const resolvedParent = resolveNodeRef(rawParentWorker, store.graphNodes);
+        const resolvedParent = resolveRef(rawParentWorker);
         const subMgrId = `sub_mgr_${resolvedParent}_d${depth}`;
-        if (store.graphNodes.some((n) => n.id === subMgrId)) {
+        if (hasNode( subMgrId)) {
           iterParent = subMgrId;
-        } else if (store.graphNodes.some((n) => n.id === resolvedParent)) {
+        } else if (hasNode( resolvedParent)) {
           iterParent = resolvedParent;
         }
       }
-      store.addGraphNode({
+      addNode({
         id: iterId,
         type: 'default',
         position: { x: 0, y: store.graphNodes.length * 120 },
@@ -539,7 +597,7 @@ function processEvent(
         },
       });
       // Link to parent manager
-      store.addGraphEdge({
+      addEdge({
         id: `e-${iterParent}-${iterId}`,
         source: iterParent,
         target: iterId,
@@ -562,7 +620,7 @@ function processEvent(
       const delegations = evt.data.delegations as Array<Record<string, unknown>> | undefined;
 
       // Update iteration node with decision
-      store.updateGraphNode(iterId, {
+      updateNode(iterId, {
         status: decision === 'complete' ? 'complete' : 'running',
         label: `Iter ${iterNum}: ${decision.toUpperCase()}`,
         confidence,
@@ -608,18 +666,18 @@ function processEvent(
       // Always prefer the iter node if present; fall back to a resolved
       // parent_id only if no iter node exists.
       const iterNodeId = iteration ? `iter_${iteration}` : null;
-      const iterNodeExists = !!(iterNodeId && store.graphNodes.some((n) => n.id === iterNodeId));
+      const iterNodeExists = !!(iterNodeId && hasNode( iterNodeId));
       let parentId: string;
       if (iterNodeExists) {
         parentId = iterNodeId!;
       } else {
         const rawParent = (evt.data.parent_id as string) ?? lastManagerId() ?? 'manager';
-        parentId = resolveNodeRef(rawParent, store.graphNodes);
+        parentId = resolveRef(rawParent);
       }
       // Include iteration in node ID to avoid collision when same worker name repeats across iterations
       const workerNodeId = iteration ? `${workerId}_${iteration}` : workerId;
 
-      store.addGraphNode({
+      addNode({
         id: workerNodeId,
         type: 'default',
         position: { x: 250, y: store.graphNodes.length * 120 },
@@ -635,7 +693,7 @@ function processEvent(
           details: evt.data,
         },
       });
-      store.addGraphEdge({
+      addEdge({
         id: `e-${parentId}-${workerNodeId}`,
         source: parentId,
         target: workerNodeId,
@@ -671,14 +729,14 @@ function processEvent(
         nodeUpdate.eval_metrics = (evt.data.eval_metrics as Array<{name: string; score: number; weight: number}>) ?? [];
       }
       // Try iteration-qualified ID first, fall back to plain workerId for backwards compat
-      const nodeExists = store.graphNodes.some((n) => n.id === workerNodeId);
-      store.updateGraphNode(nodeExists ? workerNodeId : workerId, nodeUpdate);
+      const nodeExists = hasNode( workerNodeId);
+      updateNode(nodeExists ? workerNodeId : workerId, nodeUpdate);
       // Propagate eval score to parent iteration node
       if (typeof evt.data.eval_score === 'number') {
         const iterNum = evt.data.iteration as string | undefined;
         if (iterNum) {
           const iterNodeId = `iter_${iterNum.replace(/^.*_/, '')}`;
-          store.updateGraphNode(iterNodeId, {
+          updateNode(iterNodeId, {
             eval_score: evt.data.eval_score as number,
             eval_action: (evt.data.eval_action as string) ?? '',
             eval_metrics: (evt.data.eval_metrics as Array<{name: string; score: number; weight: number}>) ?? [],
@@ -720,7 +778,7 @@ function processEvent(
     // ----- Agent complete -----
     case 'agent.complete': {
       const id = nodeIdFromEvent(evt);
-      store.updateGraphNode(id, {
+      updateNode(id, {
         status: 'complete',
         confidence: evt.data.confidence as number | undefined,
         outputs: evt.data.result as Record<string, unknown> | undefined,
@@ -760,11 +818,11 @@ function processEvent(
       //  4. as last resort, attach to the iter node so the tool isn't orphaned.
       const callerNodeId = iteration ? `${callerId}_${iteration}` : callerId;
       let resolvedCallerId = '';
-      if (store.graphNodes.some((n) => n.id === callerNodeId)) {
+      if (hasNode( callerNodeId)) {
         resolvedCallerId = callerNodeId;
       } else {
-        const r = resolveNodeRef(callerId, store.graphNodes);
-        if (r !== callerId && store.graphNodes.some((n) => n.id === r)) {
+        const r = resolveRef(callerId);
+        if (r !== callerId && hasNode(r)) {
           resolvedCallerId = r;
         }
       }
@@ -778,12 +836,12 @@ function processEvent(
       }
       if (!resolvedCallerId && iteration) {
         const iterNodeId = `iter_${iteration}`;
-        if (store.graphNodes.some((n) => n.id === iterNodeId)) {
+        if (hasNode( iterNodeId)) {
           resolvedCallerId = iterNodeId;
         }
       }
 
-      store.addGraphNode({
+      addNode({
         id: toolId,
         type: 'default',
         position: { x: 450, y: store.graphNodes.length * 120 },
@@ -798,7 +856,7 @@ function processEvent(
         },
       });
       if (resolvedCallerId) {
-        store.addGraphEdge({
+        addEdge({
           id: `e-${resolvedCallerId}-${toolId}`,
           source: resolvedCallerId,
           target: toolId,
@@ -869,7 +927,7 @@ function processEvent(
 
     case 'tool.result': {
       const toolId = nodeIdFromEvent(evt);
-      store.updateGraphNode(toolId, {
+      updateNode(toolId, {
         status: 'complete',
         outputs: evt.data,
       });
@@ -931,8 +989,8 @@ function processEvent(
       const isFileWatcherEvent = !resultObj || ('total_iterations' in evt.data && !('_evaluation' in (resultObj ?? {})));
 
       // Update manager and task root nodes
-      store.updateGraphNode('manager', { status: isError ? 'error' : 'complete' });
-      store.updateGraphNode('task_root', { status: isError ? 'error' : 'complete' });
+      updateNode('manager', { status: isError ? 'error' : 'complete' });
+      updateNode('task_root', { status: isError ? 'error' : 'complete' });
 
       // Update run status and session status in sidebar
       const completedSessionId = get().currentSessionId;
@@ -1010,6 +1068,11 @@ function processEvent(
       break;
     }
   }
+
+  // Flush all collected graph mutations in a single store write.
+  // This replaces N separate set() calls with exactly one, eliminating
+  // intermediate re-renders of GraphVisPanel and layout recalculations.
+  flushGraphBatch();
 }
 
 // ---------------------------------------------------------------------------
@@ -1161,6 +1224,44 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         n.id === id ? { ...n, data: { ...n.data, ...data } } : n,
       ),
     })),
+  // Batched graph mutation — applies all additions and updates in a single
+  // store write, eliminating per-node re-renders during processEvent.
+  batchGraphUpdate: (
+    newNodes: Node[],
+    newEdges: Edge[],
+    nodeUpdates: Array<{ id: string; data: Record<string, unknown> }>,
+  ) =>
+    set((s) => {
+      if (newNodes.length === 0 && newEdges.length === 0 && nodeUpdates.length === 0) return s;
+
+      // Build ID sets for fast dedup
+      const existingNodeIds = new Set(s.graphNodes.map((n) => n.id));
+      const existingEdgeIds = new Set(s.graphEdges.map((e) => e.id));
+
+      const addedNodes = newNodes.filter((n) => !existingNodeIds.has(n.id));
+      const addedEdges = newEdges.filter((e) => !existingEdgeIds.has(e.id));
+
+      let nodes = addedNodes.length > 0
+        ? [...s.graphNodes, ...addedNodes]
+        : s.graphNodes;
+
+      // Apply updates in-place (single map pass for all updates)
+      if (nodeUpdates.length > 0) {
+        const updateMap = new Map(nodeUpdates.map((u) => [u.id, u.data]));
+        nodes = nodes.map((n) => {
+          const upd = updateMap.get(n.id);
+          return upd ? { ...n, data: { ...n.data, ...upd } } : n;
+        });
+      }
+
+      const edges = addedEdges.length > 0
+        ? [...s.graphEdges, ...addedEdges]
+        : s.graphEdges;
+
+      // Only return new references if something actually changed
+      if (nodes === s.graphNodes && edges === s.graphEdges) return s;
+      return { graphNodes: nodes, graphEdges: edges };
+    }),
   selectedNodeId: null,
   selectNode: (id) =>
     set({ selectedNodeId: id, inspectorOpen: id !== null }),

@@ -433,8 +433,8 @@ collect_provider_config() {
             echo "  Get a free API key at: https://openrouter.ai/keys"
             echo ""
             read -rp "OpenRouter API key: " openrouter_key
-            read -rp "Model [openai/gpt-5-nano]: " primary_model
-            primary_model="${primary_model:-openai/gpt-5-nano}"
+            read -rp "Model [openai/gpt-5-mini]: " primary_model
+            primary_model="${primary_model:-openai/gpt-5-mini}"
             ;;
         ollama)
             echo ""
@@ -524,10 +524,10 @@ EOF
 OPENROUTER_API_KEY=${or_key}
 OPENROUTER_SITE_URL=http://localhost:8000
 OPENROUTER_APP_NAME=AWP
-OPENROUTER_MODEL=${model:-openai/gpt-5-nano}
-OPENROUTER_MODEL_EXECUTOR=${model:-openai/gpt-5-nano}
+OPENROUTER_MODEL=${model:-openai/gpt-5-mini}
+OPENROUTER_MODEL_EXECUTOR=${model:-openai/gpt-5-mini}
 OPENROUTER_MODEL_VISION=nvidia/nemotron-nano-12b-v2-vl:free
-OPENROUTER_MODEL_MEMORY=${model:-openai/gpt-5-nano}
+OPENROUTER_MODEL_MEMORY=${model:-openai/gpt-5-mini}
 EOF
     fi
 
@@ -586,7 +586,7 @@ EOF
         openrouter)
             echo "" >> "$AWP_ENV"
             echo "# --- Active Model (used by AWP runtime) ---" >> "$AWP_ENV"
-            echo "LLM_MODEL=${model:-openai/gpt-5-nano}" >> "$AWP_ENV"
+            echo "LLM_MODEL=${model:-openai/gpt-5-mini}" >> "$AWP_ENV"
             ;;
         ollama)
             echo "" >> "$AWP_ENV"
@@ -638,14 +638,14 @@ LLM_PROVIDER_FALLBACK=ollama
 
 # --- OpenRouter (get free key at https://openrouter.ai/keys) ---
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=openai/gpt-5-nano
+OPENROUTER_MODEL=openai/gpt-5-mini
 
 # --- Ollama (cloud models by default) ---
 OLLAMA_BASE_URL=https://ollama.com
 OLLAMA_MODEL=nemotron-3-super:cloud
 
 # --- Active Model ---
-LLM_MODEL=openai/gpt-5-nano
+LLM_MODEL=openai/gpt-5-mini
 EOF
 
     chmod 600 "$AWP_ENV"

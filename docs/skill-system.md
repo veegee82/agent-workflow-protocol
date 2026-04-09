@@ -15,7 +15,7 @@ The skill bakes in AWP's current model defaults so that newly generated workflow
 | Role | Default model | Provider auto-detect |
 |------|---------------|----------------------|
 | Manager | `nvidia/nemotron-3-super-120b-a12b` | OpenRouter (`provider/model` pattern) |
-| Worker | `openai/gpt-5-nano` | OpenRouter |
+| Worker | `openai/gpt-5-mini` | OpenRouter |
 | Direct OpenAI | `gpt-*`, `o1-*`, `o3*` | OpenAI native |
 | Direct Anthropic | `claude-*` | Anthropic native |
 | Local | `ollama/*` | Ollama (no key) |

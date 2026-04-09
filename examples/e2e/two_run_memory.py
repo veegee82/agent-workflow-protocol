@@ -67,7 +67,7 @@ def _count_fact_lines(workflow_dir: Path) -> tuple[int, list[str]]:
 def verify_run1(workflow_dir: Path, result: dict) -> dict:
     n_facts, files = _count_fact_lines(workflow_dir)
     # The curator only writes facts if the same fact appears in >=2
-    # distinct digests (cross-confirmation). With gpt-5-nano, workers
+    # distinct digests (cross-confirmation). With gpt-5-mini, workers
     # often phrase facts differently, so cross-confirmation rarely
     # triggers. We accept either (a) >=3 fact lines on disk OR (b) the
     # curation_report exists + the result mentions all 3 alloys.
@@ -131,7 +131,7 @@ def verify_run2(workflow_dir: Path, result: dict) -> dict:
 
     # The Curator only writes facts into memory/ when the same fact
     # appears in >=2 distinct digests (cross-confirmation). With
-    # gpt-5-nano, workers phrase facts differently, so cross-confirmation
+    # gpt-5-mini, workers phrase facts differently, so cross-confirmation
     # rarely triggers -> memory/ stays empty -> PRIOR RUN MEMORY block
     # is not injected. We accept B4 evidence as: curation infrastructure
     # ran (report present) + B1 digest active (sha present) + output

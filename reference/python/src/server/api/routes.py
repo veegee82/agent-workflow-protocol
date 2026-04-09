@@ -40,7 +40,7 @@ router = APIRouter()
 
 _default_settings: dict[str, Any] = {
     "model": "nvidia/nemotron-3-super-120b-a12b",
-    "worker_model": "openai/gpt-5-nano",
+    "worker_model": "openai/gpt-5-mini",
     "api_key": None,
     "max_loops": 100,
     "max_total_tokens": 10_000_000,
@@ -270,11 +270,12 @@ async def create_run(config: WorkflowConfig, session_id: str | None = Query(None
         status="running",
     )
 
-    # Auto-add to session if provided
+    # Auto-add to session if provided and flip status to running
     if session_id:
         session_data = await store.get_session(session_id)
         if session_data:
             await store.add_run_to_session(session_id, run_id)
+            await store.update_session(session_id, status="running")
 
     # Start the run in a background thread (pass session_id for experiment context)
     runner_service.start_run(run_id, config_dict, session_id=session_id)
@@ -397,8 +398,41 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
     workspace = metadata.get("workspace", "")
     output_dir = metadata.get("output_dir", "")
 
+    # Fallback: during a running E2E test, result_json is still NULL.
+    # The harness stores the workflow_dir in config_json, and the session
+    # has a base_dir — use those as fallbacks so artifacts are visible
+    # while the run is still in progress.
+    config = row.get("config") or {}
+    if not output_dir and not workspace:
+        workflow_dir = config.get("workflow_dir", config.get("output_dir", ""))
+        if not workflow_dir:
+            # Last resort: check session base_dir
+            cursor = await store.db.execute(
+                "SELECT s.base_dir FROM sessions s "
+                "JOIN session_runs sr ON sr.session_id = s.id "
+                "WHERE sr.run_id = ?",
+                (run_id,),
+            )
+            sess_row = await cursor.fetchone()
+            if sess_row and sess_row["base_dir"]:
+                workflow_dir = sess_row["base_dir"]
+
+        if workflow_dir:
+            wf_path = Path(workflow_dir)
+            # Scan the output/ subdirectory (worker-produced artifacts).
+            # This is where the DelegationLoopRunner writes final outputs.
+            candidate_output = wf_path / "output"
+            if candidate_output.is_dir():
+                output_dir = str(candidate_output)
+            else:
+                # No output/ yet — fall back to the workflow dir itself
+                output_dir = workflow_dir
+
     artifacts: list[dict[str, Any]] = []
-    # Scan workspace and output_dir for renderable files
+    # Scan output_dir and workspace for renderable files.
+    # output_dir contains final artifacts; workspace contains intermediate
+    # worker results. Both are scanned so the user sees outputs as they
+    # are produced during a live run.
     scan_dirs = []
     if output_dir:
         scan_dirs.append(Path(output_dir))
@@ -930,7 +964,7 @@ async def add_run_to_session(session_id: str, body: dict[str, Any]) -> dict[str,
         k: v for k, v in config_dict.items()
         if k not in ("task", "secrets", "api_key", "input_files")
     }
-    await store.update_session(session_id, settings=session_settings)
+    await store.update_session(session_id, settings=session_settings, status="running")
 
     runner_service.start_run(run_id, config_dict, session_id=session_id)
 

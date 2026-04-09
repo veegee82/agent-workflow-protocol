@@ -42,8 +42,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Reap runs left in 'running' state by a previous (crashed/reloaded)
     # process so the sidebar doesn't show a permanently pulsing blue dot
-    # for experiments whose threads no longer exist.
+    # for experiments whose threads no longer exist.  Runs owned by a
+    # live external process (E2E harness) are kept as 'running'.
     await store.cleanup_orphan_runs()
+    # Reconcile session status from their linked runs — catches sessions
+    # stuck on 'running' after an unclean shutdown.
+    await store.reconcile_session_status()
 
     # Load persisted settings into the in-memory defaults
     persisted_settings = await store.get_settings()
@@ -155,16 +159,100 @@ def create_app() -> FastAPI:
     async def ws_run(websocket: WebSocket, run_id: str) -> None:
         await websocket.accept()
         logger.info("WebSocket client connected for run %s", run_id)
-        try:
-            async for event in event_bus.subscribe(run_id):
-                payload = event.model_dump(mode="json")
+
+        # Determine if this is a server-managed run (in-process event bus)
+        # or an external run (E2E harness — events only in DB).
+        from server.services.runner_service import _active_runs, _active_lock
+
+        with _active_lock:
+            is_local = run_id in _active_runs
+
+        if is_local:
+            # Server-started run: stream from the in-process event bus
+            try:
+                async for event in event_bus.subscribe(run_id):
+                    payload = event.model_dump(mode="json")
+                    await websocket.send_text(json.dumps(payload, default=str))
+            except WebSocketDisconnect:
+                logger.info("WebSocket client disconnected for run %s", run_id)
+            except Exception:
+                logger.exception("WebSocket error for run %s", run_id)
+        else:
+            # External run (E2E test in another process): poll the DB
+            # for new events and stream them to the client.
+            logger.info(
+                "Run %s is external — polling DB for live events", run_id
+            )
+            try:
+                await _poll_db_events(websocket, run_id)
+            except WebSocketDisconnect:
+                logger.info("WebSocket client disconnected for run %s", run_id)
+            except Exception:
+                logger.exception("WebSocket error for run %s", run_id)
+        logger.debug("WebSocket handler exiting for run %s", run_id)
+
+    async def _poll_db_events(
+        websocket: WebSocket, run_id: str, poll_interval: float = 0.5
+    ) -> None:
+        """Poll the events table for an external run and stream to WebSocket.
+
+        Sends all existing events first (replay), then polls for new ones
+        every *poll_interval* seconds until the run leaves 'running' status.
+        """
+        from server.models import EventType
+
+        last_seq = 0
+        terminal = False
+
+        while not terminal:
+            events = await store.get_events(run_id, since_seq=last_seq)
+            for evt in events:
+                if evt["seq"] <= last_seq:
+                    continue
+                last_seq = evt["seq"]
+                # Build a payload compatible with RunEvent.model_dump()
+                payload = {
+                    "run_id": run_id,
+                    "seq": evt["seq"],
+                    "type": evt["type"],
+                    "data": evt["data"],
+                    "timestamp": evt["timestamp"],
+                }
                 await websocket.send_text(json.dumps(payload, default=str))
-        except WebSocketDisconnect:
-            logger.info("WebSocket client disconnected for run %s", run_id)
-        except Exception:
-            logger.exception("WebSocket error for run %s", run_id)
-        finally:
-            logger.debug("WebSocket handler exiting for run %s", run_id)
+
+                # Check for terminal events
+                if evt["type"] in ("run.complete", "error"):
+                    terminal = True
+                    break
+
+            if terminal:
+                break
+
+            # Also check if the run status changed to a terminal state
+            # (in case run_completion.json was never written but the harness
+            # finalized the run in the DB)
+            run = await store.get_run(run_id)
+            if run and run["status"] not in ("running", "pending"):
+                # Send a synthetic run.complete so the frontend transitions
+                if not any(
+                    e["type"] == "run.complete"
+                    for e in await store.get_events(run_id, since_seq=last_seq)
+                ):
+                    payload = {
+                        "run_id": run_id,
+                        "seq": last_seq + 1,
+                        "type": "run.complete",
+                        "data": {
+                            "status": run["status"],
+                            "result": run.get("result"),
+                        },
+                        "timestamp": run.get("completed_at", ""),
+                    }
+                    await websocket.send_text(json.dumps(payload, default=str))
+                terminal = True
+                break
+
+            await asyncio.sleep(poll_interval)
 
     # ------------------------------------------------------------------
     # Static file serving (production SPA)

@@ -398,20 +398,37 @@ class _RunDirWatcher:
         self._workspace_dir = workspace_dir
         self._seen_files: set[str] = set()
         self._stop = threading.Event()
+        self._pinned_run_dir: Path | None = None
 
     def stop(self) -> None:
         self._stop.set()
 
     def _find_run_dir(self) -> Path | None:
-        """Locate the delegation loop run directory under workspace/runs/."""
+        """Locate the delegation loop run directory under workspace/runs/.
+
+        Pins to the first directory discovered so that later sub-manager
+        runs (which create sibling directories with newer timestamps)
+        don't cause the watcher to jump away from the root run.  The
+        root run directory contains the full recursive tree of sub-runs
+        inside its ``iterations/*/delegations/*/runs/`` hierarchy.
+        """
+        if self._pinned_run_dir is not None:
+            return self._pinned_run_dir if self._pinned_run_dir.exists() else None
         runs_dir = self._workspace_dir / "workspace" / "runs"
         if not runs_dir.exists():
             return None
-        # Pick the latest run dir
+        # Pick the latest run dir on first call, then pin it.  Sub-manager
+        # runs create sibling directories with newer timestamps (and also
+        # appear as nested dirs inside the root run).  If we kept picking
+        # the latest each poll cycle, we'd jump away from the root run
+        # and miss all subsequent events.
         candidates = sorted(
             [d for d in runs_dir.iterdir() if d.is_dir()], key=lambda d: d.name
         )
-        return candidates[-1] if candidates else None
+        if candidates:
+            self._pinned_run_dir = candidates[-1]
+            return self._pinned_run_dir
+        return None
 
     def _read_json(self, path: Path) -> dict[str, Any] | list[Any] | None:
         try:
@@ -1103,7 +1120,7 @@ class RunnerService:
                 loop = event_bus._loop
                 if loop and not loop.is_closed():
                     asyncio.run_coroutine_threadsafe(
-                        self._persist_result(run_id, status, result),
+                        self._persist_result(run_id, status, result, session_id),
                         loop,
                     ).result(timeout=10)
             except Exception:
@@ -1122,6 +1139,7 @@ class RunnerService:
         run_id: str,
         status: str,
         result: dict[str, Any] | None,
+        session_id: str | None = None,
     ) -> None:
         """Persist the final result to SQLite."""
         # Import lazily to avoid circular refs at module level
@@ -1148,6 +1166,14 @@ class RunnerService:
             result=result,
             completed_at=datetime.now(tz=timezone.utc).isoformat(),
         )
+
+        # Also update the parent session status so the sidebar reflects
+        # the terminal state (complete / partial / failed / error).
+        if session_id:
+            try:
+                await store.update_session(session_id, status=status)
+            except Exception:
+                pass
 
     @staticmethod
     def _config_to_workflow_kwargs(config: dict[str, Any]) -> dict[str, Any]:
