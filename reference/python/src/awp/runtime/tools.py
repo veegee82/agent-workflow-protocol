@@ -19,6 +19,7 @@ import logging
 import re
 import subprocess
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -54,6 +55,7 @@ class ToolRegistry:
         self._definitions: dict[str, dict[str, Any]] = {}
         self._tool_secrets: dict[str, list[str]] = {}  # tool FQN → declared secret keys
         self._dynamic_tools: dict[str, dict[str, Any]] = {}  # FQN → provenance metadata
+        self._dynamic_tools_lock = threading.Lock()
         self._secrets: dict[str, str] = secrets or {}
         self._workflow_dir = workflow_dir
         self._memory_dir: Optional[Path] = None
@@ -61,8 +63,7 @@ class ToolRegistry:
         self._code_executor: Any = None
         self._dynamic_tool_factory: Any = None
         self._security_context: Any = None
-        self._current_agent_id: str = ""
-        self._run_id: str = ""
+        self._thread_local = threading.local()
 
         if workflow_dir:
             ws = workflow_dir / "workspace"
@@ -72,6 +73,22 @@ class ToolRegistry:
         self._register_builtins()
         if workflow_dir:
             self._discover_custom_tools(workflow_dir)
+
+    @property
+    def _current_agent_id(self) -> str:
+        return getattr(self._thread_local, "agent_id", "")
+
+    @_current_agent_id.setter
+    def _current_agent_id(self, value: str) -> None:
+        self._thread_local.agent_id = value
+
+    @property
+    def _run_id(self) -> str:
+        return getattr(self._thread_local, "run_id", "")
+
+    @_run_id.setter
+    def _run_id(self, value: str) -> None:
+        self._thread_local.run_id = value
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a tool by FQN name.
@@ -113,7 +130,9 @@ class ToolRegistry:
         required = schema.get("required") or []
         if isinstance(arguments, dict) and props:
             allowed_keys = set(props.keys())
-            unknown = [k for k in arguments.keys() if k not in allowed_keys and not k.startswith("_")]
+            unknown = [
+                k for k in arguments.keys() if k not in allowed_keys and not k.startswith("_")
+            ]
             missing = [k for k in required if k not in arguments]
             if unknown or missing:
                 parts: list[str] = []
@@ -135,9 +154,7 @@ class ToolRegistry:
         try:
             declared = self._tool_secrets.get(name, [])
             if declared and self._secrets:
-                tool_secrets = {
-                    k: self._secrets[k] for k in declared if k in self._secrets
-                }
+                tool_secrets = {k: self._secrets[k] for k in declared if k in self._secrets}
                 return fn(**arguments, _secrets=tool_secrets)
             return fn(**arguments)
         except TypeError as exc:
@@ -146,9 +163,7 @@ class ToolRegistry:
             logger.error("Tool %s failed: %s", name, exc)
             return _err(str(exc), 500)
 
-    def get_definitions(
-        self, allowed: Optional[list[str]] = None
-    ) -> list[dict[str, Any]]:
+    def get_definitions(self, allowed: Optional[list[str]] = None) -> list[dict[str, Any]]:
         """Get tool definitions in OpenAI function calling format.
 
         Args:
@@ -175,9 +190,7 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return sorted(self._tools.keys())
 
-    def validate_secrets(
-        self, allowed_tools: Optional[list[str]] = None
-    ) -> dict[str, list[str]]:
+    def validate_secrets(self, allowed_tools: Optional[list[str]] = None) -> dict[str, list[str]]:
         """Validate that all declared secrets are present.
 
         Missing secrets are logged as warnings but do not block execution.
@@ -215,8 +228,7 @@ class ToolRegistry:
         if missing:
             for tool, keys in missing.items():
                 logger.warning(
-                    "Tool '%s' has missing secrets: %s -- "
-                    "tool may run with reduced functionality",
+                    "Tool '%s' has missing secrets: %s -- tool may run with reduced functionality",
                     tool,
                     ", ".join(keys),
                 )
@@ -506,8 +518,7 @@ class ToolRegistry:
                     "topic": {
                         "type": "string",
                         "description": (
-                            "Optional topic filter — only return entries "
-                            "with this exact topic."
+                            "Optional topic filter — only return entries with this exact topic."
                         ),
                     },
                     "since": {
@@ -642,16 +653,25 @@ class ToolRegistry:
     # -- File tools ---------------------------------------------------
 
     # Sensitive system paths that agents should never read/write
-    _SENSITIVE_PATHS: frozenset[str] = frozenset({
-        "/etc/shadow", "/etc/gshadow", "/etc/master.passwd",
-        "/etc/sudoers",
-        "/root/.ssh", "/root/.bash_history", "/root/.gnupg",
-    })
+    _SENSITIVE_PATHS: frozenset[str] = frozenset(
+        {
+            "/etc/shadow",
+            "/etc/gshadow",
+            "/etc/master.passwd",
+            "/etc/sudoers",
+            "/root/.ssh",
+            "/root/.bash_history",
+            "/root/.gnupg",
+        }
+    )
 
     # Sensitive path prefixes — block entire directories
     _SENSITIVE_PREFIXES: tuple[str, ...] = (
-        "/proc/", "/sys/", "/dev/",
-        "/root/.ssh/", "/root/.gnupg/",
+        "/proc/",
+        "/sys/",
+        "/dev/",
+        "/root/.ssh/",
+        "/root/.gnupg/",
     )
 
     def _is_path_allowed(self, resolved: Path) -> tuple[bool, str]:
@@ -688,6 +708,7 @@ class ToolRegistry:
                 return True, ""
             # Allow /tmp and system temp dirs
             import tempfile
+
             tmp_dir = tempfile.gettempdir()
             if resolved_str.startswith(tmp_dir) or resolved_str.startswith("/tmp"):
                 return True, ""
@@ -743,11 +764,32 @@ class ToolRegistry:
             # of letting Python raise a cryptic UnicodeDecodeError. Real
             # workers in the wild repeatedly tried to file.read PNG/PDF
             # outputs with the default utf-8 encoding.
-            _BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".pdf",
-                            ".zip", ".gz", ".tar", ".xz", ".bz2",
-                            ".parquet", ".feather", ".npy", ".npz",
-                            ".so", ".dylib", ".dll", ".exe", ".pyc",
-                            ".woff", ".woff2", ".ttf", ".otf", ".ico"}
+            _BINARY_EXT = {
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".pdf",
+                ".zip",
+                ".gz",
+                ".tar",
+                ".xz",
+                ".bz2",
+                ".parquet",
+                ".feather",
+                ".npy",
+                ".npz",
+                ".so",
+                ".dylib",
+                ".dll",
+                ".exe",
+                ".pyc",
+                ".woff",
+                ".woff2",
+                ".ttf",
+                ".otf",
+                ".ico",
+            }
             ext = resolved.suffix.lower()
             try:
                 with resolved.open("rb") as _bf:
@@ -785,9 +827,7 @@ class ToolRegistry:
         except Exception as e:
             return _err(str(e))
 
-    def _file_write(
-        self, *, path: str, content: str, mode: str = "overwrite"
-    ) -> dict[str, Any]:
+    def _file_write(self, *, path: str, content: str, mode: str = "overwrite") -> dict[str, Any]:
         try:
             p = Path(path)
             # Path sandbox check
@@ -1023,9 +1063,7 @@ class ToolRegistry:
             mem_file = self._memory_dir / "MEMORY.md"
             if not mem_file.exists():
                 return _ok({"content": "", "exists": False})
-            return _ok(
-                {"content": mem_file.read_text(encoding="utf-8"), "exists": True}
-            )
+            return _ok({"content": mem_file.read_text(encoding="utf-8"), "exists": True})
 
         elif target == "daily":
             d = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1085,9 +1123,7 @@ class ToolRegistry:
             content = mem_file.read_text(encoding="utf-8")
             for i, line in enumerate(content.split("\n")):
                 if query_lower in line.lower():
-                    results.append(
-                        {"source": "MEMORY.md", "line": i + 1, "text": line.strip()}
-                    )
+                    results.append({"source": "MEMORY.md", "line": i + 1, "text": line.strip()})
 
         # Search daily logs
         mem_dir = self._memory_dir / "memory"
@@ -1252,9 +1288,7 @@ class ToolRegistry:
                         for kw in dec.keywords:
                             if kw.arg == "secrets" and isinstance(kw.value, ast.List):
                                 for elt in kw.value.elts:
-                                    if isinstance(elt, ast.Constant) and isinstance(
-                                        elt.value, str
-                                    ):
+                                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                                         secrets_keys.append(elt.value)
                         self._register_custom_tool(fqn, py_file, node, secrets_keys)
 
@@ -1267,9 +1301,7 @@ class ToolRegistry:
     ) -> None:
         """Register a discovered custom tool."""
         # Load the module
-        spec = importlib.util.spec_from_file_location(
-            f"awp_custom_{py_file.stem}", py_file
-        )
+        spec = importlib.util.spec_from_file_location(f"awp_custom_{py_file.stem}", py_file)
         if spec is None or spec.loader is None:
             return
 
@@ -1281,9 +1313,7 @@ class ToolRegistry:
             # Retry with mcp blocked so the stub fallback is used.
             try:
                 module = importlib.util.module_from_spec(spec)
-                module.__dict__["__builtins__"] = module.__dict__.get(
-                    "__builtins__", {}
-                )
+                module.__dict__["__builtins__"] = module.__dict__.get("__builtins__", {})
                 # Temporarily hide the real mcp package so the stub is used
                 saved = sys.modules.get("mcp.server.fastmcp")
                 sys.modules["mcp.server.fastmcp"] = None  # type: ignore[assignment]
@@ -1295,9 +1325,7 @@ class ToolRegistry:
                     else:
                         sys.modules.pop("mcp.server.fastmcp", None)
             except Exception as exc2:
-                logger.warning(
-                    "Failed to load custom tool module %s: %s", py_file.name, exc2
-                )
+                logger.warning("Failed to load custom tool module %s: %s", py_file.name, exc2)
                 return
 
         # Find the function in the module
@@ -1362,9 +1390,7 @@ class ToolRegistry:
                         "type": "string",
                         "description": "Recipient agent ID or '*' for broadcast",
                     },
-                    "content": {
-                        "description": "Message content (any JSON-serializable value)"
-                    },
+                    "content": {"description": "Message content (any JSON-serializable value)"},
                     "channel": {
                         "type": "string",
                         "description": "Channel name",
@@ -1478,14 +1504,15 @@ class ToolRegistry:
         Returns:
             Standard AWP result format.
         """
-        if name in self._tools:
-            return _err(f"Tool already exists: {name}", 409)
-        self._register(name, fn, params, desc, secrets_keys=secrets_keys)
-        self._dynamic_tools[name] = {
-            "creator": creator_agent,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        return _ok({"name": name, "registered": True})
+        with self._dynamic_tools_lock:
+            if name in self._tools:
+                return _err(f"Tool already exists: {name}", 409)
+            self._register(name, fn, params, desc, secrets_keys=secrets_keys)
+            self._dynamic_tools[name] = {
+                "creator": creator_agent,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            return _ok({"name": name, "registered": True})
 
     def unregister(self, name: str) -> dict[str, Any]:
         """Remove a tool from the registry. Only dynamic tools can be removed.
@@ -1496,17 +1523,19 @@ class ToolRegistry:
         Returns:
             Standard AWP result format.
         """
-        if name not in self._dynamic_tools:
-            return _err(f"Cannot unregister non-dynamic tool: {name}", 403)
-        self._tools.pop(name, None)
-        self._definitions.pop(name, None)
-        self._tool_secrets.pop(name, None)
-        self._dynamic_tools.pop(name, None)
-        return _ok({"name": name, "unregistered": True})
+        with self._dynamic_tools_lock:
+            if name not in self._dynamic_tools:
+                return _err(f"Cannot unregister non-dynamic tool: {name}", 403)
+            self._tools.pop(name, None)
+            self._definitions.pop(name, None)
+            self._tool_secrets.pop(name, None)
+            self._dynamic_tools.pop(name, None)
+            return _ok({"name": name, "unregistered": True})
 
     def get_dynamic_tools(self) -> list[str]:
         """Return FQNs of all dynamically registered tools."""
-        return list(self._dynamic_tools.keys())
+        with self._dynamic_tools_lock:
+            return list(self._dynamic_tools.keys())
 
     # -- Message bus tools ------------------------------------------------
 
@@ -1524,12 +1553,8 @@ class ToolRegistry:
         if to == "*":
             msg_id = self._message_bus.broadcast(from_agent, content, channel=channel)
         else:
-            msg_id = self._message_bus.send(
-                from_agent, to, content, channel=channel, msg_type=type
-            )
-        return _ok(
-            {"message_id": msg_id, "from": from_agent, "to": to, "channel": channel}
-        )
+            msg_id = self._message_bus.send(from_agent, to, content, channel=channel, msg_type=type)
+        return _ok({"message_id": msg_id, "from": from_agent, "to": to, "channel": channel})
 
     def _agent_list_messages(
         self,
@@ -1566,7 +1591,9 @@ class ToolRegistry:
             out.mkdir(parents=True, exist_ok=True)
             # Build a snapshot of all existing files so workers know what's available
             tree_lines = self._snapshot_workspace_tree(ws, out)
-            tree_comment = "\n".join(f"# {l}" for l in tree_lines) if tree_lines else "# (empty workspace)"
+            tree_comment = (
+                "\n".join(f"# {l}" for l in tree_lines) if tree_lines else "# (empty workspace)"
+            )
 
             preamble = (
                 f"import os as _os\n"
@@ -1602,13 +1629,13 @@ class ToolRegistry:
                 f"    _os.makedirs(d, exist_ok=True)\n"
                 f"    return path\n"
                 f"def _output_file(*parts):\n"
-                f"    \"\"\"Build a path under _output_dir. Example: _output_file('chart.png')\"\"\"\n"
+                f'    """Build a path under _output_dir. Example: _output_file(\'chart.png\')"""\n'
                 f"    return _os.path.join(_output_dir, *parts)\n"
                 f"def _input_file(*parts):\n"
-                f"    \"\"\"Build a path under _workspace_dir/inputs. Example: _input_file('data.csv')\"\"\"\n"
+                f'    """Build a path under _workspace_dir/inputs. Example: _input_file(\'data.csv\')"""\n'
                 f"    return _os.path.join(_workspace_dir, 'inputs', *parts)\n"
                 f"def _list_files(directory=None):\n"
-                f"    \"\"\"List all files in a directory (defaults to _workspace_dir). Returns list of relative paths.\"\"\"\n"
+                f'    """List all files in a directory (defaults to _workspace_dir). Returns list of relative paths."""\n'
                 f"    base = directory or _workspace_dir\n"
                 f"    found = []\n"
                 f"    for root, dirs, files in _os.walk(base):\n"
@@ -1620,11 +1647,11 @@ class ToolRegistry:
                 f"# Auto-create parent dirs for writes under _output_dir / _workspace_dir\n"
                 f"_orig_open = _builtins.open\n"
                 f"class _AWPFileProxy:\n"
-                f"    \"\"\"Wraps a text-mode file handle and transparently re-opens\n"
+                f'    """Wraps a text-mode file handle and transparently re-opens\n'
                 f"    it in binary mode if the caller writes bytes. Closes the\n"
                 f"    common LLM mistake of opening with 'w' and then writing\n"
                 f"    bytes (e.g. response.content, co_code, image buffers).\n"
-                f"    \"\"\"\n"
+                f'    """\n'
                 f"    def __init__(self, path, mode, args, kwargs):\n"
                 f"        self._path = path\n"
                 f"        self._mode = mode\n"
@@ -1681,7 +1708,7 @@ class ToolRegistry:
                 f"\n"
                 f"# --- PNG validation helper: verify saved images are real ---\n"
                 f"def _verify_png(path):\n"
-                f"    \"\"\"Check if a saved PNG is a real image (not a placeholder). Call after savefig().\"\"\"\n"
+                f'    """Check if a saved PNG is a real image (not a placeholder). Call after savefig()."""\n'
                 f"    import struct as _struct\n"
                 f"    try:\n"
                 f"        with open(path, 'rb') as _f:\n"
@@ -1707,6 +1734,7 @@ class ToolRegistry:
 
         # Snapshot files before execution so we can detect new/changed files
         from .file_validator import snapshot_file_state, validate_changed_files
+
         dirs_to_watch = []
         if self._workflow_dir:
             dirs_to_watch = [
@@ -1726,6 +1754,7 @@ class ToolRegistry:
                 classify_warning_severity,
                 find_changed_files,
             )
+
             snapshots_after = {str(d): snapshot_file_state(d) for d in dirs_to_watch}
             for d_str in snapshots_before:
                 w = validate_changed_files(snapshots_before[d_str], snapshots_after[d_str])
@@ -1740,6 +1769,7 @@ class ToolRegistry:
             has_critical = False
             for p in changed_paths:
                 from .file_validator import validate_file
+
                 w = validate_file(p)
                 if w:
                     warning_pairs.append((p, w))
@@ -1751,7 +1781,8 @@ class ToolRegistry:
             warning_block = (
                 "\n\n⚠ OUTPUT FILE VALIDATION WARNINGS:\n"
                 + "\n".join(f"  - {w}" for w in file_warnings)
-                + "\n\n" + repair_instructions
+                + "\n\n"
+                + repair_instructions
             )
 
             if has_critical:
@@ -1800,11 +1831,12 @@ class ToolRegistry:
             if "ModuleNotFoundError" in error_text or "ImportError" in error_text:
                 # Extract module name from error
                 import re
+
                 m = re.search(r"No module named ['\"]([^'\"]+)['\"]", error_text)
                 module = m.group(1).split(".")[0] if m else "the_package"
                 hints.append(
                     f"HINT: Use the pip.install tool to install missing packages "
-                    f"before retrying. Example: pip.install(packages=[\"{module}\"])"
+                    f'before retrying. Example: pip.install(packages=["{module}"])'
                 )
 
             # Detect common syntax patterns
@@ -1830,8 +1862,8 @@ class ToolRegistry:
             # Detect file not found
             if "FileNotFoundError" in error_text or "No such file or directory" in error_text:
                 hints.append(
-                    "HINT: Use _workspace_dir + \"/inputs/FILENAME\" for input files "
-                    "and _output_dir + \"/FILENAME\" for output files. "
+                    'HINT: Use _workspace_dir + "/inputs/FILENAME" for input files '
+                    'and _output_dir + "/FILENAME" for output files. '
                     "Call _list_files() to see all available files in the workspace, "
                     "or _list_files(_output_dir) for output files. "
                     "Use _ensure_dir(path) before writing to subdirectories."
@@ -1843,9 +1875,7 @@ class ToolRegistry:
         return result
 
     @staticmethod
-    def _snapshot_workspace_tree(
-        workspace: Path, output: Path, max_files: int = 80
-    ) -> list[str]:
+    def _snapshot_workspace_tree(workspace: Path, output: Path, max_files: int = 80) -> list[str]:
         """Build a compact directory tree of workspace + output for the preamble.
 
         Returns lines like:
@@ -1936,9 +1966,7 @@ class ToolRegistry:
         for log_file in sorted(mem_dir.glob("*.md"), reverse=True):
             try:
                 date_str = log_file.stem
-                file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
-                    tzinfo=timezone.utc
-                )
+                file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
                 if file_date < cutoff:
                     break
                 content = log_file.read_text(encoding="utf-8").strip()

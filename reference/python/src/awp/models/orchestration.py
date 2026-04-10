@@ -166,6 +166,7 @@ class DelegationBudget(BaseModel):
     # cascade into an unbounded submanager forest.
     max_concurrent_submanagers: int = 3
     max_total_submanagers_per_run: int = 6
+    max_parallel_workers: int = 16
 
 
 class SandboxEnforcement(BaseModel):
@@ -356,7 +357,6 @@ class PlanningConfig(BaseModel):
 
     enabled: bool = False
     max_subtasks: int = 10  # cap on plan complexity
-
 
 
 class DiagnosisConfig(BaseModel):

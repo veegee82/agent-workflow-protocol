@@ -30,20 +30,25 @@ import importlib.util
 import logging
 import subprocess
 import sys
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from awp.parser import parse_manifest
 from awp.models.capabilities import SandboxConfig
 from awp.models.orchestration import (
     AWPOrchestrationConfig,
     ConditionalDependency,
     RunBudgetLimits,
 )
+from awp.parser import parse_manifest
+
 from .agent import StandaloneAgent
+from .dynamic_tool_factory import DynamicToolFactory
+from .evaluation import EvaluationEngine
 from .executor_factory import create_executor
 from .expressions import safe_eval
 from .llm import LLMClient
@@ -52,8 +57,6 @@ from .observability import ObservabilityContext
 from .secrets import load_secrets
 from .security import SecurityContext
 from .state_persistence import StatePersistence
-from .dynamic_tool_factory import DynamicToolFactory
-from .evaluation import EvaluationEngine
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -68,6 +71,7 @@ class RunBudgetTracker:
     def __init__(self, budget: RunBudgetLimits) -> None:
         self._budget = budget
         self._enabled = set(budget.enabled_limits)
+        self._lock = threading.Lock()
         self.agent_runs = 0
         self.tool_calls = 0
         self.tokens_used = 0
@@ -79,48 +83,54 @@ class RunBudgetTracker:
         return time.monotonic() - self._start
 
     def record_agent_run(self) -> None:
-        self.agent_runs += 1
+        with self._lock:
+            self.agent_runs += 1
 
     def record_tool_calls(self, count: int = 1) -> None:
-        self.tool_calls += count
+        with self._lock:
+            self.tool_calls += count
 
     def record_tokens(self, count: int) -> None:
-        self.tokens_used += count
+        with self._lock:
+            self.tokens_used += count
 
     def record_cost(self, usd: float) -> None:
-        self.cost_usd += usd
+        with self._lock:
+            self.cost_usd += usd
 
     def check(self) -> tuple[bool, str]:
         """Return (can_continue, reason).  Only checks enabled limits."""
-        if "max_wall_time" in self._enabled:
-            if self.wall_time_elapsed >= self._budget.max_wall_time:
-                return False, f"max_wall_time exceeded ({self._budget.max_wall_time}s)"
-        if "max_total_tokens" in self._enabled:
-            if self.tokens_used >= self._budget.max_total_tokens:
-                return (
-                    False,
-                    f"max_total_tokens reached ({self._budget.max_total_tokens})",
-                )
-        if "max_tool_calls" in self._enabled:
-            if self.tool_calls >= self._budget.max_tool_calls:
-                return False, f"max_tool_calls reached ({self._budget.max_tool_calls})"
-        if "max_agent_runs" in self._enabled:
-            if self.agent_runs >= self._budget.max_agent_runs:
-                return False, f"max_agent_runs reached ({self._budget.max_agent_runs})"
-        if "max_cost_usd" in self._enabled:
-            if self.cost_usd >= self._budget.max_cost_usd:
-                return False, f"max_cost_usd reached (${self._budget.max_cost_usd:.2f})"
-        return True, "ok"
+        with self._lock:
+            if "max_wall_time" in self._enabled:
+                if self.wall_time_elapsed >= self._budget.max_wall_time:
+                    return False, f"max_wall_time exceeded ({self._budget.max_wall_time}s)"
+            if "max_total_tokens" in self._enabled:
+                if self.tokens_used >= self._budget.max_total_tokens:
+                    return (
+                        False,
+                        f"max_total_tokens reached ({self._budget.max_total_tokens})",
+                    )
+            if "max_tool_calls" in self._enabled:
+                if self.tool_calls >= self._budget.max_tool_calls:
+                    return False, f"max_tool_calls reached ({self._budget.max_tool_calls})"
+            if "max_agent_runs" in self._enabled:
+                if self.agent_runs >= self._budget.max_agent_runs:
+                    return False, f"max_agent_runs reached ({self._budget.max_agent_runs})"
+            if "max_cost_usd" in self._enabled:
+                if self.cost_usd >= self._budget.max_cost_usd:
+                    return False, f"max_cost_usd reached (${self._budget.max_cost_usd:.2f})"
+            return True, "ok"
 
     def summary(self) -> dict:
-        return {
-            "wall_time_s": round(self.wall_time_elapsed, 1),
-            "agent_runs": self.agent_runs,
-            "tool_calls": self.tool_calls,
-            "tokens_used": self.tokens_used,
-            "cost_usd": round(self.cost_usd, 4),
-            "enabled_limits": sorted(self._enabled),
-        }
+        with self._lock:
+            return {
+                "wall_time_s": round(self.wall_time_elapsed, 1),
+                "agent_runs": self.agent_runs,
+                "tool_calls": self.tool_calls,
+                "tokens_used": self.tokens_used,
+                "cost_usd": round(self.cost_usd, 4),
+                "enabled_limits": sorted(self._enabled),
+            }
 
 
 class WorkflowRunner:
@@ -331,9 +341,7 @@ class WorkflowRunner:
             for key, value in self._manifest.state.auto_inject.items():
                 if isinstance(value, str):
                     value = value.replace("{{RUN_ID}}", run_id)
-                    value = value.replace(
-                        "{{TIMESTAMP}}", datetime.now(timezone.utc).isoformat()
-                    )
+                    value = value.replace("{{TIMESTAMP}}", datetime.now(timezone.utc).isoformat())
                 state.setdefault(key, value)
 
         orch = self._manifest.orchestration
@@ -396,39 +404,30 @@ class WorkflowRunner:
         workflow_start = time.monotonic()
 
         for level_idx, level in enumerate(levels):
-            level_str = ", ".join(level)
-            parallel = " (parallel)" if len(level) > 1 else ""
-            logger.info("Level %d: [%s]%s", level_idx, level_str, parallel)
+            # Budget check once per level
+            if self._run_budget:
+                can_go, reason = self._run_budget.check()
+                if not can_go:
+                    logger.warning("  Run budget limit hit: %s — stopping workflow", reason)
+                    if obs.audit:
+                        obs.audit.record(
+                            "workflow.budget_exceeded",
+                            details={
+                                "reason": reason,
+                                "budget_summary": self._run_budget.summary(),
+                            },
+                        )
+                    state["_run_budget"] = self._run_budget.summary()
+                    state["_run_budget"]["exceeded"] = reason
+                    return self._finalize_run(state, obs, root_span, workflow_start, levels)
 
+            # Filter eligible agents (enabled, when-condition, security)
+            eligible: list[str] = []
             for agent_id in level:
-                # Run budget check — stop early if a limit is exceeded
-                if self._run_budget:
-                    can_go, reason = self._run_budget.check()
-                    if not can_go:
-                        logger.warning(
-                            "  Run budget limit hit: %s — stopping workflow", reason
-                        )
-                        if obs.audit:
-                            obs.audit.record(
-                                "workflow.budget_exceeded",
-                                details={
-                                    "reason": reason,
-                                    "budget_summary": self._run_budget.summary(),
-                                },
-                            )
-                        state["_run_budget"] = self._run_budget.summary()
-                        state["_run_budget"]["exceeded"] = reason
-                        # Break out of both loops
-                        return self._finalize_run(
-                            state, obs, root_span, workflow_start, levels
-                        )
-
                 node = self._get_node(orch, agent_id)
                 if node and not node.enabled:
                     logger.info("  Skipping disabled agent: %s", agent_id)
                     continue
-
-                # Evaluate when condition
                 if not self._evaluate_when(node, state):
                     logger.info("  Skipping agent %s: when condition not met", agent_id)
                     if obs.audit:
@@ -438,8 +437,6 @@ class WorkflowRunner:
                             details={"reason": "when_condition"},
                         )
                     continue
-
-                # Rate limiter check
                 if self._security.rate_limiter:
                     if not self._security.rate_limiter.check(agent_id):
                         logger.warning("  Rate limited: %s", agent_id)
@@ -447,8 +444,6 @@ class WorkflowRunner:
                             obs.audit.record("agent.rate_limited", agent_id)
                         state[agent_id] = {"error": "Rate limited", "confidence": 0.0}
                         continue
-
-                # Circuit breaker check
                 if self._security.circuit_breaker:
                     if not self._security.circuit_breaker.check():
                         logger.warning("  Circuit breaker open, skipping: %s", agent_id)
@@ -459,12 +454,21 @@ class WorkflowRunner:
                             "confidence": 0.0,
                         }
                         continue
+                eligible.append(agent_id)
 
-                # Set current agent for tool access control
+            if not eligible:
+                continue
+
+            level_str = ", ".join(eligible)
+            parallel = " (parallel)" if len(eligible) > 1 else ""
+            logger.info("Level %d: [%s]%s", level_idx, level_str, parallel)
+
+            if len(eligible) == 1:
+                # Single agent — sequential fast path (no thread overhead)
+                agent_id = eligible[0]
                 self._tools._current_agent_id = agent_id
-
-                # Execute agent with retry
                 agent_dir = self._dir / "agents" / agent_id
+                node = self._get_node(orch, agent_id)
                 result = self._run_agent_with_retry(
                     agent_id,
                     agent_dir,
@@ -475,8 +479,6 @@ class WorkflowRunner:
                     root_span_id=root_span,
                 )
                 state.update(result)
-
-                # Step evaluation hook
                 if eval_engine:
                     step_eval = eval_engine.evaluate_step(
                         hook="worker_result",
@@ -492,22 +494,72 @@ class WorkflowRunner:
                             step_eval.score,
                             step_eval.action,
                         )
-
-                # Track agent run in global budget
                 if self._run_budget:
                     self._run_budget.record_agent_run()
-
-                # Record rate limit usage
                 if self._security.rate_limiter:
                     self._security.rate_limiter.record(agent_id)
-
-                # State persistence checkpoint
                 try:
                     self._state_persistence.save_checkpoint(agent_id, state)
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to save checkpoint for %s: %s", agent_id, exc
+                    logger.warning("Failed to save checkpoint for %s: %s", agent_id, exc)
+            else:
+                # Multiple agents — parallel execution via ThreadPoolExecutor
+                level_start_state = dict(state)
+
+                def _run_agent_thread(aid: str) -> tuple[str, dict]:
+                    self._tools._current_agent_id = aid
+                    adir = self._dir / "agents" / aid
+                    anode = self._get_node(orch, aid)
+                    return aid, self._run_agent_with_retry(
+                        aid,
+                        adir,
+                        task,
+                        level_start_state,
+                        anode,
+                        obs,
+                        root_span_id=root_span,
                     )
+
+                max_workers = min(len(eligible), 16)
+                collected: dict[str, dict] = {}
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futures = {pool.submit(_run_agent_thread, aid): aid for aid in eligible}
+                    for future in as_completed(futures):
+                        aid, result = future.result()
+                        collected[aid] = result
+
+                # Merge results after all agents complete
+                for agent_id in eligible:
+                    if agent_id in collected:
+                        state.update(collected[agent_id])
+
+                # Post-merge: eval, budget, rate-limit, checkpoints (sequential)
+                for agent_id in eligible:
+                    if agent_id not in collected:
+                        continue
+                    if eval_engine:
+                        step_eval = eval_engine.evaluate_step(
+                            hook="worker_result",
+                            result=collected[agent_id],
+                            state=state,
+                            budget=self._run_budget,
+                            agent_id=agent_id,
+                        )
+                        if step_eval:
+                            logger.info(
+                                "  Eval [%s]: score=%.2f action=%s",
+                                agent_id,
+                                step_eval.score,
+                                step_eval.action,
+                            )
+                    if self._run_budget:
+                        self._run_budget.record_agent_run()
+                    if self._security.rate_limiter:
+                        self._security.rate_limiter.record(agent_id)
+                    try:
+                        self._state_persistence.save_checkpoint(agent_id, state)
+                    except Exception as exc:
+                        logger.warning("Failed to save checkpoint for %s: %s", agent_id, exc)
 
         return self._finalize_run(state, obs, root_span, workflow_start, levels, eval_engine)
 
@@ -593,9 +645,7 @@ class WorkflowRunner:
         orch = self._manifest.orchestration
         dl_config = getattr(orch, "delegation_loop", None)
         if not dl_config:
-            raise RuntimeError(
-                "engine=delegation_loop but no delegation_loop config found"
-            )
+            raise RuntimeError("engine=delegation_loop but no delegation_loop config found")
 
         import os
 
@@ -675,9 +725,7 @@ class WorkflowRunner:
                     )
                 if node and node.on_failure == "abort":
                     raise RuntimeError(f"Agent directory not found: {agent_dir}")
-                return {
-                    agent_id: {"error": "Agent directory not found", "confidence": 0.0}
-                }
+                return {agent_id: {"error": "Agent directory not found", "confidence": 0.0}}
 
             try:
                 agent = self._load_agent(agent_dir)
@@ -731,9 +779,7 @@ class WorkflowRunner:
                 )
 
                 if obs.tracer and agent_span:
-                    obs.tracer.end_span(
-                        agent_span, status="error", attributes={"error": str(exc)}
-                    )
+                    obs.tracer.end_span(agent_span, status="error", attributes={"error": str(exc)})
                 if obs.metrics:
                     obs.metrics.increment(
                         "agent.executions",
@@ -797,9 +843,7 @@ class WorkflowRunner:
             logger.info("  when '%s' => %s", when_expr, result)
             return bool(result)
         except Exception as exc:
-            logger.warning(
-                "  when expression error '%s': %s (defaulting to True)", when_expr, exc
-            )
+            logger.warning("  when expression error '%s': %s (defaulting to True)", when_expr, exc)
             return True
 
     # -- Memory -------------------------------------------------------

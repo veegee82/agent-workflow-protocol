@@ -48,12 +48,14 @@ class CritiqueEngine:
         run_id: str,
         worker_model: str = "",
         llm_client: Optional["LLMClient"] = None,
+        max_parallel_workers: int = 16,
     ) -> None:
         self._config = config
         self._workflow_dir = workflow_dir
         self._run_id = run_id
         self._worker_model = worker_model
         self._llm_client = llm_client
+        self._max_parallel_workers = max_parallel_workers
         self._pattern_memory = PatternMemory()
         self._repair_history: list[RepairAttempt] = []
         self._total_repair_tokens = 0
@@ -106,12 +108,10 @@ class CritiqueEngine:
 
         # Execute critiques in parallel (LLM calls are I/O-bound)
         results_map: dict[int, CritiqueEnvelope] = {}
-        max_threads = min(len(work), 8)
+        max_threads = min(len(work), self._max_parallel_workers)
         with ThreadPoolExecutor(max_workers=max_threads) as pool:
             futures = {
-                pool.submit(
-                    self.critique_result, wid, result, task, envelope, iteration
-                ): idx
+                pool.submit(self.critique_result, wid, result, task, envelope, iteration): idx
                 for idx, wid, result, envelope in work
             }
             for future in as_completed(futures):

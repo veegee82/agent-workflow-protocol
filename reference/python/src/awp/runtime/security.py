@@ -7,6 +7,7 @@ Production deployments can swap in Redis-backed or distributed versions.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ class CircuitBreaker:
         self._failure_threshold = failure_threshold
         self._reset_timeout = reset_timeout
         self._half_open_max_calls = half_open_max_calls
+        self._lock = threading.Lock()
         self._failure_count = 0
         self._state = "closed"  # closed | open | half_open
         self._last_failure_time: float = 0.0
@@ -42,46 +44,48 @@ class CircuitBreaker:
 
     @property
     def state(self) -> str:
-        self._maybe_transition()
-        return self._state
+        with self._lock:
+            self._maybe_transition()
+            return self._state
 
     def check(self) -> bool:
         """Return True if a call is allowed."""
-        self._maybe_transition()
-        if self._state == "closed":
-            return True
-        if self._state == "half_open":
-            if self._half_open_calls < self._half_open_max_calls:
-                self._half_open_calls += 1
+        with self._lock:
+            self._maybe_transition()
+            if self._state == "closed":
                 return True
-            return False
-        return False  # open
+            if self._state == "half_open":
+                if self._half_open_calls < self._half_open_max_calls:
+                    self._half_open_calls += 1
+                    return True
+                return False
+            return False  # open
 
     def record_success(self) -> None:
         """Record a successful call."""
-        if self._state == "half_open":
-            self._state = "closed"
-            self._failure_count = 0
-            self._half_open_calls = 0
-            logger.info("Circuit breaker: half_open → closed")
-        elif self._state == "closed":
-            self._failure_count = 0
+        with self._lock:
+            if self._state == "half_open":
+                self._state = "closed"
+                self._failure_count = 0
+                self._half_open_calls = 0
+                logger.info("Circuit breaker: half_open → closed")
+            elif self._state == "closed":
+                self._failure_count = 0
 
     def record_failure(self) -> None:
         """Record a failed call."""
-        self._failure_count += 1
-        self._last_failure_time = time.monotonic()
-        if self._state == "half_open":
-            self._state = "open"
-            logger.warning("Circuit breaker: half_open → open")
-        elif self._failure_count >= self._failure_threshold:
-            self._state = "open"
-            logger.warning(
-                "Circuit breaker: closed → open (failures=%d)", self._failure_count
-            )
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.monotonic()
+            if self._state == "half_open":
+                self._state = "open"
+                logger.warning("Circuit breaker: half_open → open")
+            elif self._failure_count >= self._failure_threshold:
+                self._state = "open"
+                logger.warning("Circuit breaker: closed → open (failures=%d)", self._failure_count)
 
     def _maybe_transition(self) -> None:
-        """Check if open → half_open transition should happen."""
+        """Check if open → half_open transition should happen. Caller must hold _lock."""
         if self._state == "open":
             elapsed = time.monotonic() - self._last_failure_time
             if elapsed >= self._reset_timeout:
@@ -105,22 +109,25 @@ class RateLimiter:
     ) -> None:
         self._max_calls = max_calls_per_minute
         self._per_agent = per_agent
+        self._lock = threading.Lock()
         self._windows: dict[str, deque[float]] = {}
 
     def check(self, agent_id: str = "global") -> bool:
         """Return True if a call is allowed within the rate limit."""
-        key = agent_id if self._per_agent else "global"
-        self._purge(key)
-        window = self._windows.get(key, deque())
-        return len(window) < self._max_calls
+        with self._lock:
+            key = agent_id if self._per_agent else "global"
+            self._purge(key)
+            window = self._windows.get(key, deque())
+            return len(window) < self._max_calls
 
     def record(self, agent_id: str = "global") -> None:
         """Record a call timestamp."""
-        key = agent_id if self._per_agent else "global"
-        self._windows.setdefault(key, deque()).append(time.monotonic())
+        with self._lock:
+            key = agent_id if self._per_agent else "global"
+            self._windows.setdefault(key, deque()).append(time.monotonic())
 
     def _purge(self, key: str) -> None:
-        """Remove entries older than 60 seconds."""
+        """Remove entries older than 60 seconds. Caller must hold _lock."""
         window = self._windows.get(key)
         if not window:
             return
@@ -155,9 +162,7 @@ class AccessController:
         """Check if an agent is allowed to use a tool."""
         denied = self._denied.get(agent_id, set())
         if tool_name in denied:
-            logger.warning(
-                "Access denied: agent '%s' cannot use tool '%s'", agent_id, tool_name
-            )
+            logger.warning("Access denied: agent '%s' cannot use tool '%s'", agent_id, tool_name)
             return False
         return self._default_policy == "allow"
 
@@ -216,9 +221,7 @@ class SecurityContext:
                             rules.append(rule)
                         else:
                             rules.append(
-                                rule.model_dump()
-                                if hasattr(rule, "model_dump")
-                                else dict(rule)
+                                rule.model_dump() if hasattr(rule, "model_dump") else dict(rule)
                             )
                 ac = AccessController(
                     default_policy=getattr(ac_cfg, "default_policy", "allow"),

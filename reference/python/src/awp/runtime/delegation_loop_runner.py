@@ -35,6 +35,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -42,7 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from awp.models.orchestration import DelegationLoopConfig, DelegationBudget
+from awp.models.orchestration import DelegationBudget, DelegationLoopConfig
+
 from .agent import StandaloneAgent
 from .context_sharing import (
     ContextBudgetConfig,
@@ -121,13 +123,12 @@ class BudgetSnapshot:
         self.max_tool_calls = budget.max_tool_calls
         self.max_depth = budget.max_depth
         # Submanager caps (P2)
-        self.max_concurrent_submanagers: int = getattr(
-            budget, "max_concurrent_submanagers", 3
-        )
+        self.max_concurrent_submanagers: int = getattr(budget, "max_concurrent_submanagers", 3)
         self.max_total_submanagers_per_run: int = getattr(
             budget, "max_total_submanagers_per_run", 6
         )
-        # Consumed
+        # Consumed (guarded by _lock for thread-safe mutation)
+        self._lock = threading.Lock()
         self.loops_used = 0
         self.workers_spawned = 0
         self.tokens_consumed = 0
@@ -142,6 +143,24 @@ class BudgetSnapshot:
         # A4 recursive delegation
         self._parent: "BudgetSnapshot | None" = parent
         self._reclaimed: bool = False
+
+    # -- Thread-safe mutation helpers ------------------------------------------
+
+    def record_workers(self, count: int = 1) -> None:
+        with self._lock:
+            self.workers_spawned += count
+
+    def record_tokens(self, count: int) -> None:
+        with self._lock:
+            self.tokens_consumed += count
+
+    def record_loop(self) -> None:
+        with self._lock:
+            self.loops_used += 1
+
+    def record_tool_call(self) -> None:
+        with self._lock:
+            self.tool_calls_used += 1
 
     # -- A4: Child allocation -------------------------------------------------
 
@@ -168,49 +187,44 @@ class BudgetSnapshot:
         child can hang the whole tree).
         """
         fraction = max(0.05, min(0.95, float(fraction)))
-        # Compute remaining capacity per dimension
-        rem_loops = max(1, self.max_loops - self.loops_used)
-        rem_workers = max(1, self.max_total_workers - self.workers_spawned)
-        rem_tokens = (
-            max(1, self.max_total_tokens - self.tokens_consumed)
-            if self.max_total_tokens else 0
-        )
-        rem_tool_calls = (
-            max(1, self.max_tool_calls - self.tool_calls_used)
-            if self.max_tool_calls else 0
-        )
+        with self._lock:
+            # Compute remaining capacity per dimension
+            rem_loops = max(1, self.max_loops - self.loops_used)
+            rem_workers = max(1, self.max_total_workers - self.workers_spawned)
+            rem_tokens = (
+                max(1, self.max_total_tokens - self.tokens_consumed) if self.max_total_tokens else 0
+            )
+            rem_tool_calls = (
+                max(1, self.max_tool_calls - self.tool_calls_used) if self.max_tool_calls else 0
+            )
 
-        # Build a synthetic DelegationBudget for the child
-        class _ChildBudget:
-            pass
-        cb = _ChildBudget()
-        cb.max_loops = max(1, int(rem_loops * fraction))
-        cb.max_total_workers = max(1, int(rem_workers * fraction))
-        cb.max_total_tokens = int(rem_tokens * fraction) if rem_tokens else 0
-        # Wall-time: child shares parent's remaining wall-time as hard cap.
-        # The global timeout always wins — child cannot outlive the parent.
-        cb.max_wall_time = max(1, int(self.wall_time_remaining))
-        cb.max_tool_calls = int(rem_tool_calls * fraction) if rem_tool_calls else 0
-        cb.max_depth = (
-            max_depth if max_depth is not None else max(0, self.max_depth - 1)
-        )
+            # Build a synthetic DelegationBudget for the child
+            class _ChildBudget:
+                pass
 
-        child = BudgetSnapshot(cb, reservation_config=None, parent=self)  # type: ignore[arg-type]
-        # Pre-charge the reservation against the parent so concurrent
-        # siblings see a smaller "remaining" pool. Stored on the child so
-        # reclaim_child knows how much to refund.
-        child._reserved_loops = cb.max_loops
-        child._reserved_workers = cb.max_total_workers
-        child._reserved_tokens = cb.max_total_tokens
-        child._reserved_tool_calls = cb.max_tool_calls
-        self.loops_used += cb.max_loops
-        self.workers_spawned += cb.max_total_workers
-        self.tokens_consumed += cb.max_total_tokens
-        self.tool_calls_used += cb.max_tool_calls
-        # P2: Submanager tracking
-        self.spawned_submanagers_total += 1
-        self.active_submanagers += 1
-        return child
+            cb = _ChildBudget()
+            cb.max_loops = max(1, int(rem_loops * fraction))
+            cb.max_total_workers = max(1, int(rem_workers * fraction))
+            cb.max_total_tokens = int(rem_tokens * fraction) if rem_tokens else 0
+            cb.max_wall_time = max(1, int(self.wall_time_remaining))
+            cb.max_tool_calls = int(rem_tool_calls * fraction) if rem_tool_calls else 0
+            cb.max_depth = max_depth if max_depth is not None else max(0, self.max_depth - 1)
+
+            child = BudgetSnapshot(cb, reservation_config=None, parent=self)  # type: ignore[arg-type]
+            # Pre-charge the reservation against the parent so concurrent
+            # siblings see a smaller "remaining" pool.
+            child._reserved_loops = cb.max_loops
+            child._reserved_workers = cb.max_total_workers
+            child._reserved_tokens = cb.max_total_tokens
+            child._reserved_tool_calls = cb.max_tool_calls
+            self.loops_used += cb.max_loops
+            self.workers_spawned += cb.max_total_workers
+            self.tokens_consumed += cb.max_total_tokens
+            self.tool_calls_used += cb.max_tool_calls
+            # P2: Submanager tracking
+            self.spawned_submanagers_total += 1
+            self.active_submanagers += 1
+            return child
 
     def reclaim_child(self, child: "BudgetSnapshot") -> None:
         """Release the child's reservation and book its actual usage.
@@ -220,26 +234,27 @@ class BudgetSnapshot:
         Calling reclaim twice is a no-op so that nested error paths cannot
         double-charge or double-refund.
         """
-        if child._reclaimed or child._parent is not self:
-            return
-        # Release the reservation that was pre-charged at allocate time
-        self.loops_used -= getattr(child, "_reserved_loops", 0)
-        self.workers_spawned -= getattr(child, "_reserved_workers", 0)
-        self.tokens_consumed -= getattr(child, "_reserved_tokens", 0)
-        self.tool_calls_used -= getattr(child, "_reserved_tool_calls", 0)
-        # Book the child's actual consumption
-        self.loops_used += child.loops_used
-        self.workers_spawned += child.workers_spawned
-        self.tokens_consumed += child.tokens_consumed
-        self.tool_calls_used += child.tool_calls_used
-        # Clamp to non-negative just in case of edge-case rounding
-        self.loops_used = max(0, self.loops_used)
-        self.workers_spawned = max(0, self.workers_spawned)
-        self.tokens_consumed = max(0, self.tokens_consumed)
-        self.tool_calls_used = max(0, self.tool_calls_used)
-        # P2: release submanager active slot (total stays for run-wide cap)
-        self.active_submanagers = max(0, self.active_submanagers - 1)
-        child._reclaimed = True
+        with self._lock:
+            if child._reclaimed or child._parent is not self:
+                return
+            # Release the reservation that was pre-charged at allocate time
+            self.loops_used -= getattr(child, "_reserved_loops", 0)
+            self.workers_spawned -= getattr(child, "_reserved_workers", 0)
+            self.tokens_consumed -= getattr(child, "_reserved_tokens", 0)
+            self.tool_calls_used -= getattr(child, "_reserved_tool_calls", 0)
+            # Book the child's actual consumption
+            self.loops_used += child.loops_used
+            self.workers_spawned += child.workers_spawned
+            self.tokens_consumed += child.tokens_consumed
+            self.tool_calls_used += child.tool_calls_used
+            # Clamp to non-negative just in case of edge-case rounding
+            self.loops_used = max(0, self.loops_used)
+            self.workers_spawned = max(0, self.workers_spawned)
+            self.tokens_consumed = max(0, self.tokens_consumed)
+            self.tool_calls_used = max(0, self.tool_calls_used)
+            # P2: release submanager active slot (total stays for run-wide cap)
+            self.active_submanagers = max(0, self.active_submanagers - 1)
+            child._reclaimed = True
 
     @property
     def wall_time_elapsed(self) -> float:
@@ -328,17 +343,18 @@ class BudgetSnapshot:
 
     def can_continue(self) -> tuple[bool, str]:
         """Check if the loop can continue within budget."""
-        if self.loops_used >= self.max_loops:
-            return False, "max_loops reached"
-        if self.workers_spawned >= self.max_total_workers:
-            return False, "max_total_workers reached"
-        if self.wall_time_elapsed >= self.max_wall_time:
-            return False, "max_wall_time exceeded"
-        if self.max_total_tokens and self.tokens_consumed >= self.max_total_tokens:
-            return False, "max_total_tokens reached"
-        if self.max_tool_calls and self.tool_calls_used >= self.max_tool_calls:
-            return False, "max_tool_calls reached"
-        return True, "ok"
+        with self._lock:
+            if self.loops_used >= self.max_loops:
+                return False, "max_loops reached"
+            if self.workers_spawned >= self.max_total_workers:
+                return False, "max_total_workers reached"
+            if self.wall_time_elapsed >= self.max_wall_time:
+                return False, "max_wall_time exceeded"
+            if self.max_total_tokens and self.tokens_consumed >= self.max_total_tokens:
+                return False, "max_total_tokens reached"
+            if self.max_tool_calls and self.tool_calls_used >= self.max_tool_calls:
+                return False, "max_tool_calls reached"
+            return True, "ok"
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -388,9 +404,7 @@ class StallDetector:
         # Strategy switching (Manager Intelligence)
         self._strategy_config = strategy_config
         self._strategy_pool: list[str] = (
-            list(strategy_config.strategies)
-            if strategy_config and strategy_config.enabled
-            else []
+            list(strategy_config.strategies) if strategy_config and strategy_config.enabled else []
         )
         self._current_strategy_idx: int = 0
         self._active_strategy: str | None = None
@@ -473,9 +487,7 @@ class StallDetector:
     @property
     def strategies_exhausted(self) -> bool:
         """True if all strategies have been tried."""
-        return bool(self._strategy_pool) and self._current_strategy_idx >= len(
-            self._strategy_pool
-        )
+        return bool(self._strategy_pool) and self._current_strategy_idx >= len(self._strategy_pool)
 
 
 # ---------------------------------------------------------------------------
@@ -680,6 +692,7 @@ class TaskPlan:
         # 3. Fuzzy match: find subtask whose id shares significant tokens with worker_id.
         # Strip trailing digits/version suffixes (v2, _3, iter20) for better matching.
         import re
+
         def _normalize(s: str) -> set[str]:
             s = s.lower().replace("-", "_")
             tokens = set()
@@ -711,9 +724,7 @@ class TaskPlan:
                 best_match = st
         return best_match
 
-    def update_status(
-        self, worker_id: str, status: str, result_summary: str = ""
-    ) -> None:
+    def update_status(self, worker_id: str, status: str, result_summary: str = "") -> None:
         """Update a subtask's status after a worker completes.
 
         Uses explicit subtask_id mapping, then fuzzy matching if no exact match.
@@ -815,7 +826,7 @@ class TaskPlan:
         for st in self._subtasks:
             deps = ", ".join(st.get("dependencies", [])) or "none"
             iters = self._subtask_iterations.get(st.get("id", ""), 0)
-            iter_warn = f" ⚠" if iters >= self.MAX_SUBTASK_ITERATIONS - 1 else ""
+            iter_warn = " ⚠" if iters >= self.MAX_SUBTASK_ITERATIONS - 1 else ""
             lines.append(
                 f"| {st.get('id', '?')} | {st.get('description', '')[:60]} "
                 f"| {st.get('priority', 'normal')} | {deps} "
@@ -861,6 +872,7 @@ class RunLogger:
         # Async write queue (daemon thread processes writes in background)
         import queue
         import threading
+
         self._queue: queue.Queue[tuple | None] = queue.Queue()
         self._writer = threading.Thread(target=self._bg_writer, daemon=True)
         self._writer.start()
@@ -913,9 +925,7 @@ class RunLogger:
                         compressed.append(p)
                     slug = "__".join(compressed) or "sub"
                     # Final layout: <exp>/logs/<top_run>/sub_<slug>/
-                    self._debug_dir = (
-                        experiment_dir / "logs" / top_run / f"sub_{slug}"
-                    )
+                    self._debug_dir = experiment_dir / "logs" / top_run / f"sub_{slug}"
             else:
                 # Fallback: put logs alongside the run dir itself
                 self._debug_dir = run_dir / "logs"
@@ -1227,21 +1237,15 @@ class RunLogger:
             decision=str(manager_decision.get("decision", "?")),
             reasoning=str(manager_decision.get("reasoning", ""))[:1000],
             confidence=manager_decision.get("confidence"),
-            delegations=manager_decision.get("delegations") or manager_decision.get("delegate") or [],
+            delegations=manager_decision.get("delegations")
+            or manager_decision.get("delegate")
+            or [],
             depth=int(manager_decision.get("depth", 0) or 0),
         )
 
-    def log_worker_envelope(
-        self, iteration: int, worker_id: str, envelope: dict
-    ) -> None:
+    def log_worker_envelope(self, iteration: int, worker_id: str, envelope: dict) -> None:
         """Write envelope.json before worker starts executing."""
-        worker_dir = (
-            self.run_dir
-            / "iterations"
-            / f"{iteration:03d}"
-            / "delegations"
-            / worker_id
-        )
+        worker_dir = self.run_dir / "iterations" / f"{iteration:03d}" / "delegations" / worker_id
         worker_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(worker_dir / "envelope.json", envelope)
         self.trace(
@@ -1250,23 +1254,21 @@ class RunLogger:
             iteration=iteration,
             worker=worker_id,
             tools_allowed=envelope.get("tools_allowed") if isinstance(envelope, dict) else None,
-            instructions_preview=str(envelope.get("instructions", "") if isinstance(envelope, dict) else "")[:200],
+            instructions_preview=str(
+                envelope.get("instructions", "") if isinstance(envelope, dict) else ""
+            )[:200],
         )
 
-    def log_worker_result(
-        self, iteration: int, worker_id: str, result: dict
-    ) -> None:
+    def log_worker_result(self, iteration: int, worker_id: str, result: dict) -> None:
         """Write result.json after worker completes."""
-        worker_dir = (
-            self.run_dir
-            / "iterations"
-            / f"{iteration:03d}"
-            / "delegations"
-            / worker_id
-        )
+        worker_dir = self.run_dir / "iterations" / f"{iteration:03d}" / "delegations" / worker_id
         worker_dir.mkdir(parents=True, exist_ok=True)
         self.write_json(worker_dir / "result.json", result)
-        has_error = bool(result.get("error") or result.get("has_error")) if isinstance(result, dict) else False
+        has_error = (
+            bool(result.get("error") or result.get("has_error"))
+            if isinstance(result, dict)
+            else False
+        )
         conf = result.get("confidence") if isinstance(result, dict) else None
         crit_score = result.get("_critique_score") if isinstance(result, dict) else None
         self.trace(
@@ -1277,26 +1279,35 @@ class RunLogger:
             worker=worker_id,
             confidence=conf,
             critique_score=crit_score,
-            error=(str(result.get("error", ""))[:200] if has_error and isinstance(result, dict) else None),
+            error=(
+                str(result.get("error", ""))[:200]
+                if has_error and isinstance(result, dict)
+                else None
+            ),
         )
 
-    def log_critique(
-        self, iteration: int, critiques: list[dict], summary: dict
-    ) -> None:
+    def log_critique(self, iteration: int, critiques: list[dict], summary: dict) -> None:
         """Write critique results and repair history for an iteration."""
         iter_dir = self.run_dir / "iterations" / f"{iteration:03d}"
         iter_dir.mkdir(parents=True, exist_ok=True)
-        self.write_json(iter_dir / "critique.json", {
-            "critiques": critiques,
-            "summary": summary,
-        })
+        self.write_json(
+            iter_dir / "critique.json",
+            {
+                "critiques": critiques,
+                "summary": summary,
+            },
+        )
         # Trace summary line per worker
         for c in critiques:
             wid = c.get("worker_id", "?")
             score = c.get("score")
             defects = len(c.get("defects", []) or [])
             critical = c.get("critical_count", 0)
-            level = "WARNING" if (critical or (isinstance(score, (int, float)) and score < 0.5)) else "INFO"
+            level = (
+                "WARNING"
+                if (critical or (isinstance(score, (int, float)) and score < 0.5))
+                else "INFO"
+            )
             self.trace(
                 "critique",
                 f"worker={wid} score={score} defects={defects} critical={critical}",
@@ -1365,7 +1376,8 @@ class RunLogger:
                 loops_used=d.get("loops_used") or (d.get("loops") or {}).get("used"),
                 tokens_used=d.get("tokens_used") or (d.get("tokens") or {}).get("consumed"),
                 workers_spawned=d.get("workers_spawned") or (d.get("workers") or {}).get("spawned"),
-                wall_time_s=d.get("wall_time_elapsed") or (d.get("wall_time") or {}).get("elapsed_s"),
+                wall_time_s=d.get("wall_time_elapsed")
+                or (d.get("wall_time") or {}).get("elapsed_s"),
             )
         except Exception:
             pass
@@ -1388,9 +1400,7 @@ class RunLogger:
 
         # Delegations
         for i, deleg in enumerate(delegations):
-            worker_dir = (
-                iter_dir / "delegations" / (deleg.get("worker_id", f"worker_{i}"))
-            )
+            worker_dir = iter_dir / "delegations" / (deleg.get("worker_id", f"worker_{i}"))
             worker_dir.mkdir(parents=True, exist_ok=True)
             self.write_json(worker_dir / "envelope.json", deleg.get("envelope", {}))
             self.write_json(worker_dir / "result.json", deleg.get("result", {}))
@@ -1403,9 +1413,7 @@ class RunLogger:
             if isinstance(instructions, str) and instructions.strip():
                 instr_file = worker_dir / "instructions.md"
                 self.write_md(instr_file, f"# Worker: {wid}\n\n{instructions}")
-                artifact_instr = (
-                    self.run_dir / "artifacts" / "skills" / f"{wid}_instructions.md"
-                )
+                artifact_instr = self.run_dir / "artifacts" / "skills" / f"{wid}_instructions.md"
                 self.write_md(artifact_instr, f"# Worker: {wid}\n\n{instructions}")
 
             # Save envelope skills as artifacts (input skills from manager)
@@ -1415,28 +1423,19 @@ class RunLogger:
                     skill_file = worker_dir / "generated_skills" / f"skill_{j}.md"
                     self.write_md(skill_file, skill)
                     # Central artifacts copy
-                    artifact_file = (
-                        self.run_dir / "artifacts" / "skills" / f"{wid}_skill_{j}.md"
-                    )
+                    artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_skill_{j}.md"
                     self.write_md(artifact_file, skill)
 
             # Save worker-generated skills from result (output skills)
             worker_result = deleg.get("result", {})
-            result_skills = worker_result.get(
-                "skills_created", worker_result.get("skills", [])
-            )
+            result_skills = worker_result.get("skills_created", worker_result.get("skills", []))
             if isinstance(result_skills, list):
                 for j, skill in enumerate(result_skills):
                     if isinstance(skill, str) and skill.strip():
-                        skill_file = (
-                            worker_dir / "generated_skills" / f"result_skill_{j}.md"
-                        )
+                        skill_file = worker_dir / "generated_skills" / f"result_skill_{j}.md"
                         self.write_md(skill_file, skill)
                         artifact_file = (
-                            self.run_dir
-                            / "artifacts"
-                            / "skills"
-                            / f"{wid}_result_skill_{j}.md"
+                            self.run_dir / "artifacts" / "skills" / f"{wid}_result_skill_{j}.md"
                         )
                         self.write_md(artifact_file, skill)
                     elif isinstance(skill, dict):
@@ -1446,9 +1445,7 @@ class RunLogger:
                         )
                         skill_file = worker_dir / "generated_skills" / f"{sname}.md"
                         self.write_md(skill_file, scontent)
-                        artifact_file = (
-                            self.run_dir / "artifacts" / "skills" / f"{wid}_{sname}.md"
-                        )
+                        artifact_file = self.run_dir / "artifacts" / "skills" / f"{wid}_{sname}.md"
                         self.write_md(artifact_file, scontent)
 
             # Save generated tools — always store FULL specs (code, parameters,
@@ -1488,9 +1485,7 @@ class RunLogger:
                     self.write_json(tool_file, tool_info)
 
                     # Central artifacts copy (full spec with code)
-                    artifact_file = (
-                        self.run_dir / "artifacts" / "tools" / f"{safe_name}.json"
-                    )
+                    artifact_file = self.run_dir / "artifacts" / "tools" / f"{safe_name}.json"
                     self.write_json(artifact_file, tool_info)
 
                     # Save tool code as .py file for easy inspection
@@ -1506,9 +1501,7 @@ class RunLogger:
                         )
                         py_file = worker_dir / "generated_tools" / f"{safe_name}.py"
                         self._write_file(py_file, header + tool_code)
-                        artifact_py = (
-                            self.run_dir / "artifacts" / "tools" / f"{safe_name}.py"
-                        )
+                        artifact_py = self.run_dir / "artifacts" / "tools" / f"{safe_name}.py"
                         self._write_file(artifact_py, header + tool_code)
 
                 # Save a combined manifest with all tools for this worker
@@ -1518,18 +1511,14 @@ class RunLogger:
                     "tool_count": len(all_tool_specs),
                     "tools": all_tool_specs,
                 }
-                manifest_file = (
-                    self.run_dir / "artifacts" / "tools" / f"{wid}_manifest.json"
-                )
+                manifest_file = self.run_dir / "artifacts" / "tools" / f"{wid}_manifest.json"
                 self.write_json(manifest_file, tool_manifest)
 
             # Also check for tool_names (alternative format — name-only list)
             tool_names = worker_result.get("tool_names", [])
             if isinstance(tool_names, list) and tool_names:
                 tool_names_manifest = {"worker_id": wid, "tools": tool_names}
-                artifact_file = (
-                    self.run_dir / "artifacts" / "tools" / f"{wid}_tools.json"
-                )
+                artifact_file = self.run_dir / "artifacts" / "tools" / f"{wid}_tools.json"
                 self.write_json(artifact_file, tool_names_manifest)
 
             # Save tool call traces as artifacts (especially code.execute calls)
@@ -1538,9 +1527,7 @@ class RunLogger:
                 # Save full tool call log as JSON
                 calls_file = worker_dir / "tool_calls.json"
                 self.write_json(calls_file, tool_calls)
-                artifact_calls = (
-                    self.run_dir / "artifacts" / "tools" / f"{wid}_tool_calls.json"
-                )
+                artifact_calls = self.run_dir / "artifacts" / "tools" / f"{wid}_tool_calls.json"
                 self.write_json(artifact_calls, tool_calls)
 
                 # Extract and save code.execute calls as .py files
@@ -1573,11 +1560,7 @@ class RunLogger:
                             if stderr:
                                 footer += f"\n# --- STDERR ---\n# {stderr[:2000]}\n"
 
-                            py_file = (
-                                worker_dir
-                                / "generated_tools"
-                                / f"code_execute_{code_idx}.py"
-                            )
+                            py_file = worker_dir / "generated_tools" / f"code_execute_{code_idx}.py"
                             self._write_file(py_file, header + code_text + footer)
                             artifact_py = (
                                 self.run_dir
@@ -1737,9 +1720,7 @@ class RunLogger:
                 except Exception:
                     pass
 
-            (self._debug_dir / "summary.md").write_text(
-                "\n".join(lines), encoding="utf-8"
-            )
+            (self._debug_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")
         except Exception:
             pass
 
@@ -1770,8 +1751,7 @@ class RunLogger:
         # Confidence trend
         if full_history:
             trend = " → ".join(
-                f"Iter {h['iteration']}: {h.get('confidence', '?')}"
-                for h in full_history[-6:]
+                f"Iter {h['iteration']}: {h.get('confidence', '?')}" for h in full_history[-6:]
             )
             lines.append(f"## Confidence Trend\n{trend}\n\n")
 
@@ -1792,9 +1772,7 @@ class RunLogger:
         if older:
             lines.append("## Older Iterations (Summary)\n")
             for h in older:
-                lines.append(
-                    f"- Iter {h['iteration']}: confidence={h.get('confidence', '?')}\n"
-                )
+                lines.append(f"- Iter {h['iteration']}: confidence={h.get('confidence', '?')}\n")
 
         self.write_md(self.run_dir / "history" / "ROLLING_SUMMARY.md", "".join(lines))
         self.write_json(
@@ -1847,9 +1825,7 @@ class DelegationLoopRunner:
         self._worker_model = worker_model or config.models.worker or self._manager_model
         self._run_id = (
             run_id
-            or datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-            + "_"
-            + uuid.uuid4().hex[:8]
+            or datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S") + "_" + uuid.uuid4().hex[:8]
         )
         self._depth = depth
 
@@ -1859,6 +1835,9 @@ class DelegationLoopRunner:
             self._budget = parent_budget
         else:
             self._budget = BudgetSnapshot(config.budget, reservation_config=reservation_cfg)
+
+        # Max threads per worker dispatch round (I/O-bound LLM calls)
+        self._max_parallel_workers: int = getattr(config.budget, "max_parallel_workers", 16)
 
         # Persistent LLM client for manager (reused across iterations)
         self._manager_llm: LLMClient | None = None
@@ -1870,9 +1849,7 @@ class DelegationLoopRunner:
 
         # Stall detection (with optional strategy switching)
         stall_cfg = config.termination
-        strategy_cfg = (
-            getattr(stall_cfg, "strategy_switching", None) if stall_cfg else None
-        )
+        strategy_cfg = getattr(stall_cfg, "strategy_switching", None) if stall_cfg else None
         self._stall = (
             StallDetector(
                 window=stall_cfg.window if stall_cfg else 3,
@@ -1901,12 +1878,8 @@ class DelegationLoopRunner:
         # Manager Intelligence: Hypothesis-Driven Debugging
         diagnosis_cfg = getattr(config, "diagnosis", None)
         self._diagnosis_enabled = bool(diagnosis_cfg and diagnosis_cfg.enabled)
-        self._diagnosis_threshold = (
-            diagnosis_cfg.confidence_threshold if diagnosis_cfg else 0.3
-        )
-        self._diagnosis_max_hypotheses = (
-            diagnosis_cfg.max_hypotheses if diagnosis_cfg else 3
-        )
+        self._diagnosis_threshold = diagnosis_cfg.confidence_threshold if diagnosis_cfg else 0.3
+        self._diagnosis_max_hypotheses = diagnosis_cfg.max_hypotheses if diagnosis_cfg else 3
 
         # Logger — submanagers write under their parent worker directory so
         # the visualizer can render nested sub-runs (graph_builder.py walks
@@ -1924,6 +1897,7 @@ class DelegationLoopRunner:
         # DelegationLoopRunner construction picks a distinct run_id
         # and a fresh Blackboard instance (see blackboard.py).
         from .blackboard import Blackboard as _Blackboard
+
         self._blackboard: Optional[_Blackboard] = None
         self._last_blackboard_seen_id: Optional[str] = None
         if getattr(config, "blackboard_enabled", True):
@@ -1946,6 +1920,7 @@ class DelegationLoopRunner:
         # bound into a ContextVar during `run()` so the `digest.fetch`
         # builtin tool serves THIS run and only this run.
         from .digest import DigestStore as _DigestStore
+
         self._digest_store: Optional[_DigestStore] = None
         self._current_digest: Optional[Any] = None
         self._current_digest_sha: Optional[str] = None
@@ -1990,7 +1965,9 @@ class DelegationLoopRunner:
         self._failed_signatures: list[dict] = []
         # Wall-clock run start — used by the curator to bucket facts
         # into ``memory/facts/YYYY-MM-DD.md``.
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+
         self._run_started_at = _dt.now(_tz.utc)
 
         # Critique engine (Reflective Critique Loop)
@@ -2003,6 +1980,7 @@ class DelegationLoopRunner:
                 run_id=self._run_id,
                 worker_model=self._worker_model,
                 llm_client=llm_client,
+                max_parallel_workers=self._max_parallel_workers,
             )
             logger.info("Critique engine active (max_repair=%d)", critique_cfg.max_repair_attempts)
 
@@ -2020,9 +1998,7 @@ class DelegationLoopRunner:
                 len(eval_config.metrics),
             )
 
-    def _load_agent(
-        self, agent_dir: Path, llm: Optional[LLMClient] = None
-    ) -> StandaloneAgent:
+    def _load_agent(self, agent_dir: Path, llm: Optional[LLMClient] = None) -> StandaloneAgent:
         """Load the Agent class from ``agent.py``, falling back to
         :class:`StandaloneAgent`.  See :meth:`WorkflowRunner._load_agent`."""
         agent_py = agent_dir / "agent.py"
@@ -2088,6 +2064,7 @@ class DelegationLoopRunner:
         # `run()` call; the token stack restores the parent on return.
         from .blackboard import current_blackboard as _current_bb
         from .digest import current_digest_store as _current_ds
+
         _bb_token = _current_bb.set(self._blackboard)
         _ds_token = _current_ds.set(self._digest_store)
         try:
@@ -2133,12 +2110,10 @@ class DelegationLoopRunner:
         # Only the root manager curates (submanagers share the parent's
         # workflow_dir but the curator is idempotent so a double-run is
         # safe — restricting to root keeps the run-id attribution clean).
-        if (
-            getattr(self._config, "auto_curation_enabled", True)
-            and self._parent_digest_sha is None
-        ):
+        if getattr(self._config, "auto_curation_enabled", True) and self._parent_digest_sha is None:
             try:
                 from .curator import Curator as _Curator
+
                 report = _Curator(
                     workflow_dir=self._dir,
                     run_id=self._run_id,
@@ -2169,20 +2144,19 @@ class DelegationLoopRunner:
                 if self._history:
                     last_conf = 0.0
                     try:
-                        last_conf = float(
-                            self._history[-1].get("confidence", 0.0) or 0.0
-                        )
+                        last_conf = float(self._history[-1].get("confidence", 0.0) or 0.0)
                     except (TypeError, ValueError):
                         pass
                     if last_conf >= 0.5:
                         logger.info(
                             "Budget exhausted but last confidence=%.2f — "
-                            "promoting to partial_complete", last_conf,
+                            "promoting to partial_complete",
+                            last_conf,
                         )
                         return partial, "partial_complete"
                 return partial, "budget_exhausted"
 
-            self._budget.loops_used += 1
+            self._budget.record_loop()
             self._iter_counter += 1
             iteration = self._iter_counter
 
@@ -2226,14 +2200,15 @@ class DelegationLoopRunner:
             if self._journal:
                 rationale = manager_decision.get("reasoning", "")
                 if not rationale and decision_type == "delegate":
-                    rationale = f"Delegating to {len(manager_decision.get('delegations', []))} workers"
+                    rationale = (
+                        f"Delegating to {len(manager_decision.get('delegations', []))} workers"
+                    )
                 self._journal.record(
                     iteration,
                     decision_type,
                     rationale,
                     worker_ids=[
-                        d.get("worker_id", "")
-                        for d in manager_decision.get("delegations", [])
+                        d.get("worker_id", "") for d in manager_decision.get("delegations", [])
                     ],
                 )
 
@@ -2328,11 +2303,7 @@ class DelegationLoopRunner:
                                 pre_progress_plans=pre_progress_plans,
                             )
                             continue
-                    if (
-                        not has_progress
-                        and new_subtasks
-                        and self._planning_enabled
-                    ):
+                    if not has_progress and new_subtasks and self._planning_enabled:
                         # Case 1: refinement — fully replace the plan.
                         logger.info(
                             "Replacing initial plan with refined plan "
@@ -2342,14 +2313,12 @@ class DelegationLoopRunner:
                         )
                         self._task_plan = TaskPlan(max_subtasks=self._task_plan_max)
                         if self._depth < self._budget.max_depth:
-                            promoted = self._auto_promote_complex_subtasks(
-                                new_subtasks
-                            )
+                            promoted = self._auto_promote_complex_subtasks(new_subtasks)
                             if promoted:
                                 logger.info(
-                                    "Auto-promoted %d subtask(s) on refined "
-                                    "plan: %s",
-                                    len(promoted), promoted,
+                                    "Auto-promoted %d subtask(s) on refined plan: %s",
+                                    len(promoted),
+                                    promoted,
                                 )
                         self._task_plan.set_subtasks(new_subtasks)
                         logger.info(
@@ -2363,9 +2332,7 @@ class DelegationLoopRunner:
                     # plan. We never touch in_progress / completed entries.
                     merged = 0
                     if new_subtasks:
-                        existing_by_id = {
-                            st.get("id"): st for st in self._task_plan._subtasks
-                        }
+                        existing_by_id = {st.get("id"): st for st in self._task_plan._subtasks}
                         for nst in new_subtasks:
                             nid = nst.get("id")
                             nstrat = nst.get("delegation_strategy")
@@ -2414,9 +2381,7 @@ class DelegationLoopRunner:
                 # First-ever plan also counts toward the pre-progress cap
                 state["_pre_progress_plans"] = pre_progress_plans + 1
                 if subtasks and self._planning_enabled:
-                    self._task_plan = TaskPlan(
-                        max_subtasks=self._task_plan_max
-                    )
+                    self._task_plan = TaskPlan(max_subtasks=self._task_plan_max)
                     # Defense-in-depth for A4: smart auto-tagging.
                     #
                     # The manager *should* set delegation_strategy on each
@@ -2433,12 +2398,11 @@ class DelegationLoopRunner:
                             logger.info(
                                 "Auto-promoted %d subtask(s) to submanager "
                                 "based on complexity scoring: %s",
-                                len(promoted), promoted,
+                                len(promoted),
+                                promoted,
                             )
                     self._task_plan.set_subtasks(subtasks)
-                    logger.info(
-                        "Task plan created with %d subtasks", len(subtasks)
-                    )
+                    logger.info("Task plan created with %d subtasks", len(subtasks))
                 else:
                     logger.warning("PLAN decision but no subtasks or planning disabled")
                 continue  # manager will see the plan on the next iteration
@@ -2456,9 +2420,9 @@ class DelegationLoopRunner:
 
                 if total_diagnoses >= max_total_diagnoses:
                     logger.warning(
-                        "Total DIAGNOSE budget exhausted (%d/%d) — "
-                        "forcing delegation.",
-                        total_diagnoses, max_total_diagnoses,
+                        "Total DIAGNOSE budget exhausted (%d/%d) — forcing delegation.",
+                        total_diagnoses,
+                        max_total_diagnoses,
                     )
                     state["_diagnose_locked"] = (
                         f"You have used all {max_total_diagnoses} DIAGNOSE decisions. "
@@ -2468,8 +2432,7 @@ class DelegationLoopRunner:
                     blocked = True
                 elif diagnose_cooldown > 0:
                     logger.warning(
-                        "DIAGNOSE cooldown active (%d delegations remaining) — "
-                        "forcing delegation.",
+                        "DIAGNOSE cooldown active (%d delegations remaining) — forcing delegation.",
                         diagnose_cooldown,
                     )
                     state["_diagnose_locked"] = (
@@ -2552,9 +2515,7 @@ class DelegationLoopRunner:
                 # completion. After MAX_CRITIQUE_REJECTIONS, bypass the
                 # gate to prevent infinite loops with a strict critic.
                 MAX_CRITIQUE_REJECTIONS = 3
-                critique_rejection_count = int(
-                    state.get("_critique_rejection_count", 0)
-                )
+                critique_rejection_count = int(state.get("_critique_rejection_count", 0))
                 if (
                     self._critique_engine
                     and self._critique_engine.enabled
@@ -2590,9 +2551,7 @@ class DelegationLoopRunner:
                         # Check if task hints at any file deliverable at all
                         task_text = (task or "").lower()
                         any_hint = any(
-                            kw in task_text
-                            for kws, _ in self._DELIVERABLE_HINTS
-                            for kw in kws
+                            kw in task_text for kws, _ in self._DELIVERABLE_HINTS for kw in kws
                         )
                         if any_hint:
                             logger.info(
@@ -2693,15 +2652,12 @@ class DelegationLoopRunner:
                 # placeholder files exist (1x1 PNGs, empty PDFs, etc.)
                 file_warnings = self._validate_output_files()
                 if file_warnings:
-                    from .file_validator import classify_warning_severity
                     critical = [
-                        w for w in file_warnings
-                        if self._classify_output_warning(w) == "critical"
+                        w for w in file_warnings if self._classify_output_warning(w) == "critical"
                     ]
                     if critical and self._budget.can_continue()[0]:
                         logger.warning(
-                            "Manager tried to COMPLETE but %d critical "
-                            "output files are broken: %s",
+                            "Manager tried to COMPLETE but %d critical output files are broken: %s",
                             len(critical),
                             critical[:5],
                         )
@@ -2720,8 +2676,7 @@ class DelegationLoopRunner:
                             f"COMPLETION REJECTED: {len(critical)} output "
                             f"file(s) are placeholder/broken and MUST be "
                             f"regenerated before the task can complete. "
-                            f"Broken files: "
-                            + "; ".join(critical[:10])
+                            f"Broken files: " + "; ".join(critical[:10])
                         )
                         continue  # force another loop iteration
 
@@ -2753,7 +2708,9 @@ class DelegationLoopRunner:
                 # --- Evaluation gate: score final result before accepting
                 if self._eval_engine and self._eval_engine.enabled:
                     final_eval = self._eval_engine.evaluate_final(
-                        result=result, state=state, budget=self._budget,
+                        result=result,
+                        state=state,
+                        budget=self._budget,
                     )
                     if final_eval:
                         action = self._eval_engine.decide_retry(final_eval)
@@ -2842,9 +2799,7 @@ class DelegationLoopRunner:
                     # If mean critique score >= 0.5 (usable quality), or
                     # if there were no critiques but workers completed,
                     # degrade gracefully to partial_complete.
-                    mean_score = (
-                        sum(scores) / len(scores) if scores else None
-                    )
+                    mean_score = sum(scores) / len(scores) if scores else None
                     has_usable_work = (
                         mean_score is None  # no critique → trust worker output
                         or mean_score >= 0.5
@@ -2856,15 +2811,10 @@ class DelegationLoopRunner:
                             "%d workers). Degrading to partial_complete.",
                             len(self._history),
                             mean_score if mean_score is not None else -1.0,
-                            sum(1 for h in self._history
-                                for _ in (h.get("workers") or [None])),
+                            sum(1 for h in self._history for _ in (h.get("workers") or [None])),
                         )
-                        partial = self._build_partial_result(
-                            f"manager_fail_graceful: {reason}"
-                        )
-                        partial["partial_result"] = manager_decision.get(
-                            "partial_result", {}
-                        )
+                        partial = self._build_partial_result(f"manager_fail_graceful: {reason}")
+                        partial["partial_result"] = manager_decision.get("partial_result", {})
                         return partial, "partial_complete"
 
                 return {
@@ -2938,9 +2888,7 @@ class DelegationLoopRunner:
                     s = ce.get("score") if isinstance(ce, dict) else None
                     if isinstance(s, (int, float)):
                         scores.append(float(s))
-                threshold = float(
-                    getattr(self._config.critique, "min_score_to_complete", 0.6)
-                )
+                threshold = float(getattr(self._config.critique, "min_score_to_complete", 0.6))
                 if scores:
                     mean_score = sum(scores) / len(scores)
                     if mean_score < threshold:
@@ -2948,7 +2896,9 @@ class DelegationLoopRunner:
                             "P1/P4: blocking re-delegation of identical "
                             "subtasks (sig=%s) — mean critique %.2f < %.2f. "
                             "Overriding DELEGATE → DIAGNOSE.",
-                            current_sig[:1], mean_score, threshold,
+                            current_sig[:1],
+                            mean_score,
+                            threshold,
                         )
                         state["_critique_blocking_redelegate"] = (
                             f"FORBIDDEN: re-delegate same subtasks. You MUST "
@@ -2993,7 +2943,8 @@ class DelegationLoopRunner:
                     if hist[wid] >= 3:
                         logger.warning(
                             "Worker '%s' delegated %d times — likely stuck",
-                            wid, hist[wid],
+                            wid,
+                            hist[wid],
                         )
                         repeated_warnings.append(
                             f"Worker '{wid}' has been delegated {hist[wid]} times "
@@ -3123,9 +3074,7 @@ class DelegationLoopRunner:
             if self._digest_store is not None:
                 mode = getattr(self._config, "digest_mode", "deterministic")
                 if mode == "llm":
-                    raise NotImplementedError(
-                        "digest_mode='llm' is reserved for a future version"
-                    )
+                    raise NotImplementedError("digest_mode='llm' is reserved for a future version")
                 if mode != "deterministic":
                     logger.warning(
                         "Unknown digest_mode=%r, falling back to deterministic",
@@ -3133,6 +3082,7 @@ class DelegationLoopRunner:
                     )
                 try:
                     from .digest import build_digest_from_iteration as _build_digest
+
                     new_digest = _build_digest(
                         history_entry=history_entry,
                         prior_digest=self._current_digest,
@@ -3149,8 +3099,8 @@ class DelegationLoopRunner:
                             if self._current_digest is not None
                             else []
                         )
-                        new_digest.child_digest_hashes = (
-                            prior_children + list(self._pending_child_digest_hashes)
+                        new_digest.child_digest_hashes = prior_children + list(
+                            self._pending_child_digest_hashes
                         )
                         self._pending_child_digest_hashes = []
                     elif self._current_digest is not None:
@@ -3162,7 +3112,9 @@ class DelegationLoopRunner:
                     self._current_digest_sha = sha
                     logger.debug(
                         "Digest iter=%d sha=%s facts=%d questions=%d",
-                        iteration, sha[:12], len(new_digest.key_facts),
+                        iteration,
+                        sha[:12],
+                        len(new_digest.key_facts),
                         len(new_digest.open_questions),
                     )
                 except NotImplementedError:
@@ -3196,7 +3148,8 @@ class DelegationLoopRunner:
                     raw = dr.get("result", {})
                     if isinstance(raw, dict):
                         state[wid] = {
-                            k: v for k, v in raw.items()
+                            k: v
+                            for k, v in raw.items()
                             if not any(k.startswith(p) for p in _INTERNAL_PREFIXES)
                         }
                     else:
@@ -3224,7 +3177,9 @@ class DelegationLoopRunner:
                     wid = dr.get("worker_id", "")
                     result = dr.get("result", {})
                     conf = result.get("confidence", 0.0)
-                    status = "completed" if isinstance(conf, (int, float)) and conf > 0.3 else "failed"
+                    status = (
+                        "completed" if isinstance(conf, (int, float)) and conf > 0.3 else "failed"
+                    )
                     summary = str(result.get("key_finding", result.get("summary", "")))[:60]
                     self._task_plan.update_status(wid, status, summary)
                     self._task_plan.record_iteration(wid)
@@ -3237,9 +3192,7 @@ class DelegationLoopRunner:
                 # AND any new stall in the child propagates upward as a
                 # failed delegation, which we will then force-complete.
                 can_promote = self._depth < self._budget.max_depth
-                advanced = self._task_plan.force_advance_stuck(
-                    promote_to_submanager=can_promote
-                )
+                advanced = self._task_plan.force_advance_stuck(promote_to_submanager=can_promote)
                 if advanced:
                     if can_promote:
                         logger.warning(
@@ -3276,7 +3229,11 @@ class DelegationLoopRunner:
                     for h in state["_active_hypotheses"]:
                         if h.get("test_worker") == wid:
                             conf = result.get("confidence", 0.0)
-                            h["status"] = "confirmed" if isinstance(conf, (int, float)) and conf > 0.5 else "refuted"
+                            h["status"] = (
+                                "confirmed"
+                                if isinstance(conf, (int, float)) and conf > 0.5
+                                else "refuted"
+                            )
 
             # 8e. Detect low-confidence workers for diagnosis hint (Manager Intelligence)
             if self._diagnosis_enabled:
@@ -3310,14 +3267,10 @@ class DelegationLoopRunner:
                 if stall_status == "switch_strategy":
                     strategy = self._stall.suggested_strategy
                     state["_strategy_override"] = strategy
-                    logger.warning(
-                        "Stall detected — switching to strategy: %s", strategy
-                    )
+                    logger.warning("Stall detected — switching to strategy: %s", strategy)
                 elif stall_status == "stop":
                     logger.warning("Stall detected — stopping loop (all strategies exhausted)")
-                    return self._build_partial_result(
-                        "stall_detected"
-                    ), "stall_detected"
+                    return self._build_partial_result("stall_detected"), "stall_detected"
                 elif stall_status == "warn":
                     logger.warning("Stall warning — confidence not improving")
 
@@ -3339,7 +3292,7 @@ class DelegationLoopRunner:
             # Build enhanced task with context
             enhanced_task = self._build_manager_task(task, state, iteration)
             result = agent.run(enhanced_task, state)
-            self._budget.tokens_consumed += llm.total_tokens_used - tokens_before
+            self._budget.record_tokens(llm.total_tokens_used - tokens_before)
 
             # Extract the manager's output
             manager_output = result.get(agent.name, {})
@@ -3362,14 +3315,12 @@ class DelegationLoopRunner:
 
             # If parsing failed or needs retry, fall back to inline manager
             _needs_retry = (
-                (parsed.get("decision") == "fail"
-                 and "missing 'decision' field" in parsed.get("reason", ""))
-                or parsed.get("decision") == "retry"
-            )
+                parsed.get("decision") == "fail"
+                and "missing 'decision' field" in parsed.get("reason", "")
+            ) or parsed.get("decision") == "retry"
             if _needs_retry:
                 logger.warning(
-                    "Agent manager returned unparseable output, "
-                    "falling back to inline manager"
+                    "Agent manager returned unparseable output, falling back to inline manager"
                 )
                 return self._run_inline_manager(task, state, iteration)
 
@@ -3401,19 +3352,13 @@ class DelegationLoopRunner:
                 # Use streaming on first attempt for faster TTFT
                 if attempt == 0:
                     try:
-                        result = llm.chat_stream_json(
-                            messages, temperature=0.2, max_tokens=16384
-                        )
+                        result = llm.chat_stream_json(messages, temperature=0.2, max_tokens=16384)
                     except Exception:
                         # Streaming not supported — fall back to non-streaming
-                        result = llm.chat_json(
-                            messages, temperature=0.2, max_tokens=16384
-                        )
+                        result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
                 else:
-                    result = llm.chat_json(
-                        messages, temperature=0.2, max_tokens=16384
-                    )
-                self._budget.tokens_consumed += llm.total_tokens_used - tokens_before
+                    result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
+                self._budget.record_tokens(llm.total_tokens_used - tokens_before)
                 tokens_before = llm.total_tokens_used
                 parsed = self._parse_manager_output(result)
 
@@ -3429,25 +3374,29 @@ class DelegationLoopRunner:
                         attempt + 1,
                     )
                     # Add a clarification message to guide the LLM
-                    messages.append({"role": "assistant", "content": json.dumps(result, default=str)[:2000]})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "Your previous response could not be parsed as a "
-                            "valid decision. Please respond with a SHORT JSON "
-                            "object containing exactly one of:\n"
-                            '- {"decision": "delegate", "delegations": [...]}\n'
-                            '- {"decision": "complete", "final_result": {...}}\n'
-                            '- {"decision": "fail", "reason": "..."}\n'
-                            "Keep delegations concise to avoid truncation."
-                        ),
-                    })
+                    messages.append(
+                        {"role": "assistant", "content": json.dumps(result, default=str)[:2000]}
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous response could not be parsed as a "
+                                "valid decision. Please respond with a SHORT JSON "
+                                "object containing exactly one of:\n"
+                                '- {"decision": "delegate", "delegations": [...]}\n'
+                                '- {"decision": "complete", "final_result": {...}}\n'
+                                '- {"decision": "fail", "reason": "..."}\n'
+                                "Keep delegations concise to avoid truncation."
+                            ),
+                        }
+                    )
                     continue
 
                 return parsed
 
             except Exception as exc:
-                self._budget.tokens_consumed += llm.total_tokens_used - tokens_before
+                self._budget.record_tokens(llm.total_tokens_used - tokens_before)
                 tokens_before = llm.total_tokens_used
                 if attempt == 0:
                     logger.warning("Inline manager attempt 1 failed: %s, retrying", exc)
@@ -3558,35 +3507,23 @@ targeted workers to test the most likely hypotheses before doing a full retry.
         # next iteration also stalls in PLAN the gate will set this fresh.
         plan_lock = state.pop("_plan_locked", None)
         if plan_lock:
-            parts.append(
-                f"## PLAN LOCKED\n"
-                f"**{plan_lock}**\n"
-            )
+            parts.append(f"## PLAN LOCKED\n**{plan_lock}**\n")
 
         # R31 Plan-Tool-Closure feedback (consume-once). Surfaced when the
         # previous PLAN was rejected for missing/invalid tool_manifest.
         r31_feedback = state.pop("_r31_feedback", None)
         if r31_feedback:
-            parts.append(
-                f"## ⚠ PLAN REJECTED — R31 Plan-Tool-Closure\n"
-                f"{r31_feedback}\n"
-            )
+            parts.append(f"## ⚠ PLAN REJECTED — R31 Plan-Tool-Closure\n{r31_feedback}\n")
 
         # Diagnose-locked warning (prevents DIAGNOSE loops)
         diag_lock = state.get("_diagnose_locked")
         if diag_lock:
-            parts.append(
-                f"## DIAGNOSE LOCKED\n"
-                f"**{diag_lock}**\n"
-            )
+            parts.append(f"## DIAGNOSE LOCKED\n**{diag_lock}**\n")
 
         # Subtask auto-advanced warning
         subtask_advanced = state.get("_subtask_advanced")
         if subtask_advanced:
-            parts.append(
-                f"## ⚠ SUBTASKS AUTO-ADVANCED\n"
-                f"**{subtask_advanced}**\n"
-            )
+            parts.append(f"## ⚠ SUBTASKS AUTO-ADVANCED\n**{subtask_advanced}**\n")
 
         # Task Plan Progress
         if self._task_plan:
@@ -3623,7 +3560,7 @@ targeted workers to test the most likely hypotheses before doing a full retry.
             confirmed = [h for h in hypotheses if h.get("status") == "confirmed"]
             if confirmed:
                 lines.append(
-                    f"\n**Confirmed cause(s)**: "
+                    "\n**Confirmed cause(s)**: "
                     + ", ".join(h.get("cause", "?") for h in confirmed)
                     + ". Use this to inform your next delegation.\n"
                 )
@@ -3707,8 +3644,8 @@ targeted workers to test the most likely hypotheses before doing a full retry.
         lines = ["\n## Available Dynamic Tools (from previous runs)\n"]
         lines.append(
             "These tools are already registered and can be added to any worker's "
-            "`tools_allowed` list. Use `\"dynamic.*\"` to give a worker ALL dynamic tools, "
-            "or list specific ones like `\"dynamic.my_tool\"`.\n"
+            '`tools_allowed` list. Use `"dynamic.*"` to give a worker ALL dynamic tools, '
+            'or list specific ones like `"dynamic.my_tool"`.\n'
         )
         for fqn in sorted(dynamic.keys()):
             defn = self._tools._definitions.get(fqn)
@@ -3742,6 +3679,7 @@ targeted workers to test the most likely hypotheses before doing a full retry.
                     title = title[6:].strip()
                 # Slugify
                 import re as _re
+
                 slug = _re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
                 return slug[:60] if slug else "unnamed_skill"
         return "unnamed_skill"
@@ -3820,9 +3758,7 @@ targeted workers to test the most likely hypotheses before doing a full retry.
 
     def _persist_worker_result_skills(self, worker_result: dict, worker_id: str) -> None:
         """Persist skills from a worker's result to the skill registry."""
-        result_skills = worker_result.get(
-            "skills_created", worker_result.get("skills", [])
-        )
+        result_skills = worker_result.get("skills_created", worker_result.get("skills", []))
         if not isinstance(result_skills, list):
             return
         for skill in result_skills:
@@ -3858,18 +3794,30 @@ targeted workers to test the most likely hypotheses before doing a full retry.
         if factory and namespace in getattr(factory, "_namespace_configs", {}):
             caps = factory.get_namespace_capabilities(namespace)
             allowlist = factory.get_network_allowlist(namespace)
-            lines = ["- NEVER import os, subprocess, sys, ctypes, importlib, signal, or multiprocessing\n"]
+            lines = [
+                "- NEVER import os, subprocess, sys, ctypes, importlib, signal, or multiprocessing\n"
+            ]
             if "network" in caps:
                 if allowlist:
-                    lines.append(f"- Network access ALLOWED (restricted to: {', '.join(allowlist)}). You may import requests, httpx, urllib, http.\n")
+                    lines.append(
+                        f"- Network access ALLOWED (restricted to: {', '.join(allowlist)}). You may import requests, httpx, urllib, http.\n"
+                    )
                 else:
-                    lines.append("- Network access ALLOWED. You may import requests, httpx, urllib, http.\n")
+                    lines.append(
+                        "- Network access ALLOWED. You may import requests, httpx, urllib, http.\n"
+                    )
             else:
-                lines.append("- No imports of socket, http, urllib, requests, or httpx (no network access)\n")
+                lines.append(
+                    "- No imports of socket, http, urllib, requests, or httpx (no network access)\n"
+                )
             if "filesystem" in caps:
-                lines.append("- Filesystem access ALLOWED. You may import pathlib, glob, shutil, tempfile.\n")
+                lines.append(
+                    "- Filesystem access ALLOWED. You may import pathlib, glob, shutil, tempfile.\n"
+                )
             else:
-                lines.append("- Use `open()` (builtin) to write files — do NOT import `os` or `pathlib`\n")
+                lines.append(
+                    "- Use `open()` (builtin) to write files — do NOT import `os` or `pathlib`\n"
+                )
             return "".join(lines)
         # Default: no special capabilities
         return (
@@ -4033,6 +3981,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         ):
             try:
                 from .curator import read_prior_memory as _read_prior
+
                 prior_md = _read_prior(self._dir)
             except Exception as _exc:  # noqa: BLE001
                 logger.debug("read_prior_memory failed: %s", _exc)
@@ -4045,9 +3994,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # the prompt stays lean. Scoped to this manager run only.
         if self._blackboard is not None:
             try:
-                new_entries = self._blackboard.read(
-                    since=self._last_blackboard_seen_id
-                )
+                new_entries = self._blackboard.read(since=self._last_blackboard_seen_id)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Blackboard read failed: %s", exc)
                 new_entries = []
@@ -4076,8 +4023,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # Followed by 1 level of inlined child digests (by default),
         # with deeper layers reachable via the `digest.fetch` tool.
         digest_active = (
-            getattr(self._config, "digest_enabled", True)
-            and self._current_digest is not None
+            getattr(self._config, "digest_enabled", True) and self._current_digest is not None
         )
         if digest_active:
             md = self._current_digest.to_markdown()
@@ -4114,9 +4060,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         # Budget status
         budget_dict = self._budget.to_dict()
-        parts.append(
-            f"## Budget Status\n```json\n{json.dumps(budget_dict, indent=2)}\n```\n"
-        )
+        parts.append(f"## Budget Status\n```json\n{json.dumps(budget_dict, indent=2)}\n```\n")
         # Repair reserve reminder when budget is getting low
         remaining_pct = budget_dict.get("budget_remaining_pct", 1.0)
         if remaining_pct < 0.4 and self._history:
@@ -4159,9 +4103,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             parts.append("## Validation Feedback\n")
             has_file_issues = False
             for v in self._history[-1]["validation"]:
-                parts.append(
-                    f"- Worker {v.get('worker_id', '?')}: {v.get('feedback', 'ok')}\n"
-                )
+                parts.append(f"- Worker {v.get('worker_id', '?')}: {v.get('feedback', 'ok')}\n")
                 # Check for file validation failures in deterministic results
                 det = v.get("deterministic", {})
                 file_warnings = det.get("file_warnings", [])
@@ -4170,7 +4112,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
             # Inject explicit file repair instructions if there were file issues
             if has_file_issues:
-                from .file_validator import validate_directory, build_repair_instructions
+                from .file_validator import build_repair_instructions
+
                 all_warnings = []
                 workspace = self._dir / "workspace"
                 run_output = self._dir / "output" / self._run_id
@@ -4180,6 +4123,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         for p in sorted(ws_outputs.rglob("*")):
                             if p.is_file() and not p.name.startswith("."):
                                 from .file_validator import validate_file
+
                                 w = validate_file(p)
                                 if w:
                                     all_warnings.append((p, w))
@@ -4187,6 +4131,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     for p in sorted(run_output.rglob("*")):
                         if p.is_file() and not p.name.startswith("."):
                             from .file_validator import validate_file
+
                             w = validate_file(p)
                             if w:
                                 all_warnings.append((p, w))
@@ -4265,9 +4210,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 parts.append("")
 
         # State from previous workers
-        worker_states = {
-            k: v for k, v in state.items() if k != "task" and not k.startswith("_")
-        }
+        worker_states = {k: v for k, v in state.items() if k != "task" and not k.startswith("_")}
         if worker_states:
             parts.append("## Worker Results Available in State\n")
             for k, v in worker_states.items():
@@ -4389,8 +4332,12 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             elif any(
                 k in output
                 for k in (
-                    "final_result", "report_md", "summary", "conclusion",
-                    "output", "deliverables",
+                    "final_result",
+                    "report_md",
+                    "summary",
+                    "conclusion",
+                    "output",
+                    "deliverables",
                 )
             ):
                 # LLMs often omit "decision" when they consider the task done
@@ -4404,8 +4351,15 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             else:
                 # Last resort: check if output has substantive content that
                 # looks like it could be a completion (many keys, no error)
-                _meta_keys = {"confidence", "reasoning", "reason", "_truncated",
-                              "_confidence_source", "_parse_failure", "result"}
+                _meta_keys = {
+                    "confidence",
+                    "reasoning",
+                    "reason",
+                    "_truncated",
+                    "_confidence_source",
+                    "_parse_failure",
+                    "result",
+                }
                 content_keys = {k for k in output if k not in _meta_keys}
                 if len(content_keys) >= 2 and "error" not in output:
                     logger.warning(
@@ -4467,10 +4421,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             output["delegations"] = valid
             # If all delegations were dropped, fall back to retry (not fail)
             if not valid:
-                logger.warning(
-                    "All delegations dropped after filtering — "
-                    "will retry manager call"
-                )
+                logger.warning("All delegations dropped after filtering — will retry manager call")
                 output["decision"] = "retry"
                 output["reason"] = "All delegations were incomplete/truncated"
 
@@ -4539,8 +4490,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         if dropped:
             logger.warning(
-                "Worker %s: dropping %d hallucinated tool name(s): %s "
-                "(allowed=%s)",
+                "Worker %s: dropping %d hallucinated tool name(s): %s (allowed=%s)",
                 wid,
                 len(dropped),
                 dropped,
@@ -4619,15 +4569,12 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         Returns list of CritiqueEnvelope objects. May mutate delegation_results
         in-place if repairs improve results.
         """
-        from .critique import CritiqueEnvelope
 
         if not self._critique_engine:
             return []
 
         # 1. Critique all results
-        critiques = self._critique_engine.critique_results(
-            delegation_results, task, iteration
-        )
+        critiques = self._critique_engine.critique_results(delegation_results, task, iteration)
 
         # 2. Attempt targeted repair for results with critical defects
         repair_budget_limit = (
@@ -4685,7 +4632,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 # Log repair result to disk
                 self._logger.log_worker_result(iteration, worker_id, repaired_result)
                 # Track workers spawned for repair
-                self._budget.workers_spawned += len(attempts)
+                self._budget.record_workers(len(attempts))
             else:
                 dr["result"]["_critique_score"] = round(critique.score, 4)
                 dr["result"]["_critique_summary"] = critique.summary
@@ -4699,11 +4646,15 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     # -- Worker execution -------------------------------------------------
 
     def _execute_delegations(
-        self, envelopes: list[dict], task: str, state: dict,
+        self,
+        envelopes: list[dict],
+        task: str,
+        state: dict,
         iteration: int = 0,
     ) -> list[dict]:
         """Execute all delegations in parallel (fan-out)."""
         results: list[dict] = []
+
         # P6: rough count of submanager candidates so the budget fraction can
         # be divided across this dispatch. We deliberately use a cheap flag
         # check (no cap-check side effects) — the real submanager decision is
@@ -4719,13 +4670,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                             return st.get("delegation_strategy") == "submanager"
             return False
 
-        sub_candidate_count = sum(
-            1 for env in envelopes if _looks_like_submanager(env)
-        ) or 1
+        sub_candidate_count = sum(1 for env in envelopes if _looks_like_submanager(env)) or 1
 
         def run_worker(envelope: dict) -> dict:
             worker_id = envelope.get("worker_id", f"worker_{uuid.uuid4().hex[:6]}")
-            self._budget.workers_spawned += 1
+            self._budget.record_workers()
 
             logger.info("  Spawning worker: %s", worker_id)
 
@@ -4739,13 +4688,15 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             if self._is_submanager_envelope(envelope):
                 try:
                     return self._spawn_submanager(
-                        worker_id, envelope, task, state, iteration,
+                        worker_id,
+                        envelope,
+                        task,
+                        state,
+                        iteration,
                         num_submanagers_in_dispatch=sub_candidate_count,
                     )
                 except Exception as exc:
-                    logger.error(
-                        "  Submanager %s failed: %s", worker_id, exc
-                    )
+                    logger.error("  Submanager %s failed: %s", worker_id, exc)
                     err = {
                         "error": str(exc),
                         "confidence": 0.0,
@@ -4798,9 +4749,16 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     "status": "error",
                 }
 
-        # Fan-out with ThreadPoolExecutor (8 threads to avoid blocking
-        # when manager delegates 5+ workers — typical in production runs)
-        max_workers = min(len(envelopes), 8)
+        # Fan-out with ThreadPoolExecutor. Submanagers may block their
+        # thread for minutes, so we size the pool to accommodate both
+        # ephemeral workers and submanagers without thread starvation.
+        n_sub = sum(1 for env in envelopes if _looks_like_submanager(env))
+        n_eph = len(envelopes) - n_sub
+        max_workers = min(
+            n_eph + n_sub,
+            self._max_parallel_workers + self._budget.max_concurrent_submanagers,
+        )
+        max_workers = max(1, max_workers)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {pool.submit(run_worker, env): env for env in envelopes}
             for future in as_completed(futures):
@@ -4831,10 +4789,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if self._depth >= self._budget.max_depth:
             return False
         # P2: hard caps on submanager fan-out
-        if (
-            self._budget.spawned_submanagers_total
-            >= self._budget.max_total_submanagers_per_run
-        ):
+        if self._budget.spawned_submanagers_total >= self._budget.max_total_submanagers_per_run:
             logger.warning(
                 "Submanager spawn blocked: total cap reached (%d/%d). "
                 "Falling back to ephemeral worker.",
@@ -4842,10 +4797,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 self._budget.max_total_submanagers_per_run,
             )
             return False
-        if (
-            self._budget.active_submanagers
-            >= self._budget.max_concurrent_submanagers
-        ):
+        if self._budget.active_submanagers >= self._budget.max_concurrent_submanagers:
             logger.warning(
                 "Submanager spawn blocked: concurrent cap reached (%d/%d). "
                 "Falling back to ephemeral worker.",
@@ -4880,14 +4832,41 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     # English + German because workflow tasks come in both.
     _COMPLEXITY_KEYWORDS = (
         # English
-        "iterativ", "iteratively", "research", "investigate", "explore",
-        "analyse", "analyze", "validate", "comprehensive", "multi-step",
-        "multi-source", "end-to-end", "pipeline", "deep dive", "decompose",
-        "synthesise", "synthesize", "build and test", "evaluate",
-        "benchmark", "characterise", "characterize", "survey", "audit",
+        "iterativ",
+        "iteratively",
+        "research",
+        "investigate",
+        "explore",
+        "analyse",
+        "analyze",
+        "validate",
+        "comprehensive",
+        "multi-step",
+        "multi-source",
+        "end-to-end",
+        "pipeline",
+        "deep dive",
+        "decompose",
+        "synthesise",
+        "synthesize",
+        "build and test",
+        "evaluate",
+        "benchmark",
+        "characterise",
+        "characterize",
+        "survey",
+        "audit",
         # German
-        "mehrstufig", "rekursiv", "umfangreich", "vollständig", "recherche",
-        "untersuche", "validiere", "bewerte", "analysiere", "tiefgehend",
+        "mehrstufig",
+        "rekursiv",
+        "umfangreich",
+        "vollständig",
+        "recherche",
+        "untersuche",
+        "validiere",
+        "bewerte",
+        "analysiere",
+        "tiefgehend",
     )
 
     def _score_subtask_complexity(self, subtask: dict) -> tuple[int, list[str]]:
@@ -4941,7 +4920,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         deliverable_signals = (
             description.count("\n-")
             + description.count("\n*")
-            + len([m for m in description.split("\n") if m.strip()[:2].rstrip(".") in ("1", "2", "3", "4", "5")])
+            + len(
+                [
+                    m
+                    for m in description.split("\n")
+                    if m.strip()[:2].rstrip(".") in ("1", "2", "3", "4", "5")
+                ]
+            )
         )
         if deliverable_signals >= 3:
             score += 2
@@ -4957,9 +4942,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         return score, reasons
 
-    def _auto_promote_complex_subtasks(
-        self, subtasks: list[dict]
-    ) -> list[str]:
+    def _auto_promote_complex_subtasks(self, subtasks: list[dict]) -> list[str]:
         """Score each subtask and promote complex ones to submanager strategy.
 
         Returns the list of promoted subtask ids (for logging).
@@ -5020,9 +5003,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 continue
             st["delegation_strategy"] = "submanager"
             sid = st.get("id", "?")
-            logger.info(
-                "  → %s: score=%d reasons=%s", sid, score, reasons
-            )
+            logger.info("  → %s: score=%d reasons=%s", sid, score, reasons)
             promoted.append(sid)
         return promoted
 
@@ -5050,7 +5031,9 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             logger.warning(
                 "Convergence detector: confidence delta %.3f < 0.05 "
                 "(last=%.2f, prev=%.2f) — forcing partial complete.",
-                abs(last - prev), last, prev,
+                abs(last - prev),
+                last,
+                prev,
             )
             return True
         if len(self._history) >= 3:
@@ -5125,9 +5108,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             instr = DelegationLoopRunner._normalize_instructions(
                 env.get("instructions", "") if isinstance(env, dict) else ""
             )
-            ctx_repr = DelegationLoopRunner._canonical_context(
-                env if isinstance(env, dict) else {}
-            )
+            ctx_repr = DelegationLoopRunner._canonical_context(env if isinstance(env, dict) else {})
             if ctx_repr:
                 payload = instr + "\x1f" + ctx_repr
             else:
@@ -5136,9 +5117,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             sigs.append(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16])
         return tuple(sorted(sigs))
 
-    def _merge_submanager_outputs(
-        self, sub_output_dir: Path, submanager_name: str
-    ) -> list[str]:
+    def _merge_submanager_outputs(self, sub_output_dir: Path, submanager_name: str) -> list[str]:
         """Copy files from a submanager's _output_dir into the parent _output_dir.
 
         Files that collide with existing parent files are renamed using a
@@ -5154,9 +5133,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         try:
             parent_output.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            logger.warning(
-                "Could not create parent output dir %s: %s", parent_output, exc
-            )
+            logger.warning("Could not create parent output dir %s: %s", parent_output, exc)
             return merged
         for src in sub_output_dir.rglob("*"):
             if not src.is_file():
@@ -5236,16 +5213,12 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             inherited = {k: state.get(k) for k in whitelist if k in state}
         else:
             forbidden_env = envelope.get("forbidden_inheritance_keys") or []
-            forbidden_cfg = list(
-                getattr(self._config, "forbidden_inheritance_keys", []) or []
-            )
+            forbidden_cfg = list(getattr(self._config, "forbidden_inheritance_keys", []) or [])
             forbidden = set()
             for item in list(forbidden_env) + forbidden_cfg:
                 if isinstance(item, str):
                     forbidden.add(item)
-            inherited = {
-                k: v for k, v in (state or {}).items() if k not in forbidden
-            }
+            inherited = {k: v for k, v in (state or {}).items() if k not in forbidden}
 
         # Pass the parent's current digest sha into the child's
         # inherited state under a reserved key so the child runner
@@ -5266,16 +5239,10 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # 4. Build sub-run dir under the parent worker dir so the
         # visualizer can render the nested run cluster
         parent_worker_dir = (
-            self._run_dir
-            / "iterations"
-            / f"{iteration:03d}"
-            / "delegations"
-            / worker_id
+            self._run_dir / "iterations" / f"{iteration:03d}" / "delegations" / worker_id
         )
         sub_run_id = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-            + "_"
-            + uuid.uuid4().hex[:8]
+            datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S") + "_" + uuid.uuid4().hex[:8]
         )
         sub_run_dir = parent_worker_dir / "runs" / sub_run_id
 
@@ -5299,8 +5266,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         logger.info(
             "  Spawning SUBMANAGER %s at depth=%d (budget fraction=%.2f, "
             "loops=%d, tokens=%d, wall=%ds)",
-            worker_id, self._depth + 1, fraction,
-            child_budget.max_loops, child_budget.max_total_tokens,
+            worker_id,
+            self._depth + 1,
+            fraction,
+            child_budget.max_loops,
+            child_budget.max_total_tokens,
             int(child_budget.max_wall_time),
         )
         child = DelegationLoopRunner(
@@ -5322,9 +5292,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # _run_manager call. We override the manager path for the child by
         # patching its config copy (lightweight: only the manager attribute).
         try:
-            child._config = type(self._config).model_validate(
-                self._config.model_dump()
-            )
+            child._config = type(self._config).model_validate(self._config.model_dump())
             child._config.manager = sub_agent_path
         except Exception:
             pass  # config is shared — fall back to parent's manager
@@ -5338,9 +5306,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             sub_result = child.run(full_sub_task, dict(inherited))
         except Exception as exc:
             import traceback as _tb
+
             tb_str = _tb.format_exc()
             logger.error(
-                "Submanager %s raised: %s\n%s", worker_id, exc, tb_str,
+                "Submanager %s raised: %s\n%s",
+                worker_id,
+                exc,
+                tb_str,
             )
             try:
                 self._logger.trace(
@@ -5370,24 +5342,14 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             # the experiment without "outside the workflow directory" hits.
             try:
                 sub_output_dir = self._dir / "output" / sub_run_id
-                merged_files = self._merge_submanager_outputs(
-                    sub_output_dir, worker_id
-                )
+                merged_files = self._merge_submanager_outputs(sub_output_dir, worker_id)
                 if merged_files:
                     if isinstance(sub_result, dict):
                         sub_result.setdefault("_merged_files", merged_files)
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Submanager output merge failed for %s: %s", worker_id, exc
-                )
-            # Restore the parent's run_id on the shared tool registry — the
-            # child set it to its own sub_run_id during run() and we need
-            # parent workers to write under the parent run again.
-            if self._tools and hasattr(self._tools, "set_run_id"):
-                try:
-                    self._tools.set_run_id(self._run_id)
-                except Exception:
-                    pass
+                logger.warning("Submanager output merge failed for %s: %s", worker_id, exc)
+            # Note: _run_id is thread-local (Change 2), so the child's
+            # set_run_id() only affected its own thread — no restore needed.
 
         # 9. Normalise result so downstream aggregation never blocks
         if not isinstance(sub_result, dict):
@@ -5414,9 +5376,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             "status": "ok",
         }
 
-    def _run_ephemeral_worker(
-        self, worker_id: str, envelope: dict, task: str, state: dict
-    ) -> dict:
+    def _run_ephemeral_worker(self, worker_id: str, envelope: dict, task: str, state: dict) -> dict:
         """Run an ephemeral worker configured entirely by the delegation envelope."""
         instructions = envelope.get("instructions", "")
         raw_skills = envelope.get("skills", [])
@@ -5459,15 +5419,10 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             tools_allowed = sanitized
         # If the worker is supposed to run code but ended up with no usable
         # tools, restore a minimal default toolset.
-        if (
-            (not tools_allowed)
-            and isinstance(codemode, dict)
-            and codemode.get("enabled", False)
-        ):
+        if (not tools_allowed) and isinstance(codemode, dict) and codemode.get("enabled", False):
             tools_allowed = ["code.execute", "file.read", "file.write", "file.list"]
             logger.warning(
-                "  Worker %s: tools_allowed was empty/invalid — restored default "
-                "code-mode toolset",
+                "  Worker %s: tools_allowed was empty/invalid — restored default code-mode toolset",
                 worker_id,
             )
 
@@ -5509,9 +5464,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # Ensure code.execute is in tools_allowed when codemode is enabled
         if codemode.get("enabled", False) and "code.execute" not in tools_allowed:
             tools_allowed = list(tools_allowed) + ["code.execute"]
-            logger.info(
-                "Worker %s: auto-added code.execute (codemode.enabled=true)", worker_id
-            )
+            logger.info("Worker %s: auto-added code.execute (codemode.enabled=true)", worker_id)
 
         # Expose the sibling-coordination blackboard tools when the
         # feature is enabled. They are run-scoped (bound via ContextVar
@@ -5553,6 +5506,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # `instructions`. Earlier runs proved that pitfalls placed only in
         # the manager prompt never reach workers.
         from awp.data.prompts import WORKER_PITFALLS
+
         system_parts = [
             f"You are a Worker Agent (ID: {worker_id}) executing a delegated task.\n",
             WORKER_PITFALLS,
@@ -5593,7 +5547,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     "using `code.execute`. For example:\n"
                     "- Generate synthetic data with numpy/pandas\n"
                     "- Fetch data via HTTP or domain-specific libraries\n"
-                    "- Save generated data to `_workspace_dir + \"/inputs/\"` for reuse\n\n"
+                    '- Save generated data to `_workspace_dir + "/inputs/"` for reuse\n\n'
                 )
 
             # Build live directory tree showing only this run's output
@@ -5718,9 +5672,7 @@ print("Chart saved")
                     "Do NOT default to a generic value — assess your actual output.\n"
                 )
             if tool_creation:
-                system_parts.append(
-                    "- `tools_created` (array): List of tool objects you created\n"
-                )
+                system_parts.append("- `tools_created` (array): List of tool objects you created\n")
             system_parts.append("\nRespond ONLY with the JSON object.\n")
 
         system_prompt = "\n".join(system_parts)
@@ -5787,9 +5739,7 @@ print("Chart saved")
             if self._config.worker_policy
             else None
         )
-        forbidden = (
-            set(getattr(enforced, "forbidden_tools", []) or []) if enforced else set()
-        )
+        forbidden = set(getattr(enforced, "forbidden_tools", []) or []) if enforced else set()
         if forbidden and tools_allowed:
             original = list(tools_allowed)
             tools_allowed = [t for t in tools_allowed if t not in forbidden]
@@ -5803,9 +5753,7 @@ print("Chart saved")
 
         # Determine if tools are needed
         if tools_allowed and self._tools:
-            tool_defs = self._tools.get_definitions(
-                tools_allowed if tools_allowed else None
-            )
+            tool_defs = self._tools.get_definitions(tools_allowed if tools_allowed else None)
             if tool_defs:
                 # Wrap tool_executor to capture code.execute calls for artifacts
                 _tool_call_log: list[dict] = []
@@ -5813,6 +5761,7 @@ print("Chart saved")
 
                 def _tracking_call(name: str, arguments: dict) -> dict:
                     import time as _t
+
                     _start = _t.perf_counter()
                     result = _original_call(name, arguments)
                     _dur_ms = (_t.perf_counter() - _start) * 1000.0
@@ -5824,7 +5773,7 @@ print("Chart saved")
                             "duration_ms": round(_dur_ms, 2),
                         }
                     )
-                    self._budget.tool_calls_used += 1
+                    self._budget.record_tool_call()
                     # Comprehensive debug log
                     try:
                         ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
@@ -5864,9 +5813,7 @@ print("Chart saved")
                 if not self._has_real_confidence(result):
                     # LLM didn't provide a usable confidence — derive from
                     # tool call outcomes instead of using a meaningless default.
-                    result["confidence"] = self._derive_tool_confidence(
-                        _tool_call_log, result
-                    )
+                    result["confidence"] = self._derive_tool_confidence(_tool_call_log, result)
                     result["_confidence_source"] = "derived_from_tools"
 
                 # Attach tool call log to result for artifact persistence
@@ -5885,27 +5832,27 @@ print("Chart saved")
                     logger.info(
                         "Worker %s returned %d tools_created entries",
                         worker_id,
-                        len(tools_in_result)
-                        if isinstance(tools_in_result, list)
-                        else 0,
+                        len(tools_in_result) if isinstance(tools_in_result, list) else 0,
                     )
                     self._process_tool_creation(result, worker_id, codemode, llm_client=llm)
 
                     logger.info(
                         "Worker %s after tool processing — tools_registered: %s",
                         worker_id,
-                        json.dumps(
-                            result.get("tools_registered", []), indent=2, default=str
-                        ),
+                        json.dumps(result.get("tools_registered", []), indent=2, default=str),
                     )
-                self._budget.tokens_consumed += llm.total_tokens_used
+                self._budget.record_tokens(llm.total_tokens_used)
                 return result
 
         # Simple call (no tools)
         try:
             result = llm.chat_json(messages, temperature=worker_temperature, max_tokens=4096)
             if not isinstance(result, dict):
-                result = {"result": str(result), "confidence": 0.0, "_confidence_source": "parse_failure"}
+                result = {
+                    "result": str(result),
+                    "confidence": 0.0,
+                    "_confidence_source": "parse_failure",
+                }
         except Exception:
             text = llm.chat_text(messages, temperature=worker_temperature, max_tokens=4096)
             result = self._parse_json_response(text)
@@ -5936,13 +5883,11 @@ print("Chart saved")
                 json.dumps(result.get("tools_registered", []), indent=2, default=str),
             )
 
-        self._budget.tokens_consumed += llm.total_tokens_used
+        self._budget.record_tokens(llm.total_tokens_used)
         return result
 
     @staticmethod
-    def _build_directory_tree(
-        workspace: Path, output: Path, max_files: int = 60
-    ) -> str:
+    def _build_directory_tree(workspace: Path, output: Path, max_files: int = 60) -> str:
         """Build a markdown directory tree of workspace + output for the worker prompt.
 
         This gives workers a complete picture of what files exist so they can
@@ -5988,7 +5933,8 @@ print("Chart saved")
         if workspace.exists():
             try:
                 ws_entries = [
-                    e for e in workspace.iterdir()
+                    e
+                    for e in workspace.iterdir()
                     if not e.name.startswith(".") and e.name != "__pycache__"
                 ]
             except OSError:
@@ -6004,8 +5950,7 @@ print("Chart saved")
         if output.exists():
             try:
                 out_entries = [
-                    e for e in output.rglob("*")
-                    if e.is_file() and not e.name.startswith(".")
+                    e for e in output.rglob("*") if e.is_file() and not e.name.startswith(".")
                 ]
             except OSError:
                 pass
@@ -6311,9 +6256,7 @@ Rules:
                         full_record["registered"] = True
                         if reg_result.get("repaired"):
                             full_record["repaired"] = True
-                            full_record["repair_attempts"] = reg_result.get(
-                                "repair_attempts", 0
-                            )
+                            full_record["repair_attempts"] = reg_result.get("repair_attempts", 0)
                         if reg_result.get("cache_hit"):
                             full_record["cache_hit"] = True
                     else:
@@ -6352,9 +6295,7 @@ Rules:
 
     # -- Validation -------------------------------------------------------
 
-    def _validate_results(
-        self, delegation_results: list[dict], task: str
-    ) -> list[dict]:
+    def _validate_results(self, delegation_results: list[dict], task: str) -> list[dict]:
         """Two-tier validation: deterministic + LLM."""
         validation_results = []
 
@@ -6368,9 +6309,7 @@ Rules:
             v["deterministic"] = det
 
             if not det.get("passed", False):
-                v["feedback"] = (
-                    f"Deterministic validation failed: {det.get('errors', [])}"
-                )
+                v["feedback"] = f"Deterministic validation failed: {det.get('errors', [])}"
                 validation_results.append(v)
                 continue
 
@@ -6410,7 +6349,12 @@ Rules:
 
         # Must be a dict
         if not isinstance(result, dict):
-            return {"passed": False, "errors": ["Result is not a dict"], "warnings": [], "file_warnings": []}
+            return {
+                "passed": False,
+                "errors": ["Result is not a dict"],
+                "warnings": [],
+                "file_warnings": [],
+            }
 
         # Must have confidence
         if "confidence" not in result:
@@ -6426,9 +6370,7 @@ Rules:
         # Flag derived/fallback confidence as a warning (informational, not a failure)
         source = result.get("_confidence_source")
         if source:
-            warnings.append(
-                f"Confidence was not provided by worker (source: {source})"
-            )
+            warnings.append(f"Confidence was not provided by worker (source: {source})")
 
         # Must not be only an error
         if "error" in result and len(result) <= 2:  # just error + confidence
@@ -6439,6 +6381,7 @@ Rules:
         if file_warnings:
             # Classify severity of each file warning
             from .file_validator import classify_warning_severity
+
             critical_count = 0
             for w in file_warnings:
                 errors.append(f"Invalid output file: {w}")
@@ -6447,7 +6390,10 @@ Rules:
                 fname = w.split(":")[0].strip() if ":" in w else ""
                 if fname:
                     # Check candidate paths in output and workspace
-                    for search_dir in [self._dir / "output" / self._run_id, self._dir / "workspace" / "outputs"]:
+                    for search_dir in [
+                        self._dir / "output" / self._run_id,
+                        self._dir / "workspace" / "outputs",
+                    ]:
                         candidates = list(search_dir.rglob(fname)) if search_dir.exists() else []
                         for p in candidates:
                             severity = classify_warning_severity(p, w)
@@ -6468,16 +6414,21 @@ Rules:
                     f"invalid output file(s) ({critical_count} critical)"
                 )
 
-        return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings, "file_warnings": file_warnings}
+        return {
+            "passed": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "file_warnings": file_warnings,
+        }
 
     # Compiled regex for placeholder values that indicate the manager
     # terminated the run with stub deliverables instead of real content.
     _PLACEHOLDER_PATTERNS: tuple[str, ...] = (
-        r"\bXX%?",          # XX, XX%
+        r"\bXX%?",  # XX, XX%
         r"\bTODO\b",
         r"\bTBD\b",
         r"\bN/A\b",
-        r"\?\?\?+",          # ??? or longer
+        r"\?\?\?+",  # ??? or longer
         r"<placeholder[^>]*>",
         r"\{\{\s*[A-Za-z_][A-Za-z0-9_ ]*\s*\}\}",  # mustache-style {{ var }}
         r"\bFIXME\b",
@@ -6487,7 +6438,7 @@ Rules:
         r"\bfinal output here\b",
         r"\byour final output here\b",
         r"\bwhy the task is complete\b",
-        r"\b<your[^>]*>",          # <your-text>, <your value>, ...
+        r"\b<your[^>]*>",  # <your-text>, <your value>, ...
         r"\bplaceholder\b",
         r"\bexample[_ ]value\b",
         r"\bfill[_ ]in[_ ]here\b",
@@ -6496,28 +6447,43 @@ Rules:
     # Keys that, when present at any depth in `final_result`, are
     # unambiguous evidence the manager copied the prompt template stub
     # instead of producing real content. e.g. {"your": "final output here"}.
-    _PLACEHOLDER_KEYS: frozenset[str] = frozenset({
-        "your", "your_field", "your_key", "your_value",
-        "field_name", "key_name", "example_field",
-    })
+    _PLACEHOLDER_KEYS: frozenset[str] = frozenset(
+        {
+            "your",
+            "your_field",
+            "your_key",
+            "your_value",
+            "field_name",
+            "key_name",
+            "example_field",
+        }
+    )
 
     # Keywords (case-insensitive) in the task description that imply a
     # file deliverable must end up in `_output_dir`. Mapped to a friendly
     # name used in the rejection message.
     _DELIVERABLE_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
-        (("image", "picture", "photo", "illustration", "render",
-          "bild", "foto", "illustration", "zeichnung", "grafik", "logo"),
-         "an image file"),
-        (("pdf", "document", "report", "dokument", "bericht"),
-         "a document file (pdf/md)"),
-        (("chart", "plot", "graph", "diagram", "figure", "diagramm"),
-         "a chart/figure file"),
-        (("video", "animation", "gif"),
-         "a video/animation file"),
-        (("audio", "sound", "mp3", "wav"),
-         "an audio file"),
-        (("dataset", "csv", "spreadsheet", "table", "tabelle"),
-         "a data file (csv/xlsx)"),
+        (
+            (
+                "image",
+                "picture",
+                "photo",
+                "illustration",
+                "render",
+                "bild",
+                "foto",
+                "illustration",
+                "zeichnung",
+                "grafik",
+                "logo",
+            ),
+            "an image file",
+        ),
+        (("pdf", "document", "report", "dokument", "bericht"), "a document file (pdf/md)"),
+        (("chart", "plot", "graph", "diagram", "figure", "diagramm"), "a chart/figure file"),
+        (("video", "animation", "gif"), "a video/animation file"),
+        (("audio", "sound", "mp3", "wav"), "an audio file"),
+        (("dataset", "csv", "spreadsheet", "table", "tabelle"), "a data file (csv/xlsx)"),
     )
 
     def _check_missing_deliverable(self, task: str) -> str:
@@ -6539,13 +6505,9 @@ Rules:
         run_out = self._dir / "output" / (self._run_id or "")
         if not run_out.exists():
             return (
-                f"Task implies {matched[0]}, but output directory does not "
-                f"exist yet ({run_out})."
+                f"Task implies {matched[0]}, but output directory does not exist yet ({run_out})."
             )
-        substantial = [
-            p for p in run_out.rglob("*")
-            if p.is_file() and p.stat().st_size >= 512
-        ]
+        substantial = [p for p in run_out.rglob("*") if p.is_file() and p.stat().st_size >= 512]
         if not substantial:
             return (
                 f"Task implies {matched[0]}, but `_output_dir` is empty "
@@ -6581,7 +6543,9 @@ Rules:
             for pat in compiled:
                 m = pat.search(sample)
                 if m:
-                    snippet = sample[max(0, m.start() - 20): m.end() + 20].replace("\n", " ").strip()
+                    snippet = (
+                        sample[max(0, m.start() - 20) : m.end() + 20].replace("\n", " ").strip()
+                    )
                     findings.append(f"{label}: '{snippet}' (matched /{pat.pattern}/)")
                     return  # one finding per scope is enough
 
@@ -6658,19 +6622,16 @@ Rules:
         src = self._outputs_dir()
         if not src.exists():
             return
-        dst = (
-            self._run_dir
-            / "iterations"
-            / f"{iteration:03d}"
-            / "_outputs_snapshot"
-        )
+        dst = self._run_dir / "iterations" / f"{iteration:03d}" / "_outputs_snapshot"
         if dst.exists():
             return  # idempotent
         try:
             import shutil
+
             # Copy as a tree but skip our own snapshot dirs (defensive)
             def _ignore(_d: str, names: list[str]) -> list[str]:
                 return [n for n in names if n.startswith("_outputs_snapshot")]
+
             shutil.copytree(src, dst, ignore=_ignore, dirs_exist_ok=False)
         except Exception as exc:
             logger.debug("snapshot copy failed for iter %d: %s", iteration, exc)
@@ -6691,6 +6652,7 @@ Rules:
         placeholder_re = None
         try:
             import re
+
             placeholder_re = re.compile(
                 r"\bXX%?|\bTODO\b|\bTBD\b|\?\?\?+|<placeholder",
                 re.IGNORECASE,
@@ -6718,8 +6680,17 @@ Rules:
                     continue
                 # Reject placeholder content for text-like files
                 if placeholder_re and f.suffix.lower() in {
-                    ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html",
-                    ".py", ".cs", ".js", ".ts",
+                    ".md",
+                    ".txt",
+                    ".csv",
+                    ".json",
+                    ".yaml",
+                    ".yml",
+                    ".html",
+                    ".py",
+                    ".cs",
+                    ".js",
+                    ".ts",
                 }:
                     try:
                         head = f.read_text(encoding="utf-8", errors="replace")[:50_000]
@@ -6737,8 +6708,17 @@ Rules:
         restored = 0
         outputs.mkdir(parents=True, exist_ok=True)
         text_exts = {
-            ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html",
-            ".py", ".cs", ".js", ".ts",
+            ".md",
+            ".txt",
+            ".csv",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".html",
+            ".py",
+            ".cs",
+            ".js",
+            ".ts",
         }
         for rel, (best_size, best_path, iter_num) in best.items():
             target = outputs / rel
@@ -6753,10 +6733,7 @@ Rules:
                 # Detect placeholder content in current file even if it's
                 # large — bigger ≠ better when the content is "TODO ..." padding.
                 cur_has_placeholder = False
-                if (
-                    placeholder_re
-                    and target.suffix.lower() in text_exts
-                ):
+                if placeholder_re and target.suffix.lower() in text_exts:
                     try:
                         ch = target.read_text(encoding="utf-8", errors="replace")[:50_000]
                         if placeholder_re.search(ch):
@@ -6769,12 +6746,15 @@ Rules:
                 try:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     import shutil
+
                     shutil.copy2(best_path, target)
                     restored += 1
                     logger.info(
                         "Restored deliverable %s from iter %03d snapshot "
                         "(%d bytes, larger than current)",
-                        rel, iter_num, best_size,
+                        rel,
+                        iter_num,
+                        best_size,
                     )
                 except Exception as exc:
                     logger.debug("restore failed for %s: %s", rel, exc)
@@ -6860,7 +6840,7 @@ Rules:
             ]
 
             v_result = llm.chat_json(messages, temperature=0.1, max_tokens=1024)
-            self._budget.tokens_consumed += llm.total_tokens_used
+            self._budget.record_tokens(llm.total_tokens_used)
             return v_result
 
         except Exception as exc:
@@ -6995,7 +6975,9 @@ Rules:
                         result["_truncated"] = True
                         logger.warning(
                             "Recovered truncated JSON (trimmed to %d/%d chars, closed %d delimiters)",
-                            trim_to, len(fragment), len(_stack),
+                            trim_to,
+                            len(fragment),
+                            len(_stack),
                         )
                         return result
 
@@ -7043,8 +7025,20 @@ Rules:
                         if len(candidates) >= 16:
                             break
 
-                    closer_combos = ("]", "}", "]]", "}}", "]}", "}]",
-                                     "]]]", "}}}", "]]}", "}]]", "]}]", "}]}")
+                    closer_combos = (
+                        "]",
+                        "}",
+                        "]]",
+                        "}}",
+                        "]}",
+                        "}]",
+                        "]]]",
+                        "}}}",
+                        "]]}",
+                        "}]]",
+                        "]}]",
+                        "}]}",
+                    )
                     for ipos in candidates:
                         for closers in closer_combos:
                             repaired = fragment[:ipos] + closers + fragment[ipos:]
@@ -7053,7 +7047,9 @@ Rules:
                                 logger.warning(
                                     "Recovered malformed JSON via error-site "
                                     "repair (inserted %r at pos %d, err_pos %d)",
-                                    closers, ipos, err_pos,
+                                    closers,
+                                    ipos,
+                                    err_pos,
                                 )
                                 result["_repaired"] = True
                                 return result
@@ -7072,7 +7068,11 @@ Rules:
         """
         if "confidence" not in result:
             return False
-        if result.get("_confidence_source") in ("parse_failure", "missing_from_llm", "derived_from_tools"):
+        if result.get("_confidence_source") in (
+            "parse_failure",
+            "missing_from_llm",
+            "derived_from_tools",
+        ):
             return False
         conf = result["confidence"]
         if not isinstance(conf, (int, float)):
@@ -7104,11 +7104,15 @@ Rules:
         # Penalize if the output contains obvious placeholders
         if result and isinstance(result, dict):
             import re as _re
+
             output_text = json.dumps(result, default=str)[:5000]
-            placeholder_count = len(_re.findall(
-                r"\bXX%|\bTODO\b|\b\?\?\?|\bN/A\b|\bTBD\b|\bPLACEHOLDER\b",
-                output_text, _re.IGNORECASE,
-            ))
+            placeholder_count = len(
+                _re.findall(
+                    r"\bXX%|\bTODO\b|\b\?\?\?|\bN/A\b|\bTBD\b|\bPLACEHOLDER\b",
+                    output_text,
+                    _re.IGNORECASE,
+                )
+            )
             if placeholder_count > 0:
                 penalty = min(0.3, placeholder_count * 0.05)
                 base = max(0.1, base - penalty)
@@ -7157,7 +7161,8 @@ Rules:
                 # Surface tool errors when result is empty
                 tool_calls = result.get("_tool_calls", [])
                 failed_tools = [
-                    tc for tc in tool_calls
+                    tc
+                    for tc in tool_calls
                     if isinstance(tc, dict)
                     and isinstance(tc.get("result"), dict)
                     and not tc["result"].get("ok", True)
@@ -7183,9 +7188,7 @@ Rules:
             self._restore_best_deliverables()
         except Exception as exc:
             logger.debug("deliverable restore failed: %s", exc)
-        last_confidence = (
-            self._history[-1].get("confidence", 0.0) if self._history else 0.0
-        )
+        last_confidence = self._history[-1].get("confidence", 0.0) if self._history else 0.0
         return {
             "partial": True,
             "termination_reason": reason,
