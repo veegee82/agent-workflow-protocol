@@ -9,6 +9,9 @@ import {
   AlertCircle,
   Circle,
   Zap,
+  FileText,
+  FolderCog,
+  Brain,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { BudgetMonitorCompact } from '@/components/BudgetMonitor/BudgetMonitor';
@@ -27,6 +30,9 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: 'output', label: 'Output', icon: <MessageSquare className="h-3.5 w-3.5" /> },
+  { id: 'results', label: 'Results', icon: <FileText className="h-3.5 w-3.5" /> },
+  { id: 'workspace', label: 'Workspace', icon: <FolderCog className="h-3.5 w-3.5" /> },
+  { id: 'memory', label: 'Memory', icon: <Brain className="h-3.5 w-3.5" /> },
   { id: 'graph', label: 'Agent Graph', icon: <GitBranch className="h-3.5 w-3.5" /> },
   { id: 'history', label: 'History', icon: <History className="h-3.5 w-3.5" /> },
 ];

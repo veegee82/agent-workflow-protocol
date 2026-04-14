@@ -35,11 +35,19 @@ import { customNodeTypes } from './CustomNodes';
 // Enhanced layout with better spacing and grouping
 // ---------------------------------------------------------------------------
 
-function layoutNodes(nodes: Node[], edges: Edge[]): Node[] {
+function layoutNodes(nodes: Node[], _edges: Edge[]): Node[] {
+  // Backend graph_builder.py computes the authoritative column layout.
+  // During live runs, the debounced loadRunGraph() replaces event-based
+  // placeholder nodes with backend-positioned nodes every 800ms.
+  return nodes;
+}
+
+// @ts-ignore — disabled legacy layout, kept for reference
+function _layoutNodes_DISABLED(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
   // -----------------------------------------------------------------------
-  // 2-Pass block layout
+  // 2-Pass block layout (DISABLED — using backend positions)
   //
   // PASS 1 (buildBlock): walk the tree bottom-up. For each manager node we
   //   compute a Block { iters, subs[], totalWidthPx, totalHeightPx } that

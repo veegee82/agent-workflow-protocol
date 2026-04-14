@@ -56,7 +56,7 @@ class TestBuildGraphFromFixture:
         assert "manager" in types
         assert "iteration" in types
         assert "worker" in types
-        assert "completion" in types
+        # Completion node was removed — status is now shown on the root task node
 
     def test_build_graph_has_root_task(self, fictional_run_dir: Path) -> None:
         graph = build_graph(fictional_run_dir)
@@ -97,22 +97,16 @@ class TestBuildGraphFromFixture:
         assert "code.execute" in tools
         assert "file.write" in tools
 
-    def test_build_graph_completion(self, fictional_run_dir: Path) -> None:
+    def test_build_graph_root_status_from_completion(self, fictional_run_dir: Path) -> None:
+        """After completion, the root task node carries the final status."""
         graph = build_graph(fictional_run_dir)
-        comp = [n for n in graph.nodes if n.type == "completion"]
-        assert len(comp) == 1
-        assert comp[0].data["status"] == "complete"
-        assert comp[0].data["totalIterations"] == 2
+        root = [n for n in graph.nodes if n.id == "task_root"]
+        assert len(root) == 1
+        assert root[0].data["status"] == "complete"
 
     def test_build_graph_edges(self, fictional_run_dir: Path) -> None:
         graph = build_graph(fictional_run_dir)
         assert len(graph.edges) > 0
-        # Root -> completion edge exists
-        root_to_comp = [
-            e for e in graph.edges
-            if e.source == "task_root" and e.target == "completion"
-        ]
-        assert len(root_to_comp) == 1
 
     def test_build_graph_stats(self, fictional_run_dir: Path) -> None:
         graph = build_graph(fictional_run_dir)
@@ -232,7 +226,7 @@ class TestBuildGraphProgrammatic:
         assert graph.stats["total_iterations"] == 3
         assert graph.stats["total_workers"] == 2
 
-    def test_failed_completion(self, temp_dir: Path) -> None:
+    def test_failed_completion_status_on_root(self, temp_dir: Path) -> None:
         run_dir = make_run_dir(
             temp_dir,
             iterations=[
@@ -244,9 +238,9 @@ class TestBuildGraphProgrammatic:
             completion={"status": "failed", "total_iterations": 1},
         )
         graph = build_graph(run_dir)
-        comp = _nodes_by_type(graph, "completion")
-        assert len(comp) == 1
-        assert comp[0].data["status"] == "failed"
+        root = [n for n in graph.nodes if n.id == "task_root"]
+        assert len(root) == 1
+        assert root[0].data["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -309,9 +303,11 @@ class TestSubDelegation:
         assert "sub_manager" in worker_ids
         assert "leaf_worker" in worker_ids
 
-        # Should have multiple manager nodes (top + sub)
+        # Should have 1 root manager + at least 1 sub-manager
         managers = _nodes_by_type(graph, "manager")
-        assert len(managers) >= 2
+        submanagers = _nodes_by_type(graph, "submanager")
+        assert len(managers) == 1  # exactly 1 root manager
+        assert len(submanagers) >= 1  # sub-runs render as submanager nodes
 
 
 # ---------------------------------------------------------------------------

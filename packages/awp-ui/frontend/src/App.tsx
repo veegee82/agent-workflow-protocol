@@ -60,6 +60,7 @@ import {
 import { SessionSidebar } from '@/components/SessionSidebar/SessionSidebar';
 import { SecretsPanel } from '@/components/SecretsPanel/SecretsPanel';
 import { GraphVisPanel } from '@/components/AgentGraph/GraphVisPanel';
+import { RunSelector } from '@/components/RunSelector/RunSelector';
 
 // ---------------------------------------------------------------------------
 // Code block with syntax highlighting
@@ -702,6 +703,18 @@ function RightSidebar() {
               />
               Verbose
             </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.trace_enabled}
+                onChange={(e) =>
+                  updateConfig({ trace_enabled: e.target.checked })
+                }
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-blue focus:ring-awp-blue"
+              />
+              LLM Trace
+            </label>
           </div>
 
           {/* Output directory */}
@@ -1318,74 +1331,15 @@ function LazyTextArtifact({
   return <>{render(content)}</>;
 }
 
-/** Shared run selector strip for Output/Results panels */
-const RunSelector = memo(function RunSelector({
-  selectedRunId,
-  onSelect,
-}: {
-  selectedRunId: string | null;
-  onSelect: (runId: string | null) => void;
-}) {
-  const runHistory = useWorkflowStore((s) => s.runHistory);
-  const currentRunId = useWorkflowStore((s) => s.currentRunId);
-
-  if (runHistory.length <= 1) return null;
-
-  return (
-    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2 border-b border-awp-border">
-      <span className="text-[10px] text-awp-muted uppercase tracking-wider shrink-0 mr-1">Runs</span>
-      {/* "Latest" button = current live run */}
-      <button
-        type="button"
-        onClick={() => onSelect(null)}
-        className={clsx(
-          'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors',
-          selectedRunId === null
-            ? 'bg-awp-blue/15 text-awp-blue border border-awp-blue/30'
-            : 'text-awp-muted hover:text-awp-text hover:bg-awp-border/40 border border-transparent',
-        )}
-      >
-        Latest
-      </button>
-      {/* Individual runs in chronological order */}
-      {[...runHistory].reverse().map((run, i) => {
-        const isActive = run.run_id === selectedRunId;
-        const isCurrent = run.run_id === currentRunId;
-        const label = run.task.length > 30 ? run.task.slice(0, 30) + '...' : run.task;
-        const runNum = runHistory.length - i;
-        return (
-          <button
-            key={run.run_id}
-            type="button"
-            onClick={() => onSelect(isCurrent ? null : run.run_id)}
-            title={run.task}
-            className={clsx(
-              'shrink-0 px-2.5 py-1 rounded-md text-[11px] transition-colors flex items-center gap-1.5',
-              isActive
-                ? 'bg-awp-blue/15 text-awp-blue border border-awp-blue/30'
-                : 'text-awp-muted hover:text-awp-text hover:bg-awp-border/40 border border-transparent',
-            )}
-          >
-            <span className="font-mono text-[10px] opacity-60">#{runNum}</span>
-            <span className="truncate max-w-[120px]">{label || 'Untitled'}</span>
-            {run.status === 'running' && <Loader2 className="h-3 w-3 animate-spin shrink-0" />}
-            {run.status === 'complete' && <CheckCircle2 className="h-3 w-3 text-awp-green shrink-0" />}
-            {(run.status === 'error' || run.status === 'failed') && <AlertCircle className="h-3 w-3 text-awp-red shrink-0" />}
-          </button>
-        );
-      })}
-    </div>
-  );
-});
+/* RunSelector moved to @/components/RunSelector/RunSelector.tsx (global bar) */
 
 function ResultsPanel() {
   const currentRunId = useWorkflowStore((s) => s.currentRunId);
   const runStatus = useWorkflowStore((s) => s.runStatus);
-  const selectedRunId = useWorkflowStore((s) => s.selectedRunId);
-  const selectRun = useWorkflowStore((s) => s.selectRun);
+  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
 
-  // The effective run ID: selected past run or the current live run
-  const effectiveRunId = selectedRunId ?? currentRunId;
+  // The effective run ID: viewing past run or the current live run
+  const effectiveRunId = viewingRunId ?? currentRunId;
 
   const [artifacts, setArtifacts] = React.useState<Array<{
     name: string; path: string; relative: string; kind: string; size: number; source: string;
@@ -1422,7 +1376,7 @@ function ResultsPanel() {
     fetchOnce(true);
 
     // Live polling while the effective run is the live run and still running
-    const isLive = !selectedRunId && runStatus === 'running';
+    const isLive = !viewingRunId && runStatus === 'running';
     if (isLive) {
       const tick = async () => {
         await fetchOnce(false);
@@ -1435,7 +1389,7 @@ function ResultsPanel() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [effectiveRunId, runStatus, selectedRunId]);
+  }, [effectiveRunId, runStatus, viewingRunId]);
 
   if (!currentRunId) {
     return (
@@ -1462,7 +1416,7 @@ function ResultsPanel() {
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
       {/* Run selector */}
-      <RunSelector selectedRunId={selectedRunId} onSelect={selectRun} />
+      {/* Run selector is now global (above all panels) */}
 
       {/* Header with open-in-explorer button */}
       <div className="flex items-center justify-between">
@@ -1616,10 +1570,9 @@ function ResultsPanel() {
 function WorkspacePanel() {
   const currentRunId = useWorkflowStore((s) => s.currentRunId);
   const runStatus = useWorkflowStore((s) => s.runStatus);
-  const selectedRunId = useWorkflowStore((s) => s.selectedRunId);
-  const selectRun = useWorkflowStore((s) => s.selectRun);
+  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
 
-  const effectiveRunId = selectedRunId ?? currentRunId;
+  const effectiveRunId = viewingRunId ?? currentRunId;
 
   const [artifacts, setArtifacts] = React.useState<Array<{
     name: string; path: string; relative: string; kind: string; size: number; source: string;
@@ -1653,7 +1606,7 @@ function WorkspacePanel() {
 
     fetchOnce(true);
 
-    const isLive = !selectedRunId && runStatus === 'running';
+    const isLive = !viewingRunId && runStatus === 'running';
     if (isLive) {
       const tick = async () => {
         await fetchOnce(false);
@@ -1666,7 +1619,7 @@ function WorkspacePanel() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [effectiveRunId, runStatus, selectedRunId]);
+  }, [effectiveRunId, runStatus, viewingRunId]);
 
   if (!currentRunId) {
     return (
@@ -1700,7 +1653,7 @@ function WorkspacePanel() {
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
-      <RunSelector selectedRunId={selectedRunId} onSelect={selectRun} />
+      {/* Run selector is now global (above all panels) */}
 
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-awp-muted uppercase tracking-wider">
@@ -1844,37 +1797,28 @@ function OutputPanel() {
   const outputBlocks = useWorkflowStore((s) => s.outputBlocks);
   const runStatus = useWorkflowStore((s) => s.runStatus);
   const currentRunId = useWorkflowStore((s) => s.currentRunId);
-  const selectedRunId = useWorkflowStore((s) => s.selectedRunId);
-  const selectRun = useWorkflowStore((s) => s.selectRun);
+  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
   const selectedRunBlocks = useWorkflowStore((s) => s.selectedRunBlocks);
-  const loadRunBlocks = useWorkflowStore((s) => s.loadRunBlocks);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const INITIAL_VISIBLE = 30;
   const [showAll, setShowAll] = React.useState(false);
 
-  // Load output blocks when selecting a past run
-  useEffect(() => {
-    if (selectedRunId && selectedRunId !== currentRunId) {
-      loadRunBlocks(selectedRunId);
-    }
-  }, [selectedRunId, currentRunId, loadRunBlocks]);
-
-  // Use selected run's blocks or current live blocks
-  const effectiveBlocks = (selectedRunId && selectedRunId !== currentRunId)
+  // Use viewing run's blocks or current live blocks
+  const effectiveBlocks = (viewingRunId && viewingRunId !== currentRunId)
     ? selectedRunBlocks
     : outputBlocks;
 
   useEffect(() => {
-    if (!selectedRunId) {
+    if (!viewingRunId) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [effectiveBlocks.length, selectedRunId]);
+  }, [effectiveBlocks.length, viewingRunId]);
 
   // Reset showAll when switching runs
-  useEffect(() => { setShowAll(false); }, [runStatus, selectedRunId]);
+  useEffect(() => { setShowAll(false); }, [runStatus, viewingRunId]);
 
-  if (effectiveBlocks.length === 0 && runStatus === 'idle' && !selectedRunId) {
+  if (effectiveBlocks.length === 0 && runStatus === 'idle' && !viewingRunId) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-awp-muted gap-3">
         <Zap className="h-12 w-12 text-awp-border" />
@@ -1889,7 +1833,7 @@ function OutputPanel() {
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
       {/* Run selector */}
-      <RunSelector selectedRunId={selectedRunId} onSelect={selectRun} />
+      {/* Run selector is now global (above all panels) */}
 
       {hiddenCount > 0 && (
         <button
@@ -1903,7 +1847,7 @@ function OutputPanel() {
       {visibleBlocks.map((block, i) => (
         <OutputBlockCard key={showAll ? i : hiddenCount + i} block={block} />
       ))}
-      {effectiveBlocks.length === 0 && selectedRunId && (
+      {effectiveBlocks.length === 0 && viewingRunId && (
         <div className="text-center text-awp-muted text-sm mt-8">
           No output blocks for this run
         </div>
@@ -2285,15 +2229,17 @@ function GraphPanel() {
   const graphNodes = useWorkflowStore((s) => s.graphNodes);
   const graphEdges = useWorkflowStore((s) => s.graphEdges);
   const currentRunId = useWorkflowStore((s) => s.currentRunId);
+  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
   const loadRunGraph = useWorkflowStore((s) => s.loadRunGraph);
   const runStatus = useWorkflowStore((s) => s.runStatus);
 
-  // Load graph from backend if we have a run but no nodes yet
+  // Load graph when viewing a past run or if we have a run but no nodes
+  const effectiveRunId = viewingRunId ?? currentRunId;
   useEffect(() => {
-    if (currentRunId && graphNodes.length === 0 && runStatus !== 'running') {
-      loadRunGraph(currentRunId);
+    if (effectiveRunId && graphNodes.length === 0 && runStatus !== 'running') {
+      loadRunGraph(effectiveRunId);
     }
-  }, [currentRunId, graphNodes.length, runStatus, loadRunGraph]);
+  }, [effectiveRunId, graphNodes.length, runStatus, loadRunGraph]);
 
   if (graphNodes.length === 0) {
     return (
@@ -2352,11 +2298,16 @@ const MEMORY_TYPE_CONFIG: Record<string, { label: string; color: string; dotColo
 
 function MemoryPanel() {
   const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
+  const currentRunId = useWorkflowStore((s) => s.currentRunId);
+  const runStatus = useWorkflowStore((s) => s.runStatus);
+  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
   const experimentMemory = useWorkflowStore((s) => s.experimentMemory);
   const addMemoryEntry = useWorkflowStore((s) => s.addMemoryEntry);
   const storeUpdateMemory = useWorkflowStore((s) => s.updateMemoryEntry);
   const storeDeleteMemory = useWorkflowStore((s) => s.deleteMemoryEntry);
   const loadExperimentMemory = useWorkflowStore((s) => s.loadExperimentMemory);
+
+  const effectiveRunId = viewingRunId ?? currentRunId;
 
   const [showAdd, setShowAdd] = React.useState(false);
   const [newType, setNewType] = React.useState<string>('note');
@@ -2364,7 +2315,13 @@ function MemoryPanel() {
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [editContent, setEditContent] = React.useState('');
   const [filter, setFilter] = React.useState<string>('all');
-  const [memoryTab, setMemoryTab] = React.useState<'short' | 'long'>('short');
+  const [memoryTab, setMemoryTab] = React.useState<'artifacts' | 'short' | 'long'>('artifacts');
+
+  // Memory artifacts from workspace/memory/
+  const [memoryArtifacts, setMemoryArtifacts] = React.useState<Array<{
+    name: string; path: string; relative: string; kind: string; size: number; source: string;
+  }>>([]);
+  const [maLoading, setMaLoading] = React.useState(false);
 
   // Long-term memory state
   const [longTermMemory, setLongTermMemory] = React.useState<{
@@ -2377,6 +2334,50 @@ function MemoryPanel() {
   useEffect(() => {
     if (currentSessionId) loadExperimentMemory();
   }, [currentSessionId, loadExperimentMemory]);
+
+  // Load memory artifacts from workspace for the effective run
+  useEffect(() => {
+    if (!effectiveRunId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchOnce = async (showSpinner: boolean) => {
+      if (showSpinner) setMaLoading(true);
+      try {
+        const all = await api.getRunArtifacts(effectiveRunId);
+        if (cancelled) return;
+        const memFiles = all.filter((a) => a.source === 'workspace' && a.relative.startsWith('memory/'));
+        setMemoryArtifacts((prev) => {
+          if (prev.length === memFiles.length) {
+            const prevKey = prev.map((a) => `${a.path}:${a.size}`).join('|');
+            const nextKey = memFiles.map((a) => `${a.path}:${a.size}`).join('|');
+            if (prevKey === nextKey) return prev;
+          }
+          return memFiles;
+        });
+      } catch {
+        if (!cancelled) setMemoryArtifacts([]);
+      } finally {
+        if (!cancelled && showSpinner) setMaLoading(false);
+      }
+    };
+
+    fetchOnce(true);
+
+    const isLive = !viewingRunId && runStatus === 'running';
+    if (isLive) {
+      const tick = async () => {
+        await fetchOnce(false);
+        if (!cancelled) timer = setTimeout(tick, 2000);
+      };
+      timer = setTimeout(tick, 2000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [effectiveRunId, runStatus, viewingRunId]);
 
   // Load long-term memory
   useEffect(() => {
@@ -2403,9 +2404,13 @@ function MemoryPanel() {
     setEditingId(null);
   }, [editContent, storeUpdateMemory]);
 
+  // Filter short-term entries: when a run is selected, show only that run's entries
+  const runFilteredMemory = viewingRunId
+    ? experimentMemory.filter((m) => m.run_id === viewingRunId)
+    : experimentMemory;
   const filtered = filter === 'all'
-    ? experimentMemory
-    : experimentMemory.filter((m) => m.type === filter);
+    ? runFilteredMemory
+    : runFilteredMemory.filter((m) => m.type === filter);
 
   const ltmTotal = longTermMemory.tools.length + longTermMemory.facts.length + longTermMemory.antipatterns.length;
 
@@ -2420,8 +2425,23 @@ function MemoryPanel() {
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-3">
-      {/* Sub-tabs: Short-Term / Long-Term */}
+      {/* Run selector */}
+      {/* Run selector is now global (above all panels) */}
+
+      {/* Sub-tabs: Artifacts / Short-Term / Long-Term */}
       <div className="flex items-center gap-1 border-b border-awp-border pb-2">
+        <button
+          type="button"
+          onClick={() => setMemoryTab('artifacts')}
+          className={clsx(
+            'px-3 py-1.5 text-xs font-medium rounded-t transition-colors',
+            memoryTab === 'artifacts'
+              ? 'text-awp-cyan border-b-2 border-awp-cyan'
+              : 'text-awp-muted hover:text-awp-text',
+          )}
+        >
+          Files ({memoryArtifacts.length})
+        </button>
         <button
           type="button"
           onClick={() => setMemoryTab('short')}
@@ -2432,7 +2452,7 @@ function MemoryPanel() {
               : 'text-awp-muted hover:text-awp-text',
           )}
         >
-          Short-Term ({experimentMemory.length})
+          Short-Term ({runFilteredMemory.length})
         </button>
         <button
           type="button"
@@ -2448,6 +2468,82 @@ function MemoryPanel() {
         </button>
       </div>
 
+      {/* ---- Memory Artifacts (workspace/memory/) ---- */}
+      {memoryTab === 'artifacts' && (
+        <>
+          {maLoading && (
+            <div className="flex items-center gap-2 text-awp-muted text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading memory files...
+            </div>
+          )}
+
+          {(() => {
+            // Group by subdirectory
+            const groups = new Map<string, typeof memoryArtifacts>();
+            for (const a of memoryArtifacts) {
+              // Strip leading "memory/" prefix for grouping
+              const rel = a.relative.startsWith('memory/') ? a.relative.slice(7) : a.relative;
+              const dir = rel.includes('/') ? rel.substring(0, rel.lastIndexOf('/')) : '.';
+              if (!groups.has(dir)) groups.set(dir, []);
+              groups.get(dir)!.push(a);
+            }
+            const sortedDirs = [...groups.keys()].sort();
+
+            return sortedDirs.map((dir) => {
+              const files = groups.get(dir)!;
+              return (
+                <ArtifactSection key={dir} title={dir === '.' ? 'Memory Root' : dir} count={files.length} defaultOpen={sortedDirs.length <= 5}>
+                  <div className="space-y-2">
+                    {files.map((f) => {
+                      const isImage = f.kind === 'image';
+                      if (isImage) {
+                        const url = `/api/files/serve?path=${encodeURIComponent(f.path)}`;
+                        return (
+                          <div key={f.path} className="rounded-lg border border-awp-border bg-awp-bg p-2">
+                            <img src={url} alt={f.name} className="max-w-full rounded" loading="lazy" />
+                            <p className="text-[10px] text-awp-muted mt-1 truncate">{f.name}</p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <LazyTextArtifact key={f.path} artifact={f} render={(content) => {
+                          const isMd = f.name.endsWith('.md');
+                          const isJson = f.name.endsWith('.json');
+                          const isYaml = f.name.endsWith('.yaml') || f.name.endsWith('.yml');
+                          return (
+                            <div className="rounded-lg border border-awp-border bg-awp-bg p-3">
+                              <span className="text-xs text-awp-muted block mb-2">{f.name}</span>
+                              {isMd ? (
+                                <div className="prose prose-sm prose-invert max-w-none break-words overflow-x-auto">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                                    {content}
+                                  </ReactMarkdown>
+                                </div>
+                              ) : isJson ? (
+                                <JsonViewer data={content} />
+                              ) : (
+                                <CodeBlock content={content} language={isYaml ? 'yaml' : undefined} filename={f.name} />
+                              )}
+                            </div>
+                          );
+                        }} />
+                      );
+                    })}
+                  </div>
+                </ArtifactSection>
+              );
+            });
+          })()}
+
+          {!maLoading && memoryArtifacts.length === 0 && (
+            <div className="text-center text-awp-muted text-sm py-8">
+              {effectiveRunId ? 'No memory files for this run' : 'Run an experiment to generate memory files'}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ---- Short-Term Memory ---- */}
       {memoryTab === 'short' && (
         <>
           {/* Header */}
@@ -2458,7 +2554,7 @@ function MemoryPanel() {
                 onChange={(e) => setFilter(e.target.value)}
                 className="text-xs bg-awp-bg border border-awp-border rounded px-2 py-1 text-awp-text"
               >
-                <option value="all">All ({experimentMemory.length})</option>
+                <option value="all">All ({runFilteredMemory.length})</option>
                 <option value="finding">Findings</option>
                 <option value="note">Notes</option>
                 <option value="observation">Observations</option>
@@ -2611,6 +2707,7 @@ function MemoryPanel() {
         </>
       )}
 
+      {/* ---- Long-Term Memory ---- */}
       {memoryTab === 'long' && (
         <>
           {ltmLoading && (
@@ -2961,6 +3058,7 @@ export function App() {
 
         {/* Main content + task input */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <RunSelector />
           <main className="flex-1 min-h-0 overflow-hidden relative">
             {/* Use display:none (hidden) instead of visibility:hidden to
                 fully remove inactive panels from the rendering layer.

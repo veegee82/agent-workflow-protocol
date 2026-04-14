@@ -125,6 +125,19 @@ def _build_experiment_context(
             metadata = result_meta.get("metadata", {}) if isinstance(result_meta, dict) else {}
             output_dir = metadata.get("output_dir", "")
             workspace = metadata.get("workspace", "")
+            internal_run_id = metadata.get("run_id", "")
+
+            # Resolve output_dir to the run-specific subdirectory if it
+            # points to the experiment base (legacy data before the fix).
+            if output_dir and internal_run_id:
+                od = Path(output_dir)
+                candidate = od / "output" / internal_run_id
+                if candidate.is_dir():
+                    output_dir = str(candidate)
+                elif od.name == "output":
+                    candidate2 = od / internal_run_id
+                    if candidate2.is_dir():
+                        output_dir = str(candidate2)
 
             run_pairs.append({
                 "task": history[i]["content"],
@@ -202,12 +215,28 @@ def _build_experiment_context(
     )
 
     # List persisted dynamic tools from prior runs
-    # Dynamic tools persist in workspace/dynamic_tools/ and are automatically
-    # loaded by the DynamicToolFactory. Tell the manager about them.
+    # Dynamic tools persist in workspace/dynamic_tools/ (or shared/dynamic_tools/
+    # under the new per-run isolation layout) and are automatically loaded by the
+    # DynamicToolFactory. Tell the manager about them.
     workspace_base = run_pairs[0].get("workspace", "") if run_pairs else ""
+
+    # Resolve dynamic_tools directory: prefer shared/ (new layout), fall back
+    # to workspace/ (legacy layout).
+    dynamic_tools_dir: Path | None = None
     if workspace_base:
-        dynamic_tools_dir = Path(workspace_base) / "workspace" / "dynamic_tools"
-        if dynamic_tools_dir.is_dir():
+        ws_path = Path(workspace_base)
+        # New layout: workspace is experiment_dir/runs/{run_id} →
+        # experiment_dir = ws_path.parent.parent
+        candidate_exp = ws_path.parent.parent
+        shared_dt = candidate_exp / "shared" / "dynamic_tools"
+        if shared_dt.is_dir():
+            dynamic_tools_dir = shared_dt
+        else:
+            legacy_dt = ws_path / "workspace" / "dynamic_tools"
+            if legacy_dt.is_dir():
+                dynamic_tools_dir = legacy_dt
+
+    if dynamic_tools_dir and dynamic_tools_dir.is_dir():
             tool_files = sorted(dynamic_tools_dir.glob("*.json"))
             if tool_files:
                 parts.append("### Available Dynamic Tools from Previous Runs\n")
@@ -230,9 +259,19 @@ def _build_experiment_context(
                 parts.append("")
 
     # List persisted skills from the skill registry
+    skills_dir: Path | None = None
     if workspace_base:
-        skills_dir = Path(workspace_base) / "workspace" / "skills"
-        if skills_dir.is_dir():
+        ws_path = Path(workspace_base)
+        candidate_exp = ws_path.parent.parent
+        shared_sk = candidate_exp / "shared" / "skills"
+        if shared_sk.is_dir():
+            skills_dir = shared_sk
+        else:
+            legacy_sk = ws_path / "workspace" / "skills"
+            if legacy_sk.is_dir():
+                skills_dir = legacy_sk
+
+    if skills_dir and skills_dir.is_dir():
             skill_files = sorted(skills_dir.glob("*.md"))
             if skill_files:
                 parts.append("### Available Skills (from previous runs)\n")
@@ -379,6 +418,103 @@ def _write_experiment_state_files(
     )
 
 
+def _setup_run_isolation(
+    workspace_dir: Path, experiment_dir: str | None, session_id: str | None = None
+) -> None:
+    """Set up per-run directory with symlinks to shared experiment state.
+
+    Creates the ``shared/`` directory structure at the experiment level and
+    symlinks ``dynamic_tools`` and ``skills`` from ``shared/`` into this
+    run's ``workspace/`` so that tools and skills persist across runs while
+    delegation loop state is fully isolated.
+
+    On first call for a legacy experiment (flat ``workspace/`` + ``output/``
+    at experiment root), migrates shared state and removes old run data.
+    """
+    import shutil
+
+    if not experiment_dir:
+        return
+
+    exp = Path(experiment_dir)
+    shared = exp / "shared"
+    old_workspace = exp / "workspace"
+    new_runs = exp / "runs"
+
+    # --- Migration from old flat structure ---
+    if old_workspace.exists() and not shared.exists():
+        logger.info("Migrating experiment %s to per-run isolation", exp)
+        shared.mkdir(parents=True, exist_ok=True)
+        # Move dynamic_tools and skills to shared/
+        for subdir in ("dynamic_tools", "skills"):
+            old_dir = old_workspace / subdir
+            new_dir = shared / subdir
+            if old_dir.exists() and not new_dir.exists():
+                try:
+                    shutil.copytree(str(old_dir), str(new_dir))
+                except Exception as exc:
+                    logger.warning("Failed to migrate %s: %s", subdir, exc)
+        # Move inputs to shared/
+        old_inputs = exp / "inputs"
+        if old_inputs.exists() and not (shared / "inputs").exists():
+            try:
+                shutil.copytree(str(old_inputs), str(shared / "inputs"))
+            except Exception:
+                pass
+        # Move memory to shared/
+        old_memory = exp / "memory"
+        if old_memory.exists() and not (shared / "memory").exists():
+            try:
+                shutil.copytree(str(old_memory), str(shared / "memory"))
+            except Exception:
+                pass
+        # Remove old workspace and output (runs will be recreated per-run)
+        for old_dir in (old_workspace, exp / "output", exp / "logs"):
+            if old_dir.exists():
+                try:
+                    shutil.rmtree(str(old_dir))
+                except Exception as exc:
+                    logger.warning("Failed to remove old %s: %s", old_dir.name, exc)
+        # Delete old DB runs for this session
+        if session_id:
+            try:
+                from server.services.store import StoreService
+
+                async def _delete_old_runs():
+                    store = StoreService()
+                    await store.init_db()
+                    try:
+                        await store.delete_session_runs(session_id)
+                    finally:
+                        await store.close()
+
+                import asyncio
+                asyncio.run(_delete_old_runs())
+            except Exception as exc:
+                logger.warning("Failed to delete old DB runs: %s", exc)
+
+    # --- Create shared directories (idempotent) ---
+    for subdir in ("dynamic_tools", "skills", "memory", "inputs"):
+        (shared / subdir).mkdir(parents=True, exist_ok=True)
+
+    # --- Create workspace and symlink shared resources ---
+    ws = workspace_dir / "workspace"
+    ws.mkdir(parents=True, exist_ok=True)
+    for subdir in ("dynamic_tools", "skills"):
+        link = ws / subdir
+        if not link.exists():
+            target = (shared / subdir).resolve()
+            try:
+                link.symlink_to(target)
+            except OSError:
+                # Symlinks not supported — copy instead
+                import shutil as _sh
+                try:
+                    _sh.copytree(str(target), str(link))
+                except Exception:
+                    pass
+
+
 class _RunDirWatcher:
     """Watches the delegation loop run directory for new files and emits events.
 
@@ -399,6 +535,16 @@ class _RunDirWatcher:
         self._seen_files: set[str] = set()
         self._stop = threading.Event()
         self._pinned_run_dir: Path | None = None
+        # Snapshot existing run directories at init time so _find_run_dir
+        # can distinguish pre-existing dirs (from previous runs in the same
+        # experiment) from the new directory created by the current run.
+        runs_dir = self._workspace_dir / "workspace" / "runs"
+        if runs_dir.exists():
+            self._pre_existing_dirs = {
+                d.name for d in runs_dir.iterdir() if d.is_dir()
+            }
+        else:
+            self._pre_existing_dirs: set[str] = set()
 
     def stop(self) -> None:
         self._stop.set()
@@ -406,27 +552,34 @@ class _RunDirWatcher:
     def _find_run_dir(self) -> Path | None:
         """Locate the delegation loop run directory under workspace/runs/.
 
-        Pins to the first directory discovered so that later sub-manager
-        runs (which create sibling directories with newer timestamps)
-        don't cause the watcher to jump away from the root run.  The
-        root run directory contains the full recursive tree of sub-runs
-        inside its ``iterations/*/delegations/*/runs/`` hierarchy.
+        Pins to the first NEW directory discovered (ignoring pre-existing
+        dirs from previous runs) so that later sub-manager runs (which
+        create sibling directories with newer timestamps) don't cause the
+        watcher to jump away from the root run.  The root run directory
+        contains the full recursive tree of sub-runs inside its
+        ``iterations/*/delegations/*/runs/`` hierarchy.
         """
         if self._pinned_run_dir is not None:
             return self._pinned_run_dir if self._pinned_run_dir.exists() else None
         runs_dir = self._workspace_dir / "workspace" / "runs"
         if not runs_dir.exists():
             return None
-        # Pick the latest run dir on first call, then pin it.  Sub-manager
-        # runs create sibling directories with newer timestamps (and also
-        # appear as nested dirs inside the root run).  If we kept picking
-        # the latest each poll cycle, we'd jump away from the root run
-        # and miss all subsequent events.
+        # Only consider directories that did NOT exist when the watcher
+        # started.  This prevents pinning to a stale run directory from
+        # a previous experiment run that shares the same workspace.
         candidates = sorted(
-            [d for d in runs_dir.iterdir() if d.is_dir()], key=lambda d: d.name
+            [
+                d
+                for d in runs_dir.iterdir()
+                if d.is_dir() and d.name not in self._pre_existing_dirs
+            ],
+            key=lambda d: d.name,
         )
         if candidates:
-            self._pinned_run_dir = candidates[-1]
+            # Pick the first new directory (the root run).  Sub-manager
+            # dirs appear later (higher timestamps) and are also nested
+            # inside the root run's iteration tree.
+            self._pinned_run_dir = candidates[0]
             return self._pinned_run_dir
         return None
 
@@ -1014,6 +1167,10 @@ class RunnerService:
 
             workspace_dir = Path(output_dir)
 
+            # Set up per-run isolation with shared experiment state
+            experiment_dir = config.get("_experiment_dir")
+            _setup_run_isolation(workspace_dir, experiment_dir, session_id=session_id)
+
             # Inject experiment context from previous runs (if in a session)
             if session_id:
                 try:
@@ -1024,6 +1181,25 @@ class RunnerService:
                         _write_experiment_state_files(workspace_dir, files)
                 except Exception as exc:
                     logger.warning("Failed to load experiment context: %s", exc)
+
+            # Write early metadata so the graph endpoint can find the
+            # workspace while the run is still in progress.
+            try:
+                from server.services.store import StoreService
+
+                async def _write_early_meta():
+                    store = StoreService()
+                    await store.init_db()
+                    try:
+                        early = {"metadata": {"workspace": str(workspace_dir), "output_dir": str(output_dir)}}
+                        await store.update_run(run_id, result=early)
+                    finally:
+                        await store.close()
+
+                import asyncio
+                asyncio.run(_write_early_meta())
+            except Exception as exc:
+                logger.debug("Failed to write early metadata: %s", exc)
 
             # Start the directory watcher
             watcher = _RunDirWatcher(run_id, workspace_dir)
@@ -1047,11 +1223,18 @@ class RunnerService:
 
             status = result.get("status", "complete")
 
-            # Inject workspace path into result metadata for graph builder
+            # Inject workspace path into result metadata for graph builder.
+            # Use setdefault so we don't overwrite the run-specific output_dir
+            # that AgentWorkflow already set (workspace/output/<run_id>).
             if result and isinstance(result, dict):
                 metadata = result.setdefault("metadata", {})
-                metadata["workspace"] = str(workspace_dir)
-                metadata["output_dir"] = str(output_dir)
+                metadata.setdefault("workspace", str(workspace_dir))
+                metadata.setdefault("output_dir", str(output_dir))
+                # Store the specific run directory so the graph builder can
+                # find the correct root run (not a sub-manager run that
+                # happens to have a later timestamp in workspace/runs/).
+                if run_dir and run_dir.exists():
+                    metadata.setdefault("run_dir", str(run_dir))
 
             # Emit agent.complete with the result
             event_bus.emit_threadsafe(
@@ -1214,7 +1397,7 @@ class RunnerService:
             kwargs["forbidden_tools"] = config["forbidden_tools"]
 
         # Booleans
-        for key in ("code_mode", "tool_creation", "verbose"):
+        for key in ("code_mode", "tool_creation", "verbose", "trace_enabled"):
             if key in config:
                 kwargs[key] = config[key]
 

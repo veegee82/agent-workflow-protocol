@@ -370,6 +370,56 @@ For A2+ delegation-loop workflows, the manager produces a **Decision Journal** i
 
 The Decision Journal is exposed in the AWP Studio Protocol tab per Experiment and is mirrored into the trace as span events. See [manager-intelligence.md](manager-intelligence.md) for the full schema. Decisions related to reservation and depth are the primary evidence for **A4 termination guarantees** ([compliance.md](compliance.md)).
 
+## LLM Call Tracing
+
+The delegation loop runner supports optional **per-call LLM tracing** that persists every LLM API call (manager and worker) to disk as structured JSON. This is a lower-level complement to the span-based tracing above — it captures the full messages, response, token usage, latency, and finish reason for each individual `chat()` call.
+
+### Configuration
+
+```yaml
+orchestration:
+  delegation_loop:
+    trace_enabled: true   # default: false
+```
+
+When enabled, each LLM call produces a `call_NNN.json` file and a per-worker/manager `summary.json` with aggregated token counts, total latency, and tool-round count.
+
+### On-disk layout
+
+```text
+iterations/001/
+  manager_trace/
+    call_001.json          # Manager's first LLM call
+    call_002.json          # Manager's second call (tool round)
+    summary.json           # Aggregated stats for this iteration's manager
+  delegations/
+    worker_abc123/
+      llm_trace/
+        call_001.json      # Worker's first LLM call
+        summary.json       # Aggregated stats for this worker
+```
+
+### Trace entry fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model` | string | Model identifier used for this call |
+| `messages_in` | list | Full message array sent to the LLM |
+| `response` | object | The assistant's response message |
+| `usage` | object | `{prompt_tokens, completion_tokens, total_tokens}` |
+| `latency_ms` | float | Wall-clock time for this API call |
+| `temperature` | float | Temperature setting used |
+| `max_tokens` | int | Max tokens setting used |
+| `tools` | list | Tool names available for this call |
+| `finish_reason` | string | `stop`, `tool_calls`, `length`, etc. |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+### AWP Studio integration
+
+When tracing is enabled, the **Agent Inspector** panel in Studio shows an **LLM Trace** tab for each worker and manager node. Each call is rendered as an expandable card with token counts, latency, model badge, and the full message exchange (role-colored, collapsible). The summary header shows aggregated stats (total calls, tokens, latency, tool rounds) for quick diagnosis.
+
+Tracing is disabled by default to avoid I/O overhead in production runs. Enable it for debugging, cost analysis, or when building evaluation harnesses that need ground-truth LLM interactions.
+
 ## Evaluation
 
 The evaluation subsystem provides **quality scoring** for workflow results. It is configured under `observability.evaluation` and is fully optional (disabled by default). For the complete reference, see [evaluation.md](evaluation.md).

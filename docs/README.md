@@ -11,8 +11,8 @@ The documentation below is grouped by *what question it answers*:
 - **Foundations** (1-3, 14-15): What is AWP? Why does it exist? How is it structured on disk and over the wire?
 - **Reference per layer** (4-11): Field-by-field description of each YAML section.
 - **Autonomy & validation** (12-13): How safety scales with freedom.
-- **Runtime & quality** (16-19): How the engines actually execute, and how quality is measured (evaluation) and repaired (critique).
-- **Engines, data, UI** (20-23): Concrete pieces — DAG vs. delegation loop, the data importer, Workflow Studio, and OpenClaw integration.
+- **Runtime & quality** (16-20): How the engines actually execute, how quality is measured (evaluation) and repaired (critique), and how iterative optimization works.
+- **Engines, data, UI** (21-24): Concrete pieces — DAG vs. delegation loop, the data importer, Workflow Studio, and OpenClaw integration.
 
 New since 1.0: **complexity-scored auto-promotion** of workers to sub-managers, **A4 sub-run cluster visualization**, **budget reservation with refund** for hard termination guarantees, the **B1-B6 robust tool-generation pipeline with auto-repair**, and the **Experiment paradigm** in Workflow Studio (Sessions are now Experiments with Protocol/Memory tabs). These features are documented in `architecture.md`, `orchestration.md`, `tools.md`, and `ui.md`.
 
@@ -39,10 +39,11 @@ New since 1.0: **complexity-scored auto-promotion** of workers to sub-managers, 
 | 17 | [skill-system.md](skill-system.md) | Build skill, adapters, extensions, ClawHub |
 | 18 | [evaluation.md](evaluation.md) | Quality scoring: metrics, thresholds, retry policy, artifacts |
 | 19 | [critique.md](critique.md) | Reflective Critique Loop: defect diagnosis, repair, pattern memory |
-| 20 | [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) | DAG vs. Delegation Loop engine comparison |
-| 21 | [data-importer.md](data-importer.md) | Data import and Source resolvers |
-| 22 | [ui.md](ui.md) | Workflow Studio (browser UI) |
-| 23 | [openclaw_integration.md](openclaw_integration.md) | OpenClaw integration guide |
+| 20 | [iterative-optimization.md](iterative-optimization.md) | Iterative optimization: feedback loop, capability accumulation, stall detection, budgets |
+| 21 | [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) | DAG vs. Delegation Loop engine comparison |
+| 22 | [data-importer.md](data-importer.md) | Data import and Source resolvers |
+| 23 | [ui.md](ui.md) | Workflow Studio (browser UI) |
+| 24 | [openclaw_integration.md](openclaw_integration.md) | OpenClaw integration guide |
 
 ## Quick Start
 

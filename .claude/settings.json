@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/require_md_read.sh",
+            "timeout": 5,
+            "statusMessage": "Checking MD read requirement..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "git commit",
+            "command": ".claude/hooks/require_drift_check.sh",
+            "timeout": 30,
+            "statusMessage": "Running doc drift + sync coverage check..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/remind_doc_sync.sh",
+            "timeout": 5,
+            "statusMessage": "Checking doc sync scope..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -425,7 +425,7 @@ def test_nonexistent_session_returns_empty(tmp_path, monkeypatch):
 
 
 def test_truncation_for_many_runs(tmp_path, monkeypatch):
-    """With 8 runs, last 5 should have full results, first 3 should be summaries."""
+    """With 8 runs and _FULL_DETAIL_RUNS=10, all 8 should have full results."""
     db_path = tmp_path / "many_runs.db"
     _populate_many_runs_db(db_path)
 
@@ -445,18 +445,13 @@ def test_truncation_for_many_runs(tmp_path, monkeypatch):
     # All 8 runs should be in state files (untruncated)
     assert len(state_files["runs"]) == 8
 
-    # Recent runs (4-8) should have full "Result:" blocks in prompt
-    assert "Result for task 8" in prompt_ctx
-    assert "Result for task 7" in prompt_ctx
-    assert "Result for task 6" in prompt_ctx
-    assert "Result for task 5" in prompt_ctx
-    assert "Result for task 4" in prompt_ctx
+    # All 8 runs fit within _FULL_DETAIL_RUNS=10, so all should have
+    # full "Result:" blocks in the prompt (no "Earlier Runs" section).
+    for i in range(1, 9):
+        assert f"Result for task {i}" in prompt_ctx
 
-    # Older runs (1-3) should appear in "Earlier Runs" section
-    assert "Earlier Runs" in prompt_ctx
-    assert "Task number 1:" in prompt_ctx
-    assert "Task number 2:" in prompt_ctx
-    assert "Task number 3:" in prompt_ctx
+    # No truncation to "Earlier Runs" since 8 < 10
+    assert "Earlier Runs" not in prompt_ctx
 
 
 # ---------------------------------------------------------------------------
@@ -503,3 +498,138 @@ def test_agent_workflow_experiment_context_defaults_none():
 
     wf = AgentWorkflow(inputs={}, task="Test", model="test-model")
     assert wf.experiment_context is None
+
+
+# ---------------------------------------------------------------------------
+# Test: _extract_result_answer handles partial results
+# ---------------------------------------------------------------------------
+
+
+def test_extract_result_answer_partial():
+    """Partial results should produce a structured summary, not raw dict."""
+    from server.services.store import _extract_result_answer
+
+    result = {
+        "status": "partial",
+        "result": {
+            "partial": True,
+            "termination_reason": "forced_convergence",
+            "iterations_completed": 6,
+            "confidence": 0.9,
+        },
+        "output_files": ["chart.png", "data.csv"],
+    }
+    answer = _extract_result_answer(result)
+    assert "[Run ended with status: partial]" in answer
+    assert "forced_convergence" in answer
+    assert "Iterations completed: 6" in answer
+    assert "confidence: 0.9" in answer or "Final confidence: 0.9" in answer
+    assert "chart.png" in answer
+
+
+def test_extract_result_answer_complete():
+    """Complete results with an answer should still work."""
+    from server.services.store import _extract_result_answer
+
+    result = {
+        "status": "complete",
+        "result": {"delegation_loop": {"answer": "The answer is 42"}},
+    }
+    assert _extract_result_answer(result) == "The answer is 42"
+
+
+# ---------------------------------------------------------------------------
+# Test: Interrupted runs produce summaries from events
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_interrupted_run_summary(tmp_path):
+    """Interrupted runs should extract worker results from events."""
+    store = StoreService(db_path=tmp_path / "test.db")
+    await store.init_db()
+
+    session_id = "exp-interrupted"
+    await store.create_session(session_id=session_id, title="Interrupted Test")
+
+    # Create a run that was interrupted
+    await store.save_run(
+        run_id="int_run_1",
+        task="Analyze data",
+        model="test",
+        config={},
+        status="interrupted",
+    )
+    await store.add_run_to_session(session_id, "int_run_1")
+
+    # Add some events including a worker.complete
+    await store.save_event(
+        run_id="int_run_1",
+        seq=1,
+        event_type="run.start",
+        data={"task": "Analyze data"},
+    )
+    await store.save_event(
+        run_id="int_run_1",
+        seq=2,
+        event_type="iteration.start",
+        data={"iteration": 1},
+    )
+    await store.save_event(
+        run_id="int_run_1",
+        seq=3,
+        event_type="worker.spawn",
+        data={"worker_id": "data_worker"},
+    )
+    await store.save_event(
+        run_id="int_run_1",
+        seq=4,
+        event_type="worker.complete",
+        data={
+            "worker_id": "data_worker",
+            "confidence": 0.85,
+            "result": "Found 1234 rows with 5% missing values",
+        },
+    )
+
+    history = await store.get_session_history(session_id)
+
+    # Should have user + assistant pair
+    assert len(history) == 2
+    assert history[0]["role"] == "user"
+    assert history[1]["role"] == "assistant"
+
+    # The assistant content should contain the salvaged worker result
+    content = history[1]["content"]
+    assert "[Run was interrupted before completing]" in content
+    assert "data_worker" in content
+    assert "1234 rows" in content
+    assert "1 iterations" in content
+    assert "1 workers spawned" in content
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_interrupted_run_no_events(tmp_path):
+    """Interrupted runs with no events should still produce a useful message."""
+    store = StoreService(db_path=tmp_path / "test.db")
+    await store.init_db()
+
+    session_id = "exp-empty-int"
+    await store.create_session(session_id=session_id, title="Empty Interrupted")
+
+    await store.save_run(
+        run_id="empty_int_1",
+        task="Do something",
+        model="test",
+        config={},
+        status="interrupted",
+    )
+    await store.add_run_to_session(session_id, "empty_int_1")
+
+    history = await store.get_session_history(session_id)
+    content = history[1]["content"]
+    assert "[Run was interrupted before completing]" in content
+
+    await store.close()

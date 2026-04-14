@@ -167,6 +167,7 @@ class DelegationBudget(BaseModel):
     max_concurrent_submanagers: int = 3
     max_total_submanagers_per_run: int = 6
     max_parallel_workers: int = 16
+    min_loops_per_subtask: int = 3
 
 
 class SandboxEnforcement(BaseModel):
@@ -297,6 +298,11 @@ class CritiqueConfig(BaseModel):
             "policy_violation",
         ]
     )
+    defect_category_hard_cap: int = 5
+    defect_category_diagnose_threshold: int = 3
+    phase_aware_incomplete: bool = True
+    min_score_to_delegate: float = 0.0
+    max_delegation_blocks: int = 2
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +363,7 @@ class PlanningConfig(BaseModel):
 
     enabled: bool = False
     max_subtasks: int = 10  # cap on plan complexity
+    plan_commit_mode: str = "strict"
 
 
 class DiagnosisConfig(BaseModel):
@@ -439,6 +446,7 @@ class DelegationLoopConfig(BaseModel):
     # iteration. Submanagers get their OWN blackboard (different run_id);
     # parent and child never share signals.
     blackboard_enabled: bool = True
+    blackboard_auto_post: bool = True
     # Hierarchical Context Digest (HCD) — per-level compact summary that
     # lets deep delegation graphs (depth >=3) keep context without
     # overflowing the manager prompt. Deterministic generation in v1
@@ -457,6 +465,11 @@ class DelegationLoopConfig(BaseModel):
     # first-iteration prompt is primed with a compact ``PRIOR RUN MEMORY``
     # block read back from that directory.
     auto_curation_enabled: bool = True
+    # LLM Call Tracing. When enabled, every LLM call (worker + manager)
+    # is persisted as llm_trace/call_NNN.json with full messages,
+    # response, token usage, and latency. Disabled by default to
+    # avoid I/O overhead in production runs.
+    trace_enabled: bool = False
 
     model_config = {"extra": "allow"}
 

@@ -159,6 +159,10 @@ orchestration:
     # run end, and the next run's root manager is primed with a
     # `## PRIOR RUN MEMORY` block on its first iteration.
     auto_curation_enabled: true
+    # LLM Call Tracing. When enabled, every LLM API call (manager + workers)
+    # is persisted as llm_trace/call_NNN.json with full messages, response,
+    # token usage, and latency. Disabled by default to avoid I/O overhead.
+    trace_enabled: false
     # Optional selective-forget blacklist for submanager state inheritance.
     # Keys listed here are stripped before being passed to child runs.
     # forbidden_inheritance_keys: [secret_token, raw_dump]

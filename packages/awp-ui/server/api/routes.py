@@ -39,8 +39,8 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _default_settings: dict[str, Any] = {
-    "model": "nvidia/nemotron-3-super-120b-a12b",
-    "worker_model": "openai/gpt-5-mini",
+    "model": "openai/gpt-5-mini",
+    "worker_model": "deepseek/deepseek-chat-v3.1",
     "api_key": None,
     "max_loops": 100,
     "max_total_tokens": 10_000_000,
@@ -53,6 +53,7 @@ _default_settings: dict[str, Any] = {
     "code_mode": True,
     "tool_creation": True,
     "verbose": False,
+    "trace_enabled": False,
     # Critique
     "critique_enabled": True,
     "critique_max_repair_attempts": 2,
@@ -106,7 +107,7 @@ async def refactor_task(body: dict[str, Any]) -> dict[str, Any]:
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    model = body.get("model") or _default_settings.get("model") or "nvidia/nemotron-3-super-120b-a12b"
+    model = body.get("model") or _default_settings.get("model") or "openai/gpt-5-mini"
     api_key = body.get("api_key") or ""
 
     # Resolve API key from secrets if not provided directly
@@ -259,7 +260,9 @@ async def create_run(config: WorkflowConfig, session_id: str | None = Query(None
                     .replace(" ", "_")[:40]
                 )
                 title_slug = re.sub(r"[^a-z0-9_-]", "", title_slug) or "experiment"
-                config_dict["output_dir"] = str(Path(base) / f"{title_slug}_{session_id}")
+                experiment_dir = Path(base) / f"{title_slug}_{session_id}"
+                config_dict["output_dir"] = str(experiment_dir / "runs" / run_id)
+                config_dict["_experiment_dir"] = str(experiment_dir)
 
     # Persist to DB
     await store.save_run(
@@ -368,17 +371,70 @@ async def get_run_graph(run_id: str) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Try to find the run directory from the result metadata
+    # Try to find the run directory from the result metadata.
+    # Prefer the exact run_dir (pinned to the root run) over the generic
+    # workspace-based lookup which can land on a sub-manager directory.
+    # For multi-run experiments where several runs share one workspace,
+    # ``metadata.run_id`` uniquely identifies the delegation loop run
+    # directory inside ``{workspace}/workspace/runs/{run_id}``.
     result = row.get("result") or {}
     metadata = result.get("metadata", {})
+    explicit_run_dir = metadata.get("run_dir")
     workspace = metadata.get("workspace")
+    loop_run_id = metadata.get("run_id")
 
-    if workspace:
+    run_dir: Path | None = None
+    if explicit_run_dir:
+        p = Path(explicit_run_dir)
+        if p.exists():
+            run_dir = p
+    # Prefer exact match via loop_run_id to avoid picking up a sibling
+    # run in a shared workspace (multi-run experiments).
+    if run_dir is None and workspace and loop_run_id:
+        candidate = Path(workspace) / "workspace" / "runs" / loop_run_id
+        if candidate.exists():
+            run_dir = candidate
+    if run_dir is None and workspace:
         workspace_path = Path(workspace)
         run_dir = find_run_dir(workspace_path)
-        if run_dir:
-            graph = build_graph(run_dir)
-            return graph.model_dump(mode="json")
+
+    if run_dir:
+        graph = build_graph(run_dir)
+        return graph.model_dump(mode="json")
+
+    # Fallback: derive workspace from config's output_dir (for running runs
+    # before early metadata has been written or for legacy runs).
+    if run_dir is None:
+        config = row.get("config") or {}
+        cfg_output = config.get("output_dir", "")
+        if cfg_output:
+            cfg_path = Path(cfg_output)
+            if cfg_path.exists():
+                run_dir = find_run_dir(cfg_path)
+            if run_dir:
+                graph = build_graph(run_dir)
+                return graph.model_dump(mode="json")
+
+    # Fallback: find via session base_dir (works for running runs
+    # that don't yet have result metadata).
+    if run_dir is None:
+        try:
+            async with store._db.execute(
+                "SELECT s.base_dir FROM sessions s "
+                "JOIN session_runs sr ON sr.session_id = s.id "
+                "WHERE sr.run_id = ?",
+                [run_id],
+            ) as cursor:
+                row2 = await cursor.fetchone()
+                if row2 and row2[0]:
+                    bd = Path(row2[0])
+                    if bd.exists():
+                        run_dir = find_run_dir(bd)
+                        if run_dir:
+                            graph = build_graph(run_dir)
+                            return graph.model_dump(mode="json")
+        except Exception:
+            pass
 
     # Return empty graph if no run directory found
     return GraphData().model_dump(mode="json")
@@ -397,6 +453,18 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
     metadata = result.get("metadata", {})
     workspace = metadata.get("workspace", "")
     output_dir = metadata.get("output_dir", "")
+    internal_run_id = metadata.get("run_id", "")
+
+    # If output_dir points to the experiment base (not the output/ subdir),
+    # narrow it to the output/ directory so workspace files aren't tagged
+    # as output.  Keep run-specific subdirs as-is (submanager outputs are
+    # merged there by _merge_submanager_outputs).
+    if output_dir:
+        od_path = Path(output_dir)
+        # Check if output_dir is the experiment base (has output/ subdir)
+        candidate = od_path / "output"
+        if candidate.is_dir():
+            output_dir = str(candidate)
 
     # Fallback: during a running E2E test, result_json is still NULL.
     # The harness stores the workflow_dir in config_json, and the session
@@ -419,12 +487,13 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
 
         if workflow_dir:
             wf_path = Path(workflow_dir)
-            # Scan the output/ subdirectory (worker-produced artifacts).
-            # This is where the DelegationLoopRunner writes final outputs.
+            # Scan the full output/ subdirectory (worker-produced artifacts).
+            # The DelegationLoopRunner writes final outputs here — each run
+            # (including submanagers) gets its own subdirectory.  We scan the
+            # entire output/ folder so all results are visible.
             candidate_output = wf_path / "output"
             if candidate_output.is_dir():
                 output_dir = str(candidate_output)
-                # Also scan the workspace root for intermediate files
                 workspace = workflow_dir
             else:
                 # No output/ yet — scan the workspace root; output is empty
@@ -436,6 +505,21 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
     # worker results. Both are scanned so the user sees outputs as they
     # are produced during a live run.
     # Each artifact is tagged with source="output" or source="workspace".
+
+    # Guard: if output_dir == workspace (both point to the experiment root),
+    # the narrowing above failed.  In that case, try to discover the real
+    # output subdirectory inside the workspace so we don't tag *everything*
+    # as source="output".
+    if output_dir and workspace and Path(output_dir).resolve() == Path(workspace).resolve():
+        ws_path = Path(workspace)
+        # Try workspace/output/ — DelegationLoopRunner writes there
+        candidate_out = ws_path / "output"
+        if candidate_out.is_dir():
+            output_dir = str(candidate_out)
+        else:
+            # No output/ subdir at all — nothing to tag as "output"
+            output_dir = ""
+
     scan_dirs: list[tuple[Path, str]] = []
     if output_dir:
         scan_dirs.append((Path(output_dir), "output"))
@@ -446,6 +530,16 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
     TABLE_EXT = {".csv", ".tsv"}
     HTML_EXT = {".html", ".htm"}
     TEXT_EXT = {".txt", ".md", ".log", ".json", ".yaml", ".yml"}
+    BINARY_EXT = {
+        ".zip", ".gz", ".tar", ".bz2", ".xz", ".7z", ".rar",
+        ".whl", ".egg", ".pyc", ".pyo", ".so", ".dll", ".dylib",
+        ".exe", ".bin", ".o", ".a", ".lib",
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".sqlite", ".db", ".pickle", ".pkl",
+        ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv",
+        ".ttf", ".otf", ".woff", ".woff2", ".eot",
+        ".ico",
+    }
 
     seen: set[str] = set()
     for scan_dir, source_tag in scan_dirs:
@@ -468,10 +562,10 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
                 kind = "html"
             elif ext in TEXT_EXT:
                 kind = "text"
-            elif ext == ".py":
-                kind = "code"
-            else:
+            elif ext in BINARY_EXT:
                 continue
+            else:
+                kind = "code"
             artifacts.append({
                 "name": fpath.name,
                 "path": abs_path,
@@ -483,6 +577,93 @@ async def list_run_artifacts(run_id: str) -> dict[str, Any]:
             })
 
     return {"artifacts": artifacts, "run_id": run_id}
+
+
+@router.get("/runs/{run_id}/trace/{worker_path:path}")
+async def get_worker_trace(run_id: str, worker_path: str) -> dict[str, Any]:
+    """Fetch all LLM trace call files for a specific worker or manager.
+
+    ``worker_path`` can be:
+    - ``{iteration}/{worker_id}`` — worker trace in
+      ``iterations/{iteration}/delegations/{worker_id}/llm_trace/``
+    - ``manager/{iteration}`` — manager trace in
+      ``iterations/{iteration}/manager_trace/``
+    """
+    import json as _json
+
+    from server.app import store
+    from server.services.graph_builder import find_run_dir
+
+    row = await store.get_run(run_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Resolve the run directory (same logic as get_run_graph)
+    result = row.get("result") or {}
+    metadata = result.get("metadata", {})
+    explicit_run_dir = metadata.get("run_dir")
+    workspace = metadata.get("workspace")
+    loop_run_id = metadata.get("run_id")
+
+    run_dir: Path | None = None
+    if explicit_run_dir:
+        p = Path(explicit_run_dir)
+        if p.exists():
+            run_dir = p
+    if run_dir is None and workspace and loop_run_id:
+        candidate = Path(workspace) / "workspace" / "runs" / loop_run_id
+        if candidate.exists():
+            run_dir = candidate
+    if run_dir is None and workspace:
+        run_dir = find_run_dir(Path(workspace))
+    if run_dir is None:
+        config = row.get("config") or {}
+        cfg_output = config.get("output_dir", "")
+        if cfg_output:
+            cfg_path = Path(cfg_output)
+            if cfg_path.exists():
+                run_dir = find_run_dir(cfg_path)
+
+    if run_dir is None:
+        raise HTTPException(status_code=404, detail="Run directory not found")
+
+    # Determine trace directory based on worker_path
+    parts = worker_path.strip("/").split("/")
+    trace_dir: Path | None = None
+    if len(parts) == 2 and parts[0] == "manager":
+        # manager/{iteration} → iterations/{iteration}/manager_trace/
+        iteration = parts[1]
+        trace_dir = run_dir / "iterations" / iteration / "manager_trace"
+    elif len(parts) == 2:
+        # {iteration}/{worker_id} → iterations/{iteration}/delegations/{worker_id}/llm_trace/
+        iteration, worker_id = parts
+        trace_dir = run_dir / "iterations" / iteration / "delegations" / worker_id / "llm_trace"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid worker_path format; expected '{iteration}/{worker_id}' or 'manager/{iteration}'")
+
+    if trace_dir is None or not trace_dir.exists():
+        return {"calls": [], "summary": None}
+
+    # Read all call_NNN.json files in order
+    calls: list[dict[str, Any]] = []
+    call_files = sorted(trace_dir.glob("call_*.json"))
+    for cf in call_files:
+        try:
+            data = _json.loads(cf.read_text(encoding="utf-8"))
+            calls.append(data)
+        except (OSError, _json.JSONDecodeError):
+            logger.warning("Failed to read trace file %s", cf)
+
+    # Read summary if available
+    summary: dict[str, Any] | None = None
+    summary_path = trace_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, _json.JSONDecodeError):
+            pass
+
+    return {"calls": calls, "summary": summary}
 
 
 @router.get("/files/serve")
@@ -952,7 +1133,9 @@ async def add_run_to_session(session_id: str, body: dict[str, Any]) -> dict[str,
             )
             import re
             title_slug = re.sub(r"[^a-z0-9_-]", "", title_slug) or "experiment"
-            config_dict["output_dir"] = str(Path(base) / f"{title_slug}_{session_id}")
+            experiment_dir = Path(base) / f"{title_slug}_{session_id}"
+            config_dict["output_dir"] = str(experiment_dir / "runs" / run_id)
+            config_dict["_experiment_dir"] = str(experiment_dir)
 
     await store.save_run(
         run_id=run_id,
@@ -1011,15 +1194,23 @@ async def get_session_full(session_id: str) -> dict[str, Any]:
         if config.get("api_key"):
             config["api_key"] = "***"
 
-        # Build graph from workspace if available
+        # Build graph from workspace if available. For multi-run
+        # experiments, pin to the exact delegation-loop run dir
+        # via metadata.run_id to avoid picking the latest sibling.
         graph_data: dict[str, Any] | None = None
         result = run.get("result") or {}
         metadata = result.get("metadata", {})
         workspace = metadata.get("workspace")
-        if workspace:
+        loop_run_id = metadata.get("run_id")
+        run_dir: Path | None = None
+        if workspace and loop_run_id:
+            candidate = Path(workspace) / "workspace" / "runs" / loop_run_id
+            if candidate.exists():
+                run_dir = candidate
+        if run_dir is None and workspace:
             run_dir = find_run_dir(Path(workspace))
-            if run_dir:
-                graph_data = build_graph(run_dir).model_dump(mode="json")
+        if run_dir:
+            graph_data = build_graph(run_dir).model_dump(mode="json")
 
         runs_with_events.append({
             "run_id": run["run_id"],

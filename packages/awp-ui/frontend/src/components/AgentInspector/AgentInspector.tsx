@@ -19,6 +19,7 @@ import {
   Activity,
   Copy,
   Check,
+  Zap,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Badge } from '@/components/Layout';
@@ -281,6 +282,206 @@ function statusBadgeVariant(status: string) {
 }
 
 // ---------------------------------------------------------------------------
+// LLM Trace helpers
+// ---------------------------------------------------------------------------
+
+function formatTokens(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+function formatLatency(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+const roleBadgeClasses: Record<string, string> = {
+  system: 'bg-awp-purple/15 text-awp-purple',
+  user: 'bg-awp-blue/15 text-awp-blue',
+  assistant: 'bg-awp-green/15 text-awp-green',
+  tool: 'bg-awp-yellow/15 text-awp-yellow',
+};
+
+function LLMCallCard({ call, index }: { call: Record<string, unknown>; index: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const usage = (call.usage as Record<string, number>) || {};
+  const messages = (call.messages_in as Array<Record<string, string>>) || [];
+  const response = (call.response as Record<string, unknown>) || {};
+  const model = (call.model as string) || '';
+  const latencyMs = call.latency_ms as number | undefined;
+  const finishReason = (call.finish_reason as string) || (response.finish_reason as string) || '';
+  const totalTokens = usage.total_tokens ?? (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0);
+
+  return (
+    <div className="rounded-lg border border-awp-border/40 bg-awp-bg/30 overflow-hidden">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-xs text-awp-text hover:bg-awp-bg/60 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 text-awp-muted shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-awp-muted shrink-0" />
+        )}
+        <span className="font-semibold text-awp-orange shrink-0">#{index + 1}</span>
+        {model && <span className="text-awp-muted truncate">{model}</span>}
+        {totalTokens > 0 && (
+          <span className="rounded-full bg-awp-orange/15 px-1.5 py-0.5 text-[9px] font-semibold text-awp-orange shrink-0">
+            {formatTokens(totalTokens)} tok
+          </span>
+        )}
+        {latencyMs != null && (
+          <span className="text-awp-muted text-[10px] shrink-0">{formatLatency(latencyMs)}</span>
+        )}
+        {finishReason && (
+          <span className="ml-auto text-awp-muted text-[10px] shrink-0">{finishReason}</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="border-t border-awp-border/30 px-3 py-2 space-y-2">
+          {/* Messages In */}
+          {messages.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-awp-muted mb-1">Messages In</div>
+              <div className="space-y-1">
+                {messages.map((msg, mi) => {
+                  const role = msg.role || 'unknown';
+                  const content = msg.content || '';
+                  const badgeCls = roleBadgeClasses[role] || 'bg-awp-border/40 text-awp-muted';
+                  return (
+                    <div key={mi} className="rounded-md border border-awp-border/30 bg-awp-bg/40 p-2">
+                      <span className={clsx('inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold mb-1', badgeCls)}>
+                        {role}
+                      </span>
+                      <div className="text-[11px] text-awp-text whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                        {content.length > 500 ? content.slice(0, 500) + '...' : content}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* Response */}
+          {response.content != null && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-awp-muted mb-1">Response</div>
+              <div className="rounded-md border border-awp-border/30 bg-awp-bg/40 p-2">
+                <span className={clsx('inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold mb-1', roleBadgeClasses.assistant)}>
+                  assistant
+                </span>
+                <div className="text-[11px] text-awp-text whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                  {String(response.content).length > 500
+                    ? String(response.content).slice(0, 500) + '...'
+                    : String(response.content)}
+                </div>
+                {response.tool_calls != null && (
+                  <div className="mt-1 rounded bg-awp-bg p-1.5 font-mono text-[10px]">
+                    <JsonValue value={response.tool_calls} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {/* Usage details */}
+          {Object.keys(usage).length > 0 && (
+            <div className="flex items-center gap-3 text-[10px] text-awp-muted">
+              {usage.prompt_tokens != null && <span>Prompt: {formatTokens(usage.prompt_tokens)}</span>}
+              {usage.completion_tokens != null && <span>Completion: {formatTokens(usage.completion_tokens)}</span>}
+              {usage.total_tokens != null && <span>Total: {formatTokens(usage.total_tokens)}</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LLMTraceSection({ data }: { data: Record<string, unknown> }) {
+  const [traceData, setTraceData] = useState<{
+    calls: Record<string, unknown>[];
+    summary: Record<string, unknown> | null;
+  } | null>(null);
+  const [loadingTrace, setLoadingTrace] = useState(false);
+
+  const llmCallCount = data.llmCallCount as number;
+  const llmTotalTokens = data.llmTotalTokens as number | undefined;
+  const llmLatencyMs = data.llmLatencyMs as number | undefined;
+  const llmModel = data.llmModel as string | undefined;
+
+  const loadTrace = useCallback(async () => {
+    setLoadingTrace(true);
+    try {
+      const workerId = data.worker_id as string;
+      const iteration = String(data.iteration || '001').padStart(3, '0');
+      const runId = useWorkflowStore.getState().currentRunId;
+      if (!runId) return;
+      const res = await fetch(`/api/runs/${runId}/trace/${iteration}/${workerId}`);
+      if (res.ok) {
+        const json = await res.json();
+        setTraceData(json);
+      }
+    } finally {
+      setLoadingTrace(false);
+    }
+  }, [data.worker_id, data.iteration]);
+
+  return (
+    <Section
+      title="LLM Trace"
+      icon={<Zap className="h-3 w-3 text-awp-orange" />}
+      defaultOpen={false}
+      badge={
+        <span className="rounded-full bg-awp-orange/15 px-1.5 py-0.5 text-[9px] font-semibold text-awp-orange">
+          {llmCallCount} {llmCallCount === 1 ? 'call' : 'calls'}
+        </span>
+      }
+    >
+      <div className="space-y-2">
+        {/* Summary line */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {llmTotalTokens != null && (
+            <span className="text-awp-muted">
+              {formatTokens(llmTotalTokens)} tokens
+            </span>
+          )}
+          {llmLatencyMs != null && (
+            <span className="text-awp-muted">
+              {formatLatency(llmLatencyMs)}
+            </span>
+          )}
+          {llmModel && (
+            <span className="text-awp-muted truncate max-w-[140px]" title={llmModel}>
+              {llmModel}
+            </span>
+          )}
+        </div>
+
+        {/* Load / display trace */}
+        {!traceData ? (
+          <button
+            onClick={loadTrace}
+            disabled={loadingTrace}
+            className="flex items-center gap-1.5 rounded-md bg-awp-orange/10 px-3 py-1.5 text-xs font-medium text-awp-orange hover:bg-awp-orange/20 transition-colors disabled:opacity-50"
+          >
+            <Zap className="h-3 w-3" />
+            {loadingTrace ? 'Loading...' : 'View Trace'}
+          </button>
+        ) : (
+          <div className="space-y-1.5">
+            {traceData.calls.map((call, i) => (
+              <LLMCallCard key={i} call={call} index={i} />
+            ))}
+            {traceData.calls.length === 0 && (
+              <div className="text-xs text-awp-muted italic">No trace calls found.</div>
+            )}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -509,6 +710,11 @@ export function AgentInspector() {
               ))}
             </div>
           </Section>
+        )}
+
+        {/* LLM Trace */}
+        {(data.llmCallCount as number) > 0 && (
+          <LLMTraceSection data={data} />
         )}
 
         {/* Errors */}

@@ -21,7 +21,8 @@ def _extract_result_answer(result_data: Any) -> str:
 
     Handles nested structures like:
       {"status": "complete", "result": {"delegation_loop": {"answer": "..."}}}
-    Falls back to str(result_data) if no answer field is found.
+    For partial results, builds a summary from available metadata.
+    Falls back to a structured summary if no answer field is found.
     """
     if not isinstance(result_data, dict):
         return str(result_data) if result_data else ""
@@ -33,7 +34,7 @@ def _extract_result_answer(result_data: Any) -> str:
     # Nested: result.delegation_loop.answer (common pattern)
     inner = result_data.get("result", {})
     if isinstance(inner, dict):
-        dl = inner.get("delegation_loop", {})
+        dl = inner.get("delegation_loop", inner)
         if isinstance(dl, dict):
             if "answer" in dl:
                 return str(dl["answer"])
@@ -42,7 +43,43 @@ def _extract_result_answer(result_data: Any) -> str:
             if isinstance(fr, dict) and "answer" in fr:
                 return str(fr["answer"])
 
-    return str(result_data)
+    # For partial/budget_exceeded results, build a structured summary
+    status = result_data.get("status", "")
+    if status in ("partial", "budget_exceeded", "failed"):
+        parts: list[str] = [f"[Run ended with status: {status}]"]
+        if isinstance(inner, dict):
+            target = inner if not inner.get("delegation_loop") else inner["delegation_loop"]
+            if isinstance(target, dict):
+                reason = target.get("termination_reason") or target.get("reason", "")
+                if reason:
+                    parts.append(f"Reason: {reason}")
+                iters = target.get("iterations_completed")
+                if iters:
+                    parts.append(f"Iterations completed: {iters}")
+                conf = target.get("confidence")
+                if conf is not None:
+                    parts.append(f"Final confidence: {conf}")
+                # Extract output_files listing if present
+                out_files = (
+                    result_data.get("output_files")
+                    or result_data.get("artifacts")
+                    or target.get("output_files")
+                    or []
+                )
+                if out_files:
+                    parts.append(f"Output files ({len(out_files)}):")
+                    for f in out_files[:20]:
+                        parts.append(f"  - {f}")
+                    if len(out_files) > 20:
+                        parts.append(f"  ... and {len(out_files) - 20} more")
+        return "\n".join(parts)
+
+    # Final fallback: JSON summary (much more readable than str(dict))
+    import json
+    try:
+        return json.dumps(result_data, indent=2, default=str, ensure_ascii=False)[:5000]
+    except (TypeError, ValueError):
+        return str(result_data)[:5000]
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -312,7 +349,7 @@ class StoreService:
         status: str = "pending",
     ) -> None:
         """Insert a new run record."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         await self.db.execute(
             "INSERT INTO runs (id, task, model, status, config_json, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -386,7 +423,7 @@ class StoreService:
         timestamp: str | None = None,
     ) -> None:
         """Persist a single event."""
-        ts = timestamp or datetime.utcnow().isoformat()
+        ts = timestamp or datetime.now(timezone.utc).isoformat()
         await self.db.execute(
             "INSERT INTO events (run_id, seq, type, data_json, timestamp) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -535,6 +572,33 @@ class StoreService:
         )
         await self.db.commit()
 
+    async def delete_session_runs(self, session_id: str) -> int:
+        """Delete all runs linked to a session and their event data.
+
+        Returns the count of deleted runs.  Used during migration from
+        the legacy flat experiment structure to per-run isolation.
+        """
+        cursor = await self.db.execute(
+            "SELECT run_id FROM session_runs WHERE session_id = ?",
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+        run_ids = [r["run_id"] if isinstance(r, dict) else r[0] for r in rows]
+        for rid in run_ids:
+            await self.db.execute("DELETE FROM events WHERE run_id = ?", (rid,))
+            await self.db.execute("DELETE FROM runs WHERE id = ?", (rid,))
+        await self.db.execute(
+            "DELETE FROM session_runs WHERE session_id = ?",
+            (session_id,),
+        )
+        await self.db.commit()
+        logger.info(
+            "Deleted %d old runs for session %s during migration",
+            len(run_ids),
+            session_id,
+        )
+        return len(run_ids)
+
     async def get_session_runs(self, session_id: str) -> list[dict[str, Any]]:
         """Return runs belonging to a session, ordered by position."""
         cursor = await self.db.execute(
@@ -562,6 +626,12 @@ class StoreService:
             result_content = ""
             if run.get("result"):
                 result_content = _extract_result_answer(run["result"])
+            elif run.get("status") in ("interrupted", "failed"):
+                # No result_json, but the run may have produced partial work.
+                # Extract what we can from events (worker completions, etc.)
+                result_content = await self._extract_interrupted_run_summary(
+                    run["run_id"], run["status"]
+                )
             history.append({
                 "role": "assistant",
                 "content": result_content,
@@ -569,6 +639,61 @@ class StoreService:
                 "timestamp": run.get("completed_at") or run["created_at"],
             })
         return history
+
+    async def _extract_interrupted_run_summary(
+        self, run_id: str, status: str
+    ) -> str:
+        """Build a summary for runs that were interrupted before producing a result.
+
+        Scans events for worker completions, iteration decisions, and tool calls
+        to salvage whatever progress was made.
+        """
+        parts: list[str] = [f"[Run was {status} before completing]"]
+
+        # Get worker.complete events — these contain actual findings
+        cursor = await self.db.execute(
+            "SELECT data_json FROM events WHERE run_id = ? AND type = 'worker.complete' "
+            "ORDER BY seq",
+            (run_id,),
+        )
+        rows = await cursor.fetchall()
+        worker_results: list[str] = []
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"]) if row["data_json"] else {}
+                worker_id = data.get("worker_id", "unknown")
+                result_text = data.get("result", "")
+                conf = data.get("confidence")
+                if result_text:
+                    summary = f"- {worker_id}"
+                    if conf is not None:
+                        summary += f" (confidence: {conf})"
+                    summary += f": {str(result_text)[:300]}"
+                    worker_results.append(summary)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        if worker_results:
+            parts.append(f"\nPartial findings from {len(worker_results)} completed worker(s):")
+            parts.extend(worker_results)
+
+        # Count events to give a sense of how much work was done
+        cursor = await self.db.execute(
+            "SELECT type, count(*) as cnt FROM events WHERE run_id = ? "
+            "GROUP BY type ORDER BY cnt DESC",
+            (run_id,),
+        )
+        event_counts = {r["type"]: r["cnt"] for r in await cursor.fetchall()}
+        iters = event_counts.get("iteration.start", 0)
+        spawns = event_counts.get("worker.spawn", 0)
+        tools = event_counts.get("tool.call", 0)
+        if iters or spawns or tools:
+            parts.append(
+                f"\nProgress before interruption: {iters} iterations, "
+                f"{spawns} workers spawned, {tools} tool calls"
+            )
+
+        return "\n".join(parts)
 
     # ------------------------------------------------------------------
     # Experiment Memory

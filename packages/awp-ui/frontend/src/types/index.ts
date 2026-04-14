@@ -17,6 +17,7 @@ export interface WorkflowConfig {
   tools: string[];
   forbidden_tools: string[];
   verbose: boolean;
+  trace_enabled: boolean;
   output_dir: string;
   input_files: string[];
   skills_dir: string;
@@ -53,6 +54,8 @@ export type RunEventType =
   | 'run.complete'
   | 'error'
   | 'graph.update'
+  | 'llm.call'
+  | 'llm.trace_summary'
   | 'log';
 
 export interface RunEvent {
@@ -72,8 +75,8 @@ export type AgentNodeType =
   | 'manager'
   | 'iteration'
   | 'worker'
-  | 'toolCall'
-  | 'completion';
+  | 'submanager'
+  | 'toolCall';
 
 /** Data payload carried by each graph node. */
 export interface AgentNodeData {

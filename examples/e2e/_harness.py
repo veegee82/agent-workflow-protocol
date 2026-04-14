@@ -67,6 +67,10 @@ def make_experiment_dir(slug: str) -> Path:
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     path = E2E_BASE_DIR / f"{slug}-{ts}-{uuid.uuid4().hex[:6]}"
     path.mkdir(parents=True, exist_ok=True)
+    # Create shared directories matching runner_service.py structure
+    shared = path / "shared"
+    for subdir in ("dynamic_tools", "skills", "memory", "inputs"):
+        (shared / subdir).mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -84,24 +88,26 @@ async def _register_async(
     base_dir: str,
     config: dict[str, Any],
     tags: list[str] | None = None,
+    create_session: bool = True,
 ) -> None:
     from server.services.store import StoreService
 
     store = StoreService(db_path=_CANONICAL_DB)
     await store.init_db()
     try:
-        # Ensure "e2e" tag is always present
-        final_tags = list(tags or [])
-        if "e2e" not in final_tags:
-            final_tags.insert(0, "e2e")
-        await store.create_session(
-            session_id,
-            title=title,
-            description=f"E2E: {title}",
-            hypothesis="",
-            tags=final_tags,
-            base_dir=base_dir,
-        )
+        if create_session:
+            # Ensure "e2e" tag is always present
+            final_tags = list(tags or [])
+            if "e2e" not in final_tags:
+                final_tags.insert(0, "e2e")
+            await store.create_session(
+                session_id,
+                title=title,
+                description=f"E2E: {title}",
+                hypothesis="",
+                tags=final_tags,
+                base_dir=base_dir,
+            )
         await store.save_run(
             run_id=run_id,
             task=task,
@@ -164,6 +170,7 @@ def register_experiment(
     base_dir: str,
     config: dict[str, Any],
     tags: list[str] | None = None,
+    session_id: str | None = None,
 ) -> tuple[str, str]:
     """Register an experiment in the DB. Returns (session_id, run_id).
 
@@ -171,12 +178,18 @@ def register_experiment(
     ----------
     tags : list[str], optional
         Tags for the experiment. ``"e2e"`` is always added automatically.
+    session_id : str, optional
+        If provided, add the run to an existing session instead of
+        creating a new one.  Used for multi-run experiments.
     """
-    session_id = uuid.uuid4().hex[:12]
+    is_new_session = session_id is None
+    if session_id is None:
+        session_id = uuid.uuid4().hex[:12]
     run_id = uuid.uuid4().hex[:12]
     asyncio.run(
         _register_async(
-            session_id, run_id, title, task, model, base_dir, config, tags=tags,
+            session_id, run_id, title, task, model, base_dir, config,
+            tags=tags, create_session=is_new_session,
         )
     )
     _write_pid_lock(run_id)
@@ -224,18 +237,48 @@ class _E2ERunDirWatcher:
         self._workspace_dir = workspace_dir
         self._seen_files: set[str] = set()
         self._stop = threading.Event()
+        self._pinned_run_dir: Path | None = None
+        # Snapshot existing run dirs so _find_run_dir can pin to the
+        # NEW directory created by this run, not a pre-existing one.
+        runs_dir = self._workspace_dir / "workspace" / "runs"
+        if runs_dir.exists():
+            self._pre_existing_dirs = {
+                d.name for d in runs_dir.iterdir() if d.is_dir()
+            }
+        else:
+            self._pre_existing_dirs: set[str] = set()
 
     def stop(self) -> None:
         self._stop.set()
 
     def _find_run_dir(self) -> Path | None:
+        """Find the root run directory (not a sub-manager run).
+
+        The ``workspace/runs/`` directory may contain both root-level run
+        directories and sub-manager run directories stored flat.  We pin
+        to the first new directory found (which is the root run —
+        sub-manager dirs appear later with higher timestamps).
+        """
+        if hasattr(self, "_pinned_run_dir") and self._pinned_run_dir is not None:
+            return self._pinned_run_dir if self._pinned_run_dir.exists() else None
         runs_dir = self._workspace_dir / "workspace" / "runs"
         if not runs_dir.exists():
             return None
+        pre = getattr(self, "_pre_existing_dirs", set())
         candidates = sorted(
-            [d for d in runs_dir.iterdir() if d.is_dir()], key=lambda d: d.name
+            [d for d in runs_dir.iterdir()
+             if d.is_dir() and d.name not in pre],
+            key=lambda d: d.name,
         )
-        return candidates[-1] if candidates else None
+        if candidates:
+            self._pinned_run_dir = candidates[0]
+            return self._pinned_run_dir
+        # Fallback: pick first overall
+        all_dirs = sorted(
+            [d for d in runs_dir.iterdir() if d.is_dir()],
+            key=lambda d: d.name,
+        )
+        return all_dirs[0] if all_dirs else None
 
     def _read_json(self, path: Path) -> dict[str, Any] | list[Any] | None:
         try:
@@ -412,6 +455,65 @@ class _E2ERunDirWatcher:
                     "summary": data.get("summary", ""),
                 })
 
+        # llm_trace/call_NNN.json or manager_trace/call_NNN.json -> llm.call
+        elif (
+            ("llm_trace/" in rel or "manager_trace/" in rel)
+            and parts[-1].startswith("call_")
+            and parts[-1].endswith(".json")
+        ):
+            data = self._read_json(path)
+            if data and isinstance(data, dict):
+                # Determine worker_id from path context
+                if "manager_trace/" in rel:
+                    worker_id = "manager"
+                else:
+                    # Path like: delegations/{worker_id}/llm_trace/call_NNN.json
+                    worker_id = "unknown"
+                    for i, p in enumerate(parts):
+                        if p == "delegations" and i + 1 < len(parts):
+                            worker_id = parts[i + 1]
+                            break
+                # Parse iteration from path
+                iteration = "?"
+                for i in range(len(parts) - 1, -1, -1):
+                    if i > 0 and parts[i - 1] == "iterations":
+                        iteration = parts[i]
+                        break
+                # Extract lightweight fields (skip full messages/response)
+                messages_in = data.get("messages_in", [])
+                response = data.get("response", "")
+                self._persist_event("llm.call", {
+                    "worker_id": worker_id,
+                    "iteration": iteration,
+                    "depth": depth,
+                    "seq": data.get("seq"),
+                    "model": data.get("model"),
+                    "usage": data.get("usage"),
+                    "latency_ms": data.get("latency_ms"),
+                    "finish_reason": data.get("finish_reason"),
+                    "timestamp": data.get("timestamp"),
+                    "messages_count": len(messages_in) if isinstance(messages_in, list) else 0,
+                    "response_length": len(response) if isinstance(response, str) else 0,
+                })
+
+        # llm_trace/summary.json or manager_trace/summary.json -> llm.trace_summary
+        elif ("llm_trace/" in rel or "manager_trace/" in rel) and parts[-1] == "summary.json":
+            data = self._read_json(path)
+            if data and isinstance(data, dict):
+                if "manager_trace/" in rel:
+                    worker_id = "manager"
+                else:
+                    worker_id = "unknown"
+                    for i, p in enumerate(parts):
+                        if p == "delegations" and i + 1 < len(parts):
+                            worker_id = parts[i + 1]
+                            break
+                self._persist_event("llm.trace_summary", {
+                    "worker_id": worker_id,
+                    "depth": depth,
+                    **data,
+                })
+
         # run_completion.json -> run.complete
         elif rel == "run_completion.json":
             data = self._read_json(path)
@@ -465,6 +567,8 @@ def run_e2e(
     task: str,
     inputs: dict[str, Any] | None = None,
     model: str = "openai/gpt-5-mini",
+    worker_model: str | None = None,
+    reasoning_effort: str | None = None,
     max_loops: int = 30,
     max_total_tokens: int = 3_000_000,
     max_wall_time: int = 3600,
@@ -475,6 +579,7 @@ def run_e2e(
     verifier=None,
     extra_config: dict[str, Any] | None = None,
     tags: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute one E2E scenario end-to-end and return a structured report.
 
@@ -483,6 +588,10 @@ def run_e2e(
     tags : list[str], optional
         Tags for the experiment. ``"e2e"`` is always added automatically.
         Example: ``["e2e", "s5", "tool-creation", "critique"]``
+    session_id : str, optional
+        If provided, add the run to an existing session instead of
+        creating a new one.  Used for multi-run experiments where all
+        runs belong to the same experiment.
     """
     load_openrouter_key()
     from awp.data import AgentWorkflow
@@ -491,10 +600,12 @@ def run_e2e(
         workflow_dir = make_experiment_dir(slug)
     workflow_dir = Path(workflow_dir).resolve()
 
+    effective_worker_model = worker_model or model
     config = {
         "slug": slug,
         "title": title,
         "model": model,
+        "worker_model": effective_worker_model,
         "max_loops": max_loops,
         "max_total_tokens": max_total_tokens,
         "max_wall_time": max_wall_time,
@@ -513,6 +624,7 @@ def run_e2e(
         base_dir=str(workflow_dir),
         config=config,
         tags=tags,
+        session_id=session_id,
     )
     print(f"[e2e] slug={slug} session={session_id} run={run_id}")
     print(f"[e2e] workflow_dir={workflow_dir}")
@@ -527,6 +639,8 @@ def run_e2e(
 
     t0 = time.time()
     status = "failed"
+    wf_status = "unknown"
+    term_reason = ""
     result: dict[str, Any] = {}
     err: str | None = None
     try:
@@ -534,6 +648,8 @@ def run_e2e(
             inputs=inputs or {},
             task=task,
             model=model,
+            worker_model=effective_worker_model,
+            reasoning_effort=reasoning_effort,
             max_loops=max_loops,
             max_total_tokens=max_total_tokens,
             max_wall_time=max_wall_time,
@@ -542,6 +658,7 @@ def run_e2e(
             max_tool_calls=max_tool_calls,
             output_dir=str(workflow_dir),
             verbose=True,
+            extra_config=extra_config,
         )
         result = wf.run()
         # AgentWorkflow returns a wrapper with `status` ("complete",

@@ -16,8 +16,21 @@ Your job is to keep the codebase coherent with the **higher idea of AWP** at all
 
 Before doing **any** thinking or planning in a new session:
 
-1. **Read all relevant `*.md` files** — `CLAUDE.md`, `README.md`, `README_NERD.md`, `spec/`, `docs/`, `skill/SKILL.md`, and any topic-specific markdown that touches the task.
+1. **Read the required `*.md` files for your task type** (see table below). `CLAUDE.md` is always auto-loaded; the others depend on scope. This is **enforced by a PreToolUse hook** — Edit/Write calls are blocked until at least one `.md` file has been explicitly read in the session.
 2. **Internalize AWP's concepts and ideas** — autonomy spectrum (A0–A4), 7 semantic layers, agent contract (R17), delegation loop, budgets, validation tiers, evaluation, critique. Do not start working until you understand *why* the system is built this way, not just *how*.
+
+**Required Reading by Task Type:**
+
+| Task type | Required MDs | Why |
+|---|---|---|
+| **Bug fix / small patch** (≤3 files, no layer boundary) | `CLAUDE.md` (auto) | Sufficient — the code is the context |
+| **Runtime / engine change** | `CLAUDE.md` + `docs/` relevant layer doc | Engine behavior is spec-governed |
+| **Model / schema change** | `CLAUDE.md` + `spec/` relevant section | Schema changes are normative |
+| **Validation rule (R1-R32)** | `CLAUDE.md` + `spec/` + `docs/validation.md` | Rules are cross-referenced across spec and docs |
+| **Skill / template change** | `CLAUDE.md` + `skill/SKILL.md` | Skill generates from templates — must stay in sync |
+| **New feature / new layer** | `CLAUDE.md` + `README.md` + `README_NERD.md` + `spec/` + relevant `docs/` | Full context needed for architectural decisions |
+| **E2E test / release** | `CLAUDE.md` + `README.md` | Release checklist lives in CLAUDE.md |
+| **Docs-only change** | `CLAUDE.md` + the target `.md` file(s) | Need to verify consistency with existing docs |
 3. Then enter the **budget-bounded work loop**:
 
 ```
@@ -46,15 +59,36 @@ Doc sync is part of the **definition of done per logical task**, not per individ
 - Mid-task, while iterating on an approach, you do **not** have to resync docs after every edit. Resync once the approach is settled and before the task closes.
 - **Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code.
 
-**Drift detector** (`scripts/check_docs_drift.py`): verifies that every file/directory path referenced in `CLAUDE.md` still exists in the repo. Run it before declaring a task done:
+**What changed → what to sync:**
+
+| Code change | MDs to check and update |
+|---|---|
+| File/dir renamed, moved, or deleted | `CLAUDE.md` (path references), `README.md` |
+| Model field added/changed/removed | `CLAUDE.md` (Key Protocols), `docs/` relevant layer doc, `spec/` |
+| Validation rule (R1-R32) changed | `CLAUDE.md` (validator description), `docs/`, `spec/`, `skill/SKILL.md` Phase 4 |
+| CLI command changed | `CLAUDE.md` (Development Commands), `README.md` |
+| Runtime/engine behavior changed | `CLAUDE.md` (Two Orchestration Engines, Key Protocols), `docs/` relevant layer |
+| New/removed tool | `CLAUDE.md` (if referenced), `skill/SKILL.md` tool reference + templates |
+| Default config value changed | `CLAUDE.md` (Default Model), `skill/SKILL.md` reference values |
+| New example added | `README.md` / `README_NERD.md` (example list), `examples/` README |
+| Security/policy change | `CLAUDE.md` (Security section), `skill/SKILL.md` delegation loop section |
+
+**Enforcement — three mechanical gates + one reminder:**
+
+All gates are enforced by hooks in `.claude/settings.json`. `git commit` is **blocked** if gate 1 or 2 fails.
+
+| Gate | Script | What it checks | Blocks commit? |
+|---|---|---|---|
+| 1. **Drift detector** | `scripts/check_docs_drift.py` | Backtick-quoted paths still exist on disk; backtick-quoted symbols (classes, fields, functions) still appear in source; numeric claims (e.g. "18 examples") match reality | **Yes** |
+| 2. **Sync coverage** | `scripts/check_sync_coverage.py` | Code changes in `git diff` are matched against the sync table above; flags which MDs *should* have been updated but weren't | **Yes** |
+| 3. **Edit reminder** | `.claude/hooks/remind_doc_sync.sh` | PostToolUse on Edit/Write: after editing a `.py`/`.ts` file, outputs which MDs to check based on the file's location | No (reminder only) |
 
 ```bash
-python scripts/check_docs_drift.py
+python scripts/check_docs_drift.py    # exit 0 = clean, 1 = drift
+python scripts/check_sync_coverage.py # exit 0 = clean, 1 = sync gaps
 ```
 
-Exit code 0 = clean; non-zero = drift (prints the stale references). This is the automated floor under the discipline rule — it doesn't check prose accuracy, but it catches the most common drift (renamed/moved/deleted files whose paths still live in the docs).
-
-**This section supersedes any other "doc sync" or "pre-commit MD check" rule elsewhere in this file.** There is exactly one doc-sync contract, and it lives here.
+**This is the single authoritative doc-sync contract.** All other references in this file defer to this section.
 
 ## Working Principles (from usage report 2026-04)
 
@@ -346,7 +380,8 @@ When bumping versions, update ALL of these in one commit:
 
 ## Default Model & Provider Routing
 
-- **Default model**: `openai/gpt-5-mini` (via OpenRouter)
+- **Default manager model**: `openai/gpt-5-mini` (via OpenRouter)
+- **Default worker model**: `deepseek/deepseek-chat-v3.1` (via OpenRouter)
 - The UI uses a **free text input** for model selection — no dropdowns. Never add `<select>` dropdowns for model selection.
 - Provider is auto-detected from the model string:
 
@@ -396,15 +431,6 @@ When bumping versions, update ALL of these in one commit:
 
 - When implementing multi-file changes, do a dry-run validation pass after all edits: check imports resolve, function signatures match callers, and config references exist. Do not wait for runtime errors.
 
-## Documentation Consistency — Scope Reference
+## Documentation Consistency
 
-The doc-sync contract is defined once in **§2 "Doc Sync as Definition-of-Done"** and the **Session Start Protocol** (§1). This section only lists the artifacts in scope:
-
-- `CLAUDE.md` — architecture descriptions, file paths, CLI commands, feature references
-- `README.md` / `README_NERD.md` — installation, examples, API descriptions
-- `docs/` — layer documentation (model fields, validation rules, runtime behavior)
-- `spec/` — normative spec
-- `skill/SKILL.md` — see Skill Synchronization section above
-- `examples/` — YAML and READMEs must use current schema
-
-Automated check: `python scripts/check_docs_drift.py`. See §2 for the full contract.
+See **§2 "Doc Sync as Definition-of-Done"** for the full contract, sync table, and enforcement gates.

@@ -371,11 +371,11 @@ class DynamicToolFactory:
                 if hasattr(config, "enabled")
                 else config.get("enabled", False)
             )
-            self._persist = (
-                getattr(config, "persist", False)
-                if hasattr(config, "persist")
-                else config.get("persist", False)
-            )
+            if isinstance(config, dict):
+                persist_val = config.get("persist", None)
+            else:
+                persist_val = getattr(config, "persist", None)
+            self._persist = persist_val if persist_val is not None else self._enabled
             self._max_total = (
                 getattr(config, "max_total", 50)
                 if hasattr(config, "max_total")
@@ -1613,6 +1613,20 @@ class DynamicToolFactory:
             encoding="utf-8",
         )
         logger.debug("Persisted dynamic tool: %s", persist_path)
+
+        # Also persist to shared/ for cross-run reuse
+        if self._workflow_dir:
+            shared_dir = self._workflow_dir.parent / "shared" / "dynamic_tools"
+            if shared_dir.parent.exists():
+                try:
+                    shared_dir.mkdir(parents=True, exist_ok=True)
+                    shared_path = shared_dir / f"{record.fqn}.json"
+                    shared_path.write_text(
+                        json.dumps(record.to_dict(), indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass  # Non-critical — workspace copy is the primary
 
     def _load_persisted_tools(self) -> None:
         """Load previously persisted dynamic tools from workspace/dynamic_tools/."""

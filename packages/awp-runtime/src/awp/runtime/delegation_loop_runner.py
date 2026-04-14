@@ -35,6 +35,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -1184,6 +1185,77 @@ class RunLogger:
         """Write any file (always, regardless of format setting)."""
         self._enqueue(path, content)
 
+    # -- LLM call tracing --------------------------------------------------
+
+    def write_llm_trace(
+        self,
+        iteration: int,
+        worker_id: str | None,
+        seq: int,
+        trace_data: dict,
+    ) -> None:
+        """Persist a single LLM call trace to disk.
+
+        Args:
+            iteration: Current delegation loop iteration (1-based).
+            worker_id: Worker identifier, or ``None`` for manager calls.
+            seq: 1-based sequence number within this worker/manager.
+            trace_data: Dict with messages_in, response, usage, latency_ms, etc.
+        """
+        if worker_id:
+            base = (
+                self.run_dir
+                / "iterations"
+                / f"{iteration:03d}"
+                / "delegations"
+                / worker_id
+                / "llm_trace"
+            )
+        else:
+            base = self.run_dir / "iterations" / f"{iteration:03d}" / "manager_trace"
+        base.mkdir(parents=True, exist_ok=True)
+        content = json.dumps(trace_data, indent=2, default=str, ensure_ascii=False)
+        self._enqueue(base / f"call_{seq:03d}.json", content)
+
+    def write_llm_trace_summary(
+        self,
+        iteration: int,
+        worker_id: str | None,
+        calls: list[dict],
+    ) -> None:
+        """Write an aggregated summary of all LLM calls for a worker or manager."""
+        if worker_id:
+            base = (
+                self.run_dir
+                / "iterations"
+                / f"{iteration:03d}"
+                / "delegations"
+                / worker_id
+                / "llm_trace"
+            )
+        else:
+            base = self.run_dir / "iterations" / f"{iteration:03d}" / "manager_trace"
+        base.mkdir(parents=True, exist_ok=True)
+        prompt_total = sum(c.get("usage", {}).get("prompt_tokens", 0) for c in calls)
+        completion_total = sum(
+            c.get("usage", {}).get("completion_tokens", 0) for c in calls
+        )
+        summary = {
+            "total_calls": len(calls),
+            "total_tokens": {
+                "prompt": prompt_total,
+                "completion": completion_total,
+                "total": prompt_total + completion_total,
+            },
+            "total_latency_ms": round(
+                sum(c.get("latency_ms", 0) for c in calls), 1
+            ),
+            "model": calls[0].get("model") if calls else None,
+            "tool_rounds": max(len(calls) - 1, 0),
+        }
+        content = json.dumps(summary, indent=2, default=str, ensure_ascii=False)
+        self._enqueue(base / "summary.json", content)
+
     def log_run_start(
         self,
         task: str,
@@ -1881,6 +1953,11 @@ class DelegationLoopRunner:
         self._diagnosis_threshold = diagnosis_cfg.confidence_threshold if diagnosis_cfg else 0.3
         self._diagnosis_max_hypotheses = diagnosis_cfg.max_hypotheses if diagnosis_cfg else 3
 
+        # LLM Call Tracing
+        self._trace_enabled = bool(getattr(config, "trace_enabled", False))
+        if self._trace_enabled:
+            logger.info("LLM call tracing enabled — writing llm_trace/ per worker and manager")
+
         # Logger — submanagers write under their parent worker directory so
         # the visualizer can render nested sub-runs (graph_builder.py walks
         # `<worker_dir>/runs/<sub_run_id>/`).
@@ -2270,13 +2347,25 @@ class DelegationLoopRunner:
                 # refining the same subtasks across many iterations and
                 # never actually executing anything.
                 pre_progress_plans = int(state.get("_pre_progress_plans", 0))
-                MAX_PRE_PROGRESS_PLANS = 2
+                _plan_mode = getattr(
+                    getattr(self._config, "planning", None),
+                    "plan_commit_mode",
+                    "strict",
+                )
+                MAX_PRE_PROGRESS_PLANS = 2 if _plan_mode == "strict" else 3
                 if self._task_plan is not None:
                     has_progress = any(
                         st.get("status") in ("in_progress", "completed", "failed")
                         for st in self._task_plan._subtasks
                     )
-                    if not has_progress:
+                    if has_progress:
+                        # Reset counter once any worker has made progress —
+                        # subsequent PLANs (refinements) are legitimate, not
+                        # an endless planning loop.
+                        if pre_progress_plans > 0:
+                            state["_pre_progress_plans"] = 0
+                            pre_progress_plans = 0
+                    else:
                         pre_progress_plans += 1
                         state["_pre_progress_plans"] = pre_progress_plans
                         if pre_progress_plans > MAX_PRE_PROGRESS_PLANS:
@@ -2403,6 +2492,32 @@ class DelegationLoopRunner:
                             )
                     self._task_plan.set_subtasks(subtasks)
                     logger.info("Task plan created with %d subtasks", len(subtasks))
+                    # Budget adequacy warning: if the plan has more subtasks
+                    # than the remaining loop budget can handle, warn the
+                    # manager so it can prioritise.
+                    _min_per_st = int(
+                        getattr(self._budget, "min_loops_per_subtask", 3)
+                    )
+                    _min_needed = len(subtasks) * _min_per_st + 2
+                    _remaining_loops = (
+                        self._budget.max_loops - self._budget.loops_used
+                    )
+                    if _remaining_loops < _min_needed:
+                        state["_budget_adequacy_warning"] = (
+                            f"BUDGET WARNING: Plan has {len(subtasks)} subtasks "
+                            f"but only {_remaining_loops} loop iterations remain "
+                            f"(minimum recommended: {_min_needed}). PRIORITIZE "
+                            f"the {max(1, _remaining_loops // _min_per_st)} most "
+                            f"critical subtasks. Mark others as optional or "
+                            f"combine subtasks to fit the budget."
+                        )
+                        logger.warning(
+                            "Budget adequacy: %d subtasks, %d loops remaining, "
+                            "min needed %d",
+                            len(subtasks),
+                            _remaining_loops,
+                            _min_needed,
+                        )
                 else:
                     logger.warning("PLAN decision but no subtasks or planning disabled")
                 continue  # manager will see the plan on the next iteration
@@ -2859,6 +2974,74 @@ class DelegationLoopRunner:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
 
+            # P0: Critique delegation gate — block NEW work when old work
+            # is failing.  Unlike the P1 gate (which only blocks identical
+            # re-delegations), this gate blocks *any* new subtask_ids when
+            # the previous iteration's mean critique score is below threshold.
+            _min_delegate = float(
+                getattr(self._config.critique, "min_score_to_delegate", 0.0)
+            )
+            _max_deleg_blocks = int(
+                getattr(self._config.critique, "max_delegation_blocks", 2)
+            )
+            _deleg_block_count = int(
+                state.get("_critique_delegation_blocks", 0)
+            )
+            if (
+                _min_delegate > 0
+                and _deleg_block_count < _max_deleg_blocks
+                and self._critique_engine
+                and self._critique_engine.enabled
+                and self._history
+            ):
+                _last_h = self._history[-1] if self._history else {}
+                _crit_entries = _last_h.get("critique") or []
+                _crit_scores: list[float] = []
+                for _ce in _crit_entries:
+                    _s = _ce.get("score") if isinstance(_ce, dict) else None
+                    if isinstance(_s, (int, float)):
+                        _crit_scores.append(float(_s))
+                if _crit_scores:
+                    _mean_crit = sum(_crit_scores) / len(_crit_scores)
+                    if _mean_crit < _min_delegate:
+                        _prev_ids = set()
+                        for _dr in getattr(self, "_last_delegation_results", None) or []:
+                            _env = _dr.get("envelope", {})
+                            _sid = _env.get("subtask_id", "")
+                            if _sid:
+                                _prev_ids.add(_sid)
+                        _new_work = [
+                            e for e in envelopes
+                            if e.get("subtask_id", "") not in _prev_ids
+                        ] if _prev_ids else []
+                        if _new_work:
+                            state["_critique_delegation_blocks"] = (
+                                _deleg_block_count + 1
+                            )
+                            state["_critique_blocking_new_work"] = (
+                                f"DELEGATION BLOCKED: mean critique "
+                                f"{_mean_crit:.2f} < {_min_delegate:.2f}. "
+                                f"You MUST REPAIR or RETRY the failing "
+                                f"subtasks before starting new work."
+                            )
+                            self._logger.trace_gate(
+                                "critique_delegate",
+                                triggered=True,
+                                reason=(
+                                    f"mean_critique={_mean_crit:.2f} "
+                                    f"< {_min_delegate}"
+                                ),
+                            )
+                            logger.warning(
+                                "P0: blocking new delegation — mean critique "
+                                "%.2f < %.2f (block %d/%d)",
+                                _mean_crit,
+                                _min_delegate,
+                                _deleg_block_count + 1,
+                                _max_deleg_blocks,
+                            )
+                            continue
+
             # P3: Convergence detector — if confidence has stalled, force a
             # partial complete instead of dispatching yet another round.
             if self._check_convergence(iteration):
@@ -2970,6 +3153,9 @@ class DelegationLoopRunner:
             delegation_results = self._execute_delegations(
                 envelopes, task, state, iteration=iteration
             )
+            # Store for critique delegation gate (P0) — allows next
+            # iteration to know which subtask_ids were just attempted.
+            self._last_delegation_results = delegation_results
             self._profiler.stop(
                 f"workers.iter_{iteration}",
                 iteration=iteration,
@@ -3018,6 +3204,108 @@ class DelegationLoopRunner:
                     iteration=iteration,
                     worker_count=len(delegation_results),
                 )
+
+            # 4b. Track critique defect categories across delegations.
+            #
+            # The delegation-signature and worker-id tracking are easily
+            # circumvented when the manager renames workers or rewrites
+            # instructions slightly.  This tracker works at a higher
+            # abstraction level: it counts how often each *defect category*
+            # (e.g. "missing_data", "invalid_format") recurs across the
+            # whole run.  If the same category appears too often, the
+            # manager is forced into DIAGNOSE or a hard stop.
+            _DEFECT_CAT_DIAGNOSE_THRESHOLD = int(
+                getattr(self._config.critique, "defect_category_diagnose_threshold", 3)
+            )
+            _DEFECT_CAT_HARD_CAP = int(
+                getattr(self._config.critique, "defect_category_hard_cap", 5)
+            )
+            if critique_envelopes:
+                tracker: dict[str, int] = state.setdefault(
+                    "_defect_category_tracker", {}
+                )
+                for ce in critique_envelopes:
+                    for d in getattr(ce, "defects", []):
+                        sev = getattr(d, "severity", "")
+                        cat = getattr(d, "category", "") or "generic"
+                        if sev in ("critical", "warning"):
+                            tracker[cat] = tracker.get(cat, 0) + 1
+
+                # Phase-aware scaling: "incomplete" defects are expected when
+                # only a fraction of the plan has been attempted.  Scale the
+                # effective count by completion_ratio so the gate only fires
+                # when incomplete defects persist *after* most work is done.
+                _phase_aware = bool(
+                    getattr(self._config.critique, "phase_aware_incomplete", True)
+                )
+                completion_ratio = 1.0
+                if _phase_aware and self._task_plan is not None:
+                    _total_st = len(self._task_plan._subtasks)
+                    if _total_st > 0:
+                        _attempted_st = sum(
+                            1
+                            for st in self._task_plan._subtasks
+                            if st.get("status") in ("in_progress", "completed", "failed")
+                        )
+                        completion_ratio = max(0.2, _attempted_st / _total_st)
+
+                # Check for hard cap — if any category hit the cap, force
+                # a partial complete with the best result so far.
+                capped_cats = []
+                for c, n in tracker.items():
+                    effective_n = (
+                        n if c != "incomplete"
+                        else max(1, int(n * completion_ratio))
+                    )
+                    if effective_n >= _DEFECT_CAT_HARD_CAP:
+                        capped_cats.append((c, n))
+                if capped_cats:
+                    cat_summary = ", ".join(
+                        f"{c} ({n}x)" for c, n in capped_cats
+                    )
+                    logger.warning(
+                        "Defect-category hard cap reached: %s. "
+                        "Forcing partial completion.",
+                        cat_summary,
+                    )
+                    self._logger.trace_gate(
+                        "defect_category_cap",
+                        triggered=True,
+                        reason=f"Categories at hard cap: {cat_summary}",
+                    )
+                    partial = self._build_partial_result(
+                        "defect_category_cap"
+                    )
+                    partial["partial"] = True
+                    partial["reason"] = (
+                        f"Defect categories exceeded hard cap "
+                        f"({_DEFECT_CAT_HARD_CAP}): {cat_summary}"
+                    )
+                    return partial, "complete"
+
+                # Warn the manager if any category hit the diagnose threshold
+                diag_cats = []
+                for c, n in tracker.items():
+                    eff = (
+                        n if c != "incomplete"
+                        else max(1, int(n * completion_ratio))
+                    )
+                    if eff >= _DEFECT_CAT_DIAGNOSE_THRESHOLD and eff < _DEFECT_CAT_HARD_CAP:
+                        diag_cats.append((c, n))
+                if diag_cats:
+                    cat_summary = ", ".join(
+                        f"{c} ({n}x)" for c, n in diag_cats
+                    )
+                    state["_defect_category_warning"] = (
+                        f"RECURRING DEFECT PATTERNS detected: {cat_summary}. "
+                        f"These defect categories have appeared {_DEFECT_CAT_DIAGNOSE_THRESHOLD}+ "
+                        f"times across different workers. Spawning more workers "
+                        f"with similar instructions will NOT fix this. You MUST "
+                        f"either: (1) DIAGNOSE the root cause and change your "
+                        f"approach fundamentally, or (2) COMPLETE with the best "
+                        f"result so far. Hard cap at {_DEFECT_CAT_HARD_CAP} — "
+                        f"after that the run will be force-completed."
+                    )
 
             # 5. Validate results (2-tier)
             validation_results = self._validate_results(delegation_results, task)
@@ -3339,6 +3627,22 @@ class DelegationLoopRunner:
         llm = self._manager_llm or LLMClient(model=self._manager_model)
         tokens_before = llm.total_tokens_used
 
+        # LLM call tracing for manager
+        _mgr_trace_log: list[dict] = []
+        _mgr_trace_seq = [0]
+
+        if self._trace_enabled:
+            def _mgr_trace_cb(data: dict) -> None:
+                _mgr_trace_seq[0] += 1
+                data["seq"] = _mgr_trace_seq[0]
+                _mgr_trace_log.append(data)
+                try:
+                    self._logger.write_llm_trace(iteration, None, _mgr_trace_seq[0], data)
+                except Exception:
+                    pass
+
+            llm.set_trace_callback(_mgr_trace_cb)
+
         system_prompt = self._build_manager_system_prompt()
         user_message = self._build_manager_task(task, state, iteration)
 
@@ -3393,6 +3697,7 @@ class DelegationLoopRunner:
                     )
                     continue
 
+                self._finalize_manager_trace(llm, iteration, _mgr_trace_log)
                 return parsed
 
             except Exception as exc:
@@ -3402,10 +3707,23 @@ class DelegationLoopRunner:
                     logger.warning("Inline manager attempt 1 failed: %s, retrying", exc)
                     continue
                 logger.error("Inline manager failed after retry: %s", exc)
+                self._finalize_manager_trace(llm, iteration, _mgr_trace_log)
                 return {"decision": "fail", "reason": str(exc)}
 
         # Should not reach here, but safety fallback
+        self._finalize_manager_trace(llm, iteration, _mgr_trace_log)
         return {"decision": "fail", "reason": "Inline manager exhausted retries"}
+
+    def _finalize_manager_trace(
+        self, llm: LLMClient, iteration: int, trace_log: list[dict]
+    ) -> None:
+        """Write manager trace summary and clean up callback."""
+        if self._trace_enabled and trace_log:
+            try:
+                self._logger.write_llm_trace_summary(iteration, None, trace_log)
+            except Exception:
+                pass
+            llm.set_trace_callback(None)
 
     # -- Manager Intelligence prompt helpers ---------------------------------
 
@@ -3630,6 +3948,32 @@ targeted workers to test the most likely hypotheses before doing a full retry.
             if allowlist:
                 line += f" (network restricted to: {', '.join(allowlist)})"
             lines.append(line)
+        lines.append("")
+        return "\n".join(lines)
+
+    def _build_available_tools_section(self) -> str:
+        """List all registered tools grouped by namespace for the manager."""
+        if not self._tools:
+            return ""
+        names = sorted(getattr(self._tools, "tool_names", []))
+        if not names:
+            return ""
+        forbidden = set()
+        wp = getattr(self._config, "worker_policy", None)
+        if wp:
+            enforced = getattr(wp, "enforced", None)
+            if enforced:
+                forbidden = set(getattr(enforced, "forbidden_tools", []))
+        groups: dict[str, list[str]] = {}
+        for n in names:
+            prefix = n.split(".")[0] if "." in n else "builtin"
+            if n not in forbidden:
+                groups.setdefault(prefix, []).append(n)
+        if not groups:
+            return ""
+        lines = ["\n## Available Tools (use ONLY these in tools_allowed)"]
+        for prefix in sorted(groups):
+            lines.append(f"- **{prefix}.***: {', '.join(groups[prefix])}")
         lines.append("")
         return "\n".join(lines)
 
@@ -3945,7 +4289,7 @@ least 20% of your remaining budget for repair iterations.
 - Sandbox: {enforced.sandbox.type}, max {enforced.sandbox.max_memory_mb}MB RAM, {enforced.sandbox.max_cpu_seconds}s CPU
 - Max tools per worker: {enforced.codemode.max_tools_per_worker}
 - Forbidden tools: {", ".join(enforced.forbidden_tools)}
-{self._build_namespace_capabilities_section()}{self._build_dynamic_tools_section()}{self._build_skill_catalog_section()}
+{self._build_available_tools_section()}{self._build_namespace_capabilities_section()}{self._build_dynamic_tools_section()}{self._build_skill_catalog_section()}
 ## Rules
 - **Reuse existing skills** — reference them by name in `skills` array instead of rewriting
 - **Update skills** — to improve a skill, provide updated full markdown with the same heading
@@ -4175,6 +4519,25 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 f"Re-delegating the same worker with the same approach is "
                 f"not making progress. Change strategy, merge subtasks, or "
                 f"use a different decomposition.\n"
+            )
+
+        # Budget adequacy warning (from plan-accept)
+        budget_adeq_warn = state.pop("_budget_adequacy_warning", None)
+        if budget_adeq_warn:
+            parts.append(f"## BUDGET ADEQUACY\n{budget_adeq_warn}\n")
+
+        # Critique delegation block warning
+        critique_block_warn = state.pop("_critique_blocking_new_work", None)
+        if critique_block_warn:
+            parts.append(
+                f"## CRITIQUE DELEGATION BLOCK\n{critique_block_warn}\n"
+            )
+
+        # Recurring defect category warning
+        defect_cat_warn = state.pop("_defect_category_warning", None)
+        if defect_cat_warn:
+            parts.append(
+                f"## 🚨 RECURRING DEFECT CATEGORIES\n{defect_cat_warn}\n"
             )
 
         # Diagnose findings enforcement
@@ -4608,7 +4971,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
             def run_repair_worker(repair_envelope: dict, repair_task: str) -> dict:
                 return self._run_ephemeral_worker(
-                    f"{worker_id}_repair", repair_envelope, repair_task, state
+                    f"{worker_id}_repair", repair_envelope, repair_task, state, iteration=iteration
                 )
 
             repaired_result, attempts = self._critique_engine.attempt_repair(
@@ -4711,7 +5074,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     }
 
             try:
-                result = self._run_ephemeral_worker(worker_id, envelope, task, state)
+                result = self._run_ephemeral_worker(worker_id, envelope, task, state, iteration=iteration)
                 # Persist any skills the worker created to the skill registry
                 self._persist_worker_result_skills(result, worker_id)
                 # Run step evaluation BEFORE writing result (so file watcher gets scores)
@@ -4732,6 +5095,34 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         ]
                 # Write result to disk immediately (for file watchers)
                 self._logger.log_worker_result(iteration, worker_id, result)
+                # Auto-post to blackboard for sibling coordination
+                if (
+                    self._blackboard is not None
+                    and getattr(self._config, "blackboard_auto_post", True)
+                    and isinstance(result, dict)
+                ):
+                    try:
+                        auto_payload = {
+                            "status": "ok",
+                            "confidence": result.get("confidence", 0.0),
+                            "summary": str(
+                                result.get("summary", result.get("key_finding", ""))
+                            )[:500],
+                            "subtask_id": envelope.get("subtask_id", ""),
+                            "files_created": [
+                                str(p) for p in result.get("files_created", [])
+                            ],
+                        }
+                        self._blackboard.post(
+                            topic=f"auto:worker_result:{worker_id}",
+                            payload=auto_payload,
+                            worker_id=worker_id,
+                        )
+                    except Exception as _bb_exc:
+                        logger.debug(
+                            "Auto blackboard post failed for %s: %s",
+                            worker_id, _bb_exc,
+                        )
                 return {
                     "worker_id": worker_id,
                     "envelope": envelope,
@@ -4742,6 +5133,24 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 logger.error("  Worker %s failed: %s", worker_id, exc)
                 error_result = {"error": str(exc), "confidence": 0.0}
                 self._logger.log_worker_result(iteration, worker_id, error_result)
+                if (
+                    self._blackboard is not None
+                    and getattr(self._config, "blackboard_auto_post", True)
+                ):
+                    try:
+                        self._blackboard.post(
+                            topic=f"auto:worker_error:{worker_id}",
+                            payload={
+                                "error": str(exc)[:500],
+                                "subtask_id": envelope.get("subtask_id", ""),
+                            },
+                            worker_id=worker_id,
+                        )
+                    except Exception as _bb_exc:
+                        logger.debug(
+                            "Auto blackboard error-post failed for %s: %s",
+                            worker_id, _bb_exc,
+                        )
                 return {
                     "worker_id": worker_id,
                     "envelope": envelope,
@@ -5014,13 +5423,27 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     def _check_convergence(self, iteration: int) -> bool:
         """Return True if the loop has converged and should be force-completed.
 
-        Two heuristics:
-          (a) After at least 3 iterations, if confidence has improved by
+        Three heuristics (all gated by a minimum-iteration floor):
+          (a) After the minimum floor, if confidence has improved by
               less than 0.05 across the last two iterations, we're stuck.
           (b) If the last 3 history entries were all DELEGATE iterations
               that produced no new key findings, we're spinning.
+
+        The minimum-iteration floor is ``max(5, pending_subtask_count + 3)``
+        so the convergence detector never fires while there are still
+        unstarted subtasks in the task plan — confidence legitimately
+        plateaus between phases of a multi-phase task.
         """
-        if iteration < 3 or len(self._history) < 2:
+        # Dynamic floor: never converge while pending subtasks remain.
+        pending = 0
+        if self._task_plan is not None:
+            pending = sum(
+                1
+                for st in self._task_plan._subtasks
+                if st.get("status") in (None, "pending")
+            )
+        min_iter = max(5, pending + 3)
+        if iteration < min_iter or len(self._history) < 2:
             return False
         try:
             last = float(self._history[-1].get("confidence", 0.0) or 0.0)
@@ -5030,10 +5453,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if abs(last - prev) < 0.05 and last < 0.95:
             logger.warning(
                 "Convergence detector: confidence delta %.3f < 0.05 "
-                "(last=%.2f, prev=%.2f) — forcing partial complete.",
+                "(last=%.2f, prev=%.2f, min_iter=%d, pending=%d) "
+                "— forcing partial complete.",
                 abs(last - prev),
                 last,
                 prev,
+                min_iter,
+                pending,
             )
             return True
         if len(self._history) >= 3:
@@ -5218,6 +5644,25 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             for item in list(forbidden_env) + forbidden_cfg:
                 if isinstance(item, str):
                     forbidden.add(item)
+            # Always exclude internal loop-control counters — these belong
+            # to the parent's iteration scope, not the child's.  A sub-
+            # manager is a fresh autonomy instance with its own budget and
+            # must start with clean counters (same principle as
+            # BudgetSnapshot.allocate_child giving a fresh budget).
+            _LOOP_CONTROL_KEYS = {
+                "_pre_progress_plans",
+                "_plan_locked",
+                "_consecutive_diagnoses",
+                "_diagnose_locked",
+                "_diagnose_cooldown",
+                "_critique_rejection_count",
+                "_delegation_history",
+                "_consecutive_manager_failures",
+                "_placeholder_repair_required",
+                "_repeated_delegation_warning",
+                "_defect_category_tracker",
+            }
+            forbidden |= _LOOP_CONTROL_KEYS
             inherited = {k: v for k, v in (state or {}).items() if k not in forbidden}
 
         # Pass the parent's current digest sha into the child's
@@ -5376,7 +5821,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             "status": "ok",
         }
 
-    def _run_ephemeral_worker(self, worker_id: str, envelope: dict, task: str, state: dict) -> dict:
+    def _run_ephemeral_worker(self, worker_id: str, envelope: dict, task: str, state: dict, iteration: int = 0) -> dict:
         """Run an ephemeral worker configured entirely by the delegation envelope."""
         instructions = envelope.get("instructions", "")
         raw_skills = envelope.get("skills", [])
@@ -5464,6 +5909,12 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # Ensure code.execute is in tools_allowed when codemode is enabled
         if codemode.get("enabled", False) and "code.execute" not in tools_allowed:
             tools_allowed = list(tools_allowed) + ["code.execute"]
+        # Auto-add tool.create / tool.list when tool_creation is active
+        if codemode.get("tool_creation", False):
+            if "tool.create" not in tools_allowed:
+                tools_allowed = list(tools_allowed) + ["tool.create"]
+            if "tool.list" not in tools_allowed:
+                tools_allowed = list(tools_allowed) + ["tool.list"]
             logger.info("Worker %s: auto-added code.execute (codemode.enabled=true)", worker_id)
 
         # Expose the sibling-coordination blackboard tools when the
@@ -5728,6 +6179,23 @@ print("Chart saved")
 
         # Execute via LLM
         llm = LLMClient(model=self._worker_model)
+
+        # LLM call tracing — collect every API call for later persistence
+        _llm_trace_log: list[dict] = []
+        _trace_seq_counter = [0]  # mutable counter for closure
+
+        if self._trace_enabled:
+            def _worker_trace_cb(data: dict) -> None:
+                _trace_seq_counter[0] += 1
+                data["seq"] = _trace_seq_counter[0]
+                _llm_trace_log.append(data)
+                try:
+                    self._logger.write_llm_trace(iteration, worker_id, _trace_seq_counter[0], data)
+                except Exception:
+                    pass
+
+            llm.set_trace_callback(_worker_trace_cb)
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
@@ -5842,6 +6310,9 @@ print("Chart saved")
                         json.dumps(result.get("tools_registered", []), indent=2, default=str),
                     )
                 self._budget.record_tokens(llm.total_tokens_used)
+                if self._trace_enabled and _llm_trace_log:
+                    self._logger.write_llm_trace_summary(iteration, worker_id, _llm_trace_log)
+                    llm.set_trace_callback(None)
                 return result
 
         # Simple call (no tools)
@@ -5884,6 +6355,9 @@ print("Chart saved")
             )
 
         self._budget.record_tokens(llm.total_tokens_used)
+        if self._trace_enabled and _llm_trace_log:
+            self._logger.write_llm_trace_summary(iteration, worker_id, _llm_trace_log)
+            llm.set_trace_callback(None)
         return result
 
     @staticmethod
@@ -6444,6 +6918,16 @@ Rules:
         r"\bfill[_ ]in[_ ]here\b",
     )
 
+    # Patterns whose matches should be suppressed if the line containing
+    # the match is a code comment (// …, # …, /* …, <!-- …, * …).
+    # TODO/FIXME/TBD are legitimate code annotations, not placeholder stubs.
+    _CODE_COMMENT_EXEMPT_PATTERNS: frozenset[str] = frozenset(
+        {r"\bTODO\b", r"\bFIXME\b", r"\bTBD\b"}
+    )
+    _CODE_COMMENT_LINE_RE = re.compile(
+        r"^\s*(?://|/\*|\*|#|<!--|--)"
+    )
+
     # Keys that, when present at any depth in `final_result`, are
     # unambiguous evidence the manager copied the prompt template stub
     # instead of producing real content. e.g. {"your": "final output here"}.
@@ -6534,6 +7018,9 @@ Rules:
         compiled = [re.compile(p, re.IGNORECASE) for p in self._PLACEHOLDER_PATTERNS]
         findings: list[str] = []
 
+        comment_re = self._CODE_COMMENT_LINE_RE
+        exempt = self._CODE_COMMENT_EXEMPT_PATTERNS
+
         def _scan_text(label: str, text: str) -> None:
             if not text or not isinstance(text, str):
                 return
@@ -6541,13 +7028,27 @@ Rules:
             # pathological scans on huge logs.
             sample = text[:200_000]
             for pat in compiled:
-                m = pat.search(sample)
-                if m:
+                is_exempt = pat.pattern in exempt
+                pos = 0
+                while pos < len(sample):
+                    m = pat.search(sample, pos)
+                    if not m:
+                        break
+                    # For code-annotation patterns (TODO, FIXME, TBD),
+                    # suppress the match if it sits on a line that looks
+                    # like a code comment (// …, # …, /* …, <!-- …, * …).
+                    if is_exempt:
+                        line_start = sample.rfind("\n", 0, m.start()) + 1
+                        line = sample[line_start : m.end()]
+                        if comment_re.match(line):
+                            pos = m.end()
+                            continue  # legitimate code comment, try next
                     snippet = (
                         sample[max(0, m.start() - 20) : m.end() + 20].replace("\n", " ").strip()
                     )
                     findings.append(f"{label}: '{snippet}' (matched /{pat.pattern}/)")
                     return  # one finding per scope is enough
+                # end while — no non-comment match found for this pattern
 
         def _walk(label: str, value: object) -> None:
             if isinstance(value, str):
@@ -6570,7 +7071,9 @@ Rules:
 
         # Also scan declared output files (text-based) on disk so we catch
         # placeholders that the manager wrote into files but didn't reflect
-        # in `final_result`.
+        # in `final_result`.  We intentionally exclude source-code extensions
+        # (.py, .cs, .js, etc.) because TODO/FIXME in code comments are
+        # legitimate annotations, not placeholder stubs.
         text_exts = {".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html", ".tex"}
         scan_dirs: list = []
         ws_out = self._dir / "workspace" / "outputs"

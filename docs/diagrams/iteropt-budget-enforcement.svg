@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 340" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="820" height="340" fill="url(#bg)" rx="10"/>
+
+  <text x="410" y="28" text-anchor="middle" fill="#f8fafc" font-size="18" font-weight="700">Budget Enforcement — 6 Dimensions</text>
+  <text x="410" y="48" text-anchor="middle" fill="#94a3b8" font-size="12">can_continue() checks ALL dimensions every iteration. Any breach → graceful termination.</text>
+
+  <!-- Six budget bars -->
+  <text x="170" y="82" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">max_loops</text>
+  <rect x="180" y="70" width="500" height="18" rx="4" fill="#334155"/>
+  <rect x="180" y="70" width="350" height="18" rx="4" fill="#6366f1" opacity="0.8"/>
+  <text x="690" y="83" fill="#94a3b8" font-size="10">70 / 100</text>
+
+  <text x="170" y="112" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">max_total_workers</text>
+  <rect x="180" y="100" width="500" height="18" rx="4" fill="#334155"/>
+  <rect x="180" y="100" width="200" height="18" rx="4" fill="#06b6d4" opacity="0.8"/>
+  <text x="690" y="113" fill="#94a3b8" font-size="10">200 / 500</text>
+
+  <text x="170" y="142" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">max_total_tokens</text>
+  <rect x="180" y="130" width="500" height="18" rx="4" fill="#334155"/>
+  <rect x="180" y="130" width="300" height="18" rx="4" fill="#8b5cf6" opacity="0.8"/>
+  <text x="690" y="143" fill="#94a3b8" font-size="10">6M / 10M</text>
+
+  <text x="170" y="172" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">max_wall_time</text>
+  <rect x="180" y="160" width="500" height="18" rx="4" fill="#334155"/>
+  <rect x="180" y="160" width="225" height="18" rx="4" fill="#f59e0b" opacity="0.8"/>
+  <text x="690" y="173" fill="#94a3b8" font-size="10">1620s / 3600s</text>
+
+  <text x="170" y="202" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">max_tool_calls</text>
+  <rect x="180" y="190" width="500" height="18" rx="4" fill="#334155"/>
+  <rect x="180" y="190" width="133" height="18" rx="4" fill="#10b981" opacity="0.8"/>
+  <text x="690" y="203" fill="#94a3b8" font-size="10">400 / 1500</text>
+
+  <text x="170" y="232" text-anchor="end" fill="#e2e8f0" font-size="11" font-weight="600">max_depth</text>
+  <rect x="180" y="220" width="500" height="18" rx="4" fill="#334155"/>
+  <rect x="180" y="220" width="125" height="18" rx="4" fill="#ef4444" opacity="0.8"/>
+  <text x="690" y="233" fill="#94a3b8" font-size="10">1 / 4</text>
+
+  <!-- budget_fraction_remaining -->
+  <rect x="80" y="260" width="660" height="60" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <text x="410" y="282" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">budget_fraction_remaining = min(all fractions) = 0.27</text>
+  <text x="410" y="300" text-anchor="middle" fill="#94a3b8" font-size="11">Bottleneck: max_total_tokens (40% left) — manager adjusts strategy accordingly</text>
+  <text x="410" y="314" text-anchor="middle" fill="#64748b" font-size="10">Child allocation: allocate_child(fraction=0.3) pre-reserves 30% of parent budget</text>
+</svg>

@@ -183,8 +183,8 @@ function resultToOutputBlocks(resultData: unknown, title: string): OutputBlock[]
 
 const DEFAULT_CONFIG: WorkflowConfig = {
   task: '',
-  model: 'nvidia/nemotron-3-super-120b-a12b',
-  worker_model: 'openai/gpt-5-mini',
+  model: 'openai/gpt-5-mini',
+  worker_model: 'deepseek/deepseek-chat-v3.1',
   api_key: undefined,
   max_loops: 100,
   max_total_tokens: 10_000_000,
@@ -199,6 +199,7 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   tools: [],
   forbidden_tools: [],
   verbose: true,
+  trace_enabled: false,
   output_dir: '',
   input_files: [],
   skills_dir: '',
@@ -259,14 +260,6 @@ export interface WorkflowStore {
   selectedNodeId: string | null;
   selectNode: (id: string | null) => void;
   loadRunGraph: (runId?: string) => Promise<void>;
-  // A4 cluster collapse state — IDs of subRunCluster nodes whose children
-  // are hidden in the graph view. Used by AgentGraph for compact rendering
-  // of deeply nested submanagers.
-  collapsedClusters: Set<string>;
-  toggleCluster: (id: string) => void;
-  expandAllClusters: () => void;
-  collapseAllClusters: () => void;
-  initClusterCollapse: () => void;
 
   // Output
   outputBlocks: OutputBlock[];
@@ -277,6 +270,11 @@ export interface WorkflowStore {
   selectRun: (runId: string | null) => void;
   selectedRunBlocks: OutputBlock[];
   loadRunBlocks: (runId: string) => Promise<void>;
+
+  // Cross-tab run viewing: which run is shown in Output/Graph/Results/Workspace.
+  // null = show the live (current) run.
+  viewingRunId: string | null;
+  setViewingRun: (runId: string | null) => void;
 
   // Budget
   budget: BudgetState;
@@ -357,6 +355,20 @@ export interface WorkflowStore {
 // ---------------------------------------------------------------------------
 // Event processing helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Extract the bare iteration number from a unique_iter key.
+ * Root iterations: "001" → "1", Sub-run iterations: "worker_name_003" → "3".
+ * The unique_iter format is `{parent_worker_id}_{NNN}` for sub-runs, or
+ * just `NNN` for root-level iterations (zero-padded, e.g. "001").
+ */
+function iterDisplayNum(uniqueIter: string | undefined | null): string {
+  if (!uniqueIter) return '?';
+  // Try to extract the trailing numeric segment (e.g. "001" from "worker_name_001")
+  const match = uniqueIter.match(/(\d+)$/);
+  if (match) return String(Number(match[1])); // "001" → "1"
+  return uniqueIter; // fallback: show as-is
+}
 
 function nodeIdFromEvent(evt: RunEvent): string {
   const d = evt.data;
@@ -469,6 +481,7 @@ function processEvent(
   switch (evt.type) {
     // ----- Run lifecycle -----
     case 'run.start': {
+      _graphReloadCount = 0; // reset so first reloads are fast
       const model =
         (evt.data.model as string) ??
         ((evt.data.models as Record<string, string>)?.manager) ??
@@ -476,7 +489,7 @@ function processEvent(
       // Create root task node
       addNode({
         id: 'task_root',
-        type: 'default',
+        type: 'task',
         position: { x: 0, y: 0 },
         data: {
           label: get().config.task.slice(0, 60) || 'Task',
@@ -488,7 +501,7 @@ function processEvent(
       // Create manager node
       addNode({
         id: 'manager',
-        type: 'default',
+        type: 'manager',
         position: { x: 0, y: 120 },
         data: {
           label: `Manager (${model.split('/').pop()})`,
@@ -516,7 +529,7 @@ function processEvent(
       const id = nodeIdFromEvent(evt);
       addNode({
         id,
-        type: 'default',
+        type: 'task',
         position: { x: 0, y: store.graphNodes.length * 120 },
         data: {
           label: (evt.data.agent_name as string) ?? evt.type,
@@ -541,12 +554,12 @@ function processEvent(
       const subMgrId = `sub_mgr_${parentId}_d${depth}`;
       addNode({
         id: subMgrId,
-        type: 'default',
+        type: 'submanager',
         position: { x: 0, y: store.graphNodes.length * 120 },
         data: {
           label: `Sub-Manager d${depth} (${model.split('/').pop()})`,
           status: 'running',
-          nodeType: 'manager',
+          nodeType: 'submanager',
           depth,
           details: evt.data,
         },
@@ -567,8 +580,9 @@ function processEvent(
 
     // ----- Iteration -----
     case 'iteration.start': {
-      const iterNum = evt.data.iteration ?? '?';
-      const iterId = `iter_${iterNum}`;
+      const rawIter = (evt.data.iteration as string) ?? '?';
+      const iterNum = iterDisplayNum(rawIter);
+      const iterId = `iter_${rawIter}`;
       const depth = (evt.data.depth as number) ?? 0;
       // For sub-run iterations, link to the sub-manager spawned by this
       // worker. The event carries the bare worker_id; we must resolve it to
@@ -586,10 +600,11 @@ function processEvent(
       }
       addNode({
         id: iterId,
-        type: 'default',
+        type: 'iteration',
         position: { x: 0, y: store.graphNodes.length * 120 },
         data: {
           label: `Iteration ${iterNum}`,
+          iteration: iterNum,
           status: 'running',
           nodeType: 'iteration',
           depth,
@@ -612,8 +627,9 @@ function processEvent(
     }
 
     case 'iteration.decision': {
-      const iterNum = evt.data.iteration ?? '?';
-      const iterId = `iter_${iterNum}`;
+      const rawIter = (evt.data.iteration as string) ?? '?';
+      const iterNum = iterDisplayNum(rawIter);
+      const iterId = `iter_${rawIter}`;
       const decision = (evt.data.decision as string) ?? 'unknown';
       const confidence = evt.data.confidence as number | undefined;
       const reasoning = (evt.data.reasoning as string) ?? '';
@@ -623,6 +639,7 @@ function processEvent(
       updateNode(iterId, {
         status: decision === 'complete' ? 'complete' : 'running',
         label: `Iter ${iterNum}: ${decision.toUpperCase()}`,
+        iteration: iterNum,
         confidence,
         decision,
         reasoning,
@@ -679,7 +696,7 @@ function processEvent(
 
       addNode({
         id: workerNodeId,
-        type: 'default',
+        type: 'worker',
         position: { x: 250, y: store.graphNodes.length * 120 },
         data: {
           label: instructions.slice(0, 60) || `Worker ${workerId.slice(0, 8)}`,
@@ -843,7 +860,7 @@ function processEvent(
 
       addNode({
         id: toolId,
-        type: 'default',
+        type: 'toolCall',
         position: { x: 450, y: store.graphNodes.length * 120 },
         data: {
           label: toolName,
@@ -1073,6 +1090,31 @@ function processEvent(
   // This replaces N separate set() calls with exactly one, eliminating
   // intermediate re-renders of GraphVisPanel and layout recalculations.
   flushGraphBatch();
+
+  // After structural events, reload the full graph from the backend
+  // to get correct positions computed by graph_builder.py. The event-
+  // based nodes above are temporary placeholders.
+  const structural = new Set([
+    'run.start', 'delegation.start', 'iteration.decision',
+    'worker.spawn', 'worker.complete', 'run.complete',
+  ]);
+  if (structural.has(evt.type)) {
+    _scheduleGraphReload(store);
+  }
+}
+
+let _graphReloadTimer: ReturnType<typeof setTimeout> | null = null;
+let _graphReloadCount = 0;
+function _scheduleGraphReload(store: { loadRunGraph: () => Promise<void> }) {
+  if (_graphReloadTimer) clearTimeout(_graphReloadTimer);
+  // First few reloads are fast (100ms) so the graph appears correct
+  // immediately. After that, debounce at 1.5s to reduce API load.
+  const delay = _graphReloadCount < 3 ? 100 : 1500;
+  _graphReloadTimer = setTimeout(() => {
+    _graphReloadTimer = null;
+    _graphReloadCount++;
+    store.loadRunGraph().catch(() => {});
+  }, delay);
 }
 
 // ---------------------------------------------------------------------------
@@ -1265,35 +1307,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   selectedNodeId: null,
   selectNode: (id) =>
     set({ selectedNodeId: id, inspectorOpen: id !== null }),
-  collapsedClusters: new Set<string>(),
-  toggleCluster: (id) =>
-    set((s) => {
-      const next = new Set(s.collapsedClusters);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return { collapsedClusters: next };
-    }),
-  expandAllClusters: () => set({ collapsedClusters: new Set<string>() }),
-  collapseAllClusters: () =>
-    set((s) => {
-      const next = new Set<string>();
-      for (const n of s.graphNodes) {
-        if (n.type === 'subRunCluster') next.add(n.id);
-      }
-      return { collapsedClusters: next };
-    }),
-  initClusterCollapse: () =>
-    // Apply backend's auto_collapse hint (set for clusters at depth >= 2)
-    // — but only for clusters the user has not yet manually toggled.
-    set((s) => {
-      const next = new Set(s.collapsedClusters);
-      for (const n of s.graphNodes) {
-        if (n.type === 'subRunCluster' && (n.data as any)?.auto_collapse) {
-          next.add(n.id);
-        }
-      }
-      return { collapsedClusters: next };
-    }),
   loadRunGraph: async (runId) => {
     const rid = runId ?? get().currentRunId;
     if (!rid) return;
@@ -1310,26 +1323,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         const raw = n as unknown as Record<string, unknown>;
         const node: Node = {
           id: n.id,
-          // Use the backend-provided type so subRunCluster + submanager
-          // resolve to their custom React Flow renderers
           type: (n.type as string | undefined) || 'default',
           position:
             (raw.position as { x: number; y: number }) ?? { x: 0, y: i * 120 },
           data: { ...n.data, nodeType: n.type },
         };
-        if (raw.parentNode) (node as any).parentNode = raw.parentNode;
-        if (raw.extent) (node as any).extent = raw.extent;
         if (raw.style) (node as any).style = raw.style;
         if (typeof raw.zIndex === 'number') (node as any).zIndex = raw.zIndex;
         return node;
-      });
-      // React Flow requires parents to appear BEFORE their children in the
-      // node array. Stable sort: cluster nodes first, then everything else,
-      // preserving relative order within each group.
-      nodes.sort((a, b) => {
-        const aCluster = a.type === 'subRunCluster' ? 0 : 1;
-        const bCluster = b.type === 'subRunCluster' ? 0 : 1;
-        return aCluster - bCluster;
       });
       const edges: Edge[] = graph.edges.map((e) => {
         const raw = e as unknown as Record<string, unknown>;
@@ -1345,8 +1346,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         return edge;
       });
       set({ graphNodes: nodes, graphEdges: edges });
-      // Apply backend auto-collapse hints for newly arrived deep clusters.
-      get().initClusterCollapse();
     } catch {
       // silently ignore
     }
@@ -1361,6 +1360,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   selectedRunId: null,
   selectRun: (runId) => set({ selectedRunId: runId, selectedRunBlocks: [] }),
   selectedRunBlocks: [],
+
+  // -- Cross-tab run viewing -----------------------------------------------
+  viewingRunId: null,
+  setViewingRun: (runId) => {
+    const s = get();
+    // null or same as currentRunId → show live run
+    const effective = runId === s.currentRunId ? null : runId;
+    set({ viewingRunId: effective });
+    if (effective) {
+      // Load graph + output blocks for the selected past run
+      get().loadRunGraph(effective);
+      get().loadRunBlocks(effective);
+    }
+  },
   loadRunBlocks: async (runId: string) => {
     try {
       const run = await api.getRun(runId);
@@ -1379,15 +1392,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         const d = evt.data as Record<string, unknown>;
         switch (evt.type) {
           case 'iteration.start':
-            blocks.push({ type: 'markdown', content: `**Iteration ${d.iteration ?? '?'}**`, title: 'Iteration' });
+            blocks.push({ type: 'markdown', content: `**Iteration ${iterDisplayNum(d.iteration as string)}**`, title: 'Iteration' });
             break;
           case 'iteration.decision': {
             const decision = (d.decision as string) ?? '';
             const reasoning = (d.reasoning as string) ?? '';
             const conf = d.confidence;
+            const iterLabel = iterDisplayNum(d.iteration as string);
             blocks.push(reasoning
-              ? { type: 'markdown', content: `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`, title: `Iteration ${d.iteration ?? '?'}` }
-              : { type: 'json', content: JSON.stringify(d, null, 2), title: `Iteration ${d.iteration ?? '?'}` }
+              ? { type: 'markdown', content: `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`, title: `Iteration ${iterLabel}` }
+              : { type: 'json', content: JSON.stringify(d, null, 2), title: `Iteration ${iterLabel}` }
             );
             break;
           }
@@ -1550,6 +1564,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       outputBlocks: [],
       selectedRunId: null,
       selectedRunBlocks: [],
+      viewingRunId: null,
       budget: {
         ...DEFAULT_BUDGET,
         loops_max: state.config.max_loops,
@@ -1944,7 +1959,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             case 'iteration.start':
               outputBlocks.push({
                 type: 'markdown',
-                content: `**Iteration ${d.iteration ?? '?'}**`,
+                content: `**Iteration ${iterDisplayNum(d.iteration as string)}**`,
                 title: 'Iteration',
               });
               break;
@@ -1952,17 +1967,18 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const decision = (d.decision as string) ?? '';
               const reasoning = (d.reasoning as string) ?? '';
               const conf = d.confidence;
+              const iterLabel = iterDisplayNum(d.iteration as string);
               if (reasoning) {
                 outputBlocks.push({
                   type: 'markdown',
                   content: `**Decision: ${decision}** (confidence: ${conf ?? '?'})\n\n${reasoning}`,
-                  title: `Iteration ${d.iteration ?? '?'}`,
+                  title: `Iteration ${iterLabel}`,
                 });
               } else {
                 outputBlocks.push({
                   type: 'json',
                   content: JSON.stringify(d, null, 2),
-                  title: `Iteration ${d.iteration ?? '?'}`,
+                  title: `Iteration ${iterLabel}`,
                 });
               }
               break;
@@ -2020,7 +2036,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       if (lastRun?.graph?.nodes?.length) {
         graphNodes = lastRun.graph.nodes.map((n: Record<string, unknown>, i: number) => ({
           id: n.id as string,
-          type: 'default',
+          type: (n.type as string) ?? (n.data as Record<string, unknown>)?.nodeType ?? 'default',
           position: (n.position as { x: number; y: number }) ?? { x: 0, y: i * 120 },
           data: { ...(n.data as Record<string, unknown>), nodeType: n.type as string },
         }));
@@ -2052,8 +2068,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           switch (evt.type) {
             case 'run.start': {
               const model = (d.model as string) ?? ((d.models as Record<string, string>)?.manager) ?? lastRun.model;
-              addNode({ id: 'task_root', type: 'default', position: { x: 0, y: 0 }, data: { label: lastRun.task.slice(0, 60) || 'Task', status: 'running', nodeType: 'task', details: { model } } });
-              addNode({ id: 'manager', type: 'default', position: { x: 0, y: 120 }, data: { label: `Manager (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', details: d } });
+              addNode({ id: 'task_root', type: 'task', position: { x: 0, y: 0 }, data: { label: lastRun.task.slice(0, 60) || 'Task', status: 'running', nodeType: 'task', details: { model } } });
+              addNode({ id: 'manager', type: 'manager', position: { x: 0, y: 120 }, data: { label: `Manager (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', details: d } });
               addEdge({ id: 'e-task-manager', source: 'task_root', target: 'manager' });
               break;
             }
@@ -2063,12 +2079,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const evtDepth = (d.depth as number) ?? 1;
               const model = (d.model as string) ?? '?';
               const subMgrId = `sub_mgr_${parentId}_d${evtDepth}`;
-              addNode({ id: subMgrId, type: 'default', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Sub-Manager d${evtDepth} (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', depth: evtDepth, details: d } });
+              addNode({ id: subMgrId, type: 'manager', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Sub-Manager d${evtDepth} (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', depth: evtDepth, details: d } });
               addEdge({ id: `e-${parentId}-${subMgrId}`, source: parentId, target: subMgrId });
               break;
             }
             case 'iteration.start': {
-              const iterId = `iter_${d.iteration ?? '?'}`;
+              const rawIter = (d.iteration as string) ?? '?';
+              const displayNum = iterDisplayNum(rawIter);
+              const iterId = `iter_${rawIter}`;
               const evtDepth = (d.depth as number) ?? 0;
               const rawParentWorker = d.parent_id as string | undefined;
               let iterParent = 'manager';
@@ -2078,15 +2096,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 if (graphNodes.some((n) => n.id === subMgrId)) iterParent = subMgrId;
                 else if (graphNodes.some((n) => n.id === resolvedParent)) iterParent = resolvedParent;
               }
-              addNode({ id: iterId, type: 'default', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Iteration ${d.iteration ?? '?'}`, status: 'running', nodeType: 'iteration', depth: evtDepth, details: d } });
+              addNode({ id: iterId, type: 'iteration', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Iteration ${displayNum}`, iteration: displayNum, status: 'running', nodeType: 'iteration', depth: evtDepth, details: d } });
               addEdge({ id: `e-${iterParent}-${iterId}`, source: iterParent, target: iterId });
               break;
             }
             case 'iteration.decision': {
-              const iterId = `iter_${d.iteration ?? '?'}`;
+              const rawIter = (d.iteration as string) ?? '?';
+              const displayNum = iterDisplayNum(rawIter);
+              const iterId = `iter_${rawIter}`;
               const existing = graphNodes.find((n) => n.id === iterId);
               if (existing) {
-                existing.data = { ...existing.data, status: (d.decision as string) === 'complete' ? 'complete' : 'running', label: `Iter ${d.iteration}: ${(d.decision as string ?? '').toUpperCase()}`, confidence: d.confidence, details: d };
+                existing.data = { ...existing.data, iteration: displayNum, status: (d.decision as string) === 'complete' ? 'complete' : 'running', label: `Iter ${displayNum}: ${(d.decision as string ?? '').toUpperCase()}`, confidence: d.confidence, details: d };
               }
               break;
             }
@@ -2106,7 +2126,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 const rawParent = (d.parent_id as string) ?? lastManagerId() ?? 'manager';
                 parentId = resolveNodeRef(rawParent, graphNodes);
               }
-              addNode({ id: workerNodeId, type: 'default', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', details: d } });
+              addNode({ id: workerNodeId, type: 'worker', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', worker_id: workerId, details: d } });
               addEdge({ id: `e-${parentId}-${workerNodeId}`, source: parentId, target: workerNodeId });
               break;
             }
@@ -2150,7 +2170,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 const iterNodeId = `iter_${iteration}`;
                 if (graphNodes.some((n) => n.id === iterNodeId)) resolvedCallerId = iterNodeId;
               }
-              addNode({ id: toolId, type: 'default', position: { x: 450, y: graphNodes.length * 120 }, data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
+              addNode({ id: toolId, type: 'toolCall', position: { x: 450, y: graphNodes.length * 120 }, data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
               if (resolvedCallerId) addEdge({ id: `e-${resolvedCallerId}-${toolId}`, source: resolvedCallerId, target: toolId });
               break;
             }

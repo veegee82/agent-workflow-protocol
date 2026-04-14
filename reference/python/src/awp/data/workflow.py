@@ -133,6 +133,7 @@ class AgentWorkflow:
         packages: list[str] | None = None,
         output_dir: str | None = None,
         verbose: bool = False,
+        trace_enabled: bool = False,
         code_mode: bool = True,
         tool_creation: bool = True,
         tools: list[str] | None = None,
@@ -157,6 +158,8 @@ class AgentWorkflow:
         decision_journal_max_entries: int = 20,
         # Performance profiling
         profile: bool = False,
+        # Raw config overrides (keyed by section name, e.g. "critique", "planning")
+        extra_config: dict[str, Any] | None = None,
     ) -> None:
         if not model:
             raise ValueError(
@@ -180,6 +183,7 @@ class AgentWorkflow:
         self.packages = packages or []
         self.output_dir = output_dir
         self.verbose = verbose
+        self.trace_enabled = trace_enabled
         self.code_mode = code_mode
         self.tool_creation = tool_creation
         self.tools = tools if tools is not None else [
@@ -218,6 +222,7 @@ class AgentWorkflow:
         self.decision_journal_enabled = decision_journal_enabled
         self.decision_journal_max_entries = decision_journal_max_entries
         self.profile = profile
+        self.extra_config = extra_config or {}
 
     def run(self) -> dict[str, Any]:
         """Execute the workflow and return results as a dict.
@@ -459,7 +464,7 @@ class AgentWorkflow:
 
     def _build_config(self) -> DelegationLoopConfig:
         """Build a DelegationLoopConfig from the user's parameters."""
-        return DelegationLoopConfig(
+        cfg = DelegationLoopConfig(
             manager="agents/manager",
             models=DelegationLoopModels(
                 manager=self.model,
@@ -537,7 +542,23 @@ class AgentWorkflow:
                 enabled=self.decision_journal_enabled,
                 max_entries=self.decision_journal_max_entries,
             ),
+            trace_enabled=self.trace_enabled,
         )
+        # Apply extra_config overrides onto named config sections (e.g.
+        # {"critique": {"min_score_to_delegate": 0.4}, "planning": {"plan_commit_mode": "strict"}}).
+        for section, overrides in self.extra_config.items():
+            if not isinstance(overrides, dict):
+                # Scalar overrides (e.g. "trace_enabled": True) are set directly.
+                if hasattr(cfg, section):
+                    setattr(cfg, section, overrides)
+                continue
+            sub = getattr(cfg, section, None)
+            if sub is None:
+                continue
+            for key, val in overrides.items():
+                if hasattr(sub, key):
+                    setattr(sub, key, val)
+        return cfg
 
     @staticmethod
     def _build_eval_config() -> EvaluationConfig:

@@ -23,11 +23,6 @@ logger = logging.getLogger(__name__)
 _X_SPACING = 280
 _Y_SPACING = 160
 
-# Sub-run cluster geometry
-_CLUSTER_PAD_X = 60
-_CLUSTER_PAD_Y = 30
-_CLUSTER_HEADER_H = 70
-
 # Distinct hue per recursion depth so the eye can quickly tell levels apart
 _DEPTH_PALETTE = [
     {"border": "#7C3AED", "bg": "rgba(124, 58, 237, 0.06)", "label": "#A78BFA"},  # depth 1: violet
@@ -36,12 +31,6 @@ _DEPTH_PALETTE = [
     {"border": "#F59E0B", "bg": "rgba(245, 158, 11, 0.06)", "label": "#FBBF24"},  # depth 4: amber
 ]
 
-
-def _palette_for_depth(depth: int) -> dict[str, str]:
-    """Return a colour theme for a recursion depth (cycles for very deep trees)."""
-    if depth <= 0:
-        depth = 1
-    return _DEPTH_PALETTE[(depth - 1) % len(_DEPTH_PALETTE)]
 
 # Colors
 _COLORS = {
@@ -73,6 +62,24 @@ def _read_json(path: Path) -> dict[str, Any] | list[Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+
+
+def _llm_trace_summary(worker_dir: Path) -> dict[str, Any]:
+    """Read llm_trace/summary.json and return enrichment fields for a worker node."""
+    summary = _read_json(worker_dir / "llm_trace" / "summary.json")
+    if not summary:
+        return {}
+    total_tokens_obj = summary.get("total_tokens", {})
+    return {
+        "llmCallCount": summary.get("total_calls"),
+        "llmTotalTokens": (
+            total_tokens_obj.get("total")
+            if isinstance(total_tokens_obj, dict)
+            else None
+        ),
+        "llmLatencyMs": summary.get("total_latency_ms"),
+        "llmModel": summary.get("model"),
+    }
 
 
 def _truncate(text: Any, max_len: int = 200) -> str:
@@ -151,7 +158,7 @@ def build_graph(run_dir: Path) -> GraphData:
         )
     )
 
-    max_level = _walk_run(
+    max_level, _ = _walk_run(
         run_dir,
         root_id,
         base_level=1,
@@ -162,234 +169,17 @@ def build_graph(run_dir: Path) -> GraphData:
         prefix="",
     )
 
-    # Completion node
-    completion = _read_json(run_dir / "run_completion.json")
-    if completion:
-        comp_status = completion.get("status", "?")
-        total_iters = completion.get("total_iterations", "?")
-        final_budget = completion.get("final_budget", {})
-        color = _COLORS["green"] if comp_status == "complete" else _COLORS["red"]
-
-        nodes.append(
-            GraphNode(
-                id="completion",
-                type="completion",
-                position={"x": 0, "y": (max_level + 1) * _Y_SPACING},
-                data={
-                    "label": f"Result: {comp_status}",
-                    "nodeType": "completion",
-                    "status": comp_status,
-                    "totalIterations": total_iters,
-                    "finalBudget": final_budget,
-                },
-            )
-        )
-        edges.append(
-            GraphEdge(
-                id=f"edge_{root_id}_completion",
-                source=root_id,
-                target="completion",
-                type="default",
-                animated=False,
-                style={"stroke": color, "strokeWidth": 2},
-            )
-        )
-
     # Update root and manager statuses based on completion
+    completion = _read_json(run_dir / "run_completion.json")
     if completion:
         final_status = completion.get("status", "complete")
         for n in nodes:
             if n.id == root_id:
                 n.data["status"] = final_status
-            elif n.type == "manager" and n.data.get("status") == "running":
+            elif n.type in ("manager", "submanager") and n.data.get("status") == "running":
                 n.data["status"] = final_status
 
     return GraphData(nodes=nodes, edges=edges, stats=stats)
-
-
-def _walk_subrun_clustered(
-    sub_dir: Path,
-    triggering_worker_node_id: str,
-    triggering_worker_data: dict[str, Any],
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    stats: dict[str, Any],
-    prefix: str,
-    depth: int,
-) -> int:
-    """Walk a sub-run and wrap all of its nodes inside a ``subRunCluster``.
-
-    The cluster acts as a visual container (rendered as a coloured outlined
-    box in the frontend). Children inside the cluster are repositioned to
-    be parent-relative as required by React Flow's subflow API.
-
-    Returns the depth level (in the parent's coordinate space) reached by
-    the sub-run, which is one — the cluster collapses the entire sub-run
-    into a single visual unit so the parent layout doesn't have to grow.
-    """
-    # 1. Snapshot list lengths so we can identify which nodes/edges this
-    #    walk is responsible for
-    nodes_before = len(nodes)
-    edges_before = len(edges)
-
-    # 2. Create the cluster placeholder. We will set its position + style
-    #    after the inner walk has finished and we know its bounding box.
-    cluster_id = _uid(f"{prefix}cluster")
-    sub_manifest = _read_json(sub_dir / "run_manifest.json") or {}
-    sub_run_id = sub_manifest.get("run_id", sub_dir.name)
-    sub_models = sub_manifest.get("models", {})
-    sub_budget = sub_manifest.get("budget", {})
-    palette = _palette_for_depth(depth)
-
-    cluster_node = GraphNode(
-        id=cluster_id,
-        type="subRunCluster",
-        position={"x": 0, "y": 0},  # placeholder, set below
-        data={
-            "label": (
-                f"⤷ Submanager: {triggering_worker_data.get('worker_id', '?')}"
-                f"  ·  depth {depth}"
-            ),
-            "nodeType": "subRunCluster",
-            "depth": depth,
-            "sub_run_id": sub_run_id,
-            "triggering_worker": triggering_worker_data.get("worker_id"),
-            "triggering_node_id": triggering_worker_node_id,
-            "manager_model": sub_models.get("manager"),
-            "worker_model": sub_models.get("worker"),
-            "budget": sub_budget,
-            "palette": palette,
-        },
-        style={
-            "background": palette["bg"],
-            "border": f"2px dashed {palette['border']}",
-            "borderRadius": "12px",
-            "padding": "0px",
-        },
-        zIndex=-(10 + depth),  # negative so children render above the box
-    )
-    nodes.append(cluster_node)
-
-    # 3. Walk the sub-run normally. The triggering worker is the visual
-    #    parent so the connecting edge points into the cluster, but the
-    #    walk uses an internal coordinate system starting at (0, 0).
-    inner_max_level = _walk_run(
-        sub_dir,
-        triggering_worker_node_id,
-        base_level=0,
-        x_offset=0,
-        nodes=nodes,
-        edges=edges,
-        stats=stats,
-        prefix=f"{prefix}sub_{triggering_worker_data.get('worker_id', '?')}_",
-        depth=depth,
-    )
-
-    # 4. Identify the nodes added by THIS walk (excluding the cluster itself)
-    new_nodes = nodes[nodes_before + 1 :]
-    if not new_nodes:
-        # Empty sub-run — drop the cluster entirely so the layout stays clean
-        nodes.pop(nodes_before)
-        return 0
-
-    # 5. Find the direct children (nodes that were not assigned to a deeper
-    #    cluster by a recursive call). These are what we re-parent.
-    direct_children = [n for n in new_nodes if n.parentNode is None]
-    nested_clusters = [
-        n for n in new_nodes
-        if n.parentNode is None and n.type == "subRunCluster"
-    ]
-
-    # Statistics so the frontend can show meaningful collapse summaries and a
-    # navigator tree without re-walking the graph.
-    descendant_count = len(new_nodes)
-    worker_count = sum(
-        1 for n in new_nodes if n.type in ("worker", "submanager")
-    )
-    iteration_count = sum(1 for n in new_nodes if n.type == "iteration")
-    nested_cluster_count = len(nested_clusters)
-    cluster_node.data["descendant_count"] = descendant_count
-    cluster_node.data["worker_count"] = worker_count
-    cluster_node.data["iteration_count"] = iteration_count
-    cluster_node.data["nested_cluster_count"] = nested_cluster_count
-    # Deep clusters start collapsed so the initial view stays compact;
-    # the user can expand them on demand from the header or the navigator.
-    cluster_node.data["auto_collapse"] = depth >= 2
-
-    # 6. Compute bounding box of direct children in their absolute coords
-    if direct_children:
-        # Each direct child has an (x, y); we also need to know how big
-        # they are so the cluster doesn't clip them. Use generous defaults.
-        NODE_W = 220
-        NODE_H = 130
-        min_x = min(n.position["x"] for n in direct_children)
-        min_y = min(n.position["y"] for n in direct_children)
-        max_x = max(n.position["x"] for n in direct_children) + NODE_W
-        max_y = max(n.position["y"] for n in direct_children) + NODE_H
-
-        cluster_w = (max_x - min_x) + 2 * _CLUSTER_PAD_X
-        cluster_h = (max_y - min_y) + _CLUSTER_HEADER_H + 2 * _CLUSTER_PAD_Y
-    else:
-        min_x = min_y = 0
-        cluster_w, cluster_h = 400, 200
-
-    # 7. Re-parent direct children to the cluster and re-position relative
-    #    to its origin (cluster's top-left corner sits at (0, 0) in its own
-    #    coordinate system; children get _CLUSTER_PAD_X and _CLUSTER_HEADER_H
-    #    offsets so they don't overlap the header).
-    for child in direct_children:
-        child.parentNode = cluster_id
-        child.extent = "parent"
-        child.position = {
-            "x": child.position["x"] - min_x + _CLUSTER_PAD_X,
-            "y": child.position["y"] - min_y + _CLUSTER_HEADER_H,
-        }
-
-    # 8. Set cluster geometry
-    cluster_node.style.update(
-        {
-            "width": cluster_w,
-            "height": cluster_h,
-        }
-    )
-
-    # 9. Position the cluster itself relative to the triggering worker
-    #    (the parent's coordinate frame). Stack vertically below the worker.
-    triggering_node = next(
-        (n for n in nodes if n.id == triggering_worker_node_id), None
-    )
-    if triggering_node is not None:
-        cluster_node.position = {
-            "x": triggering_node.position["x"] - cluster_w / 2 + 50,
-            "y": triggering_node.position["y"] + 180,
-        }
-
-    # 10. Mark every edge created INSIDE this cluster with a hint so the
-    #     frontend can render them in the depth-palette colour
-    for e in edges[edges_before:]:
-        e.data = e.data or {}
-        e.data["clusterDepth"] = depth
-        e.data["clusterColor"] = palette["border"]
-
-    # 11. Add a fat connection edge from the triggering worker into the
-    #     cluster to make the parent→cluster relationship visually obvious
-    edges.append(
-        GraphEdge(
-            id=f"edge_{triggering_worker_node_id}_to_{cluster_id}",
-            source=triggering_worker_node_id,
-            target=cluster_id,
-            type="default",
-            animated=True,
-            style={
-                "stroke": palette["border"],
-                "strokeWidth": 3,
-                "strokeDasharray": "8,4",
-            },
-            data={"clusterEdge": True, "depth": depth},
-        )
-    )
-
-    return 1
 
 
 def _walk_run(
@@ -402,24 +192,39 @@ def _walk_run(
     stats: dict[str, Any],
     prefix: str,
     depth: int = 0,
-) -> int:
-    """Recursively walk a run directory and build nodes/edges."""
+) -> tuple[int, int]:
+    """Recursively walk a run directory and build nodes/edges.
+
+    Returns (max_level, max_x_used) so callers can stack sub-runs
+    horizontally.
+    """
+    x_sp = _X_SPACING
+    y_sp = _Y_SPACING
+
     manifest = _read_json(run_path / "run_manifest.json")
     models = manifest.get("models", {}) if manifest else {}
 
-    # Manager node
+    # Manager node — depth 0 is the root manager, depth > 0 are sub-managers
     mgr_id = _uid(f"{prefix}mgr")
     mgr_model = models.get("manager", "?")
+    mgr_depth = prefix.count("sub_")
+    is_root_mgr = depth == 0
+    mgr_type = "manager" if is_root_mgr else "submanager"
+    mgr_label = (
+        f"Manager ({mgr_model[:25]})"
+        if is_root_mgr
+        else f"Sub-Manager d{mgr_depth} ({mgr_model[:20]})"
+    )
     nodes.append(
         GraphNode(
             id=mgr_id,
-            type="manager",
-            position={"x": x_offset, "y": base_level * _Y_SPACING},
+            type=mgr_type,
+            position={"x": x_offset, "y": base_level * y_sp},
             data={
-                "label": f"Manager ({mgr_model[:25]})",
+                "label": mgr_label,
                 "model": mgr_model,
-                "depth": prefix.count("sub_"),
-                "nodeType": "manager",
+                "depth": mgr_depth,
+                "nodeType": mgr_type,
                 "status": "running",
             },
         )
@@ -436,18 +241,51 @@ def _walk_run(
     )
 
     max_level = base_level
+    # max_x tracks the rightmost pixel used by this run's column.
+    # Initialize to at least the full column width so sub-runs never
+    # overlap with this column's workers.
+    max_x = x_offset
     iterations_dir = run_path / "iterations"
     if not iterations_dir.exists():
-        return max_level
+        return max_level, max_x
 
     iter_dirs = sorted(
         [d for d in iterations_dir.iterdir() if d.is_dir()], key=lambda d: d.name
     )
 
+    # Pre-scan: find the max number of workers in any iteration and the
+    # max tool calls per worker so we can compute the column width.
+    _max_workers_in_iter = 0
+    _max_tcs_per_worker = 0
+    for _id in iter_dirs:
+        _dd = _id / "delegations"
+        if _dd.exists():
+            _worker_dirs = [_w for _w in _dd.iterdir() if _w.is_dir()]
+            _max_workers_in_iter = max(_max_workers_in_iter, len(_worker_dirs))
+            for _wd in _worker_dirs:
+                _tc = _read_json(_wd / "tool_calls.json")
+                _tcl = _tc if isinstance(_tc, list) else (_read_json(_wd / "result.json") or {}).get("_tool_calls", [])
+                _max_tcs_per_worker = max(_max_tcs_per_worker, len(_tcl))
+    # Column width: enough for iteration + workers + tool call spread.
+    _NODE_W = 180  # worker node width
+    _GAP = 120     # gap between columns (enough to prevent cross-column overlap)
+    _TC_NODE_W = 140  # tool call node spacing
+    _worker_spread = (_max_workers_in_iter + 1) * (_NODE_W + _GAP)
+    _tc_spread = _max_tcs_per_worker * _TC_NODE_W if _max_tcs_per_worker > 1 else 0
+    _col_width = max(x_sp, _worker_spread, _tc_spread + _NODE_W)
+    # Reserve the full column width so sub-runs don't overlap
+    max_x = x_offset + _col_width
+
+    # Track the next available vertical row for iterations.
+    # Each iteration gets its own row below the manager.
+    next_iter_level = base_level + 1
+
     for iter_idx, iter_dir in enumerate(iter_dirs):
-        iter_num = iter_dir.name
+        iter_raw = iter_dir.name  # zero-padded directory name, e.g. "001"
+        # Display number: strip leading zeros for clean labels ("001" → "1")
+        iter_num = str(int(iter_raw)) if iter_raw.isdigit() else iter_raw
         stats["total_iterations"] += 1
-        iter_level = base_level + 1
+        iter_level = next_iter_level
 
         decision_data = _read_json(iter_dir / "manager_decision.json")
         if not decision_data:
@@ -465,15 +303,16 @@ def _walk_run(
             "fail": _COLORS["red"],
         }.get(decision_type, _COLORS["grey"])
 
-        dec_id = _uid(f"{prefix}iter_{iter_num}")
+        dec_id = _uid(f"{prefix}iter_{iter_raw}")
 
+        # Iteration node: directly below manager, vertically stacked
         nodes.append(
             GraphNode(
                 id=dec_id,
                 type="iteration",
                 position={
-                    "x": x_offset + iter_idx * _X_SPACING,
-                    "y": iter_level * _Y_SPACING,
+                    "x": x_offset,
+                    "y": iter_level * y_sp,
                 },
                 data={
                     "label": f"Iter {iter_num}: {decision_type.upper()}",
@@ -506,15 +345,19 @@ def _walk_run(
                 data={"label": f"iter {iter_num}"},
             )
         )
-        max_level = max(max_level, iter_level)
 
         # Workers
         delegations_dir = iter_dir / "delegations"
         if not delegations_dir.exists():
+            next_iter_level = iter_level + 1
+            max_level = max(max_level, iter_level)
             continue
 
         # Collect eval scores from workers to propagate to iteration node
         _iter_eval_scores: list[float] = []
+        _tc_before = stats["total_tool_calls"]
+        _w_cursor = _NODE_W + _GAP  # start after the iteration node
+        _pending_sub_runs: list[tuple] = []  # (sub_dir, parent_node_id, worker_id_str)
 
         worker_dirs = sorted(
             [d for d in delegations_dir.iterdir() if d.is_dir()],
@@ -524,7 +367,7 @@ def _walk_run(
         for w_idx, worker_dir in enumerate(worker_dirs):
             worker_id_str = worker_dir.name
             stats["total_workers"] += 1
-            worker_level = iter_level + 1
+            worker_level = iter_level  # same row as iteration
 
             envelope = _read_json(worker_dir / "envelope.json") or {}
             result = _read_json(worker_dir / "result.json") or {}
@@ -554,13 +397,19 @@ def _walk_run(
             w_node_id = _uid(f"{prefix}w_{worker_id_str}")
             conf_label = f"{w_confidence}" if w_confidence is not None else "?"
 
+            # Workers sit to the right of the iteration node on the same row.
+            # Spacing accounts for tool calls that fan out below each worker.
+            w_x = x_offset + _w_cursor
+            _w_slot = max(_NODE_W + _GAP, n_tc * _TC_NODE_W) if n_tc > 0 else _NODE_W + _GAP
+            _w_cursor += _w_slot
+            max_x = max(max_x, w_x + _w_slot)
             nodes.append(
                 GraphNode(
                     id=w_node_id,
                     type="submanager" if is_submanager else "worker",
                     position={
-                        "x": x_offset + iter_idx * _X_SPACING + w_idx * (_X_SPACING // 2),
-                        "y": worker_level * _Y_SPACING,
+                        "x": w_x,
+                        "y": worker_level * y_sp,
                     },
                     data={
                         "label": (
@@ -572,6 +421,7 @@ def _walk_run(
                         "submanagerDepth": sub_depth,
                         "submanagerRunId": sub_run_id,
                         "worker_id": worker_id_str,
+                        "iteration": iter_raw,
                         "confidence": w_confidence,
                         "confidenceLabel": conf_label,
                         "hasError": has_error,
@@ -580,6 +430,7 @@ def _walk_run(
                         "toolsAllowed": tools_allowed[:10],
                         "instructions": _truncate(instructions, 300),
                         "status": "error" if has_error else "complete",
+                        **(_llm_trace_summary(worker_dir)),
                         **({"eval_score": result["_eval_score"],
                             "eval_action": result.get("_eval_action", ""),
                             "eval_metrics": result.get("_eval_metrics", [])}
@@ -603,10 +454,9 @@ def _walk_run(
                     style={"stroke": color, "strokeWidth": 1.5},
                 )
             )
-            max_level = max(max_level, worker_level)
 
-            # Tool call nodes
-            tc_level = worker_level + 1
+            # Tool call nodes — one row below the worker
+            tc_level = iter_level + 1
             for tc_idx, tc in enumerate(tc_list):
                 if not isinstance(tc, dict):
                     continue
@@ -629,16 +479,16 @@ def _walk_run(
                         stdout = _truncate(data_inner.get("stdout", ""), 400)
                         stderr = _truncate(data_inner.get("stderr", ""), 200)
 
+                _TC_W = 140  # tool call node spacing
+                tc_x = w_x + tc_idx * _TC_W
+                max_x = max(max_x, tc_x + _TC_W)
                 nodes.append(
                     GraphNode(
                         id=tc_node_id,
                         type="toolCall",
                         position={
-                            "x": x_offset
-                            + iter_idx * _X_SPACING
-                            + w_idx * (_X_SPACING // 2)
-                            + tc_idx * 100,
-                            "y": tc_level * _Y_SPACING,
+                            "x": tc_x,
+                            "y": tc_level * y_sp,
                         },
                         data={
                             "label": tool_name,
@@ -668,39 +518,43 @@ def _walk_run(
                         },
                     )
                 )
-                max_level = max(max_level, tc_level)
 
-            # Sub-runs (A4 recursive delegation) — wrap each in a cluster
-            triggering_data = {"worker_id": worker_id_str}
+            # Collect sub-runs to process AFTER all workers in this
+            # iteration are placed (so tool calls don't overlap with
+            # sub-run columns).
             sub_run_dir = worker_dir / "runs"
             if sub_run_dir.exists():
                 for sub_dir in sorted(sub_run_dir.iterdir()):
                     if sub_dir.is_dir() and (sub_dir / "run_manifest.json").exists():
-                        _walk_subrun_clustered(
-                            sub_dir,
-                            w_node_id,
-                            triggering_data,
-                            nodes,
-                            edges,
-                            stats,
-                            prefix,
-                            depth + 1,
-                        )
-
+                        _pending_sub_runs.append((sub_dir, w_node_id, worker_id_str))
             if (
                 (worker_dir / "iterations").exists()
                 and (worker_dir / "run_manifest.json").exists()
             ):
-                _walk_subrun_clustered(
-                    worker_dir,
-                    w_node_id,
-                    triggering_data,
-                    nodes,
-                    edges,
-                    stats,
-                    prefix,
-                    depth + 1,
-                )
+                _pending_sub_runs.append((worker_dir, w_node_id, worker_id_str))
+
+        # Process sub-runs AFTER all workers are placed (prevents TC overlap)
+        for _sub_dir, _sub_parent, _sub_wid in _pending_sub_runs:
+            sub_x = max_x + _GAP
+            inner_max, inner_max_x = _walk_run(
+                _sub_dir,
+                _sub_parent,
+                base_level=base_level,
+                x_offset=sub_x,
+                nodes=nodes,
+                edges=edges,
+                stats=stats,
+                prefix=f"{prefix}sub_{_sub_wid}_",
+                depth=depth + 1,
+            )
+            max_level = max(max_level, inner_max)
+            max_x = max(max_x, inner_max_x)
+
+        # Advance the vertical cursor: 1 row for iteration+workers,
+        # +1 row if any tool calls were rendered below.
+        _any_tc = stats["total_tool_calls"] > _tc_before if worker_dirs else False
+        next_iter_level = iter_level + (2 if _any_tc else 1)
+        max_level = max(max_level, next_iter_level - 1)
 
         # Propagate avg eval score to iteration node
         if _iter_eval_scores:
@@ -711,7 +565,7 @@ def _walk_run(
                     n.data["eval_action"] = "accept" if avg_eval >= 0.75 else "warning" if avg_eval >= 0.5 else "fail"
                     break
 
-    return max_level
+    return max_level, max_x
 
 
 def build_incremental_graph(
@@ -738,11 +592,41 @@ def build_incremental_graph(
 
 
 def find_run_dir(workspace_dir: Path) -> Path | None:
-    """Locate the latest delegation loop run directory under a workspace."""
+    """Locate the root delegation loop run directory under a workspace.
+
+    The ``workspace/runs/`` directory may contain both root-level run
+    directories and sub-manager run directories (all stored flat with
+    timestamp-based names).  Sub-manager runs also appear nested inside
+    the root run's ``iterations/*/delegations/*/runs/`` hierarchy, so
+    any directory whose ID also appears *inside* another candidate's
+    iteration tree is a sub-run — not the root.
+
+    Strategy: collect all run IDs, then exclude those that appear as
+    nested sub-runs of another candidate.  From the remaining roots,
+    return the latest (by name).  Falls back to the latest overall if
+    the filtering yields nothing.
+    """
     runs_dir = workspace_dir / "workspace" / "runs"
     if not runs_dir.exists():
         return None
     candidates = sorted(
         [d for d in runs_dir.iterdir() if d.is_dir()], key=lambda d: d.name
     )
-    return candidates[-1] if candidates else None
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Build a set of sub-run IDs by scanning each candidate for nested
+    # run directories.  A sub-run has its manifest under
+    # <root>/iterations/*/delegations/*/runs/<sub_id>/run_manifest.json.
+    all_names = {d.name for d in candidates}
+    sub_run_names: set[str] = set()
+    for cand in candidates:
+        for nested_manifest in cand.rglob("runs/*/run_manifest.json"):
+            nested_name = nested_manifest.parent.name
+            if nested_name in all_names:
+                sub_run_names.add(nested_name)
+
+    roots = [d for d in candidates if d.name not in sub_run_names]
+    return roots[-1] if roots else candidates[-1]

@@ -78,7 +78,11 @@ The interface has five areas:
 Studio used to call these *sessions*. They are now **experiments** — and the rename is not cosmetic. A session implied a single conversation; an experiment is a long-lived workspace with metadata, scoped history, and multiple tabs of context that survive across runs. The two new tabs make this concrete:
 
 - **Protocol tab** — a free-form, persistent notebook for the human running the experiment. Hypotheses, observations, links to runs, screenshots. The protocol survives every restart and is exported with the experiment.
-- **Memory tab** — the agent-side counterpart: scoped long-term memory entries written by workflows running inside this experiment. Each entry shows its tier (`session`, `daily`, `long_term`), originating run, and timestamp. See [memory.md](memory.md) for the underlying tier model.
+- **Memory tab** — the agent-side counterpart with three sub-tabs:
+  - **Artifacts** — files from the run's `workspace/memory/` directory (tools, facts, antipatterns produced by auto-curation). Shows file name, kind, size, and source; auto-refreshes during live runs.
+  - **Short-term** — scoped session/daily memory entries written by workflows running inside this experiment. Each entry shows its tier (`session`, `daily`, `long_term`), originating run, and timestamp.
+  - **Long-term** — persistent memory entries that survive across experiments.
+  See [memory.md](memory.md) for the underlying tier model.
 
 Each experiment carries metadata (title, description, tags, default settings, default secrets) and a **scoped history**: the History tab inside an experiment shows only that experiment's runs, while the global History view spans all experiments. Background runs in *other* experiments stay visible via the live status dots in the sidebar — switching experiments never silently kills a run.
 
@@ -209,6 +213,8 @@ Each node is expandable and shows:
 
 Stats bar shows total nodes, iterations, workers, and tool calls.
 
+**LLM Trace panel.** When `trace_enabled` is active for a run (see [observability.md](observability.md#llm-call-tracing)), each worker and manager node in the Agent Inspector gains an **LLM Trace** tab. It shows every API call as an expandable card: model badge, token counts (prompt/completion/total), latency, finish reason, and the full message exchange with role-colored badges (system=purple, user=blue, assistant=green, tool=yellow). The summary header aggregates total calls, tokens, latency, and tool rounds for quick cost/performance diagnosis.
+
 **A4 sub-run clusters.** When a workflow uses recursive delegation (A4),
 the graph renders nested sub-runs as colored cluster containers (via React
 Flow's `parentNode` mechanism). Clusters are color-coded by recursion depth
@@ -296,16 +302,37 @@ Browser (React + Vite)
           Production SPA served by FastAPI
 ```
 
+### Per-run isolation
+
+Each run gets its own isolated directory under the experiment:
+
+```text
+/tmp/awp-experiments/<experiment_id>/
+  runs/<run_id>/              # Per-run workspace (delegation state, outputs)
+    workspace/
+      dynamic_tools/ → ../../shared/dynamic_tools/   # Symlink
+      skills/        → ../../shared/skills/           # Symlink
+    output/
+  shared/                     # Persistent across runs within the experiment
+    dynamic_tools/            # Tools persist and accumulate
+    skills/                   # Skills persist and accumulate
+```
+
+Dynamic tools and skills are symlinked from the shared experiment-level directory into each run's workspace, so tools created in run N are available in run N+1 without copying. Delegation loop state (iterations, worker outputs, traces) stays fully isolated per run.
+
+Legacy experiments with a flat `workspace/` + `output/` layout are automatically migrated on the first new run.
+
 ### Data flow during a run
 
 1. User submits task via REST API
 2. Backend creates a run record in SQLite and starts a background thread
-3. Background thread launches `AgentWorkflow`, sets up a file watcher on the run directory
-4. File watcher polls every 200ms for new JSON files written by the delegation loop runner
-5. Each new file is translated into a `RunEvent` and pushed to the `EventBus`
-6. EventBus fans out events to WebSocket subscribers AND persists them to SQLite
-7. Frontend receives events via WebSocket and updates the store (output blocks, graph nodes, budget)
-8. On `run.complete`, frontend loads the full graph from the backend and switches to the State tab
+3. Backend sets up per-run isolation (creates run dir, symlinks shared state)
+4. Background thread launches `AgentWorkflow`, sets up a file watcher on the run directory
+5. File watcher polls every 200ms for new JSON files written by the delegation loop runner
+6. Each new file is translated into a `RunEvent` and pushed to the `EventBus`
+7. EventBus fans out events to WebSocket subscribers AND persists them to SQLite
+8. Frontend receives events via WebSocket and updates the store (output blocks, graph nodes, budget)
+9. On `run.complete`, frontend loads the full graph from the backend and switches to the State tab
 
 ## Development Mode
 

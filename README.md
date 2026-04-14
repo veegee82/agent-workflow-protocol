@@ -30,6 +30,7 @@
   <a href="docs/critique.md">Critique</a> &middot;
   <a href="docs/manager-intelligence.md">Manager Intelligence</a> &middot;
   <a href="docs/runtime-tool-generation.md">Tool Creation</a> &middot;
+  <a href="docs/iterative-optimization.md">Iterative Optimization</a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
@@ -62,6 +63,7 @@ This makes AWP uniquely suited for **deep data science and engineering problems*
 - :brain: **Runtime Tool & Skill Creation (A3+)** — Agents build domain-specific Python tools and Markdown skills at runtime. Each tool is AST-validated, schema-checked, dry-run probed, and sandboxed; failed generations are auto-repaired by an inline LLM repair loop without leaving the worker iteration. *[Overview](#runtime-adaptation-skills-and-tools-a3)* · *[Pipeline & sequence diagrams](docs/runtime-tool-generation.md)*
 - :chart_with_upwards_trend: **Deep Data Science Integration** — Native support for DataFrames, numpy arrays, images, SQL queries, S3 objects, REST APIs, and clipboard as workflow inputs. Workers write full Python programs in sandboxes with pip-installable packages. *[Learn more](#2-data-science-integration)*
 - :arrows_counterclockwise: **Delegation Loop Engine** — Manager-worker loop with parallel fan-out, rolling context summaries, stall detection, and two-tier validation. The manager decomposes problems, workers solve subtasks, results aggregate iteratively. *[Learn more](#7-the-delegation-loop-in-detail)*
+- :repeat: **Iterative Optimization** — Closed feedback loop where each round feeds results back into the next. Tools and skills accumulate across iterations, compounding the system's capabilities. Two-channel stall detection (confidence delta + output similarity) with strategy switching prevents stuck loops; multi-dimensional budget enforcement guarantees termination. *[Learn more](docs/iterative-optimization.md)*
 - :mag: **Reflective Critique Loop** — Built-in critic analyzes every worker output for defects (missing data, hallucinations, format errors), triggers targeted repairs with specific fix instructions, and accumulates failure patterns across workers so later iterations avoid earlier mistakes. *[Learn more](docs/critique.md)*
 - :bar_chart: **Evaluation Layer** — Quality scoring with 5 metric kinds: deterministic tests, assertion lists, LLM-as-judge, budget utility, and policy checks. Weighted aggregation maps scores to accept/retry/fail actions. Persistent artifacts for audit and comparison. *[Learn more](docs/evaluation.md)*
 - :jigsaw: **Task Decomposition** — Manager creates an explicit task graph before delegating, decomposing problems into subtasks with dependencies, priorities, and success criteria tracked across iterations. *[Learn more](docs/manager-intelligence.md#task-decomposition-planning-phase)*
@@ -1289,7 +1291,7 @@ agent-workflow-protocol/
   spec/versions/1.0/          Normative specification (RFC 2119)
   schemas/                    JSON Schemas
   docs/                       Complete protocol reference
-  examples/                   15 workflows (A0-A4) + Jupyter
+  examples/                   18 workflows (A0-A4) + Jupyter
     workflows/
       01-hello-world/         A0: Minimal workflow
       02-research-pipeline/   A1: 3-agent DAG with state sharing

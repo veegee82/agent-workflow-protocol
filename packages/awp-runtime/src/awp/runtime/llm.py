@@ -18,7 +18,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Optional
+import time as _time
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -233,6 +234,8 @@ class LLMClient:
         self.timeout = timeout
         self._provider = detected
         self.total_tokens_used: int = 0
+        self._trace_callback: Callable[[dict[str, Any]], None] | None = None
+        self.default_reasoning_effort: str | None = None
 
         # Local models (Ollama) need longer timeouts and no API key
         if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
@@ -261,6 +264,15 @@ class LLMClient:
         except Exception:
             pass
 
+    def set_trace_callback(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
+        """Register a callback invoked after every LLM API call.
+
+        The callback receives a dict with: model, messages_in, response,
+        usage, latency_ms, temperature, max_tokens, tools, finish_reason,
+        timestamp.  Set to ``None`` to disable tracing.
+        """
+        self._trace_callback = cb
+
     def chat(
         self,
         messages: list[dict[str, Any]],
@@ -271,6 +283,7 @@ class LLMClient:
         response_format: Optional[dict[str, Any]] = None,
         tool_choice: Optional[str | dict[str, Any]] = None,
         parallel_tool_calls: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, Any]:
         """Send a chat completion request with automatic fallback.
 
@@ -286,6 +299,9 @@ class LLMClient:
             response_format: Structured output schema.
             tool_choice: Tool selection strategy — ``"auto"``, ``"none"``,
                 ``"required"``, or a specific tool name.
+            reasoning_effort: Reasoning effort level for models that support
+                it (e.g. ``"low"``, ``"medium"``, ``"high"``). Passed via
+                OpenRouter's ``reasoning`` payload field.
             parallel_tool_calls: Whether the model may issue multiple tool
                 calls in a single response. ``None`` = provider default.
 
@@ -319,6 +335,7 @@ class LLMClient:
                     response_format,
                     tool_choice,
                     parallel_tool_calls,
+                    reasoning_effort,
                 )
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
@@ -354,6 +371,7 @@ class LLMClient:
                             response_format,
                             tool_choice,
                             parallel_tool_calls,
+                            reasoning_effort,
                         )
                 raise
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
@@ -382,6 +400,7 @@ class LLMClient:
         response_format: Optional[dict[str, Any]],
         tool_choice: Optional[str | dict[str, Any]] = None,
         parallel_tool_calls: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, Any]:
         """Execute a single chat completion request."""
         # Apply prompt caching for OpenRouter: mark system messages so the
@@ -402,6 +421,9 @@ class LLMClient:
             payload["tools"] = sanitized_tools
         if response_format is not None:
             payload["response_format"] = response_format
+        effective_reasoning = reasoning_effort or self.default_reasoning_effort
+        if effective_reasoning is not None:
+            payload["reasoning"] = {"effort": effective_reasoning}
 
         # Tool calling control parameters (OpenRouter / OpenAI compatible)
         if tool_choice is not None:
@@ -439,12 +461,14 @@ class LLMClient:
             len(tools or []),
         )
 
+        _t0 = _time.monotonic()
         resp = self._client.post(
             f"{self.base_url}/chat/completions",
             json=payload,
             headers=headers,
         )
         resp.raise_for_status()
+        _latency_ms = round((_time.monotonic() - _t0) * 1000, 1)
 
         result = resp.json()
 
@@ -463,6 +487,29 @@ class LLMClient:
             except (TypeError, ValueError):
                 total = 0
             self.total_tokens_used += total
+
+        # Emit trace callback (best-effort — never break the hot path)
+        if self._trace_callback:
+            try:
+                from datetime import datetime, timezone
+                choice = result.get("choices", [{}])[0]
+                self._trace_callback({
+                    "model": use_model,
+                    "messages_in": messages,
+                    "response": choice.get("message", {}),
+                    "usage": result.get("usage", {}),
+                    "latency_ms": _latency_ms,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "tools": [
+                        t.get("function", {}).get("name")
+                        for t in (tools or [])
+                    ],
+                    "finish_reason": choice.get("finish_reason"),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                logger.debug("Trace callback failed", exc_info=True)
 
         return result
 
@@ -528,6 +575,8 @@ class LLMClient:
             headers["X-Title"] = os.getenv("OPENROUTER_APP_TITLE", "AWP Runtime")
 
         chunks: list[str] = []
+        _stream_usage: dict[str, Any] = {}
+        _t0 = _time.monotonic()
         with self._client.stream(
             "POST",
             f"{self.base_url}/chat/completions",
@@ -551,6 +600,7 @@ class LLMClient:
                     # Capture usage from final chunk (OpenRouter sends it)
                     usage = chunk.get("usage")
                     if isinstance(usage, dict):
+                        _stream_usage = usage
                         total = usage.get("total_tokens", 0)
                         if not total:
                             total = (usage.get("prompt_tokens", 0) or 0) + (
@@ -563,7 +613,30 @@ class LLMClient:
                 except (json.JSONDecodeError, IndexError, KeyError):
                     continue
 
-        return "".join(chunks)
+        _latency_ms = round((_time.monotonic() - _t0) * 1000, 1)
+        full_text = "".join(chunks)
+
+        # Emit trace callback for streaming calls (best-effort)
+        if self._trace_callback:
+            try:
+                from datetime import datetime, timezone
+                self._trace_callback({
+                    "model": use_model,
+                    "messages_in": messages,
+                    "response": {"content": full_text},
+                    "usage": _stream_usage,
+                    "latency_ms": _latency_ms,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "tools": [],
+                    "finish_reason": "stop",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "streaming": True,
+                })
+            except Exception:
+                logger.debug("Trace callback failed (streaming)", exc_info=True)
+
+        return full_text
 
     def chat_stream_json(
         self,

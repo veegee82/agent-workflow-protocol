@@ -267,8 +267,8 @@ class TestErrorOutput:
         assert workers[0].data["hasError"] is True
         assert "pandas" in workers[0].data["error"]
 
-        comp = [n for n in graph.nodes if n.type == "completion"]
-        assert comp[0].data["status"] == "failed"
+        root = [n for n in graph.nodes if n.id == "task_root"]
+        assert root[0].data["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------

@@ -589,7 +589,7 @@ function ModelSection() {
             type="text"
             value={config.model}
             onChange={(e) => updateConfig({ model: e.target.value })}
-            placeholder="nvidia/nemotron-3-super-120b-a12b"
+            placeholder="openai/gpt-5-mini"
             className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
           />
         </div>
@@ -654,7 +654,7 @@ function ModelSection() {
             type="text"
             value={config.worker_model ?? ''}
             onChange={(e) => updateConfig({ worker_model: e.target.value || undefined })}
-            placeholder="openai/gpt-5-mini"
+            placeholder="deepseek/deepseek-chat-v3.1"
             className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
           />
         </div>
@@ -1142,6 +1142,12 @@ export function SettingsPanel() {
             description="Show detailed execution logs"
             checked={config.verbose}
             onChange={(v) => updateConfig({ verbose: v })}
+          />
+          <ToggleSwitch
+            label="LLM Trace"
+            description="Save full LLM call traces (prompts, responses, tokens)"
+            checked={config.trace_enabled}
+            onChange={(v) => updateConfig({ trace_enabled: v })}
           />
         </div>
       </Panel>
