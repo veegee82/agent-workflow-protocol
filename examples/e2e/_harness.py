@@ -74,6 +74,56 @@ def make_experiment_dir(slug: str) -> Path:
     return path
 
 
+def _ensure_experiment_shared_symlinks(workflow_dir: Path) -> None:
+    """Mirror runner_service: symlink workspace/dynamic_tools + skills to
+    shared/ so every run under this experiment reads/writes the same
+    registry. Idempotent; repairs broken links.
+    """
+    shared = workflow_dir / "shared"
+    ws = workflow_dir / "workspace"
+    ws.mkdir(parents=True, exist_ok=True)
+    for subdir in ("dynamic_tools", "skills", "memory", "inputs"):
+        (shared / subdir).mkdir(parents=True, exist_ok=True)
+    for subdir in ("dynamic_tools", "skills"):
+        link = ws / subdir
+        target = (shared / subdir).resolve()
+        try:
+            st = link.lstat()
+        except FileNotFoundError:
+            st = None
+        if st is None:
+            try:
+                link.symlink_to(target)
+            except OSError:
+                link.mkdir(parents=True, exist_ok=True)
+            continue
+        if link.is_symlink():
+            if link.resolve() != target:
+                try:
+                    link.unlink()
+                    link.symlink_to(target)
+                except OSError:
+                    pass
+
+
+def _lookup_session_base_dir(session_id: str) -> str | None:
+    """Read sessions.base_dir from the UI SQLite store. Returns None on miss."""
+    import sqlite3
+    if not _CANONICAL_DB.exists():
+        return None
+    try:
+        con = sqlite3.connect(str(_CANONICAL_DB))
+        row = con.execute(
+            "SELECT base_dir FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        con.close()
+        if row and row[0]:
+            return str(row[0])
+    except sqlite3.Error:
+        return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Experiment DB registration (async StoreService wrapped in asyncio.run)
 # ---------------------------------------------------------------------------
@@ -521,15 +571,58 @@ class _E2ERunDirWatcher:
                 self._persist_event("run.complete", data)
 
     def watch(self) -> None:
-        """Poll the run directory until stop() is called or completion."""
-        while not self._stop.is_set():
-            run_dir = self._find_run_dir()
-            if run_dir and run_dir.exists():
-                self._scan_dir(run_dir)
-                if "run_completion.json" in self._seen_files:
+        """Poll the run directory until stop() is called or completion.
+
+        On stop, ALWAYS perform one final blocking drain scan. This closes
+        the Session-3 residual race where ``watcher.stop()`` was signalled
+        right after ``wf.run()`` returned but before the poll loop observed
+        ``run_completion.json`` on disk. Without the drain the terminal
+        ``run.complete`` event never reached SQLite even though the
+        on-disk ``run_completion.json`` and the run-row status were both
+        correct.
+        """
+        try:
+            while not self._stop.is_set():
+                run_dir = self._find_run_dir()
+                if run_dir and run_dir.exists():
                     self._scan_dir(run_dir)
-                    break
-            self._stop.wait(timeout=0.3)
+                    if "run_completion.json" in self._seen_files:
+                        # Observed completion in-loop — drain once more to
+                        # pick up any sibling files written in the same
+                        # flush (e.g. final budget_snapshot.json,
+                        # summary.json) and exit.
+                        self._scan_dir(run_dir)
+                        return
+                self._stop.wait(timeout=0.3)
+        finally:
+            # Unconditional final drain. Runs on every exit path, including
+            # stop()-driven shutdown after wf.run() returned but before the
+            # poll loop noticed run_completion.json on disk.
+            self._final_drain()
+
+    def _final_drain(self) -> None:
+        """Blocking final rescan that drains any un-persisted events.
+
+        Called once on every exit path of ``watch()``. Waits briefly for
+        ``run_completion.json`` to appear (the delegation-loop runner's
+        finalizer writes it synchronously under a try/finally, but on a
+        heavily loaded filesystem the fsync may trail the Python return
+        by a few hundred ms). Then performs one authoritative scan so
+        the terminal ``run.complete`` event reaches SQLite.
+        """
+        run_dir = self._find_run_dir()
+        if run_dir is None or not run_dir.exists():
+            return
+        # Give the finalizer up to ~5s to flush run_completion.json.
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if (run_dir / "run_completion.json").exists():
+                break
+            time.sleep(0.1)
+        # Final authoritative scan. Runs even if the completion file
+        # never materialized (e.g. aborted run) so partial events still
+        # reach the DB.
+        self._scan_dir(run_dir)
 
     def _scan_dir(self, run_dir: Path) -> None:
         try:
@@ -596,9 +689,26 @@ def run_e2e(
     load_openrouter_key()
     from awp.data import AgentWorkflow
 
+    # When an existing session is continued, reuse that session's
+    # workflow_dir so the shared/dynamic_tools and shared/skills
+    # directories accumulate across every run in the experiment
+    # (cross-run tool/skill reuse).
+    if workflow_dir is None and session_id:
+        try:
+            existing = _lookup_session_base_dir(session_id)
+            if existing and Path(existing).exists():
+                workflow_dir = Path(existing)
+        except Exception:
+            pass
     if workflow_dir is None:
         workflow_dir = make_experiment_dir(slug)
     workflow_dir = Path(workflow_dir).resolve()
+
+    # Ensure the workspace/dynamic_tools and workspace/skills symlinks
+    # point at the experiment-level shared/ dirs, so every AgentWorkflow
+    # instance started against this base_dir (repeat runs included)
+    # reads and writes the same registry.
+    _ensure_experiment_shared_symlinks(workflow_dir)
 
     effective_worker_model = worker_model or model
     config = {

@@ -87,6 +87,6 @@ portability. The `src/` directory contains the Cloudflare-compiled version.
 To validate the AWP structure:
 
 ```bash
-pip install awp-protocol
+pip install awp-agents
 awp validate .
 ```

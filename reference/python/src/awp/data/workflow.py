@@ -158,6 +158,8 @@ class AgentWorkflow:
         decision_journal_max_entries: int = 20,
         # Performance profiling
         profile: bool = False,
+        # Reasoning effort for models that support it (e.g. "low", "medium", "high")
+        reasoning_effort: str | None = None,
         # Raw config overrides (keyed by section name, e.g. "critique", "planning")
         extra_config: dict[str, Any] | None = None,
     ) -> None:
@@ -222,6 +224,7 @@ class AgentWorkflow:
         self.decision_journal_enabled = decision_journal_enabled
         self.decision_journal_max_entries = decision_journal_max_entries
         self.profile = profile
+        self.reasoning_effort = reasoning_effort
         self.extra_config = extra_config or {}
 
     def run(self) -> dict[str, Any]:
@@ -410,6 +413,10 @@ class AgentWorkflow:
             llm_client=eval_llm,
             profile=self.profile,
         )
+
+        # Apply reasoning effort to manager LLM if configured
+        if self.reasoning_effort and runner._manager_llm:
+            runner._manager_llm.default_reasoning_effort = self.reasoning_effort
 
         raw_result = runner.run(self.task)
         run_id = runner._run_id

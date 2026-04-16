@@ -42,8 +42,86 @@ def _make_event(
     )
 
 
-_FULL_DETAIL_RUNS = 10  # Show last N runs with full results in prompt
-_MAX_RESULT_CHARS = 2000  # Truncate individual result summaries
+_FULL_DETAIL_RUNS = 3   # Show last N runs with full results in prompt
+_MEDIUM_DETAIL_RUNS = 7  # Runs FULL+1..FULL+MEDIUM get a shorter result snippet
+_MAX_RESULT_CHARS = 2000  # Full-detail result snippet size
+_MEDIUM_RESULT_CHARS = 400  # Medium-detail result snippet size
+_MAX_CONTEXT_CHARS = 40_000  # Emergency cap — fold to summaries if exceeded
+
+# Jaccard threshold above which a prior run's task is considered a
+# near-duplicate of the current one. When matched, its output files are
+# surfaced in a REUSE CANDIDATES block at the top of the experiment
+# context so the manager reads them instead of regenerating drafts from
+# scratch. 0.45 chosen empirically: matches the common case where the
+# current task differs only in a refinement directive (e.g. "add PDF")
+# while still rejecting truly unrelated tasks.
+_REUSE_SIMILARITY_THRESHOLD = 0.30
+
+# File extensions that typically contain reusable draft/analysis content
+# (as opposed to infrastructure metadata like budget_snapshot.json).
+_REUSE_CONTENT_SUFFIXES = (".md", ".txt", ".tex", ".bib", ".csv", ".json")
+
+
+def _task_similarity(a: str, b: str) -> float:
+    """Similarity over meaningful word-tokens (length > 3, lowercased).
+
+    Returns the max of Jaccard and overlap-coefficient (Szymkiewicz–
+    Simpson). Overlap is chosen because the common reuse case is "prior
+    task is a sub-goal of the current task (or vice versa)" — pure
+    Jaccard punishes that asymmetry and misses genuine reuse candidates.
+    Cheap, deterministic, no embeddings. Returns 0.0 on empty input.
+    """
+    def _tokens(s: str) -> set[str]:
+        import re as _re
+        return {t for t in _re.findall(r"[A-Za-zÄÖÜäöüß]+", s.lower()) if len(t) > 3}
+
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return 0.0
+    inter = len(ta & tb)
+    if inter == 0:
+        return 0.0
+    jaccard = inter / len(ta | tb)
+    overlap = inter / min(len(ta), len(tb))
+    return max(jaccard, overlap)
+
+
+def _pick_reusable_artifacts(output_dir: str, limit: int = 12) -> list[str]:
+    """Return relative paths of files under *output_dir* likely to contain
+    reusable content (draft text, analyses, bibliographies).
+    """
+    p = Path(output_dir)
+    if not p.is_dir():
+        return []
+    candidates: list[tuple[float, str]] = []
+    for f in p.rglob("*"):
+        if not f.is_file() or f.name.startswith("."):
+            continue
+        if f.suffix.lower() not in _REUSE_CONTENT_SUFFIXES:
+            continue
+        try:
+            size = f.stat().st_size
+        except OSError:
+            continue
+        if size < 200:  # skip empty stubs
+            continue
+        # Score: larger text files and obvious draft names rank higher.
+        score = float(size)
+        name_lower = f.name.lower()
+        for keyword in (
+            "abstract", "introduction", "methodology", "draft",
+            "paper", "report", "summary", "analysis", "references",
+            "bibliography", "conclusion", "results",
+        ):
+            if keyword in name_lower:
+                score *= 2.0
+                break
+        try:
+            candidates.append((score, str(f.relative_to(p))))
+        except ValueError:
+            pass
+    candidates.sort(reverse=True)
+    return [rel for _, rel in candidates[:limit]]
 
 
 def _list_output_artifacts(output_dir: str) -> list[str]:
@@ -65,6 +143,7 @@ def _list_output_artifacts(output_dir: str) -> list[str]:
 
 def _build_experiment_context(
     session_id: str,
+    current_task: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Fetch session data from the store and build prompt context + state files.
 
@@ -106,6 +185,68 @@ def _build_experiment_context(
 
     # ── Approach 1: Build prompt context string ──────────────────────
     parts: list[str] = ["## Experiment Context\n"]
+
+    # Reuse-candidate detection: if any prior run's task is
+    # near-identical to the current task, surface its reusable output
+    # files in a prominent block BEFORE the generic run history so the
+    # manager treats them as the starting point for this run rather
+    # than regenerating content from scratch. This closes the gap that
+    # caused earlier runs to ignore already-produced drafts like
+    # subtask_2_abstract.md from a previous attempt.
+    if current_task:
+        reuse_blocks: list[str] = []
+        for run in runs:
+            rid = run.get("run_id", "")
+            # run row exposes the submitted user task text directly.
+            prior_task = run.get("task") or ""
+            if not prior_task:
+                continue
+            sim = _task_similarity(current_task, prior_task)
+            if sim < _REUSE_SIMILARITY_THRESHOLD:
+                continue
+            result_meta = run.get("result") or {}
+            metadata = (
+                result_meta.get("metadata", {})
+                if isinstance(result_meta, dict)
+                else {}
+            )
+            out_dir = metadata.get("output_dir", "")
+            internal_rid = metadata.get("run_id", "")
+            if out_dir and internal_rid:
+                od = Path(out_dir)
+                cand = od / "output" / internal_rid
+                if cand.is_dir():
+                    out_dir = str(cand)
+                elif od.name == "output":
+                    cand2 = od / internal_rid
+                    if cand2.is_dir():
+                        out_dir = str(cand2)
+            reusable = _pick_reusable_artifacts(out_dir) if out_dir else []
+            if not reusable:
+                continue
+            status = run.get("status", "")
+            reuse_blocks.append(
+                f"- Prior run `{rid}` (status: {status}, task similarity "
+                f"{sim:.2f}) produced these reusable artifacts under "
+                f"`{out_dir}`:"
+            )
+            for rel in reusable:
+                reuse_blocks.append(f"    - {rel}")
+        if reuse_blocks:
+            parts.append("### 🔁 REUSE CANDIDATES (read these FIRST)\n")
+            parts.append(
+                "A prior run in this experiment has produced output files "
+                "that are highly relevant to the current task. You MUST "
+                "read them BEFORE delegating any work, and build upon them "
+                "instead of regenerating from scratch. These files are also "
+                "symlinked under `workspace/_experiment_context/prior_outputs/` "
+                "for direct access by workers. When instructing workers, "
+                "copy the absolute path into the instructions so the worker "
+                "reads the existing draft via `file.read` or `code.execute`.\n"
+            )
+            parts.extend(reuse_blocks)
+            parts.append("")
+
     parts.append(f"**Experiment:** {session.get('title', 'Untitled')}")
     if session.get("hypothesis"):
         parts.append(f"**Hypothesis:** {session['hypothesis']}")
@@ -157,9 +298,16 @@ def _build_experiment_context(
         total = len(run_pairs)
         parts.append(f"### Previous Run Results ({total} total, most recent first)\n")
 
-        # Recent runs: full detail with output artifacts
-        recent = list(reversed(run_pairs[-_FULL_DETAIL_RUNS:]))
-        for idx, pair in enumerate(recent):
+        # Phase 4.1: three-tier detail so the prompt stays bounded for long
+        # histories. Full detail for the 3 most recent; medium (short result
+        # snippet, no artifact listing) for the next 7; summary-only beyond.
+        full_detail = list(reversed(run_pairs[-_FULL_DETAIL_RUNS:]))
+        medium_start = max(0, total - _FULL_DETAIL_RUNS - _MEDIUM_DETAIL_RUNS)
+        medium_end = total - _FULL_DETAIL_RUNS
+        medium_detail = list(reversed(run_pairs[medium_start:medium_end]))
+        older = list(reversed(run_pairs[:medium_start])) if medium_start > 0 else []
+
+        for idx, pair in enumerate(full_detail):
             run_num = total - idx
             task_preview = pair["task"][:200]
             result_preview = pair["result"][:_MAX_RESULT_CHARS]
@@ -181,12 +329,22 @@ def _build_experiment_context(
                         parts.append(f"  - ... and {len(artifacts) - 20} more files")
                     parts.append("")
 
-        # Older runs: compact summaries
-        older = list(reversed(run_pairs[:-_FULL_DETAIL_RUNS])) if total > _FULL_DETAIL_RUNS else []
-        if older:
-            parts.append("### Earlier Runs (summary)\n")
-            for idx, pair in enumerate(older):
+        if medium_detail:
+            parts.append("### Recent Runs (medium detail)\n")
+            for idx, pair in enumerate(medium_detail):
                 run_num = total - _FULL_DETAIL_RUNS - idx
+                snippet = pair["result"][:_MEDIUM_RESULT_CHARS]
+                if len(pair["result"]) > _MEDIUM_RESULT_CHARS:
+                    snippet += "…"
+                parts.append(
+                    f"- Run {run_num}: \"{pair['task'][:120]}\" — "
+                    f"{pair.get('status', '?')} — {snippet}"
+                )
+
+        if older:
+            parts.append("\n### Earlier Runs (summary)\n")
+            for idx, pair in enumerate(older):
+                run_num = total - _FULL_DETAIL_RUNS - _MEDIUM_DETAIL_RUNS - idx
                 parts.append(f"- Run {run_num}: \"{pair['task'][:80]}\" — {pair.get('status', '?')}")
 
     parts.append("")
@@ -297,6 +455,29 @@ def _build_experiment_context(
 
     prompt_context = "\n".join(parts)
 
+    # Phase 4.1 emergency cap: if the context somehow still exceeds the
+    # budget (e.g. dozens of runs with large tasks), collapse to a
+    # summary-only form. Manager can always consult _experiment_context/
+    # files directly on disk for full detail.
+    if len(prompt_context) > _MAX_CONTEXT_CHARS:
+        logger.warning(
+            "experiment_context %d chars exceeds cap %d — collapsing to summary",
+            len(prompt_context), _MAX_CONTEXT_CHARS,
+        )
+        summary = [
+            f"## Experiment: {session.get('title', '?')}",
+            f"Hypothesis: {session.get('hypothesis') or '(none)'}",
+            f"",
+            f"### {len(run_pairs)} previous runs (collapsed — read "
+            f"`_experiment_context/run_NNN_summary.json` for any specific run)",
+        ]
+        for idx, pair in enumerate(reversed(run_pairs)):
+            run_num = len(run_pairs) - idx
+            summary.append(
+                f"- Run {run_num}: \"{pair['task'][:100]}\" — {pair.get('status', '?')}"
+            )
+        prompt_context = "\n".join(summary)
+
     # ── Approach 2: Build state files dict ───────────────────────────
     state_files: dict[str, Any] = {
         "experiment.json": {
@@ -355,6 +536,19 @@ def _build_experiment_context(
     return prompt_context, state_files
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write *content* to *path* atomically (tmp + replace).
+
+    Used for files the UI / graph_builder may read concurrently. A reader
+    that opens *path* either sees the previous full version or the new
+    full version, never a half-written byte stream.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _write_experiment_state_files(
     workspace_dir: Path, state_files: dict[str, Any]
 ) -> None:
@@ -363,30 +557,30 @@ def _write_experiment_state_files(
     ctx_dir.mkdir(parents=True, exist_ok=True)
 
     # experiment.json
-    (ctx_dir / "experiment.json").write_text(
+    _atomic_write_text(
+        ctx_dir / "experiment.json",
         json.dumps(state_files.get("experiment.json", {}), indent=2, default=str),
-        encoding="utf-8",
     )
 
     # memory.json
-    (ctx_dir / "memory.json").write_text(
+    _atomic_write_text(
+        ctx_dir / "memory.json",
         json.dumps(state_files.get("memory.json", []), indent=2, default=str),
-        encoding="utf-8",
     )
 
     # Per-run summaries
     for run_data in state_files.get("runs", []):
         num = run_data.get("run_number", 0)
         fname = f"run_{num:03d}_summary.json"
-        (ctx_dir / fname).write_text(
+        _atomic_write_text(
+            ctx_dir / fname,
             json.dumps(run_data, indent=2, default=str),
-            encoding="utf-8",
         )
 
     # Markdown brief
     brief = state_files.get("experiment_brief.md", "")
     if brief:
-        (ctx_dir / "experiment_brief.md").write_text(brief, encoding="utf-8")
+        _atomic_write_text(ctx_dir / "experiment_brief.md", brief)
 
     # Symlink prior run output directories for easy worker access
     prior_outputs_dir = ctx_dir / "prior_outputs"
@@ -494,6 +688,8 @@ def _setup_run_isolation(
                 logger.warning("Failed to delete old DB runs: %s", exc)
 
     # --- Create shared directories (idempotent) ---
+    # Phase 2.2: called on EVERY run-start, not only first. Safe because all
+    # ops are idempotent (mkdir exist_ok, symlink repair below).
     for subdir in ("dynamic_tools", "skills", "memory", "inputs"):
         (shared / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -502,17 +698,44 @@ def _setup_run_isolation(
     ws.mkdir(parents=True, exist_ok=True)
     for subdir in ("dynamic_tools", "skills"):
         link = ws / subdir
-        if not link.exists():
-            target = (shared / subdir).resolve()
+        target = (shared / subdir).resolve()
+        # Phase 2.3: symlink repair. Path.exists() returns False for a
+        # dangling symlink, so the previous guard "if not link.exists()"
+        # skipped broken links entirely — leaving runs with neither a
+        # usable dir nor a usable link. Use lstat() to detect symlinks
+        # regardless of target validity, then repair.
+        try:
+            st = link.lstat()
+        except FileNotFoundError:
+            st = None
+
+        if st is None:
+            # Nothing there — create fresh symlink
             try:
                 link.symlink_to(target)
+                continue
             except OSError:
-                # Symlinks not supported — copy instead
-                import shutil as _sh
-                try:
-                    _sh.copytree(str(target), str(link))
-                except Exception:
-                    pass
+                pass  # fall through to copytree fallback
+        elif link.is_symlink():
+            # Symlink exists — check target matches; if broken or wrong, replace
+            try:
+                current = link.resolve(strict=False)
+                if current != target:
+                    link.unlink()
+                    link.symlink_to(target)
+            except OSError:
+                pass
+            continue
+        else:
+            # Real dir already present (e.g. from older layout). Leave it.
+            continue
+
+        # Symlinks not supported — copy instead (one-time)
+        import shutil as _sh
+        try:
+            _sh.copytree(str(target), str(link))
+        except Exception:
+            pass
 
 
 class _RunDirWatcher:
@@ -580,6 +803,20 @@ class _RunDirWatcher:
             # dirs appear later (higher timestamps) and are also nested
             # inside the root run's iteration tree.
             self._pinned_run_dir = candidates[0]
+            # Phase 5.1: expose a deterministic `canonical_run` symlink
+            # at the output_dir level so graph_builder, UI live-poll and
+            # anything else can read one fixed path instead of guessing
+            # the inner timestamped directory.
+            try:
+                canon = self._workspace_dir / "canonical_run"
+                if canon.is_symlink() or canon.exists():
+                    try:
+                        canon.unlink()
+                    except OSError:
+                        pass
+                canon.symlink_to(self._pinned_run_dir.resolve())
+            except OSError:
+                pass
             return self._pinned_run_dir
         return None
 
@@ -1047,18 +1284,86 @@ class RunnerService:
             daemon=True,
             name=f"awp-run-{run_id[:8]}",
         )
+        # Track the output_dir so stop_run can drop a stop-sentinel inside it.
+        # The runner threads observe this sentinel cooperatively (delegation
+        # loop checks it once per iteration) and unwind through the normal
+        # finalizer path — Python threads cannot be killed from outside, so
+        # this cooperative protocol is the only correct mechanism here.
+        out_dir = config.get("output_dir") or ""
         with _active_lock:
-            _active_runs[run_id] = {"thread": thread, "stop": False}
+            _active_runs[run_id] = {
+                "thread": thread,
+                "stop": False,
+                "output_dir": out_dir,
+            }
         thread.start()
         return run_id
 
     def stop_run(self, run_id: str) -> bool:
-        """Signal a run to stop. Returns True if the run was found."""
+        """Stop a run: cooperative sentinel + abort in-flight HTTP.
+
+        Python threads cannot be killed from outside, so stopping is a
+        two-pronged cooperative protocol:
+
+        1. Drop a ``_stop_requested`` sentinel into the run's output_dir.
+           The delegation-loop runner checks it at each iteration top and
+           unwinds via the Fix-E finalizer path.
+        2. Call ``LLMClient.close_all()`` to abort any in-flight HTTP
+           request. Without this, a thread blocked on a slow LLM response
+           would sit in ``socket.recv()`` until the OS times it out and
+           the stop sentinel would not be observed for minutes.
+
+        Returns True if the run was found in the active registry.
+        """
         with _active_lock:
             info = _active_runs.get(run_id)
             if info is None:
                 return False
             info["stop"] = True
+            out_dir = info.get("output_dir") or ""
+        if out_dir:
+            try:
+                sentinel = Path(out_dir) / "_stop_requested"
+                sentinel.parent.mkdir(parents=True, exist_ok=True)
+                sentinel.write_text(
+                    f"{datetime.now(tz=timezone.utc).isoformat()}\nuser_stop\n",
+                    encoding="utf-8",
+                )
+            except Exception:
+                logger.warning(
+                    "stop_run: failed to write stop sentinel for %s", run_id,
+                    exc_info=True,
+                )
+        # Phase 3 (pragmatic): abort in-flight LLM HTTP calls so the worker
+        # thread unsticks immediately and reaches the next iteration
+        # boundary (where the sentinel check fires). This mirrors the
+        # signal-watchdog pattern the runner uses internally for SIGTERM.
+        #
+        # Caveat: LLMClient.close_all() is process-wide — if other runs
+        # are executing concurrently, their in-flight HTTP calls also get
+        # aborted and will retry. Only fire it when this run is the only
+        # active one, so concurrent runs are not disturbed.
+        with _active_lock:
+            active_count = sum(
+                1 for i in _active_runs.values()
+                if i.get("thread") and i["thread"].is_alive()
+            )
+        if active_count <= 1:
+            try:
+                from awp.runtime.llm import LLMClient
+                aborted = LLMClient.close_all()
+                if aborted:
+                    logger.info(
+                        "stop_run: aborted %d in-flight LLM client(s) for %s",
+                        aborted, run_id,
+                    )
+            except Exception:
+                logger.debug("stop_run: LLMClient.close_all failed", exc_info=True)
+        else:
+            logger.info(
+                "stop_run: %d concurrent runs active — relying on sentinel only "
+                "(LLM abort skipped to not disturb other runs)", active_count,
+            )
         return True
 
     def is_running(self, run_id: str) -> bool:
@@ -1174,7 +1479,14 @@ class RunnerService:
             # Inject experiment context from previous runs (if in a session)
             if session_id:
                 try:
-                    ctx, files = _build_experiment_context(session_id)
+                    current_task = (
+                        wf_kwargs.get("task")
+                        or config.get("task")
+                        or ""
+                    )
+                    ctx, files = _build_experiment_context(
+                        session_id, current_task=current_task
+                    )
                     if ctx:
                         wf_kwargs["experiment_context"] = ctx
                     if files:
@@ -1259,7 +1571,7 @@ class RunnerService:
                 "Install with: pip install -e packages/awp-runtime/",
                 exc,
             )
-            status = "error"
+            status = "failed"
             result = {"error": f"AWP runtime not available: {exc}"}
             event_bus.emit_threadsafe(
                 run_id,
@@ -1270,7 +1582,7 @@ class RunnerService:
 
         except Exception as exc:
             logger.exception("Run %s failed with exception", run_id)
-            status = "error"
+            status = "failed"
             result = {"error": str(exc)}
             event_bus.emit_threadsafe(
                 run_id,
@@ -1284,13 +1596,50 @@ class RunnerService:
             for key in _injected_env_keys:
                 os.environ.pop(key, None)
 
-            # Emit run.complete
+            # Fix H: canonicalize the status so the UI only ever sees
+            # {complete, partial, failed, aborted}. If the inner runner
+            # already stamped a terminal_status on the result, trust it.
+            canon_reason = ""
+            if isinstance(result, dict):
+                dl = result.get("delegation_loop") if isinstance(
+                    result.get("delegation_loop"), dict
+                ) else None
+                if dl and dl.get("_terminal_status"):
+                    status = dl["_terminal_status"]
+                    canon_reason = str(dl.get("_terminal_reason") or "")
+                elif result.get("_terminal_status"):
+                    status = result["_terminal_status"]
+                    canon_reason = str(result.get("_terminal_reason") or "")
+            _canon_map = {
+                "error": "failed",
+                "eval_fail": "failed",
+                "fail": "failed",
+                "partial_complete": "partial",
+                "budget_exhausted": "partial",
+                "stall_detected": "partial",
+                "interrupted": "aborted",
+                "unknown": "aborted",
+            }
+            status = _canon_map.get(status, status)
+            if status not in ("complete", "partial", "failed", "aborted"):
+                status = "partial"
+
+            # Emit run.complete — guaranteed to fire on every exit path
+            # (Fix E). Payload carries both the canonical status and the
+            # diagnostic reason so clients can distinguish cap-forced
+            # partials from abrupt aborts.
             event_bus.emit_threadsafe(
                 run_id,
                 _make_event(
                     run_id,
                     EventType.RUN_COMPLETE,
-                    {"status": status, "result": result},
+                    {
+                        "status": status,
+                        "reason": canon_reason
+                        or ("process_exit_without_terminal_event"
+                            if status == "aborted" else ""),
+                        "result": result,
+                    },
                 ),
             )
             # Close the event bus channel for this run
@@ -1473,6 +1822,18 @@ class RunnerService:
         # Experiment context (injected by session-aware runs)
         if config.get("experiment_context"):
             kwargs["experiment_context"] = config["experiment_context"]
+
+        # Raw runtime overrides (critique.defect_category_hard_cap, …).
+        # Forwarded only if AgentWorkflow actually accepts the parameter —
+        # older versions without extra_config simply ignore it.
+        if config.get("extra_config"):
+            try:
+                import inspect as _ins
+                from awp.data.workflow import AgentWorkflow as _AW2
+                if "extra_config" in _ins.signature(_AW2.__init__).parameters:
+                    kwargs["extra_config"] = config["extra_config"]
+            except Exception:
+                pass
 
         return kwargs
 

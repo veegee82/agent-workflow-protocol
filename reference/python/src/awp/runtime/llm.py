@@ -18,12 +18,22 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time as _time
+import weakref
 from typing import Any, Callable, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Module-level registry of live LLMClient instances so signal handlers
+# (SIGTERM / SIGINT) can abort in-flight blocking httpx.post() calls.
+# Without this, the main thread stays blocked inside the HTTP syscall
+# and the delegation loop's finalizer never runs — the experiment is
+# left in status=``running`` in the DB until the watchdog SIGKILLs it.
+_LIVE_CLIENTS: "weakref.WeakSet[LLMClient]" = weakref.WeakSet()
+_LIVE_CLIENTS_LOCK = threading.Lock()
 
 # Known provider base URLs (all OpenAI-compatible)
 PROVIDER_URLS: dict[str, str] = {
@@ -235,6 +245,7 @@ class LLMClient:
         self._provider = detected
         self.total_tokens_used: int = 0
         self._trace_callback: Callable[[dict[str, Any]], None] | None = None
+        self.default_reasoning_effort: str | None = None
 
         # Local models (Ollama) need longer timeouts and no API key
         if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
@@ -243,19 +254,115 @@ class LLMClient:
             if timeout == 120:  # only bump if user didn't set explicitly
                 self.timeout = 600
 
-        # Persistent HTTP client for connection pooling (reused across calls)
+        # Persistent HTTP client for connection pooling (reused across calls).
+        # Use an explicit httpx.Timeout so that read/connect/write timeouts
+        # are enforced independently. A scalar timeout is not sufficient when
+        # providers send periodic keepalive bytes that silently reset a naive
+        # per-request deadline; the read timeout MUST fire if no body bytes
+        # arrive within the window, otherwise a stalled stream can hang the
+        # entire delegation loop indefinitely.
         self._client = httpx.Client(
-            timeout=self.timeout,
+            timeout=httpx.Timeout(
+                connect=min(30.0, float(self.timeout)),
+                read=float(self.timeout),
+                write=min(30.0, float(self.timeout)),
+                pool=min(30.0, float(self.timeout)),
+            ),
             limits=httpx.Limits(
                 max_connections=20,
                 max_keepalive_connections=10,
                 keepalive_expiry=30,
             ),
         )
+        self._closed = False
+        # Register with the module-level WeakSet so the signal-watchdog
+        # installed by the delegation loop can abort this client's
+        # in-flight HTTP calls on SIGTERM / SIGINT.
+        with _LIVE_CLIENTS_LOCK:
+            _LIVE_CLIENTS.add(self)
 
     def close(self) -> None:
-        """Close the persistent HTTP client."""
-        self._client.close()
+        """Close the persistent HTTP client.
+
+        Safe to call from any thread. Aborts any in-flight blocking
+        ``httpx.post()`` calls by forcibly closing the underlying
+        transport's socket connections, so the caller's ``finally`` can
+        run. ``httpx.Client.close()`` alone only closes *idle*
+        connections in the pool; it does NOT abort active requests. We
+        therefore reach into the transport's connection pool and close
+        each live socket — this raises into the blocking C read in the
+        other thread, which surfaces as an ``httpx`` network exception.
+        Idempotent.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        # Forcibly abort any in-flight connections first. Neither
+        # ``httpx.Client.close()`` nor ``HTTPConnection.close()`` wakes
+        # a thread that is blocked in the C-level socket ``recv()`` on
+        # the response body — httpcore only marks the connection for
+        # pool eviction. The only reliable abort is a raw ``socket
+        # .shutdown()`` on the underlying fd, which immediately returns
+        # EOF from the kernel and raises ``httpx.ReadError`` into the
+        # blocking thread.
+        try:
+            import socket as _socket
+
+            transport = getattr(self._client, "_transport", None)
+            pool = getattr(transport, "_pool", None)
+            if pool is not None:
+                for conn in list(getattr(pool, "_connections", []) or []):
+                    try:
+                        inner = getattr(conn, "_connection", None)
+                        stream = getattr(inner, "_network_stream", None)
+                        raw = getattr(stream, "_sock", None)
+                        if raw is not None:
+                            try:
+                                raw.shutdown(_socket.SHUT_RDWR)
+                            except OSError:
+                                pass
+                            try:
+                                raw.close()
+                            except OSError:
+                                pass
+                    except Exception:
+                        logger.debug(
+                            "LLMClient.close(): conn socket abort failed",
+                            exc_info=True,
+                        )
+        except Exception:
+            logger.debug(
+                "LLMClient.close(): transport abort failed",
+                exc_info=True,
+            )
+        # Then close the high-level httpx.Client to free the pool itself.
+        try:
+            self._client.close()
+        except Exception:
+            logger.debug("LLMClient.close() suppressed exception", exc_info=True)
+
+    @classmethod
+    def close_all(cls) -> int:
+        """Close every live LLMClient.
+
+        Intended for signal handlers: a blocking ``httpx.post()`` on the
+        main thread cannot observe a Python-level flag, but closing the
+        underlying httpx.Client from another thread aborts the transport
+        and raises into the blocking call — letting the delegation loop's
+        finalizer emit the terminal ``run.complete`` event.
+
+        Returns the number of clients closed (diagnostic only).
+        """
+        closed = 0
+        with _LIVE_CLIENTS_LOCK:
+            clients = list(_LIVE_CLIENTS)
+        for c in clients:
+            try:
+                c.close()
+                closed += 1
+            except Exception:
+                logger.debug("close_all: client close failed", exc_info=True)
+        return closed
 
     def __del__(self) -> None:
         try:
@@ -282,6 +389,7 @@ class LLMClient:
         response_format: Optional[dict[str, Any]] = None,
         tool_choice: Optional[str | dict[str, Any]] = None,
         parallel_tool_calls: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, Any]:
         """Send a chat completion request with automatic fallback.
 
@@ -297,6 +405,9 @@ class LLMClient:
             response_format: Structured output schema.
             tool_choice: Tool selection strategy — ``"auto"``, ``"none"``,
                 ``"required"``, or a specific tool name.
+            reasoning_effort: Reasoning effort level for models that support
+                it (e.g. ``"low"``, ``"medium"``, ``"high"``). Passed via
+                OpenRouter's ``reasoning`` payload field.
             parallel_tool_calls: Whether the model may issue multiple tool
                 calls in a single response. ``None`` = provider default.
 
@@ -330,6 +441,7 @@ class LLMClient:
                     response_format,
                     tool_choice,
                     parallel_tool_calls,
+                    reasoning_effort,
                 )
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
@@ -365,6 +477,7 @@ class LLMClient:
                             response_format,
                             tool_choice,
                             parallel_tool_calls,
+                            reasoning_effort,
                         )
                 raise
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
@@ -393,6 +506,7 @@ class LLMClient:
         response_format: Optional[dict[str, Any]],
         tool_choice: Optional[str | dict[str, Any]] = None,
         parallel_tool_calls: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, Any]:
         """Execute a single chat completion request."""
         # Apply prompt caching for OpenRouter: mark system messages so the
@@ -413,6 +527,9 @@ class LLMClient:
             payload["tools"] = sanitized_tools
         if response_format is not None:
             payload["response_format"] = response_format
+        effective_reasoning = reasoning_effort or self.default_reasoning_effort
+        if effective_reasoning is not None:
+            payload["reasoning"] = {"effort": effective_reasoning}
 
         # Tool calling control parameters (OpenRouter / OpenAI compatible)
         if tool_choice is not None:

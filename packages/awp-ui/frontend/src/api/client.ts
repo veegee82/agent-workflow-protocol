@@ -102,13 +102,43 @@ export async function getRunEvents(runId: string): Promise<RunEvent[]> {
   return data.events;
 }
 
-/** Get the agent graph (nodes + edges) for a run. */
+/** Metadata for one dynamically created tool, surfaced in the side panel. */
+export interface ToolRegistryEntry {
+  fqn: string;
+  creator_agent: string;
+  description: string;
+  signature?: string | null;
+  parameters?: Record<string, unknown> | null;
+  called: boolean;
+  call_count: number;
+}
+
+/** Metadata for one persisted skill, surfaced in the SkillRegistryPanel. */
+export interface SkillRegistryEntry {
+  name: string;
+  title: string;
+  description: string;
+  size_bytes: number;
+  path: string;
+}
+
+/** Get the agent graph (nodes + edges + tool/skill registries) for a run. */
 export async function getRunGraph(
   runId: string,
-): Promise<{ nodes: AgentNode[]; edges: AgentEdge[] }> {
-  return request<{ nodes: AgentNode[]; edges: AgentEdge[] }>(
-    `/api/runs/${runId}/graph`,
-  );
+): Promise<{
+  nodes: AgentNode[];
+  edges: AgentEdge[];
+  stats?: Record<string, unknown>;
+  tool_registry?: ToolRegistryEntry[];
+  skill_registry?: SkillRegistryEntry[];
+}> {
+  return request<{
+    nodes: AgentNode[];
+    edges: AgentEdge[];
+    stats?: Record<string, unknown>;
+    tool_registry?: ToolRegistryEntry[];
+    skill_registry?: SkillRegistryEntry[];
+  }>(`/api/runs/${runId}/graph`);
 }
 
 /** Request graceful stop of a running workflow. */

@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from .base_executor import BaseExecutor
+from .base_executor import BaseExecutor, validate_python_source
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,29 @@ class VenvExecutor(BaseExecutor):
             Standard AWP result format with stdout, stderr, returncode.
         """
         effective_timeout = min(timeout or self._max_timeout, self._max_timeout)
+
+        # Fix A: pre-validate with ast.parse before running the venv Python.
+        pre = validate_python_source(code)
+        if not pre["ok"]:
+            pre_data = pre.get("data", {}) or {}
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {
+                    "stdout": "",
+                    "stderr": pre.get("error") or "SyntaxError",
+                    "returncode": -1,
+                    "syntax_error": {
+                        "line": pre_data.get("line"),
+                        "col": pre_data.get("col"),
+                        "msg": pre_data.get("msg"),
+                        "offending_line": pre_data.get("offending_line"),
+                        "hint": pre_data.get("hint"),
+                    },
+                    "warnings": pre_data.get("warnings", []),
+                },
+                "error": pre.get("error"),
+            }
 
         with tempfile.NamedTemporaryFile(
             mode="w",

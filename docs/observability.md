@@ -285,7 +285,7 @@ The runtime must record these events:
 | Event | Trigger | Required Fields |
 |-------|---------|-----------------|
 | `workflow.start` | Workflow begins | `run_id`, `workflow_name`, `workflow_version`, `timestamp` |
-| `workflow.complete` | Workflow ends | `run_id`, `status`, `duration`, `timestamp` |
+| `workflow.complete` | Workflow ends | `run_id`, `status`, `reason`, `duration`, `timestamp` |
 | `agent.start` | Agent begins | `run_id`, `agent_id`, `timestamp` |
 | `agent.complete` | Agent ends | `run_id`, `agent_id`, `status`, `duration`, `timestamp` |
 | `agent.error` | Agent fails | `run_id`, `agent_id`, `error_type`, `error_message`, `timestamp` |
@@ -419,6 +419,61 @@ iterations/001/
 When tracing is enabled, the **Agent Inspector** panel in Studio shows an **LLM Trace** tab for each worker and manager node. Each call is rendered as an expandable card with token counts, latency, model badge, and the full message exchange (role-colored, collapsible). The summary header shows aggregated stats (total calls, tokens, latency, tool rounds) for quick diagnosis.
 
 Tracing is disabled by default to avoid I/O overhead in production runs. Enable it for debugging, cost analysis, or when building evaluation harnesses that need ground-truth LLM interactions.
+
+## Run-Complete Guarantee
+
+The delegation-loop runner guarantees that **every run** emits exactly one terminal event — `run.complete` on the event bus, and `run_completion.json` on disk — regardless of how the run ends. The event carries:
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | string | Unique run identifier |
+| `status` | enum | One of `{complete, partial, failed, aborted}` |
+| `reason` | string | Diagnostic cause (e.g. `defect_category_cap`, `forced_convergence`, `sigterm`, `process_exit_without_terminal_event`, `max_total_tokens`). Empty string when status is `complete` with no forced-exit reason |
+| `total_iterations` | integer | Manager iterations executed |
+| `final_budget` | object | Final budget snapshot |
+| `completed` | string | ISO-8601 UTC timestamp |
+
+The guarantee is enforced at three layers:
+
+1. **Inside `DelegationLoopRunner.run`** — the main loop body is wrapped in `try / except / finally`. Uncaught exceptions become `status=failed`; `KeyboardInterrupt` becomes `status=aborted` with reason `sigint`. The `finally` branch runs `log_completion` unconditionally.
+2. **At signal level** — on the root manager, `signal.signal(SIGTERM, …)` and `signal.signal(SIGINT, …)` are registered to trigger the same graceful-shutdown path. Submanagers run under the parent disposition; runner_service runs the engine in a daemon thread where signal registration is a no-op (the outer runner_service `finally` handles that case).
+3. **On server restart** — orphan runs still flagged `running` in SQLite without a live owner PID are reconciled to `status=aborted` with reason `process_exit_without_terminal_event`.
+
+This makes the `run.complete` stream **monotonically terminal**: once a consumer sees the event, no further state changes are possible for that run.
+
+## Completion Gate Events
+
+Every runtime completion gate (see [validation.md](validation.md)) emits a structured entry on `events.jsonl` and `gates.log` via `trace_gate(gate_name, triggered, reason, **fields)`. The envelope is identical across gates:
+
+```json
+{
+  "ts": "2026-04-14T12:34:56.789+00:00",
+  "type": "gate",
+  "gate": "<gate_name>",
+  "triggered": true,
+  "reason": "<human-readable summary>",
+  "iteration": <int>,
+  "...gate-specific fields..."
+}
+```
+
+Gate-specific field contracts:
+
+| Gate | Required extra fields |
+|------|----------------------|
+| `critique` | `mean_score: float`, `threshold: float`, `n_critiques: int`, `defects: int`, `rejection_count: int` |
+| `deliverable_presence` | `missing: list[str]`, `empty: list[str]`, `source: "required_outputs" \| "success_criteria"` |
+| `placeholder` | `sample: list[str]` (first 3 findings) |
+| `file` | `files: list[str]` (first 5 critical paths) |
+| `deliverable` | (no extras — `reason` carries the diagnostic string) |
+| `structural_integrity` | `sample: list[str]` (first 3 defects) |
+| `eval` | `score: float` |
+| `plan_loop` | `transition: "forced_delegate" \| "forced_terminate"`, `pre_progress_plans: int`, `pending_subtasks: int` |
+| `completion_rejection_counter` | `gate_fired: str`, `rejected_completions: int` (bookkeeping event, `triggered=false`) |
+| `completion_circuit_breaker` | `rejected_completions: int`, `repair_subtask_id: str` (empty when terminated) |
+| `max_workers_per_iteration` | `requested: int`, `cap: int`, `deferred: int` |
+
+Consumers (UI, analytics, E2E rubric scorers) MUST rely on the `gate` key to route events. New gates MUST be added with a deterministic name and MUST NOT collide with existing ones.
 
 ## Evaluation
 

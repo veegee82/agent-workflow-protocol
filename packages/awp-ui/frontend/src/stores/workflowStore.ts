@@ -17,6 +17,7 @@ import type {
   CachedSessionState,
 } from '@/types';
 import * as api from '@/api/client';
+import type { ToolRegistryEntry, SkillRegistryEntry } from '@/api/client';
 import { connectToRun } from '@/api/websocket';
 
 // ---------------------------------------------------------------------------
@@ -249,6 +250,8 @@ export interface WorkflowStore {
   // Graph
   graphNodes: Node[];
   graphEdges: Edge[];
+  toolRegistry: ToolRegistryEntry[];
+  skillRegistry: SkillRegistryEntry[];
   addGraphNode: (node: Node) => void;
   addGraphEdge: (edge: Edge) => void;
   updateGraphNode: (id: string, data: Partial<Node['data']>) => void;
@@ -463,6 +466,65 @@ function processEvent(
   const hasNode = (id: string): boolean =>
     _nodeIndex.has(id) || _pendingNodes.some((n) => n.id === id);
 
+  // Layout constants — MUST stay in sync with graph_builder.py (_X_SPACING,
+  // _Y_SPACING). Backend re-layout via polling will only fine-tune; live
+  // events must already place each new node at its near-final position so
+  // the user never sees a node "jump in" from the bottom.
+  const X_SPACING = 280;
+  const Y_SPACING = 160;
+
+  // Deterministic child placement mirrors graph_builder.py layout:
+  //   manager      → col 0, row 1
+  //   iteration    → below its manager (same x, y += Y_SPACING per sibling)
+  //   worker       → right of its iteration (same y, x += X_SPACING per sibling)
+  //   toolCall     → directly below its worker (same x, y += Y_SPACING)
+  //   submanager   → right of the parent run column (new manager column)
+  // This keeps new nodes immediately on-layout, so the viewport never jumps
+  // to `y = n * Y_SPACING` orphan coordinates.
+  const parentLookup = (id: string | null | undefined): Node | undefined => {
+    if (!id) return undefined;
+    return _nodeIndex.get(id) ?? _pendingNodes.find((n) => n.id === id);
+  };
+  const countSiblings = (parentId: string): number => {
+    let n = 0;
+    for (const e of store.graphEdges) if (e.source === parentId) n++;
+    for (const e of _pendingEdges) if (e.source === parentId) n++;
+    return n;
+  };
+  const computeChildPosition = (
+    parentId: string | null | undefined,
+    childType?: string,
+  ): { x: number; y: number } => {
+    const parent = parentLookup(parentId);
+    if (parent && parentId) {
+      const parentType = ((parent.data as Record<string, unknown>)?.nodeType ?? parent.type) as string;
+      const siblings = countSiblings(parentId);
+      switch (childType) {
+        case 'iteration':
+          // stack vertically below the manager
+          return { x: parent.position.x, y: parent.position.y + (siblings + 1) * Y_SPACING };
+        case 'worker':
+          // same row as the iteration, fanning right
+          return { x: parent.position.x + (siblings + 1) * X_SPACING, y: parent.position.y };
+        case 'toolCall':
+          // directly below the worker
+          return { x: parent.position.x, y: parent.position.y + (siblings + 1) * Y_SPACING };
+        case 'manager':
+        case 'submanager':
+          // new column to the right
+          return { x: parent.position.x + (siblings + 1) * X_SPACING * 2, y: parent.position.y + Y_SPACING };
+        default:
+          if (parentType === 'iteration') return { x: parent.position.x + (siblings + 1) * X_SPACING, y: parent.position.y };
+          if (parentType === 'worker') return { x: parent.position.x, y: parent.position.y + (siblings + 1) * Y_SPACING };
+          return { x: parent.position.x + X_SPACING, y: parent.position.y + siblings * Y_SPACING };
+      }
+    }
+    // Parent missing — park the node at the origin column so the viewport
+    // never jumps; the debounced loadRunGraph() will replace positions with
+    // the authoritative backend layout on the next tick.
+    return { x: 0, y: Y_SPACING };
+  };
+
   // Track the last iteration/manager node for linking workers
   const lastManagerId = () => {
     // Check pending nodes first (most recent)
@@ -502,7 +564,7 @@ function processEvent(
       addNode({
         id: 'manager',
         type: 'manager',
-        position: { x: 0, y: 120 },
+        position: computeChildPosition('task_root', 'manager'),
         data: {
           label: `Manager (${model.split('/').pop()})`,
           status: 'running',
@@ -530,7 +592,7 @@ function processEvent(
       addNode({
         id,
         type: 'task',
-        position: { x: 0, y: store.graphNodes.length * 120 },
+        position: computeChildPosition(lastManagerId() ?? 'task_root', 'worker'),
         data: {
           label: (evt.data.agent_name as string) ?? evt.type,
           status: 'running',
@@ -555,7 +617,7 @@ function processEvent(
       addNode({
         id: subMgrId,
         type: 'submanager',
-        position: { x: 0, y: store.graphNodes.length * 120 },
+        position: computeChildPosition(parentId, 'submanager'),
         data: {
           label: `Sub-Manager d${depth} (${model.split('/').pop()})`,
           status: 'running',
@@ -601,7 +663,7 @@ function processEvent(
       addNode({
         id: iterId,
         type: 'iteration',
-        position: { x: 0, y: store.graphNodes.length * 120 },
+        position: computeChildPosition(iterParent, 'iteration'),
         data: {
           label: `Iteration ${iterNum}`,
           iteration: iterNum,
@@ -697,7 +759,7 @@ function processEvent(
       addNode({
         id: workerNodeId,
         type: 'worker',
-        position: { x: 250, y: store.graphNodes.length * 120 },
+        position: computeChildPosition(parentId, 'worker'),
         data: {
           label: instructions.slice(0, 60) || `Worker ${workerId.slice(0, 8)}`,
           status: 'running',
@@ -861,7 +923,7 @@ function processEvent(
       addNode({
         id: toolId,
         type: 'toolCall',
-        position: { x: 450, y: store.graphNodes.length * 120 },
+        position: computeChildPosition(resolvedCallerId, 'toolCall'),
         data: {
           label: toolName,
           status: (evt.data.ok === false) ? 'error' : 'complete',
@@ -1133,6 +1195,8 @@ function snapshotSession(s: WorkflowStore): CachedSessionState | null {
     events: s.events,
     graphNodes: s.graphNodes,
     graphEdges: s.graphEdges,
+    toolRegistry: s.toolRegistry,
+    skillRegistry: s.skillRegistry,
     outputBlocks: s.outputBlocks,
     budget: { ...s.budget },
     sessionHistory: s.sessionHistory,
@@ -1152,6 +1216,8 @@ function restoreFromCache(cached: CachedSessionState): Partial<WorkflowStore> {
     events: cached.events,
     graphNodes: cached.graphNodes,
     graphEdges: cached.graphEdges,
+    toolRegistry: cached.toolRegistry ?? [],
+    skillRegistry: cached.skillRegistry ?? [],
     outputBlocks: cached.outputBlocks,
     budget: cached.budget,
     sessionHistory: cached.sessionHistory,
@@ -1171,6 +1237,43 @@ function evictCache(cache: Map<string, CachedSessionState>, maxSize: number) {
 }
 
 /** Route a WebSocket event to a background (non-active) session's cache. */
+/**
+ * Reconcile runStatus with the backend after a WebSocket close.
+ *
+ * The WS may die before the terminal ``run.complete`` frame arrives
+ * (network hiccup, browser tab sleep, server restart). In that case
+ * the UI sits on ``runStatus: 'running'`` forever, which makes the
+ * TaskInputBar still show "Stop" while the backend has long since
+ * finished. Fetch the authoritative /api/runs/{id} record once and
+ * transition the UI to the real terminal state.
+ */
+function reconcileRunStatusFromBackend(
+  runId: string,
+  get: () => WorkflowStore,
+  set: (partial: Partial<WorkflowStore> | ((s: WorkflowStore) => Partial<WorkflowStore>)) => void,
+) {
+  // Give the server a short grace period so a fast-finishing run can
+  // emit run.complete before we fetch — avoids a racy double-update.
+  setTimeout(() => {
+    if (get().currentRunId !== runId) return;
+    if (get().runStatus !== 'running') return;
+    api.getRun(runId).then((run) => {
+      if (get().currentRunId !== runId) return;
+      if (get().runStatus !== 'running') return;
+      const backendStatus = String(run.status || '').toLowerCase();
+      const terminal = ['complete', 'partial', 'failed', 'error', 'aborted', 'stopped'];
+      if (terminal.includes(backendStatus)) {
+        const uiStatus = (backendStatus === 'failed' || backendStatus === 'error')
+          ? 'error'
+          : 'complete';
+        set({ runStatus: uiStatus, _wsStatus: 'closed' });
+      }
+    }).catch(() => {
+      // Backend unreachable — leave state as-is; user can refresh.
+    });
+  }, 2000);
+}
+
 function routeBackgroundEvent(
   event: RunEvent,
   sessionId: string,
@@ -1249,6 +1352,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   // -- Graph ----------------------------------------------------------------
   graphNodes: [],
   graphEdges: [],
+  toolRegistry: [],
+  skillRegistry: [],
   addGraphNode: (node) =>
     set((s) => {
       // Avoid duplicate IDs
@@ -1345,7 +1450,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         if (raw.data) (edge as any).data = raw.data;
         return edge;
       });
-      set({ graphNodes: nodes, graphEdges: edges });
+      set({
+        graphNodes: nodes,
+        graphEdges: edges,
+        toolRegistry: graph.tool_registry ?? [],
+        skillRegistry: graph.skill_registry ?? [],
+      });
     } catch {
       // silently ignore
     }
@@ -1561,6 +1671,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       events: [],
       graphNodes: [],
       graphEdges: [],
+      toolRegistry: [],
+        skillRegistry: [],
       outputBlocks: [],
       selectedRunId: null,
       selectedRunBlocks: [],
@@ -1683,6 +1795,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }, {
         onStateChange: (ws) => {
           if (get().currentSessionId === runSessionId) set({ _wsStatus: ws });
+          // Reconcile run-status when the socket closes while we still
+          // think the run is live. The backend may have emitted the
+          // run.complete event seconds earlier (and the HTTP status
+          // already reflects it), but if the event arrived after the
+          // socket died the UI would stay pinned on "running" forever.
+          if (ws === 'closed' && get().runStatus === 'running') {
+            reconcileRunStatusFromBackend(run_id, get, set);
+          }
         },
       });
       // Store in WS pool for multi-experiment support
@@ -1752,6 +1872,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       events: [],
       graphNodes: [],
       graphEdges: [],
+      toolRegistry: [],
+        skillRegistry: [],
       outputBlocks: [],
       budget: { ...DEFAULT_BUDGET },
       selectedNodeId: null,
@@ -1804,6 +1926,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         events: [],
         graphNodes: [],
         graphEdges: [],
+        toolRegistry: [],
+        skillRegistry: [],
         experimentMemory: [],
         // Reset run state so the UI is fully clean
         currentRunId: null,
@@ -2062,6 +2186,35 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           }
           return null;
         };
+        // Same constants/strategy as live processEvent — keep in sync with graph_builder.py.
+        const X_SPACING = 280;
+        const Y_SPACING = 160;
+        const childPos = (
+          parentId: string | null | undefined,
+          childType?: string,
+        ): { x: number; y: number } => {
+          if (parentId) {
+            const parent = graphNodes.find((n) => n.id === parentId);
+            if (parent) {
+              let siblings = 0;
+              for (const e of graphEdges) if (e.source === parentId) siblings++;
+              switch (childType) {
+                case 'iteration':
+                  return { x: parent.position.x, y: parent.position.y + (siblings + 1) * Y_SPACING };
+                case 'worker':
+                  return { x: parent.position.x + (siblings + 1) * X_SPACING, y: parent.position.y };
+                case 'toolCall':
+                  return { x: parent.position.x, y: parent.position.y + (siblings + 1) * Y_SPACING };
+                case 'manager':
+                case 'submanager':
+                  return { x: parent.position.x + (siblings + 1) * X_SPACING * 2, y: parent.position.y + Y_SPACING };
+                default:
+                  return { x: parent.position.x + X_SPACING, y: parent.position.y + siblings * Y_SPACING };
+              }
+            }
+          }
+          return { x: 0, y: Y_SPACING };
+        };
 
         for (const evt of allEvents) {
           const d = evt.data;
@@ -2069,7 +2222,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             case 'run.start': {
               const model = (d.model as string) ?? ((d.models as Record<string, string>)?.manager) ?? lastRun.model;
               addNode({ id: 'task_root', type: 'task', position: { x: 0, y: 0 }, data: { label: lastRun.task.slice(0, 60) || 'Task', status: 'running', nodeType: 'task', details: { model } } });
-              addNode({ id: 'manager', type: 'manager', position: { x: 0, y: 120 }, data: { label: `Manager (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', details: d } });
+              addNode({ id: 'manager', type: 'manager', position: childPos('task_root', 'manager'), data: { label: `Manager (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', details: d } });
               addEdge({ id: 'e-task-manager', source: 'task_root', target: 'manager' });
               break;
             }
@@ -2079,7 +2232,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               const evtDepth = (d.depth as number) ?? 1;
               const model = (d.model as string) ?? '?';
               const subMgrId = `sub_mgr_${parentId}_d${evtDepth}`;
-              addNode({ id: subMgrId, type: 'manager', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Sub-Manager d${evtDepth} (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', depth: evtDepth, details: d } });
+              addNode({ id: subMgrId, type: 'manager', position: childPos(parentId, 'submanager'), data: { label: `Sub-Manager d${evtDepth} (${model.split('/').pop()})`, status: 'running', nodeType: 'manager', depth: evtDepth, details: d } });
               addEdge({ id: `e-${parentId}-${subMgrId}`, source: parentId, target: subMgrId });
               break;
             }
@@ -2096,7 +2249,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 if (graphNodes.some((n) => n.id === subMgrId)) iterParent = subMgrId;
                 else if (graphNodes.some((n) => n.id === resolvedParent)) iterParent = resolvedParent;
               }
-              addNode({ id: iterId, type: 'iteration', position: { x: 0, y: graphNodes.length * 120 }, data: { label: `Iteration ${displayNum}`, iteration: displayNum, status: 'running', nodeType: 'iteration', depth: evtDepth, details: d } });
+              addNode({ id: iterId, type: 'iteration', position: childPos(iterParent, 'iteration'), data: { label: `Iteration ${displayNum}`, iteration: displayNum, status: 'running', nodeType: 'iteration', depth: evtDepth, details: d } });
               addEdge({ id: `e-${iterParent}-${iterId}`, source: iterParent, target: iterId });
               break;
             }
@@ -2126,7 +2279,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 const rawParent = (d.parent_id as string) ?? lastManagerId() ?? 'manager';
                 parentId = resolveNodeRef(rawParent, graphNodes);
               }
-              addNode({ id: workerNodeId, type: 'worker', position: { x: 250, y: graphNodes.length * 120 }, data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', worker_id: workerId, details: d } });
+              addNode({ id: workerNodeId, type: 'worker', position: childPos(parentId, 'worker'), data: { label: ((d.instructions as string) ?? '').slice(0, 60) || `Worker ${workerId.slice(0, 8)}`, status: 'running', nodeType: 'worker', worker_id: workerId, details: d } });
               addEdge({ id: `e-${parentId}-${workerNodeId}`, source: parentId, target: workerNodeId });
               break;
             }
@@ -2170,7 +2323,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 const iterNodeId = `iter_${iteration}`;
                 if (graphNodes.some((n) => n.id === iterNodeId)) resolvedCallerId = iterNodeId;
               }
-              addNode({ id: toolId, type: 'toolCall', position: { x: 450, y: graphNodes.length * 120 }, data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
+              addNode({ id: toolId, type: 'toolCall', position: childPos(resolvedCallerId || null, 'toolCall'), data: { label: toolName, status: (d.ok === false) ? 'error' : 'complete', nodeType: 'toolCall', details: d } });
               if (resolvedCallerId) addEdge({ id: `e-${resolvedCallerId}-${toolId}`, source: resolvedCallerId, target: toolId });
               break;
             }
@@ -2216,6 +2369,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           wsStatus = pooledWs.readyState() === WebSocket.OPEN ? 'open' : 'connecting';
         } else {
           // Reconnect WS for a running experiment (e.g. after page refresh)
+          const _reconcileRunId = lastRunId;
           const conn = connectToRun(lastRunId, (event) => {
             const current = get();
             if (current.currentSessionId === sessionId) {
@@ -2229,6 +2383,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           }, {
             onStateChange: (ws) => {
               if (get().currentSessionId === sessionId) set({ _wsStatus: ws });
+              if (ws === 'closed' && get().runStatus === 'running') {
+                reconcileRunStatusFromBackend(_reconcileRunId, get, set);
+              }
             },
           });
           s._wsPool.set(lastRunId, conn);
@@ -2271,6 +2428,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           events: [],
           graphNodes: [],
           graphEdges: [],
+          toolRegistry: [],
+        skillRegistry: [],
           currentRunId: null,
           runStatus: 'idle',
           experimentMemory: [],
@@ -2316,6 +2475,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 events: [],
                 graphNodes: [],
                 graphEdges: [],
+                toolRegistry: [],
+        skillRegistry: [],
                 _wsConnection: null,
                 _wsStatus: 'closed' as const,
               }

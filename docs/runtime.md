@@ -119,12 +119,12 @@ class Agent(AWPAgent):
 
 ## Standalone Runtime
 
-The `awp-protocol` package includes a minimal standalone runtime for executing AWP workflows without any external framework.
+The `awp-agents` package includes a minimal standalone runtime for executing AWP workflows without any external framework.
 
 ### Installation
 
 ```bash
-pip install awp-protocol
+pip install awp-agents
 ```
 
 ### Components
@@ -310,7 +310,7 @@ For the full adapter reference, see [skill/adapters/cloudflare-dynamic-workers.m
 
 To run AWP workflows on a different platform (e.g., LangGraph, CrewAI, a custom framework), you need to:
 
-1. **Parse the YAML.** Read `workflow.awp.yaml` and all `agent.awp.yaml` files. The `awp-protocol` package provides parsers you can reuse:
+1. **Parse the YAML.** Read `workflow.awp.yaml` and all `agent.awp.yaml` files. The `awp-agents` package provides parsers you can reuse:
 
    ```python
    from awp.parser import parse_manifest, parse_agent

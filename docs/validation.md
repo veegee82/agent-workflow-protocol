@@ -424,3 +424,37 @@ See [Observability Reference](observability.md) for details.
 - **Category:** Orchestration (A4)
 - **Level:** MUST
 - **Description:** `delegation_loop.budget.max_depth` MUST NOT exceed the hard ceiling of `10`. Values `> 5` emit a warning ("most A4 workflows complete with depth <= 3"). Deep recursion makes budget reasoning and debugging intractable; a flatter decomposition is always preferred.
+
+## Runtime Completion Gates (Tier 1.5)
+
+In addition to the static R-rules above, the delegation-loop runner enforces a deterministic **completion-gate chain** on every manager COMPLETE decision. These gates are runtime checks (they require filesystem and result-state access) and therefore do not carry an R-label, but they are normative for conformant delegation-loop implementations. A rejection by any gate bumps the `_rejected_completions` counter (see **Completion-Retry Circuit Breaker** below) and forces another manager iteration.
+
+| Gate | MUST/SHOULD | Description |
+|------|-------------|-------------|
+| `critique` | MUST | Mean critique score across the latest iteration's worker critiques MUST be `>= critique.min_score_to_complete` when the critique engine is enabled and at least one critique score exists. |
+| `deliverable_presence` | MUST | Every manager-declared deliverable path (from subtask `required_outputs`, or regex-scraped from `success_criteria` / `description` anchored on `_output_dir` / `_workspace_dir`) MUST exist on disk AND be a non-empty file. On rejection, emit a `deliverable_presence` gate event with `missing: [...]`, `empty: [...]`, `source: "required_outputs" | "success_criteria"`. When no paths can be derived, the gate SHOULD emit a WARNING and skip (non-blocking fallback). |
+| `placeholder` | MUST | Declared output files and the `final_result` dict MUST NOT contain placeholder strings (`TODO`, `XX%`, `???`, `your_value`, `FIXME`, etc.). Code-comment exemptions apply (e.g. `# TODO:` on a line that looks like a code comment). |
+| `file` | MUST | Declared output files MUST NOT be broken placeholders (1×1 PNGs, zero-length PDFs, truncated CSVs without headers). |
+| `deliverable` | SHOULD | Legacy keyword-based check: if the task text implies a file deliverable (via hint keywords like `image`, `report`, `chart`, `dataset`) and the run's `_output_dir` contains no file `>= 512` bytes, reject. Complementary to `deliverable_presence`. |
+| `structural_integrity` | SHOULD | Markdown deliverables MUST pass deterministic structural checks: anchor adjacency, reference-format consistency, paragraph-duplication ratio, figure inline-ref presence. |
+| `eval` | MUST when enabled | When `observability.evaluation.enabled: true`, the aggregated evaluation score MUST be `>= thresholds.retry`. Below `retry` → `retry_with_repair`; below `fail` → hard failure. |
+
+## Plan-Loop Deterministic Transition
+
+When the manager issues `pre_progress_plans > MAX_PRE_PROGRESS_PLANS` consecutive PLAN decisions without any worker progress (the `plan_loop` gate), the runtime MUST pick one of the following deterministic transitions:
+
+1. **`forced_delegate`** — if the active task plan has at least one subtask with `status == "pending"`, the runner sets `state["_plan_locked"]` to a textual nudge and continues the loop. The manager MUST issue DELEGATE on the next turn.
+2. **`forced_terminate`** — if the plan has no pending subtasks (all completed, failed, or skipped), the runtime MUST terminate the run with status `partial` and reason `plan_loop_stall`.
+
+The gate event MUST record `transition: "forced_delegate" | "forced_terminate"`, `pre_progress_plans`, and `pending_subtasks` so the decision can be audited after the fact.
+
+## Completion-Retry Circuit Breaker
+
+The runtime MUST track a monotonically-increasing `_rejected_completions` counter. Every rejection by the completion-gate chain (`critique`, `deliverable_presence`, `placeholder`, `file`, `deliverable`, `structural_integrity`, `eval`) MUST bump the counter by 1. Any successful DELEGATE decision MUST reset the counter to 0.
+
+When the counter reaches `budget.max_rejected_completions` (default **2**):
+
+* If the last gate-rejection payload describes a concrete defect, the runtime MUST synthesize a repair subtask (priority `critical`, `required_outputs` derived from the defect) and force the next iteration into DELEGATE mode. The counter is reset after repair synthesis.
+* If no repair can be derived, the runtime MUST terminate the run with status `partial` and reason `max_rejected_completions`.
+
+Both paths MUST emit a `completion_circuit_breaker` gate event with the counter value and — when applicable — the synthesized `repair_subtask_id`.

@@ -662,3 +662,38 @@ capabilities:
 - **Category:** Orchestration (A4)
 - **Requirement:** `delegation_loop.budget.max_depth` MUST NOT exceed the hard ceiling of 10. Values `> 5` emit a warning.
 - **Rationale:** Deep recursion makes budget reasoning and debugging intractable. Most A4 workflows complete with depth `<= 3`; the ceiling guarantees the recursion tree always terminates within human-debuggable bounds.
+
+---
+
+## 8. Runtime Completion Gates
+
+These gates govern the delegation-loop runner's acceptance of a manager `COMPLETE` decision. They are runtime checks (filesystem + state access required) and therefore do not carry R-labels, but they are normative for conformant delegation-loop implementations. Every gate rejection MUST:
+
+1. Emit a `gate` event to `events.jsonl` via `trace_gate(gate, triggered=true, reason, …)`.
+2. Bump `state["_rejected_completions"]` by 1 (circuit-breaker bookkeeping).
+3. Force another manager iteration (do NOT accept the `COMPLETE` decision).
+
+### Deliverable-Presence Gate
+
+- **Category:** Orchestration (delegation_loop)
+- **Requirement:** Before accepting `COMPLETE`, the runtime MUST verify that every manager-declared deliverable path exists on disk AND is a non-empty file. Required paths MUST be derived in priority order: (1) `required_outputs: list[str]` on each subtask of the active task plan, (2) path tokens scraped from each subtask's `success_criteria` / `description` via a regex anchored on `_output_dir` or `_workspace_dir`, (3) path tokens scraped from the original task string. When none of the three sources yields any path, the runtime MUST emit a WARNING and the gate MUST become a non-blocking no-op.
+- **Event fields:** `missing: list[str]`, `empty: list[str]`, `source: "required_outputs" | "success_criteria"`.
+- **Rationale:** Prevents the "manager hallucinated artifacts" pathology where `COMPLETE` is accepted even though the declared output files were never written.
+
+### Completion-Retry Circuit Breaker
+
+- **Category:** Orchestration (delegation_loop)
+- **Requirement:** The runtime MUST track a counter `_rejected_completions` that is bumped by every completion-gate rejection and reset on any successful `DELEGATE`. When the counter reaches `budget.max_rejected_completions` (default **2**):
+  - If the last gate-rejection payload identifies a concrete defect (missing / empty files, placeholder strings, broken output files, or structural defects), the runtime MUST synthesize a repair subtask (priority `critical`, `required_outputs` populated from the defect) and force the next iteration into `DELEGATE` mode.
+  - Otherwise, the runtime MUST terminate the run with status `partial` and reason `max_rejected_completions`.
+- **Event fields:** `rejected_completions: int`, `repair_subtask_id: str` (empty on terminate).
+- **Rationale:** Bounds the cost of a manager that oscillates between rejected `COMPLETE` decisions without ever actually fixing the defect.
+
+### Plan-Loop Deterministic Transition
+
+- **Category:** Orchestration (delegation_loop)
+- **Requirement:** When the manager issues more than `MAX_PRE_PROGRESS_PLANS` (default **2** in strict mode, **3** in relaxed mode) consecutive `PLAN` decisions without any worker progress, the runtime MUST pick one of two deterministic transitions:
+  - **`forced_delegate`** — if the active plan has at least one subtask with `status == "pending"`, the runtime MUST inject a textual lock into `state["_plan_locked"]` and continue. The manager MUST issue `DELEGATE` on the next turn.
+  - **`forced_terminate`** — if the plan has no pending subtasks, the runtime MUST terminate the run with status `partial` and reason `plan_loop_stall`.
+- **Event fields:** `transition: "forced_delegate" | "forced_terminate"`, `pre_progress_plans: int`, `pending_subtasks: int`.
+- **Rationale:** Eliminates the ambiguous "plan forever" failure mode by turning the `plan_loop` gate into a deterministic routing decision.

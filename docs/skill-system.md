@@ -136,7 +136,7 @@ Adapters define how `agent.py` is generated for a specific platform.
 
 | Adapter | Purpose |
 |---------|---------|
-| `adapters/standalone.md` | Generate `agent.py` for the AWP standalone runtime (`awp-protocol` package). |
+| `adapters/standalone.md` | Generate `agent.py` for the AWP standalone runtime (`awp-agents` package). |
 | `adapters/cloudflare-dynamic-workers.md` | Generate TypeScript project for Cloudflare Workers deployment. |
 | `adapters/clawhub.md` | Publish AWP skills and workflows to the ClawHub registry. |
 
@@ -148,7 +148,7 @@ Each adapter provides:
 - Installation and dependency information.
 - Examples for running workflows.
 
-The default adapter is `standalone.md`, which generates agents using the `AWPAgent` interface from `awp-protocol`.
+The default adapter is `standalone.md`, which generates agents using the `AWPAgent` interface from `awp-agents`.
 
 ### Adding a New Adapter
 

@@ -7,6 +7,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -244,6 +245,30 @@ async def create_run(config: WorkflowConfig, session_id: str | None = Query(None
         merged = dict(stored_secrets)
         merged.update(config_dict.get("secrets") or {})
         config_dict["secrets"] = merged
+
+    # Auto-session (Phase 2.1): if no session_id was passed, create an
+    # ad-hoc session so every run automatically gets cross-run continuity
+    # (experiment_context, shared/ tools, memory). Before this, only runs
+    # started from the UI sidebar got a session — CLI / direct POST calls
+    # bypassed continuity entirely.
+    if not session_id:
+        session_id = uuid.uuid4().hex[:12]
+        try:
+            await store.create_session(
+                session_id=session_id,
+                title=(config.task or "ad-hoc run")[:60],
+                description="",
+                hypothesis="",
+                tags=["auto"],
+                base_dir=_default_settings.get("base_dir") or "",
+            )
+            await store.update_session(session_id, status="running")
+        except Exception:
+            logger.warning(
+                "Auto-session creation failed for run %s — falling back to "
+                "session-less run (no continuity)", run_id, exc_info=True,
+            )
+            session_id = None
 
     # Resolve output_dir from session base_dir if applicable
     if session_id and not config_dict.get("output_dir"):

@@ -268,6 +268,8 @@ export interface CachedSessionState {
   events: RunEvent[];
   graphNodes: import('reactflow').Node[];
   graphEdges: import('reactflow').Edge[];
+  toolRegistry: import('../api/client').ToolRegistryEntry[];
+  skillRegistry: import('../api/client').SkillRegistryEntry[];
   outputBlocks: OutputBlock[];
   budget: BudgetState;
   sessionHistory: SessionHistoryItem[];

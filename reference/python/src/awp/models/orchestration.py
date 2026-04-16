@@ -167,6 +167,24 @@ class DelegationBudget(BaseModel):
     max_concurrent_submanagers: int = 3
     max_total_submanagers_per_run: int = 6
     max_parallel_workers: int = 16
+    # Per-iteration cap on the number of workers the manager is allowed to
+    # spawn in a single DELEGATE decision. When exceeded, the runner trims
+    # the dispatch list and forces the remainder to be merged into later
+    # iterations. Defaults to 6, aligned with the recommended "wide but
+    # bounded" fan-out heuristic for delegation loops. Hard safety cap
+    # regardless of the manager's plan.
+    max_workers_per_iteration: int = 6
+    # Completion-retry circuit breaker: after this many consecutive
+    # rejections of a manager COMPLETE decision by the completion-gate
+    # chain (placeholder / file / deliverable_presence / structural /
+    # critique / evaluation), the runner synthesizes a targeted repair
+    # subtask (forcing DELEGATE on the next iteration) or — if no
+    # repair can be derived — terminates with reason
+    # ``max_rejected_completions`` and status ``partial``. The counter
+    # resets on any successful DELEGATE iteration. Defaults to 2:
+    # 1 rejection is "the manager learns", 2+ is "the manager is
+    # oscillating and needs forceful guidance".
+    max_rejected_completions: int = 2
     min_loops_per_subtask: int = 3
 
 
@@ -470,6 +488,18 @@ class DelegationLoopConfig(BaseModel):
     # response, token usage, and latency. Disabled by default to
     # avoid I/O overhead in production runs.
     trace_enabled: bool = False
+    # Manager context-window guard. The manager prompt (system + user)
+    # is estimated before each LLM call; if the estimate exceeds
+    # ``manager_context_compress_threshold`` × ``manager_context_budget_tokens``
+    # the user message is deterministically compressed (older iteration
+    # detail collapsed to one-liners, worker-state dumps truncated) to
+    # target ≤60% of the budget. This prevents silent head-truncation of
+    # the system prompt when state grows beyond the model's context
+    # window. Token estimate uses a 4-chars-per-token heuristic — pick
+    # a budget below the model's true context size to leave headroom
+    # for the response. 150_000 is safe for 200k-window models.
+    manager_context_budget_tokens: int = 150_000
+    manager_context_compress_threshold: float = 0.8
 
     model_config = {"extra": "allow"}
 

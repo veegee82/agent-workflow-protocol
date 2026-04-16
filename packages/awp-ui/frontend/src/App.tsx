@@ -60,6 +60,7 @@ import {
 import { SessionSidebar } from '@/components/SessionSidebar/SessionSidebar';
 import { SecretsPanel } from '@/components/SecretsPanel/SecretsPanel';
 import { GraphVisPanel } from '@/components/AgentGraph/GraphVisPanel';
+import { RegistrySidebar } from '@/components/AgentGraph/RegistrySidebar';
 import { RunSelector } from '@/components/RunSelector/RunSelector';
 
 // ---------------------------------------------------------------------------
@@ -2262,7 +2263,7 @@ function GraphPanel() {
   const totalIterations = gNodes.filter((n) => (n.data.nodeType ?? n.type) === 'iteration').length;
 
   return (
-    <div className="h-full overflow-y-auto p-4">
+    <div className="h-full overflow-y-auto p-4 relative">
       {/* Stats bar */}
       <div className="flex items-center gap-4 mb-3 text-xs text-awp-muted">
         <span className="flex items-center gap-1"><CircleDot className="h-3 w-3" /> {graphNodes.length} nodes</span>
@@ -2270,6 +2271,10 @@ function GraphPanel() {
         <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {totalWorkers} workers</span>
         <span className="flex items-center gap-1"><Wrench className="h-3 w-3" /> {totalTools} tool calls</span>
       </div>
+
+      {/* Registry panels (tools + skills) — also available here so the
+          buttons are discoverable regardless of which graph tab is active */}
+      <RegistrySidebar />
 
       {/* Tree */}
       {roots.map((rootId) => (

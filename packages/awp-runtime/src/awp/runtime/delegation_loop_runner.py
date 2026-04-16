@@ -35,14 +35,16 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import os
 import re
+import signal
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from awp.models.orchestration import DelegationBudget, DelegationLoopConfig
 
@@ -63,6 +65,89 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+TerminalStatus = Literal["complete", "partial", "failed", "aborted"]
+
+
+# Reasons that indicate a cap/limit forced termination. These MUST map to
+# ``partial`` (deliverables possibly incomplete) — never ``complete``.
+_FORCED_PARTIAL_REASONS: frozenset[str] = frozenset(
+    {
+        "defect_category_cap",
+        "plan_loop",
+        "plan_loop_stall",
+        "max_rejected_completions",
+        "max_total_tokens",
+        "max_total_workers",
+        "max_wall_time",
+        "max_loops",
+        "max_tool_calls",
+        "budget_exhausted",
+        "forced_convergence",
+        "stall_detected",
+        "stall_detected_repeated_delegations",
+        "circuit_breaker_manager_failures",
+        "manager_parse_failure",
+        "manager_fail_graceful",
+        "unknown_decision",
+    }
+)
+
+# Reasons that indicate a hard failure — task contract cannot be met.
+_HARD_FAILURE_REASONS: frozenset[str] = frozenset(
+    {
+        "eval_fail",
+        "fail",
+        "error",
+    }
+)
+
+# Reasons that indicate an abrupt exit without a proper terminal decision
+# (process killed, signal delivered, exception during teardown, etc.).
+_ABORT_REASONS: frozenset[str] = frozenset(
+    {
+        "process_exit_without_terminal_event",
+        "sigterm",
+        "sigint",
+        "aborted",
+        "user_stop",
+    }
+)
+
+
+def _finalize_terminal_status(reason: str) -> TerminalStatus:
+    """Map a termination reason to the canonical terminal status.
+
+    Guarantees:
+    - Any cap/limit-forced exit returns ``"partial"`` — never ``"complete"``.
+    - Hard evaluation/execution failures return ``"failed"``.
+    - Signal-driven or otherwise abrupt exits return ``"aborted"``.
+    - Only a reason explicitly tagged as ``"success"`` or ``"complete"``
+      (or any prefix match on those) yields ``"complete"``.
+
+    This helper is the single source of truth for terminal status decisions
+    so that Fix H stays consistent across every exit path in the runner.
+    """
+    if not reason:
+        return "aborted"
+    r = reason.strip().lower()
+    # Accept common "manager says we are done" signals
+    if r in ("success", "complete", "completed", "ok"):
+        return "complete"
+    # Prefix match so e.g. "manager_parse_failure: missing decision" is
+    # still classified correctly.
+    for prefix in _FORCED_PARTIAL_REASONS:
+        if r == prefix or r.startswith(prefix + ":") or r.startswith(prefix + " "):
+            return "partial"
+    for prefix in _HARD_FAILURE_REASONS:
+        if r == prefix or r.startswith(prefix + ":") or r.startswith(prefix + " "):
+            return "failed"
+    for prefix in _ABORT_REASONS:
+        if r == prefix or r.startswith(prefix + ":") or r.startswith(prefix + " "):
+            return "aborted"
+    # Unknown reasons default to partial — safer than claiming completeness.
+    return "partial"
 
 
 def _find_truncation_points(text: str) -> list[int]:
@@ -127,6 +212,14 @@ class BudgetSnapshot:
         self.max_concurrent_submanagers: int = getattr(budget, "max_concurrent_submanagers", 3)
         self.max_total_submanagers_per_run: int = getattr(
             budget, "max_total_submanagers_per_run", 6
+        )
+        # Fix G: per-iteration worker cap. 0 disables the cap.
+        self.max_workers_per_iteration: int = int(
+            getattr(budget, "max_workers_per_iteration", 6) or 0
+        )
+        # Fix C: completion-retry circuit breaker cap. 0 disables the cap.
+        self.max_rejected_completions: int = int(
+            getattr(budget, "max_rejected_completions", 2) or 0
         )
         # Consumed (guarded by _lock for thread-safe mutation)
         self._lock = threading.Lock()
@@ -1154,7 +1247,12 @@ class RunLogger:
             path, content = item
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content, encoding="utf-8")
+                # Atomic write: stage to .tmp sibling then os.replace, so
+                # concurrent readers (graph_builder, UI live-poll) never see
+                # a half-written file.
+                tmp = path.with_suffix(path.suffix + ".tmp")
+                tmp.write_text(content, encoding="utf-8")
+                os.replace(tmp, path)
             except Exception:
                 pass
             finally:
@@ -1688,9 +1786,21 @@ class RunLogger:
         total_iterations: int,
         status: str,
     ) -> None:
+        # Fix E/H: persist a ``reason`` field on every terminal event so
+        # downstream consumers (UI, finalizer, E2E harness) can distinguish
+        # cap-forced partials from clean completions and aborted exits
+        # without parsing free-form text.
+        reason = ""
+        if isinstance(final_result, dict):
+            reason = str(
+                final_result.get("_terminal_reason")
+                or final_result.get("reason")
+                or ""
+            )
         summary = {
             "run_id": run_id,
             "status": status,
+            "reason": reason,
             "total_iterations": total_iterations,
             "final_budget": budget.to_dict(),
             "completed": datetime.now(timezone.utc).isoformat(),
@@ -2134,6 +2244,11 @@ class DelegationLoopRunner:
 
         final_result: Dict[str, Any] = {}
         status = "unknown"
+        # Fix H: the canonical terminal status, mapped from ``reason`` via
+        # ``_finalize_terminal_status``. Written on disk / emitted last.
+        terminal_status: TerminalStatus = "aborted"
+        terminal_reason: str = "process_exit_without_terminal_event"
+        terminal_emitted = False
 
         # Bind this run's blackboard to the contextvar so the
         # `board.post` / `board.read` builtin tools serve THIS run
@@ -2144,13 +2259,79 @@ class DelegationLoopRunner:
 
         _bb_token = _current_bb.set(self._blackboard)
         _ds_token = _current_ds.set(self._digest_store)
+
+        # Fix E: install SIGTERM / SIGINT handlers that convert the signal
+        # into a graceful termination request — the finally block picks up
+        # the pending flag and emits the ``run.complete`` event with
+        # ``status=aborted`` and ``reason=sigterm|sigint``. We only install
+        # the handlers on the main thread of the root manager; submanagers
+        # run under the parent's signal disposition and the runner_service
+        # runs DelegationLoopRunner inside a daemon thread where
+        # ``signal.signal`` raises ``ValueError``.
+        signal_state: dict[str, Any] = {"pending": None, "installed": False}
+        prior_sigterm = None
+        prior_sigint = None
+
+        def _signal_handler(signum: int, _frame: Any) -> None:  # pragma: no cover
+            name = "sigterm" if signum == signal.SIGTERM else "sigint"
+            signal_state["pending"] = name
+            logger.warning(
+                "DelegationLoop [%s] received %s — initiating graceful shutdown",
+                self._run_id,
+                name,
+            )
+            # Fix (Defect 1): abort in-flight blocking httpx.post() calls
+            # so the main thread can leave the request and the ``finally``
+            # block below runs. Without this, a signal that arrives while
+            # the manager is waiting on a slow LLM response leaves the
+            # process stuck inside libcurl/socket-read until the OS kills
+            # it, and the DB row stays ``running``.
+            try:
+                from .llm import LLMClient as _LLMClient
+                aborted = _LLMClient.close_all()
+                logger.warning(
+                    "DelegationLoop [%s] signal watchdog aborted %d LLM client(s)",
+                    self._run_id,
+                    aborted,
+                )
+            except Exception:
+                logger.debug("signal watchdog: close_all failed", exc_info=True)
+
+        if self._depth == 0:
+            try:
+                prior_sigterm = signal.signal(signal.SIGTERM, _signal_handler)
+                prior_sigint = signal.signal(signal.SIGINT, _signal_handler)
+                signal_state["installed"] = True
+            except (ValueError, OSError):
+                # Not on main thread — runner_service path. Rely on the
+                # outer finally in runner_service to emit the terminal
+                # event; the finalizer below still runs on exception.
+                signal_state["installed"] = False
+
         try:
             final_result, status = self._loop(task, state)
+            terminal_reason = status
+            terminal_status = _finalize_terminal_status(status)
+        except KeyboardInterrupt:
+            logger.warning("DelegationLoop interrupted by KeyboardInterrupt")
+            final_result = {
+                "error": "interrupted",
+                "confidence": 0.0,
+                "aborted": True,
+            }
+            terminal_reason = "sigint"
+            terminal_status = "aborted"
+            status = "aborted"
         except Exception as exc:
             logger.error("DelegationLoop error: %s", exc)
             final_result = {"error": str(exc), "confidence": 0.0}
-            status = "error"
+            terminal_reason = f"error: {exc}"
+            terminal_status = "failed"
+            status = "failed"
         finally:
+            # Fix E: even if nothing above set a terminal status, emit one.
+            if signal_state.get("pending") and terminal_status == "aborted":
+                terminal_reason = signal_state["pending"]
             try:
                 _current_bb.reset(_bb_token)
             except Exception:
@@ -2159,18 +2340,40 @@ class DelegationLoopRunner:
                 _current_ds.reset(_ds_token)
             except Exception:
                 pass
+            # Restore prior signal handlers
+            if signal_state.get("installed"):
+                try:
+                    if prior_sigterm is not None:
+                        signal.signal(signal.SIGTERM, prior_sigterm)
+                    if prior_sigint is not None:
+                        signal.signal(signal.SIGINT, prior_sigint)
+                except (ValueError, OSError):
+                    pass
+
         # Surface the final digest sha on the run result so parent
         # runners can fold it into their own digests.
         if self._current_digest_sha and isinstance(final_result, dict):
             final_result.setdefault("_digest_sha", self._current_digest_sha)
+        # Expose terminal status + reason on the result so the runner_service
+        # and UI do not have to re-derive them from the raw status string.
+        if isinstance(final_result, dict):
+            final_result.setdefault("_terminal_status", terminal_status)
+            final_result.setdefault("_terminal_reason", terminal_reason)
 
         self._logger.log_completion(
             self._run_id,
             final_result,
             self._budget,
             self._iter_counter,
-            status,
+            terminal_status,
         )
+        # Phase D: emit the deliverable scorecard for this run.
+        try:
+            self._write_deliverable_scorecard(task, terminal_status)
+        except Exception:
+            logger.debug("scorecard emission failed", exc_info=True)
+        terminal_emitted = True
+        _ = terminal_emitted  # suppress unused-var lint; used for audit
         # Flush all async writes to disk before returning
         self._logger.flush()
 
@@ -2210,6 +2413,19 @@ class DelegationLoopRunner:
         """Core loop: ask manager → delegate → validate → repeat."""
 
         while True:
+            # Cooperative stop check: the UI / orchestrator can drop a
+            # `_stop_requested` sentinel into <workflow_dir> to abort. We
+            # check at the top of each iteration so the in-flight one
+            # finishes cleanly and the finalizer runs (Fix E path).
+            stop_sentinel = self._dir / "_stop_requested"
+            if stop_sentinel.exists():
+                logger.warning(
+                    "DelegationLoop [%s] stop sentinel detected — aborting",
+                    self._run_id,
+                )
+                partial = self._build_partial_result("user_stop")
+                return partial, "user_stop"
+
             # Budget check — when budget is exhausted, allow a short grace
             # period for any in-flight context to be captured before returning.
             can_go, reason = self._budget.can_continue()
@@ -2369,29 +2585,70 @@ class DelegationLoopRunner:
                         pre_progress_plans += 1
                         state["_pre_progress_plans"] = pre_progress_plans
                         if pre_progress_plans > MAX_PRE_PROGRESS_PLANS:
-                            logger.warning(
-                                "Manager issued PLAN %d times without any "
-                                "worker progress — locking plan and forcing "
-                                "DELEGATE next iteration.",
-                                pre_progress_plans,
-                            )
-                            state["_plan_locked"] = (
-                                f"You have issued PLAN {pre_progress_plans} "
-                                f"times in a row without spawning any workers. "
-                                f"The plan is now LOCKED. You MUST issue a "
-                                f"DELEGATE decision next, picking the first "
-                                f"pending subtask from the existing plan and "
-                                f"assigning it to a worker. Do NOT issue PLAN "
-                                f"or DIAGNOSE again until at least one worker "
-                                f"has produced a result."
-                            )
-                            self._logger.trace_gate(
-                                "plan_loop",
-                                triggered=True,
-                                reason=f"{pre_progress_plans} consecutive PLANs with no progress",
-                                pre_progress_plans=pre_progress_plans,
-                            )
-                            continue
+                            # Fix D — deterministic plan_loop transition:
+                            # check whether the plan has any pending subtask
+                            # we could force a DELEGATE on. If yes → force
+                            # DELEGATE via ``_plan_locked``. If no → the
+                            # loop is genuinely stalled — terminate as
+                            # partial with reason ``plan_loop_stall``.
+                            pending = [
+                                st
+                                for st in self._task_plan._subtasks
+                                if st.get("status", "pending") == "pending"
+                            ]
+                            if pending:
+                                logger.warning(
+                                    "Manager issued PLAN %d times without any "
+                                    "worker progress — locking plan and forcing "
+                                    "DELEGATE next iteration (%d pending subtask(s)).",
+                                    pre_progress_plans,
+                                    len(pending),
+                                )
+                                state["_plan_locked"] = (
+                                    f"You have issued PLAN {pre_progress_plans} "
+                                    f"times in a row without spawning any workers. "
+                                    f"The plan is now LOCKED. You MUST issue a "
+                                    f"DELEGATE decision next, picking the first "
+                                    f"pending subtask from the existing plan and "
+                                    f"assigning it to a worker. Do NOT issue PLAN "
+                                    f"or DIAGNOSE again until at least one worker "
+                                    f"has produced a result."
+                                )
+                                self._logger.trace_gate(
+                                    "plan_loop",
+                                    triggered=True,
+                                    reason=(
+                                        f"{pre_progress_plans} consecutive "
+                                        f"PLANs with no progress"
+                                    ),
+                                    transition="forced_delegate",
+                                    pre_progress_plans=pre_progress_plans,
+                                    pending_subtasks=len(pending),
+                                )
+                                continue
+                            else:
+                                logger.warning(
+                                    "Manager issued PLAN %d times without any "
+                                    "worker progress AND no pending subtasks — "
+                                    "terminating as partial (plan_loop_stall).",
+                                    pre_progress_plans,
+                                )
+                                self._logger.trace_gate(
+                                    "plan_loop",
+                                    triggered=True,
+                                    reason=(
+                                        f"{pre_progress_plans} consecutive "
+                                        f"PLANs with no progress and no "
+                                        f"pending subtasks"
+                                    ),
+                                    transition="forced_terminate",
+                                    pre_progress_plans=pre_progress_plans,
+                                    pending_subtasks=0,
+                                )
+                                return (
+                                    self._build_partial_result("plan_loop_stall"),
+                                    "plan_loop_stall",
+                                )
                     if not has_progress and new_subtasks and self._planning_enabled:
                         # Case 1: refinement — fully replace the plan.
                         logger.info(
@@ -2720,6 +2977,20 @@ class DelegationLoopRunner:
                                 f"You MUST address the defects (re-delegate "
                                 f"or repair) before the task can complete."
                             )
+                            self._record_completion_rejection(
+                                state,
+                                gate="critique",
+                                reason=f"mean_score={mean_score:.2f} < {threshold:.2f}",
+                                repair_payload={},
+                            )
+                            _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                            if _trip and not _rep:
+                                return (
+                                    self._build_partial_result(
+                                        "max_rejected_completions"
+                                    ),
+                                    "max_rejected_completions",
+                                )
                             continue  # force another loop iteration
                 elif critique_rejection_count >= MAX_CRITIQUE_REJECTIONS:
                     logger.warning(
@@ -2733,6 +3004,62 @@ class DelegationLoopRunner:
                         reason=f"max rejections ({MAX_CRITIQUE_REJECTIONS}) reached",
                         iteration=iteration,
                     )
+
+                # --- Deliverable presence gate (Fix B): every manager-declared
+                # deliverable path (from subtask ``required_outputs`` or parsed
+                # from ``success_criteria``) MUST exist on disk and be
+                # non-empty. Catches the "manager hallucinated artifacts"
+                # pathology.
+                presence_rejection = self._deliverable_presence_gate(task)
+                if presence_rejection and self._budget.can_continue()[0]:
+                    _missing = presence_rejection.get("missing", [])
+                    _empty = presence_rejection.get("empty", [])
+                    logger.warning(
+                        "Manager tried to COMPLETE but deliverable_presence "
+                        "gate found %d missing and %d empty file(s).",
+                        len(_missing),
+                        len(_empty),
+                    )
+                    self._logger.trace_gate(
+                        "deliverable_presence",
+                        triggered=True,
+                        reason=(
+                            f"{len(_missing)} missing, {len(_empty)} empty"
+                            f" (source={presence_rejection.get('source', '')})"
+                        ),
+                        iteration=iteration,
+                        missing=_missing[:10],
+                        empty=_empty[:10],
+                        source=presence_rejection.get("source", ""),
+                    )
+                    state["_deliverable_presence_required"] = presence_rejection
+                    state["_last_manager_feedback"] = (
+                        "COMPLETION REJECTED by deliverable_presence gate: "
+                        f"{len(_missing)} required file(s) are missing from "
+                        f"disk and {len(_empty)} are empty. You MUST delegate "
+                        f"a worker that writes real, non-empty content to: "
+                        + "; ".join((_missing + _empty)[:10])
+                    )
+                    self._record_completion_rejection(
+                        state,
+                        gate="deliverable_presence",
+                        reason=(
+                            f"{len(_missing)} missing, {len(_empty)} empty"
+                        ),
+                        repair_payload={
+                            "missing": _missing,
+                            "empty": _empty,
+                        },
+                    )
+                    _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                    if _trip and not _rep:
+                        return (
+                            self._build_partial_result(
+                                "max_rejected_completions"
+                            ),
+                            "max_rejected_completions",
+                        )
+                    continue
 
                 # --- Deliverable placeholder gate: reject completion if any
                 # required output value or output file still contains obvious
@@ -2761,6 +3088,22 @@ class DelegationLoopRunner:
                         f"must be replaced with real content. Examples: "
                         + "; ".join(placeholder_findings[:8])
                     )
+                    self._record_completion_rejection(
+                        state,
+                        gate="placeholder",
+                        reason=f"{len(placeholder_findings)} placeholder(s) found",
+                        repair_payload={
+                            "placeholder_findings": placeholder_findings,
+                        },
+                    )
+                    _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                    if _trip and not _rep:
+                        return (
+                            self._build_partial_result(
+                                "max_rejected_completions"
+                            ),
+                            "max_rejected_completions",
+                        )
                     continue  # force another loop iteration
 
                 # --- Final output gate: reject completion if critical
@@ -2793,6 +3136,20 @@ class DelegationLoopRunner:
                             f"regenerated before the task can complete. "
                             f"Broken files: " + "; ".join(critical[:10])
                         )
+                        self._record_completion_rejection(
+                            state,
+                            gate="file",
+                            reason=f"{len(critical)} critical broken file(s)",
+                            repair_payload={"critical_files": critical},
+                        )
+                        _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                        if _trip and not _rep:
+                            return (
+                                self._build_partial_result(
+                                    "max_rejected_completions"
+                                ),
+                                "max_rejected_completions",
+                            )
                         continue  # force another loop iteration
 
                 # --- Deliverable presence gate: if the original task implies
@@ -2818,7 +3175,126 @@ class DelegationLoopRunner:
                         f"You must delegate a worker that actually produces "
                         f"the file in `_output_dir` before completing."
                     )
+                    self._record_completion_rejection(
+                        state,
+                        gate="deliverable",
+                        reason=missing_deliverable,
+                        repair_payload={"missing": [missing_deliverable]},
+                    )
+                    _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                    if _trip and not _rep:
+                        return (
+                            self._build_partial_result(
+                                "max_rejected_completions"
+                            ),
+                            "max_rejected_completions",
+                        )
                     continue
+
+                # --- Phase A new gates: syntax_compile, schema,
+                # cross_reference, success_criteria, smoke_test. Ordered
+                # cheap → expensive and invoked BEFORE structural_integrity
+                # so that e.g. a Python file with a SyntaxError does not
+                # consume LLM tokens in later gates.
+                new_rej = self._run_new_deliverable_gates(task)
+                if new_rej is not None:
+                    gate_name = new_rej.get("gate", "new_gate")
+                    reason = new_rej.get("reason", "")
+                    findings = new_rej.get("findings", [])
+                    logger.warning(
+                        "Manager tried to COMPLETE but %s gate rejected: %s",
+                        gate_name, reason,
+                    )
+                    self._logger.trace_gate(
+                        gate_name,
+                        triggered=True,
+                        reason=reason,
+                        iteration=iteration,
+                        findings=findings[:5],
+                    )
+                    state[f"_{gate_name}_repair_required"] = findings
+                    diag_lines = [
+                        f"- {f.get('file', '?')}: {f.get('detail', '')}"
+                        for f in findings[:12]
+                    ]
+                    state["_last_manager_feedback"] = (
+                        f"COMPLETION REJECTED by {gate_name} gate: {reason}. "
+                        f"Per-deliverable defects (fix each specifically, do "
+                        f"NOT re-declare COMPLETE):\n" + "\n".join(diag_lines)
+                    )
+                    self._record_completion_rejection(
+                        state,
+                        gate=gate_name,
+                        reason=reason,
+                        repair_payload={"findings": findings},
+                    )
+                    # Phase B/C: persist gate result
+                    self._persist_gate_result(
+                        iteration, gate_name,
+                        passed=False, detail={"reason": reason, "findings": findings},
+                    )
+                    _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                    if _trip and not _rep:
+                        # Phase B2: at circuit breaker trip, return partial
+                        # with quality_gate_failed so the UI can distinguish
+                        # a capped-retry exit from a simple budget exit.
+                        return (
+                            self._build_partial_result(
+                                "quality_gate_failed"
+                            ),
+                            "quality_gate_failed",
+                        )
+                    continue
+
+                # --- Structural-integrity gate: deterministic checks on
+                # deliverable markdown files (anchor adjacency, reference
+                # format consistency, paragraph-duplication ratio, figure
+                # inline-refs). Catches LLM cheat-to-complete moves that
+                # the placeholder/file gates miss because they only do
+                # string match / file existence.
+                structural_failures = self._check_structural_integrity()
+                if structural_failures and self._budget.can_continue()[0]:
+                    logger.warning(
+                        "Manager tried to COMPLETE but %d structural "
+                        "integrity check(s) failed: %s",
+                        len(structural_failures),
+                        structural_failures[:3],
+                    )
+                    self._logger.trace_gate(
+                        "structural_integrity",
+                        triggered=True,
+                        reason=(
+                            f"{len(structural_failures)} structural "
+                            f"check(s) failed"
+                        ),
+                        iteration=iteration,
+                        sample=structural_failures[:3],
+                    )
+                    state["_structural_repair_required"] = structural_failures
+                    state["_last_manager_feedback"] = (
+                        f"COMPLETION REJECTED: {len(structural_failures)} "
+                        f"structural-integrity defect(s) in the deliverable "
+                        f"markdown. Delegate a targeted repair worker that "
+                        f"fixes each one — do NOT just re-declare COMPLETE. "
+                        f"Defects: " + " | ".join(structural_failures)
+                    )
+                    self._record_completion_rejection(
+                        state,
+                        gate="structural_integrity",
+                        reason=f"{len(structural_failures)} structural defect(s)",
+                        repair_payload={
+                            "structural_failures": structural_failures,
+                        },
+                    )
+                    _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                    if _trip and not _rep:
+                        return (
+                            self._build_partial_result(
+                                "max_rejected_completions"
+                            ),
+                            "max_rejected_completions",
+                        )
+                    continue  # force another loop iteration
 
                 # --- Evaluation gate: score final result before accepting
                 if self._eval_engine and self._eval_engine.enabled:
@@ -2857,6 +3333,20 @@ class DelegationLoopRunner:
                                 f"{self._eval_engine._config.thresholds.retry:.2f}). "
                                 f"Please improve the result quality."
                             )
+                            self._record_completion_rejection(
+                                state,
+                                gate="eval",
+                                reason=f"score={final_eval.score:.2f}",
+                                repair_payload={},
+                            )
+                            _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                            if _trip and not _rep:
+                                return (
+                                    self._build_partial_result(
+                                        "max_rejected_completions"
+                                    ),
+                                    "max_rejected_completions",
+                                )
                             continue  # force another loop iteration
                         elif action == "fail_workflow":
                             result["_evaluation"] = self._eval_engine.get_summary()
@@ -2974,6 +3464,11 @@ class DelegationLoopRunner:
                 logger.warning("Manager returned DELEGATE with no delegations")
                 continue
 
+            # Successful DELEGATE resets the completion-retry circuit breaker
+            # counter (Fix C). Once the manager actually dispatches work in
+            # response to a rejection, the oscillation is broken.
+            self._reset_completion_rejection_counter(state)
+
             # P0: Critique delegation gate — block NEW work when old work
             # is failing.  Unlike the P1 gate (which only blocks identical
             # re-delegations), this gate blocks *any* new subtask_ids when
@@ -3044,11 +3539,12 @@ class DelegationLoopRunner:
 
             # P3: Convergence detector — if confidence has stalled, force a
             # partial complete instead of dispatching yet another round.
+            # Fix H: cap-forced exit → status=partial, NOT complete.
             if self._check_convergence(iteration):
                 partial = self._build_partial_result("forced_convergence")
                 partial["partial"] = True
                 partial["reason"] = "forced_convergence"
-                return partial, "complete"
+                return partial, "forced_convergence"
 
             # P4: Compute the delegation signature and detect redundancy.
             current_sig = self._delegation_signature(envelopes)
@@ -3224,11 +3720,19 @@ class DelegationLoopRunner:
                 tracker: dict[str, int] = state.setdefault(
                     "_defect_category_tracker", {}
                 )
+                # Structural-integrity repair is a directed repair driven
+                # by a deterministic gate, not a sign of worker failure.
+                # Don't let it contribute to defect_category_hard_cap —
+                # otherwise the very gate that exists to force repairs
+                # becomes the trigger for force-completing the run.
+                _in_structural_repair = bool(
+                    state.get("_structural_repair_required")
+                )
                 for ce in critique_envelopes:
                     for d in getattr(ce, "defects", []):
                         sev = getattr(d, "severity", "")
                         cat = getattr(d, "category", "") or "generic"
-                        if sev in ("critical", "warning"):
+                        if sev in ("critical", "warning") and not _in_structural_repair:
                             tracker[cat] = tracker.get(cat, 0) + 1
 
                 # Phase-aware scaling: "incomplete" defects are expected when
@@ -3281,7 +3785,8 @@ class DelegationLoopRunner:
                         f"Defect categories exceeded hard cap "
                         f"({_DEFECT_CAT_HARD_CAP}): {cat_summary}"
                     )
-                    return partial, "complete"
+                    # Fix H: cap-forced exit → status=partial, NOT complete.
+                    return partial, "defect_category_cap"
 
                 # Warn the manager if any category hit the diagnose threshold
                 diag_cats = []
@@ -3645,6 +4150,13 @@ class DelegationLoopRunner:
 
         system_prompt = self._build_manager_system_prompt()
         user_message = self._build_manager_task(task, state, iteration)
+
+        # Context-window guard: compress oversized user messages before
+        # they reach the LLM. Protects against silent head-truncation
+        # of the system prompt when state grows beyond the model window.
+        user_message = self._guard_manager_context(
+            system_prompt, user_message, iteration
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -4197,6 +4709,15 @@ You MUST respond with a JSON object containing ONE of these decisions:
   auto-promotion kicks in — wasting an iteration.
 - `submanager_budget_fraction` — float in [0.05, 0.95], default 0.3
 
+**OPTIONAL but STRONGLY RECOMMENDED when a subtask must exercise a
+registered dynamic tool:**
+- `required_tool_invocations` — array of tool FQNs (e.g.
+  `["dynamic.word_count"]`) that the worker MUST call via the tool
+  protocol. A deterministic post-worker gate rejects results where any
+  listed tool was not invoked, forcing a repair iteration. Use this
+  for any work that reuses previously registered `dynamic.*` tools so
+  workers don't reimplement them inline in `code.execute`.
+
 ```json
 {{
   "decision": "delegate",
@@ -4212,6 +4733,7 @@ You MUST respond with a JSON object containing ONE of these decisions:
       "instructions": "Detailed instructions for the worker",
       "skills": ["# Skill Name\\n\\n## Purpose\\n...\\n\\n## Concepts\\n...\\n\\n## Rules\\n1. ..."],
       "tools_allowed": ["web.search", "file.read"],
+      "required_tool_invocations": ["dynamic.word_count"],
       "output_contract": {{
         "required_fields": ["findings", "confidence"],
         "description": "What the worker should return"
@@ -4599,6 +5121,133 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         return "\n".join(parts)
 
+    @staticmethod
+    def _estimate_prompt_tokens(*parts: str) -> int:
+        """Cheap char-based token estimate (≈4 chars/token for English).
+
+        Deterministic, no external dependencies. Good enough to gate a
+        soft 80% threshold — the real tokenizer count is only needed at
+        the provider boundary, and the heuristic leaves headroom.
+        """
+        return sum(len(p) for p in parts) // 4
+
+    def _compress_manager_user_message(self, message: str, target_tokens: int) -> str:
+        """Deterministically shrink an overlarge manager user message.
+
+        Collapses the two narrative-heavy sections that dominate long
+        runs — ``Previous Results Summary`` and ``Worker Results
+        Available in State`` — to one-line entries. If still over the
+        target, keeps head + tail and elides the middle. Never touches
+        gate-feedback sections (repair instructions, rejection reasons)
+        because those must reach the manager verbatim to influence the
+        next decision.
+        """
+        lines = message.split("\n")
+        compressed: list[str] = []
+        collapsible_section = False
+        section_placeholder_emitted = False
+
+        COLLAPSIBLE_HEADERS = (
+            "## Previous Results Summary",
+            "## Worker Results Available in State",
+            "## Files Currently in Output Directory",
+        )
+
+        for line in lines:
+            if line.startswith("## "):
+                collapsible_section = any(
+                    line.startswith(h) for h in COLLAPSIBLE_HEADERS
+                )
+                section_placeholder_emitted = False
+                compressed.append(line)
+                if collapsible_section:
+                    compressed.append(
+                        "_[detail compressed by context-window guard; "
+                        "see digest and blackboard for full context]_"
+                    )
+                    section_placeholder_emitted = True
+                continue
+
+            if collapsible_section:
+                stripped = line.strip()
+                if stripped.startswith("### Iteration "):
+                    compressed.append("- " + stripped[4:])
+                elif stripped.startswith("- "):
+                    compressed.append(stripped[:160])
+                # all other body lines (code fences, JSON blobs, prose)
+                # are dropped in collapsible sections
+                continue
+
+            compressed.append(line)
+
+        result = "\n".join(compressed)
+        est = self._estimate_prompt_tokens(result)
+        if est <= target_tokens:
+            return result
+
+        # Still over — hard head/tail truncate. Keeps the task statement
+        # (at the top) and the most recent gate feedback / intelligence
+        # sections (at the bottom) intact.
+        target_chars = target_tokens * 4
+        head_chars = target_chars // 2
+        tail_chars = target_chars - head_chars
+        return (
+            result[:head_chars]
+            + "\n\n… [context-window guard: middle section truncated] …\n\n"
+            + result[-tail_chars:]
+        )
+
+    def _guard_manager_context(
+        self, system_prompt: str, user_message: str, iteration: int
+    ) -> str:
+        """Compress the manager user message if the prompt would exceed
+        the configured context budget. Returns the (possibly unchanged)
+        user message."""
+        budget = int(
+            getattr(self._config, "manager_context_budget_tokens", 150_000) or 0
+        )
+        if budget <= 0:
+            return user_message
+        threshold = float(
+            getattr(self._config, "manager_context_compress_threshold", 0.8) or 0.8
+        )
+        original_est = self._estimate_prompt_tokens(system_prompt, user_message)
+        if original_est <= int(budget * threshold):
+            return user_message
+
+        # Target 60% of budget for the compressed user message so the
+        # system prompt + response have clear headroom.
+        target_user_tokens = max(
+            1_000, int(budget * 0.6) - self._estimate_prompt_tokens(system_prompt)
+        )
+        compressed = self._compress_manager_user_message(
+            user_message, target_user_tokens
+        )
+        new_est = self._estimate_prompt_tokens(system_prompt, compressed)
+        logger.warning(
+            "Manager context guard fired (iter=%d): %d → %d est. tokens "
+            "(budget=%d, threshold=%.0f%%)",
+            iteration,
+            original_est,
+            new_est,
+            budget,
+            threshold * 100,
+        )
+        try:
+            self._logger.trace_gate(
+                "context_guard",
+                triggered=True,
+                reason="manager_prompt_over_budget",
+                iteration=iteration,
+                original_estimated_tokens=original_est,
+                compressed_estimated_tokens=new_est,
+                budget_tokens=budget,
+                threshold=threshold,
+            )
+        except Exception:  # noqa: BLE001 — tracing must never break the loop
+            pass
+        return compressed
+
     def _build_output_dir_listing(self, max_entries: int = 30) -> str:
         """Return a markdown listing of the run's output directory.
 
@@ -4918,6 +5567,89 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         delegation["skills"] = quality_skills
 
+    # -- Required-tool-invocation gate ------------------------------------
+    #
+    # Workers frequently reimplement dynamic tools inside ``code.execute``
+    # because it's faster than a tool roundtrip. The manager can force
+    # real tool-protocol usage by setting
+    # ``envelope["required_tool_invocations"]`` on a delegation. After the
+    # worker returns, this gate checks the recorded tool-call log against
+    # that declaration and emits a critical ``unused_required_tool``
+    # defect for each missing invocation — which pipes into the existing
+    # repair loop with a targeted prescription.
+
+    @staticmethod
+    def _extract_called_tool_names(result: dict) -> set[str]:
+        calls = result.get("_tool_calls") or []
+        names: set[str] = set()
+        if isinstance(calls, list):
+            for c in calls:
+                if isinstance(c, dict):
+                    nm = c.get("tool") or c.get("name")
+                    if nm:
+                        names.add(str(nm))
+        return names
+
+    def _apply_required_tool_gate(
+        self,
+        delegation_results: list[dict],
+        critiques: list[Any],
+    ) -> None:
+        from awp.runtime.critique.models import Defect
+
+        for dr, critique in zip(delegation_results, critiques):
+            env = dr.get("envelope", {}) or {}
+            required = env.get("required_tool_invocations") or []
+            if not isinstance(required, list) or not required:
+                continue
+            required_names = {str(r) for r in required if r}
+            called = self._extract_called_tool_names(dr.get("result", {}) or {})
+            missing = sorted(required_names - called)
+            if not missing:
+                continue
+
+            logger.warning(
+                "Worker %s: required_tool_invocations gate FAILED — missing %s; called=%s",
+                dr.get("worker_id", "?"),
+                missing,
+                sorted(called),
+            )
+            for tool in missing:
+                critique.defects.append(
+                    Defect(
+                        category="unused_required_tool",
+                        location=f"envelope.required_tool_invocations → {tool}",
+                        description=(
+                            f"Worker was required to invoke the tool '{tool}' via "
+                            "the tool protocol but never did. Reimplementing the "
+                            "tool's logic inside code.execute is not a valid "
+                            "substitute — the registered tool must be called by "
+                            "name so the runtime can track call_count, reuse, "
+                            "and audit trails."
+                        ),
+                        severity="critical",
+                    )
+                )
+                critique.prescriptions.append(
+                    f"In your next attempt you MUST invoke '{tool}' via the tool "
+                    "protocol at least once. Do NOT reimplement its behaviour in "
+                    "code.execute."
+                )
+            # Pull score down so the repair gate in _critique_and_repair fires
+            critique.score = min(critique.score, 0.3)
+            if not critique.summary:
+                critique.summary = (
+                    f"Required tools were not invoked: {', '.join(missing)}. "
+                    "Reimplementation in code.execute is not accepted."
+                )
+            # Annotate result for observability / e2e verifiers
+            res = dr.setdefault("result", {})
+            gate = res.setdefault("_required_tool_gate", {})
+            gate["missing"] = missing
+            gate["called"] = sorted(called)
+            gate["required"] = sorted(required_names)
+            gate["satisfied"] = False
+
     # -- Critique and repair -----------------------------------------------
 
     def _critique_and_repair(
@@ -4934,10 +5666,24 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         """
 
         if not self._critique_engine:
-            return []
+            # Gate still applies even without the critique engine — we need a
+            # shim so the deterministic check can surface unused-required-tool
+            # defects. Build empty envelopes and let the gate populate them.
+            from awp.runtime.critique.models import CritiqueEnvelope
+            critiques = [
+                CritiqueEnvelope(worker_id=dr.get("worker_id", "unknown"), score=1.0)
+                for dr in delegation_results
+            ]
+            self._apply_required_tool_gate(delegation_results, critiques)
+            return critiques
 
         # 1. Critique all results
         critiques = self._critique_engine.critique_results(delegation_results, task, iteration)
+        # 1a. Deterministic gate: if an envelope declared
+        # ``required_tool_invocations`` but the worker never called those
+        # tools (reimplemented them inside ``code.execute``, stubbed,
+        # etc.), synthesize a critical defect so the repair loop kicks in.
+        self._apply_required_tool_gate(delegation_results, critiques)
 
         # 2. Attempt targeted repair for results with critical defects
         repair_budget_limit = (
@@ -5017,6 +5763,53 @@ Do NOT accept "complete" if there are unresolved critical file errors.
     ) -> list[dict]:
         """Execute all delegations in parallel (fan-out)."""
         results: list[dict] = []
+
+        # Fix G: enforce ``max_workers_per_iteration`` pre-spawn. If the
+        # manager requested more workers than the per-iteration cap allows,
+        # trim to the cap and surface the deferred envelopes back to the
+        # manager via state so the next iteration either merges them or
+        # re-dispatches the overflow under a fresh budget check.
+        cap = int(getattr(self._budget, "max_workers_per_iteration", 0) or 0)
+        if cap > 0 and len(envelopes) > cap:
+            deferred = envelopes[cap:]
+            envelopes = envelopes[:cap]
+            logger.warning(
+                "max_workers_per_iteration=%d exceeded: dispatching %d now, "
+                "deferring %d to next iteration.",
+                cap,
+                len(envelopes),
+                len(deferred),
+            )
+            try:
+                self._logger.trace_gate(
+                    "max_workers_per_iteration",
+                    triggered=True,
+                    reason=(
+                        f"manager requested "
+                        f"{len(envelopes) + len(deferred)} workers, cap={cap}"
+                    ),
+                    dispatched=len(envelopes),
+                    deferred=len(deferred),
+                )
+            except Exception:
+                pass
+            # Summarize deferred envelopes so the manager can merge/replan
+            # instead of re-issuing the same overflow blindly.
+            summary = [
+                {
+                    "worker_id": env.get("worker_id", ""),
+                    "subtask_id": env.get("subtask_id", ""),
+                    "instructions": str(env.get("instructions", ""))[:200],
+                }
+                for env in deferred
+            ]
+            state["_deferred_workers"] = (
+                f"Per-iteration worker cap ({cap}) reached. "
+                f"{len(deferred)} worker(s) were deferred: "
+                f"{json.dumps(summary, ensure_ascii=False)}. "
+                f"You MUST either merge subtasks to stay under the cap "
+                f"or re-dispatch them in a later iteration."
+            )
 
         # P6: rough count of submanager candidates so the budget fraction can
         # be divided across this dispatch. We deliberately use a cheap flag
@@ -5196,6 +5989,13 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         the manager envelope is sloppy.
         """
         if self._depth >= self._budget.max_depth:
+            return False
+        # If the envelope declares specific required_tool_invocations, the
+        # gate must apply at the leaf worker level (submanagers create their
+        # own inner scope where the outer envelope's constraint wouldn't
+        # propagate). Always run such work as a direct ephemeral worker.
+        required_inv = envelope.get("required_tool_invocations") or []
+        if isinstance(required_inv, list) and required_inv:
             return False
         # P2: hard caps on submanager fan-out
         if self._budget.spawned_submanagers_total >= self._budget.max_total_submanagers_per_run:
@@ -5909,6 +6709,21 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # Ensure code.execute is in tools_allowed when codemode is enabled
         if codemode.get("enabled", False) and "code.execute" not in tools_allowed:
             tools_allowed = list(tools_allowed) + ["code.execute"]
+
+        # Auto-promote required_tool_invocations into tools_allowed. If the
+        # manager declares a tool as mandatory, it is implicitly permitted —
+        # otherwise the gate would fire for a tool the worker literally
+        # cannot call. Deduplicated.
+        required_invocations = envelope.get("required_tool_invocations") or []
+        if isinstance(required_invocations, list):
+            for req in required_invocations:
+                if req and req not in tools_allowed:
+                    tools_allowed = list(tools_allowed) + [req]
+                    logger.info(
+                        "Worker %s: auto-added required tool '%s' to tools_allowed",
+                        worker_id,
+                        req,
+                    )
         # Auto-add tool.create / tool.list when tool_creation is active
         if codemode.get("tool_creation", False):
             if "tool.create" not in tools_allowed:
@@ -5963,6 +6778,27 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             WORKER_PITFALLS,
             f"## Instructions\n{instructions}\n",
         ]
+
+        # Required-tool-invocation guard — the manager declared that certain
+        # dynamic tools MUST be called via the tool protocol. Reimplementing
+        # them inside ``code.execute`` is rejected by a deterministic gate
+        # after the worker returns, and triggers a repair iteration.
+        required_tools = envelope.get("required_tool_invocations") or []
+        if isinstance(required_tools, list) and required_tools:
+            req_list = "\n".join(f"  - `{t}`" for t in required_tools if t)
+            system_parts.append(
+                "## Required Tool Invocations (HARD CONSTRAINT)\n"
+                "The following tools MUST be called via the tool protocol\n"
+                "during this task. Reimplementing their logic in\n"
+                "`code.execute` is **not acceptable** — the runtime tracks\n"
+                "real tool calls (for reuse counting, auditing, and cross-\n"
+                "worker coordination) and will reject a result that skips\n"
+                "them.\n\n"
+                f"{req_list}\n\n"
+                "After you receive the worker instructions above, call each\n"
+                "required tool at least once with appropriate arguments\n"
+                "before returning your final JSON.\n"
+            )
 
         if skills:
             system_parts.append("## Domain Knowledge\n")
@@ -6970,6 +7806,195 @@ Rules:
         (("dataset", "csv", "spreadsheet", "table", "tabelle"), "a data file (csv/xlsx)"),
     )
 
+    # ---------------------------------------------------------------------
+    # Completion-retry circuit breaker (Fix C)
+    # ---------------------------------------------------------------------
+
+    def _record_completion_rejection(
+        self,
+        state: dict,
+        *,
+        gate: str,
+        reason: str,
+        repair_payload: dict | None = None,
+    ) -> None:
+        """Bookkeeping for the completion-retry circuit breaker.
+
+        Bumps ``state["_rejected_completions"]`` by one and stores the
+        most recent rejection metadata so
+        :meth:`_maybe_trip_completion_circuit_breaker` can decide whether
+        to force a repair DELEGATE or terminate the run.
+        """
+        # Phase B3 (adaptive circuit breaker): when this rejection has a
+        # DIFFERENT signature than the previous one (different gate or
+        # different findings), we are still making progress — repairing
+        # old defects uncovers new ones. Do NOT bump the counter in that
+        # case; only identical repeats count toward the cap.
+        prev = state.get("_last_completion_rejection") or {}
+        prev_sig = (prev.get("gate"), str(prev.get("repair") or {})[:200])
+        new_sig = (gate, str(repair_payload or {})[:200])
+        prior_count = int(state.get("_rejected_completions", 0))
+        if prev_sig != new_sig and prior_count > 0:
+            count = prior_count  # progress — don't advance the counter
+            logger.info(
+                "Completion rejection signature changed (%s → %s) — "
+                "circuit breaker does not advance (progress detected)",
+                prev_sig[0], new_sig[0],
+            )
+        else:
+            count = prior_count + 1
+        state["_rejected_completions"] = count
+        state["_last_completion_rejection"] = {
+            "gate": gate,
+            "reason": reason,
+            "repair": repair_payload or {},
+            "iteration": self._iter_counter,
+        }
+        self._logger.trace_gate(
+            "completion_rejection_counter",
+            triggered=False,
+            reason=f"gate={gate} count={count}/{self._budget.max_rejected_completions}",
+            iteration=self._iter_counter,
+            gate_fired=gate,
+            rejected_completions=count,
+        )
+
+    def _reset_completion_rejection_counter(self, state: dict) -> None:
+        """Reset the circuit-breaker counter on a successful DELEGATE."""
+        if state.get("_rejected_completions"):
+            state["_rejected_completions"] = 0
+            state.pop("_last_completion_rejection", None)
+
+    def _maybe_trip_completion_circuit_breaker(
+        self, state: dict
+    ) -> tuple[bool, bool]:
+        """Consult the counter after a completion rejection.
+
+        Returns a ``(tripped, repair_synthesized)`` tuple:
+
+        * ``tripped`` is True when the configured cap has been reached
+          and the caller MUST stop accepting further completion
+          rejections on this loop iteration.
+        * ``repair_synthesized`` is True iff a concrete repair subtask
+          was injected into the task plan / state so the next iteration
+          will run DELEGATE against it. When False **and** ``tripped``
+          is True, the caller must terminate with
+          ``reason="max_rejected_completions"``.
+        """
+        cap = int(getattr(self._budget, "max_rejected_completions", 2) or 0)
+        if cap <= 0:
+            return (False, False)
+        count = int(state.get("_rejected_completions", 0))
+        if count < cap:
+            return (False, False)
+
+        last = state.get("_last_completion_rejection") or {}
+        payload = last.get("repair") if isinstance(last, dict) else None
+        repair = self._synthesize_repair_subtask(payload or {})
+        if repair is not None:
+            # Surface the repair to the manager: strong textual nudge
+            # plus a machine-readable hint consumed on the next turn.
+            state["_forced_repair_subtask"] = repair
+            state["_last_manager_feedback"] = (
+                f"COMPLETION-RETRY CIRCUIT BREAKER TRIPPED after {count} "
+                f"rejected COMPLETE decisions. A repair subtask has been "
+                f"synthesized — you MUST DELEGATE a worker to: "
+                f"{repair.get('description', '(see _forced_repair_subtask)')}"
+            )
+            self._logger.trace_gate(
+                "completion_circuit_breaker",
+                triggered=True,
+                reason=f"{count} rejected completions — forcing repair DELEGATE",
+                iteration=self._iter_counter,
+                rejected_completions=count,
+                repair_subtask_id=repair.get("id", ""),
+            )
+            # Reset counter — the manager now has one more chance.
+            state["_rejected_completions"] = 0
+            state.pop("_last_completion_rejection", None)
+            return (True, True)
+
+        # No repair could be derived — terminate.
+        self._logger.trace_gate(
+            "completion_circuit_breaker",
+            triggered=True,
+            reason=(
+                f"{count} rejected completions and no repair could be "
+                f"synthesized — terminating run as partial"
+            ),
+            iteration=self._iter_counter,
+            rejected_completions=count,
+        )
+        return (True, False)
+
+    def _synthesize_repair_subtask(
+        self, payload: dict
+    ) -> dict[str, Any] | None:
+        """Build a concrete repair subtask from the last rejection's
+        ``repair`` payload. Returns ``None`` when the payload does not
+        describe an actionable defect.
+
+        Supported payload shapes (produced by the completion gates):
+
+        * ``{"missing": [...], "empty": [...]}`` — deliverable_presence
+        * ``{"placeholder_findings": [...]}`` — placeholder gate
+        * ``{"critical_files": [...]}`` — file gate
+        * ``{"structural_failures": [...]}`` — structural_integrity
+        """
+        if not isinstance(payload, dict):
+            return None
+
+        missing = payload.get("missing") or []
+        empty = payload.get("empty") or []
+        placeholders = payload.get("placeholder_findings") or []
+        bad_files = payload.get("critical_files") or []
+        structural = payload.get("structural_failures") or []
+
+        defect_lines: list[str] = []
+        if missing:
+            defect_lines.append(
+                "Missing deliverable file(s) — create them with real content: "
+                + ", ".join(missing[:10])
+            )
+        if empty:
+            defect_lines.append(
+                "Empty deliverable file(s) — populate them with real content: "
+                + ", ".join(empty[:10])
+            )
+        if placeholders:
+            defect_lines.append(
+                "Placeholder strings remain in deliverables — replace with real values: "
+                + "; ".join(str(p)[:120] for p in placeholders[:5])
+            )
+        if bad_files:
+            defect_lines.append(
+                "Broken output file(s) — regenerate them: "
+                + ", ".join(str(f)[:120] for f in bad_files[:10])
+            )
+        if structural:
+            defect_lines.append(
+                "Structural integrity defects in deliverables — repair them: "
+                + " | ".join(str(s)[:120] for s in structural[:5])
+            )
+
+        if not defect_lines:
+            return None
+
+        return {
+            "id": f"repair_auto_{self._iter_counter}",
+            "description": (
+                "Automated repair of defects flagged by the completion-retry "
+                "circuit breaker. Fix each defect below, then re-issue "
+                "COMPLETE. DO NOT skip any item."
+            ),
+            "priority": "critical",
+            "dependencies": [],
+            "status": "pending",
+            "success_criteria": " ".join(defect_lines),
+            "required_outputs": list({*missing, *empty}),
+            "_source": "completion_circuit_breaker",
+        }
+
     def _check_missing_deliverable(self, task: str) -> str:
         """Return a non-empty string describing the missing deliverable
         if the task implies a file output but `_output_dir` (the run's
@@ -6985,19 +8010,393 @@ Rules:
                 matched.append(label)
         if not matched:
             return ""
-        # Inspect the run output dir for any non-trivial file (>=512 B).
+        # Inspect the run output dir AND the flat output/ root for any
+        # non-trivial file (>=512 B). Workers may write either under
+        # output/<run_id>/ or directly under output/ depending on how
+        # _output_dir was resolved, so both are valid locations.
         run_out = self._dir / "output" / (self._run_id or "")
-        if not run_out.exists():
+        output_root = self._dir / "output"
+        search_dirs = [d for d in (run_out, output_root) if d.exists()]
+        if not search_dirs:
             return (
                 f"Task implies {matched[0]}, but output directory does not exist yet ({run_out})."
             )
-        substantial = [p for p in run_out.rglob("*") if p.is_file() and p.stat().st_size >= 512]
+        substantial = []
+        for d in search_dirs:
+            substantial += [
+                p for p in d.rglob("*")
+                if p.is_file() and p.stat().st_size >= 512
+            ]
         if not substantial:
             return (
                 f"Task implies {matched[0]}, but `_output_dir` is empty "
-                f"(no file >=512 B found in {run_out})."
+                f"(no file >=512 B found under {output_root})."
             )
         return ""
+
+    # Regex matching explicit file paths inside a subtask's
+    # ``success_criteria`` or ``description`` free text. We anchor on the
+    # two placeholders the runtime exposes to workers so we only pick up
+    # concrete, manager-declared output files. Examples that match:
+    #
+    #   _output_dir/report.md
+    #   _output_dir + "/final.pdf"
+    #   _output_dir + '/plot.png'
+    #   _workspace_dir/inputs/data.csv
+    #
+    # False-positive noise (prose mentions of paths) is bounded by the
+    # mandatory placeholder anchor.
+    _DELIVERABLE_PATH_RE = re.compile(
+        r"""
+        (?:_output_dir|_workspace_dir)
+        (?:\s*\+\s*)?                    # optional string-concat join
+        ['"]?                             # optional quote after concat
+        /\s*                              # separating slash
+        ([A-Za-z0-9_./\-]+\.[A-Za-z0-9]+) # <relpath>.<ext>
+        """,
+        re.VERBOSE,
+    )
+
+    def _derive_required_deliverables(
+        self, task: str
+    ) -> tuple[list[Path], str]:
+        """Derive the concrete output file paths a successful run must
+        materialize, in priority order:
+
+        1. Per-subtask ``required_outputs`` list from the active task plan
+           (explicit manager declaration, most authoritative).
+        2. Path tokens extracted from each subtask's ``success_criteria``
+           and ``description`` via :data:`_DELIVERABLE_PATH_RE`, anchored
+           on the ``_output_dir`` / ``_workspace_dir`` placeholders.
+        3. Empty — the gate becomes a no-op and the caller must treat it
+           as a non-blocking skip.
+
+        Returns a ``(paths, source)`` tuple where ``source`` is one of
+        ``"required_outputs"``, ``"success_criteria"``, ``""``. Paths are
+        absolute and scoped to either the run's ``_output_dir`` or
+        ``_workspace_dir``.
+        """
+        run_out = self._dir / "output" / (self._run_id or "")
+        workspace = self._dir / "workspace"
+        output_root = self._dir / "output"
+
+        def _resolve(rel: str) -> Path:
+            rel = rel.strip().lstrip("/")
+            # Heuristic: tokens starting with "inputs/" resolve under
+            # the workspace, everything else under the run's output dir.
+            if rel.startswith("inputs/"):
+                return (workspace / rel).resolve()
+            # Primary path: <output>/<run_id>/<rel>
+            primary = (run_out / rel).resolve()
+            if primary.is_file():
+                return primary
+            # Fallback: workers spawned inside submanagers may write the
+            # same filename to output/<submgr_run_id>/<rel>. Search the
+            # whole output/ subtree for a matching basename. Picks the
+            # newest hit so re-generated files supersede stale ones.
+            if output_root.is_dir():
+                base_name = Path(rel).name
+                candidates = [
+                    p for p in output_root.rglob(base_name)
+                    if p.is_file()
+                ]
+                if candidates:
+                    return max(candidates, key=lambda p: p.stat().st_mtime)
+            return primary  # return expected path so gate reports it missing
+
+        # --- Priority 1: explicit ``required_outputs`` on each subtask
+        explicit: list[Path] = []
+        if self._task_plan is not None:
+            for st in self._task_plan._subtasks:
+                reqs = st.get("required_outputs")
+                if isinstance(reqs, list):
+                    for item in reqs:
+                        if isinstance(item, str) and item.strip():
+                            explicit.append(_resolve(item))
+        if explicit:
+            # Deduplicate while preserving order
+            seen: set[Path] = set()
+            uniq = [p for p in explicit if not (p in seen or seen.add(p))]
+            return uniq, "required_outputs"
+
+        # --- Priority 2: regex-scrape success_criteria / description
+        scraped: list[Path] = []
+        if self._task_plan is not None:
+            for st in self._task_plan._subtasks:
+                for fld in ("success_criteria", "description"):
+                    val = st.get(fld, "")
+                    if not isinstance(val, str) or not val:
+                        continue
+                    for m in self._DELIVERABLE_PATH_RE.finditer(val):
+                        scraped.append(_resolve(m.group(1)))
+        # Also try the original task text as a last-chance source
+        if isinstance(task, str) and task:
+            for m in self._DELIVERABLE_PATH_RE.finditer(task):
+                scraped.append(_resolve(m.group(1)))
+        if scraped:
+            seen2: set[Path] = set()
+            uniq2 = [p for p in scraped if not (p in seen2 or seen2.add(p))]
+            return uniq2, "success_criteria"
+
+        return [], ""
+
+    def _deliverable_presence_gate(
+        self, task: str
+    ) -> dict[str, Any] | None:
+        """Verify every manager-declared deliverable exists and is
+        non-empty before a COMPLETE decision is accepted.
+
+        Returns ``None`` when the gate passes (or is skipped because no
+        required paths could be derived). Returns a rejection record
+        ``{"missing": [...], "empty": [...], "checked": [...],
+        "source": "..."}`` when any required path is missing or empty.
+
+        This catches the "manager hallucinated artifacts" pathology
+        where the loop terminates with ``COMPLETE`` even though the
+        declared output files were never written.
+        """
+        required, source = self._derive_required_deliverables(task)
+        if not required:
+            # Phase B1: if the task text itself implies a file deliverable
+            # (contains "erzeuge/create/generate/produce ... .<ext>" or a
+            # - [ ] checklist referencing files), REJECT completion with
+            # an explicit message asking the manager to declare
+            # ``required_outputs`` in the plan. A silent skip previously
+            # allowed "manager completes with zero artifacts" to sneak
+            # through.
+            task_lower = (task or "").lower()
+            implies_file = bool(
+                re.search(
+                    r"\b(erzeuge|create|generate|produce|write|render|build|kompiliere|compile)"
+                    r"[^.\n]{0,80}\.[a-z]{1,6}\b",
+                    task_lower,
+                )
+                or re.search(r"^\s*[-*]\s*\[\s*\]\s*.+\.[a-z]{1,6}", task or "", re.MULTILINE)
+            )
+            if implies_file:
+                return {
+                    "missing": [],
+                    "empty": [],
+                    "checked": [],
+                    "source": "task_implies_file_deliverable",
+                    "message": (
+                        "The task describes file deliverables but the plan "
+                        "has no explicit required_outputs. Either declare "
+                        "required_outputs on each subtask, or include "
+                        "the deliverable paths in the success_criteria."
+                    ),
+                }
+            logger.warning(
+                "deliverable_presence gate: no required paths derivable "
+                "from plan or task — skipping (non-blocking)."
+            )
+            return None
+
+        missing: list[str] = []
+        empty: list[str] = []
+        checked: list[str] = []
+        for p in required:
+            rel = self._relpath_for_display(p)
+            checked.append(rel)
+            if not p.exists() or not p.is_file():
+                missing.append(rel)
+                continue
+            try:
+                if p.stat().st_size <= 0:
+                    empty.append(rel)
+            except OSError:
+                empty.append(rel)
+
+        if not missing and not empty:
+            return None
+
+        return {
+            "missing": missing,
+            "empty": empty,
+            "checked": checked,
+            "source": source,
+        }
+
+    def _relpath_for_display(self, p: Path) -> str:
+        """Render a filesystem path relative to the workflow dir for
+        user-facing gate messages."""
+        try:
+            return str(p.relative_to(self._dir))
+        except Exception:
+            return str(p)
+
+    # ------------------------------------------------------------------
+    # Phase A / B / C / D — new deliverable gates
+    # ------------------------------------------------------------------
+
+    def _run_new_deliverable_gates(self, task: str) -> dict[str, Any] | None:
+        """Run the Phase-A deterministic deliverable gates (syntax_compile,
+        schema, cross_reference, success_criteria, smoke_test) over the
+        current required deliverables.
+
+        Returns the first rejection (if any) or None when all pass. Each
+        pass is persisted to ``<run_dir>/gates/<iter>/<gate>.json`` for
+        observability and the final scorecard (Phase D).
+        """
+        from .completion_gates import NEW_GATE_PIPELINE
+
+        paths, source = self._derive_required_deliverables(task)
+        ctx: dict[str, Any] = {
+            "task_text": task or "",
+            "plan": self._task_plan,
+            "workflow_dir": self._dir,
+            "strict_criteria": bool(getattr(self._config, "strict_criteria", False)),
+            "source": source,
+        }
+        for name, fn in NEW_GATE_PIPELINE:
+            try:
+                rej = fn(paths, ctx)
+            except Exception:
+                logger.warning(
+                    "%s gate raised — treating as pass", name, exc_info=True,
+                )
+                self._persist_gate_result(
+                    self._iter_counter, name,
+                    passed=True, detail={"note": "gate raised, skipped"},
+                )
+                continue
+            if rej is None:
+                self._persist_gate_result(
+                    self._iter_counter, name,
+                    passed=True, detail={},
+                )
+                continue
+            # Failure — persist and return
+            rej.setdefault("gate", name)
+            self._persist_gate_result(
+                self._iter_counter, name,
+                passed=False,
+                detail={
+                    "reason": rej.get("reason", ""),
+                    "findings": rej.get("findings", []),
+                },
+            )
+            return rej
+        return None
+
+    def _persist_gate_result(
+        self,
+        iteration: int,
+        gate_name: str,
+        *,
+        passed: bool,
+        detail: dict[str, Any],
+    ) -> None:
+        """Write a per-(iteration,gate) JSON record for the Phase-D
+        scorecard. Best-effort; failures are silent.
+        """
+        try:
+            run_dir = self._dir / "workspace" / "runs" / (self._run_id or "")
+            gate_dir = run_dir / "gates" / f"{iteration:03d}"
+            gate_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "iteration": iteration,
+                "gate": gate_name,
+                "passed": passed,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                **detail,
+            }
+            target = gate_dir / f"{gate_name}.json"
+            tmp = target.with_suffix(".json.tmp")
+            tmp.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            import os as _os
+            _os.replace(tmp, target)
+        except Exception:
+            logger.debug("_persist_gate_result failed", exc_info=True)
+
+    def _write_deliverable_scorecard(self, task: str, status: str) -> None:
+        """Phase D: produce ``deliverable_scorecard.json`` at run end.
+
+        Matrix of deliverable × gate × pass/fail derived from persisted
+        gate records and live re-checks. Also includes rejection counts
+        per gate so we can see which gate was the bottleneck.
+        """
+        try:
+            run_dir = self._dir / "workspace" / "runs" / (self._run_id or "")
+            paths, source = self._derive_required_deliverables(task)
+            # Aggregate gate records
+            gates_dir = run_dir / "gates"
+            gate_stats: dict[str, dict[str, int]] = {}
+            if gates_dir.is_dir():
+                for iter_dir in sorted(gates_dir.iterdir()):
+                    if not iter_dir.is_dir():
+                        continue
+                    for gf in iter_dir.glob("*.json"):
+                        try:
+                            rec = json.loads(gf.read_text(encoding="utf-8"))
+                        except Exception:
+                            continue
+                        g = rec.get("gate", gf.stem)
+                        slot = gate_stats.setdefault(g, {"passed": 0, "failed": 0})
+                        if rec.get("passed"):
+                            slot["passed"] += 1
+                        else:
+                            slot["failed"] += 1
+
+            # Final per-deliverable state: rerun the Phase-A gates once
+            # more to capture final status (no persistence this time).
+            from .completion_gates import NEW_GATE_PIPELINE
+            ctx: dict[str, Any] = {
+                "task_text": task or "",
+                "plan": self._task_plan,
+                "workflow_dir": self._dir,
+            }
+            deliverable_status: list[dict[str, Any]] = []
+            for p in paths:
+                rel = self._relpath_for_display(p)
+                exists = p.exists() and p.is_file()
+                size = p.stat().st_size if exists else 0
+                item = {
+                    "path": rel,
+                    "exists": exists,
+                    "size_bytes": size,
+                    "gates_failed": [],
+                }
+                for g_name, fn in NEW_GATE_PIPELINE:
+                    try:
+                        rej = fn([p], ctx)
+                    except Exception:
+                        continue
+                    if rej is not None:
+                        item["gates_failed"].append(g_name)
+                deliverable_status.append(item)
+
+            all_passed = (
+                all(d["exists"] and not d["gates_failed"] for d in deliverable_status)
+                and bool(deliverable_status)
+            )
+            scorecard = {
+                "run_id": self._run_id,
+                "status": status,
+                "verified": all_passed and status == "complete",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "deliverables_total": len(deliverable_status),
+                "deliverables_verified": sum(
+                    1 for d in deliverable_status
+                    if d["exists"] and not d["gates_failed"]
+                ),
+                "paths_source": source,
+                "gate_stats": gate_stats,
+                "deliverables": deliverable_status,
+            }
+            target = run_dir / "deliverable_scorecard.json"
+            tmp = target.with_suffix(".json.tmp")
+            tmp.write_text(
+                json.dumps(scorecard, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            import os as _os
+            _os.replace(tmp, target)
+        except Exception:
+            logger.warning("scorecard emission failed", exc_info=True)
 
     def _scan_placeholders(self, result: dict) -> list[str]:
         """Scan a final_result dict and any declared output files for
@@ -7288,6 +8687,148 @@ Rules:
         if run_output.exists():
             warnings.extend(validate_directory(run_output))
         return warnings
+
+    def _check_structural_integrity(self) -> list[str]:
+        """Scan deliverable markdown files for structural-integrity defects
+        that a manager-LLM cheat-to-complete can produce.
+
+        The checks are **domain-agnostic** — they only fire when the
+        pattern they inspect is actually present in the file. A CSV-only
+        or PNG-only deliverable triggers nothing. Three universal checks:
+
+        1. **Anchor-adjacency:** `<a id="…"></a>` tags must sit within
+           80 chars of a following Markdown heading. Stacked anchors at
+           the end of the file (a classic cheat) fail this.
+        2. **Reference-format consistency:** if the file contains a
+           numbered reference list (`[1]` … `[N]` at line starts) AND
+           the body cites `[ref_XXX]`-style legacy IDs, that's a
+           half-converted refs table and must be reconciled.
+        3. **Paragraph-duplication ratio:** if ≥20% of non-trivial
+           paragraphs (>120 chars) are exact duplicates of an earlier
+           paragraph in the same file, the draft has not been cleaned.
+
+        Returns a list of human-readable failure messages. Empty list
+        means the gate passes.
+        """
+        import re
+
+        failures: list[str] = []
+        run_output = self._dir / "output" / self._run_id
+        if not run_output.exists():
+            return failures
+        md_files = sorted(run_output.rglob("*.md"))
+        # Skip internal bookkeeping files (RUN_SUMMARY etc. at run root).
+        md_files = [
+            f for f in md_files
+            if not f.name.startswith(("RUN_SUMMARY", "CRITIQUE"))
+        ]
+        for md in md_files:
+            try:
+                text = md.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if len(text) < 500:
+                continue
+            rel = md.relative_to(run_output)
+
+            # --- Check 1: anchor adjacency ---
+            # Collect anchor positions and heading positions.
+            anchor_hits = list(re.finditer(
+                r'<a id="([a-zA-Z0-9_\-]+)"\s*>\s*</a>', text
+            ))
+            heading_positions = [
+                m.start() for m in re.finditer(r'(?m)^#{1,6}\s+\S', text)
+            ]
+            orphan_anchors = []
+            for am in anchor_hits:
+                # Find the next heading after this anchor; accept if it
+                # starts within 80 chars (a short blank-line gap is OK).
+                after = text[am.end(): am.end() + 80]
+                if not re.match(r'\s*#{1,6}\s+\S', after):
+                    orphan_anchors.append(am.group(1))
+            if len(orphan_anchors) >= 3:
+                failures.append(
+                    f"{rel}: {len(orphan_anchors)} anchor(s) not adjacent "
+                    f"to any heading (e.g. {orphan_anchors[:3]}). Place "
+                    f"each `<a id=...></a>` immediately before its "
+                    f"section heading, never stacked at the end of the file."
+                )
+
+            # --- Check 2: reference-format consistency ---
+            numbered_refs = re.findall(
+                r'(?m)^\s*\[(\d+)\]\s+\S', text
+            )
+            legacy_refs = re.findall(r'\[(ref_[A-Za-z0-9_\-]+)\]', text)
+            if numbered_refs and legacy_refs:
+                failures.append(
+                    f"{rel}: mixed reference format detected — "
+                    f"{len(set(numbered_refs))} numbered refs "
+                    f"([1]..[N]) in the bibliography but "
+                    f"{len(set(legacy_refs))} legacy `[ref_X]`-style "
+                    f"citation(s) still in the body "
+                    f"(sample: {list(set(legacy_refs))[:3]}). "
+                    f"Rewrite body citations to the numbered form."
+                )
+
+            # --- Check 3: paragraph duplication ratio ---
+            paragraphs = [
+                p.strip() for p in re.split(r'\n{2,}', text)
+                if len(p.strip()) > 120
+            ]
+            if len(paragraphs) >= 5:
+                seen: set[str] = set()
+                dup = 0
+                for p in paragraphs:
+                    key = p[:180]
+                    if key in seen:
+                        dup += 1
+                    else:
+                        seen.add(key)
+                if dup / len(paragraphs) >= 0.20:
+                    failures.append(
+                        f"{rel}: {dup}/{len(paragraphs)} paragraphs "
+                        f"({dup * 100 // len(paragraphs)}%) are exact "
+                        f"duplicates of earlier paragraphs. Deduplicate "
+                        f"before completing — this usually indicates "
+                        f"unclean reuse of prior drafts."
+                    )
+
+            # --- Check 4: figure inline references ---
+            # If the file embeds a figure whose caption is labelled
+            # `**Abbildung N:**` (or `**Figure N:**`), the body must
+            # contain an inline reference to that figure ("siehe
+            # Abbildung N" / "see Figure N" or equivalent). Cheap
+            # cross-check that a caption without any textual call-out
+            # is never accepted.
+            labels: list[tuple[str, int]] = []
+            for m in re.finditer(
+                r'\*\*(Abbildung|Figure)\s*(\d+)[:\.]', text
+            ):
+                labels.append((m.group(1), int(m.group(2))))
+            missing_refs: list[str] = []
+            for kind, n in set(labels):
+                if kind == "Abbildung":
+                    pat = re.compile(
+                        rf'\b(siehe|vgl\.|s\.)\s+Abbildung\s*{n}\b',
+                        re.IGNORECASE,
+                    )
+                else:
+                    pat = re.compile(
+                        rf'\b(see|cf\.|c\.f\.)\s+Figure\s*{n}\b',
+                        re.IGNORECASE,
+                    )
+                if not pat.search(text):
+                    missing_refs.append(f"{kind} {n}")
+            if missing_refs:
+                failures.append(
+                    f"{rel}: figure caption(s) present but no inline "
+                    f"body reference for {missing_refs}. Add 'siehe "
+                    f"Abbildung N' in the German body and 'see Figure "
+                    f"N' in the English body so captions are anchored "
+                    f"in the narrative."
+                )
+
+        return failures
 
     def _classify_output_warning(self, warning: str) -> str:
         """Classify a file warning string as critical/error/warning.

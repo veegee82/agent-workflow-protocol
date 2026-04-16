@@ -95,6 +95,128 @@ def sanitize_pip_specs(packages: list[str]) -> tuple[list[str], list[str]]:
     return sanitized, rejected
 
 
+# ---------------------------------------------------------------------------
+# Structured Python pre-validation (Fix A)
+# ---------------------------------------------------------------------------
+
+# Heuristic warning patterns: things that are syntactically valid but almost
+# always bugs when emitted by an LLM. Each entry maps a label to a callable
+# that returns a list of ``{line, col, msg, hint}`` warnings.
+_RE_NONRAW_ESCAPE = re.compile(
+    r"(?<![rRbB])(['\"])(?:[^'\"\\]|\\.)*?\\[swdWSDbnrt](?:[^'\"\\]|\\.)*?\1"
+)
+_RE_LITERAL_NEWLINE_IN_REGEX = re.compile(
+    r"re\.(?:compile|match|search|findall|sub|fullmatch)\s*\(\s*['\"][^'\"]*\\n"
+)
+
+
+def _heuristic_warnings(code: str) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    for i, raw_line in enumerate(code.splitlines(), start=1):
+        # \s, \d, \w etc. in non-raw string literals are a classic LLM bug.
+        if _RE_NONRAW_ESCAPE.search(raw_line):
+            warnings.append(
+                {
+                    "line": i,
+                    "col": None,
+                    "msg": (
+                        "Non-raw string contains a regex-style escape "
+                        r"(e.g. \s, \d, \w). In Python these are not the "
+                        "regex metacharacters you want — use a raw string "
+                        r'prefix: r"\s+" instead of "\s+".'
+                    ),
+                    "hint": "use_raw_string",
+                    "offending_line": raw_line,
+                }
+            )
+        # re.compile("... \n ...") — literal \n inside a regex pattern is
+        # a real newline, which is almost never intended; workers typically
+        # want `\\n` or `\n` (raw) to match a newline character.
+        if _RE_LITERAL_NEWLINE_IN_REGEX.search(raw_line):
+            warnings.append(
+                {
+                    "line": i,
+                    "col": None,
+                    "msg": (
+                        "Regex call contains a literal newline inside the "
+                        "pattern string. Use a raw string (r\"...\\n...\") "
+                        "to express a newline match unambiguously."
+                    ),
+                    "hint": "use_raw_string",
+                    "offending_line": raw_line,
+                }
+            )
+    return warnings
+
+
+def validate_python_source(code: str) -> dict[str, Any]:
+    """Parse ``code`` with :func:`ast.parse` and return a structured result.
+
+    Success returns ``{"ok": True, "data": {"valid": True, "warnings": [...]}}``.
+    Failure returns ``{"ok": False, "data": {"valid": False, "line": ..,
+    "col": .., "msg": .., "offending_line": ..}, "error": "<human msg>"}``.
+
+    The structured error is consumed by :meth:`BaseExecutor.execute` wrappers
+    so that the error surfaced to self-repair logic contains enough context
+    to fix the exact offending line without re-parsing stderr text.
+    """
+    warnings = _heuristic_warnings(code)
+
+    # ``compile`` catches a strict superset of what ``ast.parse`` catches —
+    # in particular, 'return' outside a function and 'await' outside an
+    # async function are compile-time errors that plain ``ast.parse``
+    # accepts. We want both categories blocked before shell-out.
+    try:
+        compile(code, "<awp-validate>", "exec")
+    except SyntaxError as exc:
+        lineno = int(exc.lineno) if exc.lineno else 0
+        col = int(exc.offset) if exc.offset else 0
+        offending_line = ""
+        if lineno:
+            try:
+                offending_line = code.splitlines()[lineno - 1]
+            except IndexError:
+                offending_line = exc.text or ""
+        else:
+            offending_line = exc.text or ""
+
+        # Cheap heuristic hints for the most common LLM-generated breaks.
+        hint = None
+        low_msg = (exc.msg or "").lower()
+        if "'return' outside function" in low_msg:
+            hint = "move_return_into_function_or_use_plain_expression"
+        elif "eol while scanning string literal" in low_msg:
+            hint = "close_string_literal_or_use_triple_quotes"
+        elif "unterminated string" in low_msg:
+            hint = "close_string_literal_or_use_triple_quotes"
+
+        human = (
+            f"SyntaxError at line {lineno} col {col}: {exc.msg}\n"
+            f"  >>> {offending_line}"
+        )
+        return {
+            "ok": False,
+            "status": 400,
+            "data": {
+                "valid": False,
+                "line": lineno,
+                "col": col,
+                "msg": exc.msg,
+                "offending_line": offending_line,
+                "hint": hint,
+                "warnings": warnings,
+            },
+            "error": human,
+        }
+
+    return {
+        "ok": True,
+        "status": 200,
+        "data": {"valid": True, "warnings": warnings},
+        "error": None,
+    }
+
+
 class BaseExecutor(ABC):
     """Abstract base class for AWP code execution sandboxes.
 
@@ -129,29 +251,17 @@ class BaseExecutor(ABC):
     def validate_code(self, code: str) -> dict[str, Any]:
         """Validate Python code via AST parsing without execution.
 
-        Args:
-            code: Python source code to validate.
+        On SyntaxError, returns a **structured** error payload so that
+        self-repair paths (worker retries, repair envelopes) can target
+        the exact line/column of the break instead of re-parsing raw
+        stderr text.
 
         Returns:
-            Standard AWP result format with validation status.
+            Standard AWP result format. On failure ``data`` contains
+            ``{line, col, msg, offending_line, hint}`` and ``error``
+            carries a human-readable message.
         """
-        import ast
-
-        try:
-            ast.parse(code)
-            return {
-                "ok": True,
-                "status": 200,
-                "data": {"valid": True},
-                "error": None,
-            }
-        except SyntaxError as e:
-            return {
-                "ok": False,
-                "status": 400,
-                "data": {"valid": False},
-                "error": f"Syntax error: {e}",
-            }
+        return validate_python_source(code)
 
     def install_runtime_packages(self, packages: list[str]) -> dict[str, Any]:
         """Install additional pip packages at runtime.

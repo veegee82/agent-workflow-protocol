@@ -264,8 +264,36 @@ def prepare_workspace(inputs: dict[str, Any], workspace_dir: Path) -> dict[str, 
             logger.info("Input '%s': Bytes -> %s", key, bin_path)
 
         elif input_type == InputType.STRING:
-            entry["value"] = value
-            entry["preview"] = value[:200] + "..." if len(value) > 200 else value
+            # If the input key looks like a filename with a recognised text
+            # extension, persist the string to disk so workers can `file.read`
+            # it. Otherwise keep it as an inline value in the manifest.
+            # Without this, callers who pass large text blobs keyed by
+            # filename (e.g. `prior_abstract_de.md`: "...") see the data only
+            # inside the manager system prompt — workers that later try to
+            # read `inputs/<key>` find nothing and substitute placeholders.
+            _text_suffixes = {
+                ".md", ".txt", ".tex", ".bib", ".json", ".yaml", ".yml",
+                ".xml", ".html", ".htm", ".csv", ".tsv", ".py", ".js",
+                ".ts", ".sql", ".sh", ".cfg", ".ini", ".toml",
+            }
+            suffix = Path(key).suffix.lower() if "." in key else ""
+            if suffix in _text_suffixes:
+                dest = data_dir / key
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(value, encoding="utf-8")
+                entry["workspace_path"] = f"inputs/{key}"
+                entry["preview"] = (
+                    value[:200] + "..." if len(value) > 200 else value
+                )
+                logger.info(
+                    "Input '%s': String -> %s (%d chars)",
+                    key, dest, len(value),
+                )
+            else:
+                entry["value"] = value
+                entry["preview"] = (
+                    value[:200] + "..." if len(value) > 200 else value
+                )
 
         elif input_type == InputType.NUMERIC:
             entry["value"] = value

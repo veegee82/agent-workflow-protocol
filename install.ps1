@@ -161,20 +161,20 @@ function Install-Awp {
     Write-Info "Installing AWP Protocol..."
 
     # Try PyPI first
-    $pypiResult = & $pip install awp-protocol -q 2>&1
+    $pypiResult = & $pip install awp-agents -q 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-Success "Installed awp-protocol from PyPI"
+        Write-Success "Installed awp-agents from PyPI"
     } else {
         $localToml = Join-Path $SCRIPT_DIR "reference\python\pyproject.toml"
         if (Test-Path $localToml) {
             Write-Info "PyPI package not found. Installing from local source..."
             $localPath = Join-Path $SCRIPT_DIR "reference\python"
             & $pip install -e $localPath -q
-            Write-Success "Installed awp-protocol from local source"
+            Write-Success "Installed awp-agents from local source"
         } else {
             Write-Info "Installing from GitHub..."
             & $pip install "git+https://github.com/veegee82/agent-workflow-protocol.git#subdirectory=reference/python" -q
-            Write-Success "Installed awp-protocol from GitHub"
+            Write-Success "Installed awp-agents from GitHub"
         }
     }
 
@@ -599,9 +599,9 @@ function Test-Installation {
 
     $pipExe = Join-Path $AWP_VENV "Scripts\pip.exe"
     try {
-        $pkgInfo = & $pipExe show awp-protocol 2>$null | Select-String "^Version:"
+        $pkgInfo = & $pipExe show awp-agents 2>$null | Select-String "^Version:"
         if ($pkgInfo) {
-            Write-Success "awp-protocol: v$($pkgInfo -replace 'Version:\s*', '')"
+            Write-Success "awp-agents: v$($pkgInfo -replace 'Version:\s*', '')"
         }
     } catch { }
 }

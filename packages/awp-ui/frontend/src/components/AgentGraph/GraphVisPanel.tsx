@@ -30,6 +30,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { customNodeTypes } from './CustomNodes';
+import { RegistrySidebar } from './RegistrySidebar';
 
 // ---------------------------------------------------------------------------
 // Enhanced layout with better spacing and grouping
@@ -1211,10 +1212,24 @@ export function GraphVisPanel() {
     }
   }, [filteredData, structureKey, setNodes, setEdges, autoFit]);
 
+  // Refit whenever the user activates the graphvis tab or switches to a
+  // different experiment/run. The component stays mounted (hidden via
+  // CSS) across tab switches, so the existing structure-change trigger
+  // never fires — without this effect a freshly-opened graph would
+  // display at the last pan/zoom state (often off-screen).
+  const activePanel = useWorkflowStore((s) => s.activePanel);
+  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
+  useEffect(() => {
+    if (activePanel !== 'graphvis') return;
+    if (filteredData.nodes.length === 0) return;
+    pendingFitRef.current = true;
+  }, [activePanel, viewingRunId, currentRunId, filteredData.nodes.length]);
+
   // Separate effect: execute pending fitView whenever the instance is available.
   // This decouples fitView from the layout pass so it also fires when:
   //  - reactFlowInstance becomes available after layout already ran
   //  - new nodes stream in and the instance was already ready
+  //  - user switches to the graphvis tab (effect above marks pending)
   useEffect(() => {
     if (!pendingFitRef.current || !reactFlowInstance) return;
     pendingFitRef.current = false;
@@ -1236,7 +1251,7 @@ export function GraphVisPanel() {
       });
     });
     return () => { cancelled = true; cancelAnimationFrame(scheduleId); };
-  }, [reactFlowInstance, structureKey]);
+  }, [reactFlowInstance, structureKey, activePanel, viewingRunId, currentRunId]);
 
   const stats = useMemo(() => computeStats(storeNodes), [storeNodes]);
 
@@ -1366,6 +1381,9 @@ export function GraphVisPanel() {
           zoomable
         />
       </ReactFlow>
+
+      {/* Registry side panels (dynamic tools + skills, separate from graph) */}
+      <RegistrySidebar />
 
       {/* Hover tooltip */}
       {hoveredNode && (

@@ -41,6 +41,14 @@ if [[ -f "$SYNC_SCRIPT" ]]; then
   }
 fi
 
+# --- Gate 3: Mirror drift packages/ ↔ reference/python/src/ (hard block) ---
+MIRROR_SCRIPT="$PROJECT_DIR/scripts/check_mirror_drift.py"
+if [[ -f "$MIRROR_SCRIPT" ]]; then
+  MIRROR_OUTPUT=$(python "$MIRROR_SCRIPT" 2>&1) || {
+    ISSUES="${ISSUES}\n=== MIRROR DRIFT (blocking) ===\n${MIRROR_OUTPUT}\n"
+  }
+fi
+
 if [[ -n "$ISSUES" ]]; then
   echo -e "BLOCKED: Doc sync issues detected — cannot commit.\n$ISSUES"
   echo "Fix these before committing. See CLAUDE.md §2."

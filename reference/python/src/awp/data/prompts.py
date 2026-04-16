@@ -61,6 +61,28 @@ Rules:
   state that explicitly in your result rather than producing hallucinated
   code that won't compile.
 
+### Python syntax: common LLM-emitted breaks to AVOID
+Before running any Python via `code.execute`, the runtime deterministically
+parses your source with `ast.parse`. A broken source is rejected with a
+structured `syntax_error` block (line, column, offending line) — no cycles are
+wasted. To avoid the most common rejections:
+
+- **No `return` outside a function.** A top-level `return` is a hard syntax
+  error. Use a plain expression, assign to a variable, or wrap your code in a
+  `def main(): ...` and call it.
+- **Regex patterns: use raw strings.** Write `re.compile(r"\\s+")`, NOT
+  `re.compile("\\s+")`. Non-raw `\\s`, `\\d`, `\\w`, `\\b` inside a string
+  literal is a warning at best and a silent bug at worst.
+- **Do not embed literal `\\n` characters inside regex patterns.** Use a raw
+  string: `re.compile(r"a\\nb")`. A literal newline in a non-raw string is
+  almost never what you want.
+- **Never put escaped quotes inside regex patterns without a raw string.**
+  Prefer `r'"[^"]*"'` over `"\\"[^\\"]*\\""`.
+- **Close every string literal.** Unterminated triple-quoted blocks are the
+  second-most-common syntax break; keep triple-quoted strings on a single
+  line (`\"\"\"text\"\"\"`) or place the closing triple-quote on its own
+  line.
+
 ### Diagnose stderr; do not resubmit identical broken code
 If a previous `code.execute` call failed, READ the stderr / traceback
 in the tool result before issuing the next call. Change the specific
@@ -253,6 +275,42 @@ def build_manager_system_prompt(
         available_patterns = _render_patterns()
     except Exception:
         available_patterns = "_(pattern library unavailable)_"
+
+    # Compact dynamic list of known pattern_ids and archetype_ids. The manager
+    # must use ONLY these strings when declaring ``reuse`` or ``synthesize``
+    # in a PLAN subtask's ``tool_manifest``. This list is generated from the
+    # live registry at prompt-build time so it can never drift from the
+    # validator.
+    try:
+        from awp.patterns import ARCHETYPES as _ARCHETYPES  # type: ignore
+        from awp.patterns import PATTERNS as _PATTERNS  # type: ignore
+
+        _known_pattern_ids = sorted(_PATTERNS.keys())
+        _known_archetype_ids = sorted(_ARCHETYPES.keys())
+    except Exception:
+        _known_pattern_ids = []
+        _known_archetype_ids = []
+
+    if _known_pattern_ids:
+        known_ids_bullet = (
+            "**Known `pattern_id` values (use ONLY these with "
+            "`reuse_or_generate: 'reuse'`):**\n"
+            + "\n".join(f"- `{pid}`" for pid in _known_pattern_ids)
+            + "\n\n**Known `archetype_id` values (use ONLY these with "
+            "`reuse_or_generate: 'synthesize'`):**\n"
+            + "\n".join(f"- `{aid}`" for aid in _known_archetype_ids)
+            + "\n\n> If the capability you need is NOT in the known "
+            "`pattern_id` list, DO NOT invent a `pattern_id`. Use "
+            "`reuse_or_generate: 'synthesize'` with a known "
+            "`archetype_id` instead, or — as a last resort — "
+            "`reuse_or_generate: 'generate'` with a concrete "
+            "`assumptions` list.\n"
+        )
+    else:
+        known_ids_bullet = (
+            "_(pattern/archetype registry unavailable — use 'generate' with "
+            "an explicit `assumptions` list.)_\n"
+        )
 
     return f"""You are a Universal Data Agent Manager in an AWP Delegation Loop.
 
@@ -511,6 +569,9 @@ the worker's tool creation deterministic and triggers recipe capture.
 
 #### Pattern + Archetype Library
 {available_patterns}
+
+#### Valid `pattern_id` / `archetype_id` cheat-sheet (HARD)
+{known_ids_bullet}
 
 ### DIAGNOSE — Generate failure hypotheses before retrying
 ```json

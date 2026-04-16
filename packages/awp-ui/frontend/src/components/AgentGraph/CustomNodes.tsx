@@ -8,6 +8,7 @@ import {
   Triangle,
   Wrench,
   Layers,
+  Settings,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useWorkflowStore } from '@/stores/workflowStore';
@@ -456,6 +457,50 @@ export const SubmanagerNode = memo(function SubmanagerNode({ id, data }: NodePro
 // Node type registry for React Flow
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ToolDefNode -- Represents a dynamically created tool definition. Distinct
+// from ToolCallNode (which is a single invocation): a toolDef shows that the
+// tool was *built* by the manager, even if no worker has called it yet.
+// ---------------------------------------------------------------------------
+
+export const ToolDefNode = memo(function ToolDefNode({ id, data }: NodeProps<NodeData>) {
+  const selected = useIsSelected(id);
+  const selectNode = useSelectNode();
+  const called = Boolean((data as Record<string, unknown>).called);
+
+  return (
+    <div
+      onClick={() => selectNode(id)}
+      className={clsx(
+        'group relative cursor-pointer transition-all duration-200 hover:scale-105',
+        selected && 'scale-105',
+      )}
+    >
+      <Handle type="target" position={Position.Top} className="!bg-awp-cyan !border-awp-panel !w-1.5 !h-1.5" />
+      <div
+        className={clsx(
+          'flex flex-col items-center justify-center rounded-lg border-2 border-dashed bg-awp-panel px-3 py-2 min-w-[110px]',
+          called ? 'border-awp-cyan/70' : 'border-awp-muted/50',
+          selected && 'ring-2 ring-awp-cyan/30 shadow-lg shadow-awp-cyan/20',
+          'transition-all duration-200',
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          <Settings className={clsx('h-3 w-3', called ? 'text-awp-cyan' : 'text-awp-muted')} />
+          <span className="text-[9px] uppercase tracking-wide text-awp-muted">tool def</span>
+        </div>
+        <span className="mt-0.5 text-[10px] font-medium text-awp-text text-center max-w-[100px] truncate">
+          {data.label}
+        </span>
+        {!called && (
+          <span className="mt-0.5 text-[9px] text-awp-muted italic">unused</span>
+        )}
+      </div>
+      <Handle type="source" position={Position.Bottom} className="!bg-awp-cyan !border-awp-panel !w-1.5 !h-1.5" />
+    </div>
+  );
+});
+
 export const customNodeTypes = {
   task: TaskNode,
   manager: ManagerNode,
@@ -463,4 +508,5 @@ export const customNodeTypes = {
   worker: WorkerNode,
   submanager: SubmanagerNode,
   toolCall: ToolCallNode,
+  toolDef: ToolDefNode,
 };

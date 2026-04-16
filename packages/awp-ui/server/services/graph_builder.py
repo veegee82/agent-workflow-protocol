@@ -179,7 +179,144 @@ def build_graph(run_dir: Path) -> GraphData:
             elif n.type in ("manager", "submanager") and n.data.get("status") == "running":
                 n.data["status"] = final_status
 
-    return GraphData(nodes=nodes, edges=edges, stats=stats)
+    # Dynamic tools + persisted skills are surfaced as side-panel registries,
+    # not as in-graph nodes, so the graph stays focused on manager → iter →
+    # worker → toolCall hierarchy and the inventories get their own UI
+    # affordance (creator, description, reuse count).
+    tool_registry = _build_tool_registry(run_dir, nodes)
+    skill_registry = _build_skill_registry(run_dir)
+    stats["total_tool_defs"] = len(tool_registry)
+    stats["total_skills"] = len(skill_registry)
+
+    return GraphData(
+        nodes=nodes,
+        edges=edges,
+        stats=stats,
+        tool_registry=tool_registry,
+        skill_registry=skill_registry,
+    )
+
+
+def _build_skill_registry(run_dir: Path) -> list[dict[str, Any]]:
+    """Return metadata for every persisted skill in this run's workspace.
+
+    Skills live at ``workspace/skills/{name}.md``. Each entry:
+    ``{name, title, description, size_bytes, path}``. Skills are cross-run
+    reusable (the runtime symlinks ``shared/skills`` into every run), so
+    this registry reflects the full skill inventory available to the
+    manager for the current experiment.
+    """
+    skills_dir: Path | None = None
+    for ancestor in [run_dir, *run_dir.parents]:
+        candidate = ancestor / "workspace" / "skills"
+        if candidate.exists() and candidate.is_dir():
+            skills_dir = candidate
+            break
+        candidate2 = ancestor / "skills"
+        if candidate2.exists() and candidate2.is_dir() and ancestor.name == "workspace":
+            skills_dir = candidate2
+            break
+    if skills_dir is None:
+        return []
+
+    registry: list[dict[str, Any]] = []
+    for md_file in sorted(skills_dir.glob("*.md")):
+        try:
+            text = md_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        title = md_file.stem
+        description = ""
+        in_purpose = False
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not title.strip() or title == md_file.stem:
+                if line.startswith("# "):
+                    t = line.lstrip("# ").strip()
+                    if t.lower().startswith("skill:"):
+                        t = t[6:].strip()
+                    if t:
+                        title = t
+            if line.lower().startswith("## purpose"):
+                in_purpose = True
+                continue
+            if in_purpose:
+                if line.startswith("##"):
+                    break
+                if line:
+                    description = line[:200]
+                    break
+        if not description:
+            for raw in text.splitlines():
+                s = raw.strip()
+                if s and not s.startswith("#"):
+                    description = s[:200]
+                    break
+        registry.append(
+            {
+                "name": md_file.stem,
+                "title": title,
+                "description": description,
+                "size_bytes": md_file.stat().st_size,
+                "path": str(md_file),
+            }
+        )
+    return registry
+
+
+def _build_tool_registry(
+    run_dir: Path,
+    nodes: list[GraphNode],
+) -> list[dict[str, Any]]:
+    """Return metadata for every dynamically created tool in this run.
+
+    Each entry: {fqn, creator_agent, description, called, call_count,
+    signature?}. This feeds the ToolRegistryPanel side panel rather than
+    graph nodes, so the tool inventory has its own UI surface (creator,
+    description, reuse count) without cluttering the manager/iter/worker
+    hierarchy.
+    """
+    tools_dir: Path | None = None
+    for ancestor in [run_dir, *run_dir.parents]:
+        candidate = ancestor / "workspace" / "dynamic_tools"
+        if candidate.exists() and candidate.is_dir():
+            tools_dir = candidate
+            break
+        candidate2 = ancestor / "dynamic_tools"
+        if candidate2.exists() and candidate2.is_dir() and ancestor.name == "workspace":
+            tools_dir = candidate2
+            break
+    if tools_dir is None:
+        return []
+
+    # Count tool-call occurrences per tool name so the registry can show
+    # reuse: a tool created once but invoked five times reads as high-value.
+    call_counts: dict[str, int] = {}
+    for n in nodes:
+        if n.type == "toolCall":
+            nm = n.data.get("tool") or n.data.get("toolName") or n.data.get("name")
+            if nm:
+                call_counts[nm] = call_counts.get(nm, 0) + 1
+
+    registry: list[dict[str, Any]] = []
+    for json_file in sorted(tools_dir.glob("*.json")):
+        data = _read_json(json_file)
+        if not isinstance(data, dict):
+            continue
+        fqn = data.get("fqn") or json_file.stem
+        call_count = call_counts.get(fqn, 0)
+        registry.append(
+            {
+                "fqn": fqn,
+                "creator_agent": data.get("creator_agent") or "?",
+                "description": data.get("description", ""),
+                "signature": data.get("signature"),
+                "parameters": data.get("parameters"),
+                "called": call_count > 0,
+                "call_count": call_count,
+            }
+        )
+    return registry
 
 
 def _walk_run(
@@ -288,8 +425,16 @@ def _walk_run(
         iter_level = next_iter_level
 
         decision_data = _read_json(iter_dir / "manager_decision.json")
+        # Fallback: still render a stub iteration node even when the decision
+        # file is missing (partial write, in-flight iteration, or crashed
+        # before decision). Previously we `continue`d here, which hid live
+        # iterations from the graph entirely. Live-UX: the node appears as
+        # "pending" immediately and gets promoted once the JSON lands.
         if not decision_data:
-            continue
+            decision_data = {"decision": "pending", "reasoning": "", "confidence": None}
+            decision_stub = True
+        else:
+            decision_stub = False
 
         decision_type = decision_data.get("decision", "unknown")
         confidence = decision_data.get("confidence")
@@ -323,6 +468,7 @@ def _walk_run(
                     "reasoning": _truncate(reasoning, 300),
                     "budget": budget_snap,
                     "status": decision_type,
+                    "stub": decision_stub,
                     **({"critique_active": True,
                         "critique_repairs": sum(
                             len(c.get("prescriptions", []))
@@ -386,9 +532,26 @@ def _walk_run(
             if "_eval_score" in result:
                 _iter_eval_scores.append(result["_eval_score"])
 
-            # Tool calls
+            # Tool calls — merge both sources (file + result) and de-dup by (name, ts).
+            # Either source can be incomplete due to write ordering; the union is
+            # the only faithful view of what actually executed.
             tc_data = _read_json(worker_dir / "tool_calls.json")
-            tc_list = tc_data if isinstance(tc_data, list) else result.get("_tool_calls", [])
+            tc_file = tc_data if isinstance(tc_data, list) else []
+            tc_inline = result.get("_tool_calls") or []
+            seen_tc: set[tuple] = set()
+            tc_list = []
+            for tc in list(tc_file) + list(tc_inline):
+                if not isinstance(tc, dict):
+                    continue
+                key = (
+                    tc.get("name") or tc.get("tool"),
+                    tc.get("ts") or tc.get("timestamp") or tc.get("started_at"),
+                    tc.get("call_id") or tc.get("id"),
+                )
+                if key in seen_tc:
+                    continue
+                seen_tc.add(key)
+                tc_list.append(tc)
             n_tc = len(tc_list)
             stats["total_tool_calls"] += n_tc
 
@@ -606,6 +769,18 @@ def find_run_dir(workspace_dir: Path) -> Path | None:
     return the latest (by name).  Falls back to the latest overall if
     the filtering yields nothing.
     """
+    # Phase 5.1: prefer the canonical_run symlink (written by
+    # _RunDirWatcher once the root run_dir is known). Single source of
+    # truth; no guessing needed.
+    canonical = workspace_dir / "canonical_run"
+    try:
+        if canonical.is_symlink() or canonical.exists():
+            target = canonical.resolve()
+            if target.is_dir():
+                return target
+    except OSError:
+        pass
+
     runs_dir = workspace_dir / "workspace" / "runs"
     if not runs_dir.exists():
         return None

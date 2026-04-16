@@ -129,13 +129,23 @@ def validate_runtime_plan(plan: dict[str, Any]) -> list[str]:
                 if not isinstance(pid, str) or not pid.strip():
                     violations.append(
                         f"R31: subtask '{sid}'.tool_manifest[{j}] marks 'reuse' "
-                        f"but is missing 'pattern_id'"
+                        f"but is missing 'pattern_id'. Known pattern_ids: "
+                        f"{sorted(known_patterns)}. If none of these fit, use "
+                        f"`reuse_or_generate: 'synthesize'` with an "
+                        f"archetype_id instead."
                     )
                 elif known_patterns and pid not in known_patterns:
                     violations.append(
                         f"R31: subtask '{sid}'.tool_manifest[{j}] references "
-                        f"unknown pattern_id '{pid}' (known: "
-                        f"{sorted(known_patterns)})"
+                        f"unknown pattern_id '{pid}'. "
+                        f"Known pattern_ids: {sorted(known_patterns)}. "
+                        f"If the capability you need is NOT in this list, do "
+                        f"NOT invent a pattern_id — switch to "
+                        f"`reuse_or_generate: 'synthesize'` with an "
+                        f"archetype_id (known archetype_ids: "
+                        f"{sorted(known_archetypes)}), or as a last resort "
+                        f"`reuse_or_generate: 'generate'` with an "
+                        f"`assumptions` list."
                     )
             elif rg == "synthesize":
                 aid = entry.get("archetype_id")

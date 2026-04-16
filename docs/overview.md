@@ -81,7 +81,7 @@ Agents operate under the principle of least privilege. Tools must be explicitly 
 
 ## What AWP Is Not
 
-- **Not a runtime.** AWP describes workflows; it does not execute them. Any platform that implements the AWPAgent interface can run AWP workflows. A reference runtime (`awp-protocol`) is provided for convenience.
+- **Not a runtime.** AWP describes workflows; it does not execute them. Any platform that implements the AWPAgent interface can run AWP workflows. A reference runtime (`awp-agents`) is provided for convenience.
 - **Not a framework.** AWP does not impose application structure, dependency injection, or programming patterns. It is a protocol specification.
 - **Not an LLM.** AWP is model-agnostic. Any LLM provider (OpenRouter, OpenAI, Anthropic, Ollama, etc.) can be used.
 

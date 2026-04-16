@@ -157,14 +157,14 @@ check_existing_awp() {
         if echo "$existing" | grep -q "anaconda\|miniconda\|conda"; then
             echo ""
             echo -e "${YELLOW}  A conda-installed awp was detected.${NC}"
-            read -rp "  Remove awp-protocol from conda to avoid conflicts? [Y/n]: " remove_conda
+            read -rp "  Remove awp-agents from conda to avoid conflicts? [Y/n]: " remove_conda
             remove_conda="${remove_conda:-Y}"
             if [[ "$remove_conda" =~ ^[Yy]$ ]]; then
                 local conda_pip
                 conda_pip="$(dirname "$existing")/pip"
                 if [ -x "$conda_pip" ]; then
-                    "$conda_pip" uninstall awp-protocol -y 2>/dev/null || true
-                    success "Removed awp-protocol from conda"
+                    "$conda_pip" uninstall awp-agents -y 2>/dev/null || true
+                    success "Removed awp-agents from conda"
                 fi
             fi
         else
@@ -211,16 +211,16 @@ install_awp() {
     "$pip" install --upgrade pip setuptools wheel -q
 
     # Try PyPI first, then local
-    if "$pip" install awp-protocol -q 2>/dev/null; then
-        success "Installed awp-protocol from PyPI"
+    if "$pip" install awp-agents -q 2>/dev/null; then
+        success "Installed awp-agents from PyPI"
     elif [ -f "$SCRIPT_DIR/reference/python/pyproject.toml" ]; then
         info "PyPI package not found. Installing from local source..."
         "$pip" install -e "$SCRIPT_DIR/reference/python" -q
-        success "Installed awp-protocol from local source"
+        success "Installed awp-agents from local source"
     else
         info "Installing from GitHub..."
         "$pip" install "git+https://github.com/veegee82/agent-workflow-protocol.git#subdirectory=reference/python" -q
-        success "Installed awp-protocol from GitHub"
+        success "Installed awp-agents from GitHub"
     fi
 
     # Install common workflow dependencies
@@ -704,11 +704,11 @@ verify_installation() {
         success "Python venv: $py_ver"
     fi
 
-    # Check awp-protocol package
-    if "$AWP_VENV/bin/pip" show awp-protocol &>/dev/null; then
+    # Check awp-agents package
+    if "$AWP_VENV/bin/pip" show awp-agents &>/dev/null; then
         local pkg_ver
-        pkg_ver=$("$AWP_VENV/bin/pip" show awp-protocol 2>/dev/null | grep "^Version:" | cut -d' ' -f2)
-        success "awp-protocol: v${pkg_ver}"
+        pkg_ver=$("$AWP_VENV/bin/pip" show awp-agents 2>/dev/null | grep "^Version:" | cut -d' ' -f2)
+        success "awp-agents: v${pkg_ver}"
     fi
 
     return 0

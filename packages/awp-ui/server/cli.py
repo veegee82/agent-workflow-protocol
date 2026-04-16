@@ -52,9 +52,9 @@ def main() -> None:
         help="Do not open browser automatically",
     )
     parser.add_argument(
-        "--no-update",
+        "--auto-update",
         action="store_true",
-        help="Skip automatic PyPI update check",
+        help="Automatically upgrade awp-agents from PyPI at startup (default: off)",
     )
     parser.add_argument(
         "--base-dir",
@@ -69,8 +69,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # --- Pre-flight: auto-update from PyPI ---
-    if not args.no_update and not args.dev:
+    # --- Pre-flight: auto-update from PyPI (opt-in) ---
+    if args.auto_update and not args.dev:
         print("  Checking for updates...")
         try:
             result = subprocess.run(
@@ -86,6 +86,47 @@ def main() -> None:
                 print("  Already up to date.")
         except Exception as exc:
             print(f"  Update check failed ({exc}), continuing with current version.")
+    elif not args.dev:
+        # Lightweight non-blocking version hint
+        try:
+            from importlib.metadata import version as _pkg_version
+            import json as _json
+            import urllib.request as _urlreq
+
+            try:
+                _current = _pkg_version("awp-agents")
+            except Exception:
+                _current = None
+            if _current:
+                _req = _urlreq.Request(
+                    "https://pypi.org/pypi/awp-agents/json",
+                    headers={"User-Agent": "awp-cli"},
+                )
+                with _urlreq.urlopen(_req, timeout=3) as _resp:
+                    _data = _json.loads(_resp.read().decode("utf-8"))
+                _latest = _data.get("info", {}).get("version")
+                if _latest and _latest != _current:
+                    def _parse(v: str) -> tuple[int, ...]:
+                        parts = []
+                        for chunk in v.split("."):
+                            num = ""
+                            for ch in chunk:
+                                if ch.isdigit():
+                                    num += ch
+                                else:
+                                    break
+                            parts.append(int(num) if num else 0)
+                        return tuple(parts)
+                    try:
+                        if _parse(_latest) > _parse(_current):
+                            print(
+                                f"  A newer version of awp-agents is available ({_latest}). "
+                                f"Run `pip install --upgrade awp-agents` to update."
+                            )
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     log_level = args.log_level.upper()
     logging.basicConfig(

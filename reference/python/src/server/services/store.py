@@ -197,7 +197,11 @@ class StoreService:
         await self.db.commit()
 
     async def cleanup_orphan_runs(self) -> int:
-        """Mark runs left in 'running' state by a dead process as 'interrupted'.
+        """Mark runs left in 'running' state by a dead process as 'aborted'.
+
+        Aligned with Fix E terminal-status semantics: a process that exited
+        without emitting ``run.complete`` is recorded as ``aborted`` with
+        reason ``process_exit_without_terminal_event``.
 
         When the server is restarted (auto-reload, crash, manual stop) while a
         run is active, the background thread dies and `_persist_result` never
@@ -218,13 +222,20 @@ class StoreService:
         now = datetime.now(tz=timezone.utc).isoformat()
 
         cursor = await self.db.execute(
-            "SELECT id FROM runs WHERE status = 'running' AND completed_at IS NULL"
+            "SELECT id, config_json FROM runs "
+            "WHERE status = 'running' AND completed_at IS NULL"
         )
         rows = await cursor.fetchall()
 
         fixed = 0
         for row in rows:
             run_id = row["id"]
+            output_dir: str | None = None
+            try:
+                cfg = json.loads(row["config_json"] or "{}")
+                output_dir = cfg.get("output_dir")
+            except (json.JSONDecodeError, TypeError):
+                output_dir = None
             pid_file = lock_dir / f"{run_id}.pid"
 
             # Check if an external process still owns this run
@@ -245,19 +256,76 @@ class StoreService:
                     except OSError:
                         pass
 
-            # No live owner — mark as interrupted
+            # No live owner — mark as aborted (Fix E / Fix H terminal
+            # status semantics)
             await self.db.execute(
-                "UPDATE runs SET status = 'interrupted', completed_at = ? "
+                "UPDATE runs SET status = 'aborted', completed_at = ? "
                 "WHERE id = ?",
                 (now, run_id),
             )
             fixed += 1
 
+            # Also drop a run_completion.json into the run's output_dir so
+            # graph_builder + UI live-poll see the orphan as terminated
+            # (without it they keep rendering the run as 'running' forever).
+            if output_dir:
+                try:
+                    self._write_orphan_completion(run_id, output_dir, now)
+                except Exception:
+                    logger.warning(
+                        "Failed to write orphan completion file for %s",
+                        run_id, exc_info=True,
+                    )
+
         if fixed:
             await self.db.commit()
-            logger.info("Cleaned up %d orphan 'running' run(s) on startup", fixed)
+            logger.info("Cleaned up %d orphan 'running' run(s) as aborted", fixed)
 
         return fixed
+
+    @staticmethod
+    def _write_orphan_completion(run_id: str, output_dir: str, ts: str) -> None:
+        """Drop an aborted run_completion.json into a run's run_dir(s).
+
+        The delegation-loop runner places the canonical run_completion.json
+        under ``<output_dir>/workspace/runs/<inner_ts>/``. To stay aligned
+        with both the UI's polling expectations and graph_builder's status
+        derivation, we write an aborted completion at:
+
+          1. ``<output_dir>/run_completion.json`` (UI-facing top-level)
+          2. ``<output_dir>/workspace/runs/<inner_ts>/run_completion.json``
+             for every inner run dir that still lacks one.
+
+        Synchronous file IO is fine here — orphan cleanup only fires once
+        on server start and touches a small number of dead runs.
+        """
+        out = Path(output_dir)
+        if not out.exists():
+            return
+        payload = {
+            "run_id": run_id,
+            "status": "aborted",
+            "reason": "process_exit_without_terminal_event",
+            "completed": ts,
+            "orphan_finalized": True,
+        }
+        body = json.dumps(payload, indent=2, ensure_ascii=False)
+        targets: list[Path] = [out / "run_completion.json"]
+        inner_runs_dir = out / "workspace" / "runs"
+        if inner_runs_dir.is_dir():
+            for inner in inner_runs_dir.iterdir():
+                if inner.is_dir():
+                    targets.append(inner / "run_completion.json")
+        for t in targets:
+            if t.exists():
+                continue
+            try:
+                t.parent.mkdir(parents=True, exist_ok=True)
+                tmp = t.with_suffix(t.suffix + ".tmp")
+                tmp.write_text(body, encoding="utf-8")
+                tmp.replace(t)
+            except OSError:
+                continue
 
     async def reconcile_session_status(self) -> int:
         """Derive session status from linked runs and fix inconsistencies.

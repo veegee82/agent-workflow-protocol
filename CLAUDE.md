@@ -73,19 +73,21 @@ Doc sync is part of the **definition of done per logical task**, not per individ
 | New example added | `README.md` / `README_NERD.md` (example list), `examples/` README |
 | Security/policy change | `CLAUDE.md` (Security section), `skill/SKILL.md` delegation loop section |
 
-**Enforcement — three mechanical gates + one reminder:**
+**Enforcement — four mechanical gates + one reminder:**
 
-All gates are enforced by hooks in `.claude/settings.json`. `git commit` is **blocked** if gate 1 or 2 fails.
+All gates are enforced by hooks in `.claude/settings.json`. `git commit` is **blocked** if gate 1, 2, or 3 fails.
 
 | Gate | Script | What it checks | Blocks commit? |
 |---|---|---|---|
 | 1. **Drift detector** | `scripts/check_docs_drift.py` | Backtick-quoted paths still exist on disk; backtick-quoted symbols (classes, fields, functions) still appear in source; numeric claims (e.g. "18 examples") match reality | **Yes** |
 | 2. **Sync coverage** | `scripts/check_sync_coverage.py` | Code changes in `git diff` are matched against the sync table above; flags which MDs *should* have been updated but weren't | **Yes** |
-| 3. **Edit reminder** | `.claude/hooks/remind_doc_sync.sh` | PostToolUse on Edit/Write: after editing a `.py`/`.ts` file, outputs which MDs to check based on the file's location | No (reminder only) |
+| 3. **Mirror drift** | `scripts/check_mirror_drift.py` | Every file under `packages/awp-core/src/awp/`, `packages/awp-runtime/src/awp/`, and `packages/awp-ui/server/` has a byte-identical mirror under `reference/python/src/`. Prevents PyPI builds that ship stale code. | **Yes** |
+| 4. **Edit reminder** | `.claude/hooks/remind_doc_sync.sh` | PostToolUse on Edit/Write: after editing a `.py`/`.ts` file, outputs which MDs to check based on the file's location | No (reminder only) |
 
 ```bash
 python scripts/check_docs_drift.py    # exit 0 = clean, 1 = drift
 python scripts/check_sync_coverage.py # exit 0 = clean, 1 = sync gaps
+python scripts/check_mirror_drift.py  # exit 0 = clean, 1 = packages/↔reference/ divergence
 ```
 
 **This is the single authoritative doc-sync contract.** All other references in this file defer to this section.
@@ -174,7 +176,12 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 - **Agent output contract**: Every agent `run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. This is validation rule R17.
 - **State sharing**: DAG nodes declare `share_output` fields; downstream agents receive them in the `state` dict.
-- **Budget system** (A2+): Hard limits (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`) enforce termination. Manager cannot override the safety envelope.
+- **Budget system** (A2+): Hard limits (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`, `max_workers_per_iteration`, `max_rejected_completions`) enforce termination. Manager cannot override the safety envelope. `max_workers_per_iteration` (default **6**) is a pre-spawn fan-out cap: if the manager requests more workers in a single DELEGATE decision than the cap allows, the runner trims the dispatch list and writes a `_deferred_workers` feedback into state so the manager must merge or defer in later iterations. `max_rejected_completions` (default **2**) is the completion-retry circuit breaker (Fix C): after N consecutive rejections of a manager COMPLETE decision by the completion-gate chain (`deliverable_presence`, `placeholder`, `file`, `structural_integrity`, `critique`, `eval`), the runner either synthesizes a targeted repair subtask (forcing DELEGATE next iteration) or — if no repair can be derived — terminates with reason `max_rejected_completions` and status `partial`. The counter resets on any successful DELEGATE.
+- **Completion gate chain** (A2+): Every manager COMPLETE decision passes through a deterministic gate chain before the run ends. In order: `critique` (mean-score threshold) → `deliverable_presence` (every declared output path exists and is non-empty; derived from subtask `required_outputs` or `success_criteria` regex) → `placeholder` (no `TODO`/`XX%`/`???` strings in deliverables) → `file` (no broken 1×1 PNGs / empty PDFs) → `deliverable` (legacy keyword-based check) → `structural_integrity` (markdown anchor adjacency, reference-format consistency, paragraph-duplication) → `eval` (evaluation layer score). A rejection by any gate bumps `_rejected_completions` and loops back to the manager with a textual repair nudge. Successful DELEGATE resets the counter.
+- **Plan-loop deterministic transition** (Fix D): when the manager issues N consecutive PLANs without any worker progress (default N=2 in strict mode, N=3 in relaxed), the `plan_loop` gate fires and picks one of two deterministic transitions — `forced_delegate` (pending subtasks exist → lock plan and force DELEGATE next iteration) or `forced_terminate` (no pending subtasks → partial exit with reason `plan_loop_stall`). Both transitions emit a structured `plan_loop` gate event with `transition: "forced_delegate" | "forced_terminate"`.
+- **Terminal status contract** (Fix H): every run ends with exactly one of `{complete, partial, failed, aborted}`. Cap/limit-forced exits (`defect_category_cap`, `plan_loop`, `max_total_tokens`, `max_total_workers`, `max_wall_time`, `max_loops`, `forced_convergence`, etc.) map to `partial` — never `complete`. Hard evaluation/execution failures map to `failed`. Process exits without a terminal decision (SIGTERM/SIGINT or kill) map to `aborted`. The helper `_finalize_terminal_status(reason)` in `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py` is the single source of truth.
+- **Finalizer guarantee** (Fix E): the delegation-loop runner wraps its main loop in a try/except/finally block and registers `SIGTERM`/`SIGINT` handlers so `run_completion.json` (and the `run.complete` WebSocket event) is emitted on every exit path — including abrupt signal-driven termination. The runner_service canonicalizes the status to one of the four terminal states and attaches a `reason` field. Orphan runs detected on server restart (no live PID) are marked `aborted` with reason `process_exit_without_terminal_event`.
+- **Manager context guard**: Before every manager LLM call, the combined system + user prompt is estimated (char-based, ≈4 chars/token). If the estimate exceeds `manager_context_compress_threshold` (default **0.8**) of `manager_context_budget_tokens` (default **150_000**), the user message is deterministically compressed — the `Previous Results Summary`, `Worker Results Available in State`, and `Files Currently in Output Directory` sections are collapsed to one-line entries; if still over, a head/tail retention with middle elision targets ≤60% of the budget. Gate-feedback sections (rejections, repair instructions) are never compressed. The firing is logged as `context_guard` gate event with original and compressed token estimates. Implemented in `_guard_manager_context` in `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`.
 - **Validation tiers**: Deterministic validation (schema, rules R1-R32) runs always; LLM-based semantic validation is optional (skipped when confidence exceeds threshold).
 - **Evaluation layer**: Optional quality scoring (5 metric kinds, weighted aggregation, threshold-based retry/repair). Configured under `observability.evaluation`.
 - **Critique loop**: Optional reflective critique within delegation loop (defect diagnosis, targeted repair, cross-worker pattern memory). Configured under `delegation_loop.critique`.

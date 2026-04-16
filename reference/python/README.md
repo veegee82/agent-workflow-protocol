@@ -8,10 +8,10 @@ recursive delegation).
 ## Install
 
 ```bash
-pip install awp-protocol
+pip install awp-agents
 
 # With DataFrame + numpy + image support
-pip install awp-protocol[data]
+pip install awp-agents[data]
 ```
 
 ## Quick Start

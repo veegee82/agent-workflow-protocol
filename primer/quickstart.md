@@ -123,7 +123,7 @@ class Agent(AWPAgent):
         return {self.name: {"greeting": "Hello!", "confidence": 0.9}}
 ```
 
-The agent class extends `AWPAgent` from the `awp-protocol` package. The `name` property must match the `identity.id` in `agent.awp.yaml`. When using the standalone runtime (`awp.runtime.WorkflowRunner`), the runner handles LLM calls automatically -- `agent.py` serves as a class definition and optional override point.
+The agent class extends `AWPAgent` from the `awp-agents` package. The `name` property must match the `identity.id` in `agent.awp.yaml`. When using the standalone runtime (`awp.runtime.WorkflowRunner`), the runner handles LLM calls automatically -- `agent.py` serves as a class definition and optional override point.
 
 For other platforms, use the appropriate adapter template from `skill/adapters/`.
 

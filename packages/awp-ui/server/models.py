@@ -115,6 +115,13 @@ class WorkflowConfig(BaseModel):
     decision_journal_enabled: bool = True
     decision_journal_max_entries: int = 20
 
+    # Raw runtime overrides (keyed by section name: "critique", "planning", ...)
+    # Needed so UI callers can raise caps like defect_category_hard_cap when
+    # running workflows that legitimately need more repair iterations than the
+    # default (e.g. multi-section paper assembly with the structural-integrity
+    # gate forcing targeted repairs).
+    extra_config: dict[str, Any] = Field(default_factory=dict)
+
 
 # ---------------------------------------------------------------------------
 # Run status / detail
@@ -424,3 +431,12 @@ class GraphData(BaseModel):
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
     stats: dict[str, Any] = Field(default_factory=dict)
+    # Dynamic tool definitions surfaced as a side-panel registry rather than
+    # in-graph nodes. Each entry: {fqn, creator_agent, description, called,
+    # call_count}. Consumers render this in the ToolRegistryPanel.
+    tool_registry: list[dict[str, Any]] = Field(default_factory=list)
+    # Persisted skills surfaced as a side-panel registry. Each entry:
+    # {name, title, description, size_bytes, path}. Consumers render this
+    # in the SkillRegistryPanel. Skills are cross-run shared in an
+    # experiment (runtime symlinks shared/skills into every run workspace).
+    skill_registry: list[dict[str, Any]] = Field(default_factory=list)

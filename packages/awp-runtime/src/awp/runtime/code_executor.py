@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from .base_executor import BaseExecutor
+from .base_executor import BaseExecutor, validate_python_source
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,32 @@ class CodeExecutor(BaseExecutor):
             Standard AWP result format with stdout, stderr, returncode.
         """
         effective_timeout = min(timeout or self._max_timeout, self._max_timeout)
+
+        # Fix A: pre-validate with ast.parse before shelling out. A SyntaxError
+        # here is deterministic and the structured payload drives targeted
+        # self-repair in the worker loop. Without it, workers only see raw
+        # subprocess stderr text.
+        pre = validate_python_source(code)
+        if not pre["ok"]:
+            pre_data = pre.get("data", {}) or {}
+            return {
+                "ok": False,
+                "status": 400,
+                "data": {
+                    "stdout": "",
+                    "stderr": pre.get("error") or "SyntaxError",
+                    "returncode": -1,
+                    "syntax_error": {
+                        "line": pre_data.get("line"),
+                        "col": pre_data.get("col"),
+                        "msg": pre_data.get("msg"),
+                        "offending_line": pre_data.get("offending_line"),
+                        "hint": pre_data.get("hint"),
+                    },
+                    "warnings": pre_data.get("warnings", []),
+                },
+                "error": pre.get("error"),
+            }
 
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -132,24 +158,11 @@ class CodeExecutor(BaseExecutor):
     def validate_code(self, code: str) -> dict[str, Any]:
         """Validate Python code via AST parsing without execution.
 
-        Args:
-            code: Python source code to validate.
-
-        Returns:
-            Standard AWP result format with validation status.
+        Delegates to :func:`validate_python_source` so syntax errors are
+        returned as structured ``{line, col, msg, offending_line, hint}``
+        payloads suitable for worker self-repair.
         """
-        try:
-            ast.parse(code)
-            return {
-                "ok": True,
-                "status": 200,
-                "data": {"valid": True},
-                "error": None,
-            }
-        except SyntaxError as e:
-            return {
-                "ok": False,
-                "status": 400,
-                "data": {"valid": False},
-                "error": f"Syntax error: {e}",
-            }
+        # Keep ast referenced to preserve module imports expected by tests
+        # that monkey-patch ``code_executor.ast``.
+        _ = ast
+        return validate_python_source(code)

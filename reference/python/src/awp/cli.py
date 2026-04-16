@@ -92,9 +92,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Do not open browser automatically",
     )
     p_studio.add_argument(
-        "--no-update",
+        "--auto-update",
         action="store_true",
-        help="Skip automatic PyPI update check",
+        help="Automatically upgrade awp-agents from PyPI at startup (default: off)",
     )
 
     # run
@@ -117,9 +117,9 @@ def main(argv: list[str] | None = None) -> int:
         "--debug", "-d", action="store_true", help="Enable debug mode (verbose output)"
     )
     p_run.add_argument(
-        "--no-update",
+        "--auto-update",
         action="store_true",
-        help="Skip automatic PyPI update check",
+        help="Automatically upgrade awp-agents from PyPI at startup (default: off)",
     )
     p_run.add_argument(
         "--eval",
@@ -381,7 +381,7 @@ def cmd_identity_card(args: argparse.Namespace) -> int:
 
 
 def _auto_update_awp() -> None:
-    """Check PyPI for a newer awp-agents and upgrade if available."""
+    """Upgrade awp-agents from PyPI (opt-in via --auto-update)."""
     import subprocess as _sp
 
     try:
@@ -398,6 +398,61 @@ def _auto_update_awp() -> None:
             print("  Already up to date.")
     except Exception as exc:
         print(f"  Update check failed ({exc}), continuing with current version.")
+
+
+def _check_for_update_hint() -> None:
+    """Lightweight, non-blocking PyPI version check.
+
+    Prints a one-line hint if a newer awp-agents is available on PyPI.
+    Silently swallows any error (network offline, PyPI down, etc.).
+    Timeout is capped at 3 seconds so startup is never delayed noticeably.
+    """
+    try:
+        from importlib.metadata import version as _pkg_version
+        import json as _json
+        import urllib.request as _urlreq
+
+        try:
+            current = _pkg_version("awp-agents")
+        except Exception:
+            return  # not installed as awp-agents (e.g. dev checkout) — skip
+
+        req = _urlreq.Request(
+            "https://pypi.org/pypi/awp-agents/json",
+            headers={"User-Agent": "awp-cli"},
+        )
+        with _urlreq.urlopen(req, timeout=3) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        latest = data.get("info", {}).get("version")
+        if not latest or latest == current:
+            return
+
+        # Only hint if latest is strictly newer (simple tuple compare on numeric parts).
+        def _parse(v: str) -> tuple[int, ...]:
+            parts = []
+            for chunk in v.split("."):
+                num = ""
+                for ch in chunk:
+                    if ch.isdigit():
+                        num += ch
+                    else:
+                        break
+                parts.append(int(num) if num else 0)
+            return tuple(parts)
+
+        try:
+            if _parse(latest) <= _parse(current):
+                return
+        except Exception:
+            return
+
+        print(
+            f"  A newer version of awp-agents is available ({latest}). "
+            f"Run `pip install --upgrade awp-agents` to update."
+        )
+    except Exception:
+        # Never let a version check break the CLI.
+        return
 
 
 def _kill_port_processes(port: int) -> None:
@@ -442,10 +497,12 @@ def cmd_studio(args: argparse.Namespace) -> int:
     """Launch AWP Workflow Studio (browser-based UI)."""
     import socket
 
-    # --- Pre-flight: auto-update from PyPI ---
-    if not getattr(args, "no_update", False) and not getattr(args, "dev", False):
+    # --- Pre-flight: auto-update from PyPI (opt-in) ---
+    if getattr(args, "auto_update", False) and not getattr(args, "dev", False):
         print("  Checking for updates...")
         _auto_update_awp()
+    elif not getattr(args, "dev", False):
+        _check_for_update_hint()
 
     # --- Pre-flight: add awp-ui/server to path if running from source ---
     # When running `python -m awp studio` from a dev checkout, the awp-ui
@@ -650,10 +707,12 @@ def cmd_studio(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Run an AWP workflow using the standalone runtime."""
-    # --- Pre-flight: auto-update from PyPI ---
-    if not getattr(args, "no_update", False):
+    # --- Pre-flight: auto-update from PyPI (opt-in) ---
+    if getattr(args, "auto_update", False):
         print("  Checking for updates...")
         _auto_update_awp()
+    else:
+        _check_for_update_hint()
 
     from .runtime import WorkflowRunner
 

@@ -1,7 +1,7 @@
-# AWP Platform Adapter: Standalone (awp-protocol)
+# AWP Platform Adapter: Standalone (awp-agents)
 
 This adapter generates `agent.py` files for the **AWP standalone runtime**
-included in the `awp-protocol` package.
+included in the `awp-agents` package.
 
 ## When to Use
 
@@ -160,7 +160,7 @@ class Agent(StandaloneAgent):
 ## Dependencies
 
 ```
-pip install awp-protocol
+pip install awp-agents
 ```
 
 Environment variables for LLM access:

@@ -114,6 +114,8 @@ orchestration:
       max_depth: 2                       # Recursive submanager depth cap (default 2)
       max_concurrent_submanagers: 3      # Max submanagers running at once
       max_total_submanagers_per_run: 6   # Hard cap on submanagers per run
+      max_workers_per_iteration: 6       # Per-iteration fan-out cap (default 6)
+      max_rejected_completions: 2        # Completion-retry circuit breaker (default 2)
     worker_policy:
       enforced:
         sandbox: {type: subprocess, max_memory_mb: 512}
@@ -170,7 +172,8 @@ orchestration:
 
 Key concepts:
 - **Delegation Envelope**: Manager generates instructions + skills + tools config + temperature for each worker
-- **Budget System**: Hard limits on loops, workers, tokens, wall time. Required at A2+.
+- **Budget System**: Hard limits on loops, workers, tokens, wall time. Required at A2+. Includes `max_workers_per_iteration` (default **6**) — a per-DELEGATE fan-out cap. Over-cap dispatches are trimmed pre-spawn and the overflow is surfaced to the manager via `state["_deferred_workers"]` so it must merge subtasks or dispatch in a later iteration.
+- **Terminal Status Contract**: Every run ends with exactly one of `{complete, partial, failed, aborted}`. Cap-forced exits (`defect_category_cap`, `plan_loop`, `forced_convergence`, `max_total_tokens`, `max_total_workers`, `max_wall_time`, `max_loops`) are always `partial` — never `complete`. Hard errors are `failed`. Signal-driven or abrupt process exits are `aborted`. The `run.complete` event + `run_completion.json` are emitted on every exit path via a `try/except/finally` + `SIGTERM`/`SIGINT` handler finalizer.
 - **Safety Envelope**: Immutable security constraints the manager cannot override. Required at A3+.
 - **Two-Tier Validation**: Deterministic (schema, confidence) + LLM semantic (does result address task?)
 - **Stall Detection**: Auto-stop when confidence stops improving. Also includes
@@ -680,7 +683,7 @@ never sees them.
 #### 9. Target Platform
 
 **9.1 Where should the workflow run?**
-> a) **Standalone (Python)** — local execution with `awp-protocol` ← recommended for getting started
+> a) **Standalone (Python)** — local execution with `awp-agents` ← recommended for getting started
 > b) **Cloudflare Workers** — serverless Edge deployment (TypeScript)
 > c) Other: ___
 
@@ -974,7 +977,7 @@ Choose the appropriate **adapter** based on the target platform:
 
 | Platform | Adapter | Generated Files |
 |----------|---------|----------------|
-| **Standalone (awp-protocol)** | `adapters/standalone.md` | `agent.py` (Python) |
+| **Standalone (awp-agents)** | `adapters/standalone.md` | `agent.py` (Python) |
 | **Cloudflare Workers** | `adapters/cloudflare-dynamic-workers.md` | `src/index.ts`, `wrangler.toml` (TypeScript) |
 
 **Default (Standalone):** Use `templates/agent.py` which inherits from
@@ -1317,6 +1320,11 @@ After generating all files, verify:
 - [ ] If `planning.enabled`, `max_subtasks` is a positive integer.
 - [ ] If `diagnosis.enabled`, `confidence_threshold` is in [0.0, 1.0].
 - [ ] If `strategy_switching.enabled`, `strategies` list is non-empty.
+- [ ] `budget.max_workers_per_iteration` is a positive integer (default 6) when delegation_loop is used. Keep it ≤ `max_total_workers / max_loops` for sensible fan-out.
+- [ ] `budget.max_rejected_completions` is a positive integer (default 2) when delegation_loop is used. Bounds how many times the completion-gate chain (`deliverable_presence`, `placeholder`, `file`, `structural_integrity`, `critique`, `eval`) may reject a `COMPLETE` decision before the runner synthesizes a repair subtask or terminates as `partial` with reason `max_rejected_completions`.
+- [ ] Subtasks that produce files SHOULD include an explicit `required_outputs: [<relpath>, …]` list so the `deliverable_presence` gate can verify them deterministically (priority 1 over regex-scraping `success_criteria`).
+- [ ] PLAN `tool_manifest` entries marked `reuse_or_generate: "reuse"` MUST set `pattern_id` to one of the values listed under "Known pattern_ids" in the manager prompt. If no concrete pattern fits, use `reuse_or_generate: "synthesize"` with an `archetype_id` — never invent a `pattern_id` (the R31 validator surfaces the full known-pattern list on rejection).
+- [ ] Terminal status: every example and template treats cap-forced exits (`defect_category_cap`, `plan_loop`, `plan_loop_stall`, `forced_convergence`, `max_total_*`, `max_wall_time`, `max_loops`, `max_rejected_completions`) as `partial` — never `complete`. Hard errors are `failed`. Process exits without a terminal decision are `aborted`.
 
 ### Evaluation / Quality Scoring (Optional)
 
@@ -1752,7 +1760,7 @@ Provide ready-to-use commands for running the workflow:
 cd {workflow_name}/
 pip install -r requirements.txt    # if requirements.txt was generated
 # or
-pip install awp-protocol
+pip install awp-agents
 ```
 
 **Run the workflow:**
