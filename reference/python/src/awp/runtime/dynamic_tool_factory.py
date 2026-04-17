@@ -451,9 +451,63 @@ class DynamicToolFactory:
             "repair_successes": 0,
         }
 
+        # Resolve and cache the cross-run shared dir path up-front so
+        # _persist_tool / _load_persisted_tools use a consistent target.
+        # Also pre-create it when persistence is enabled, so the first
+        # successful tool create never races a missing directory.
+        self._shared_dir: Optional[Path] = None
+        if self._workflow_dir:
+            self._shared_dir = self._resolve_shared_dir(self._workflow_dir)
+            if self._persist and self._shared_dir is not None:
+                try:
+                    self._shared_dir.mkdir(parents=True, exist_ok=True)
+                except Exception as exc:
+                    logger.warning(
+                        "Could not create shared dynamic_tools dir %s: %s",
+                        self._shared_dir, exc,
+                    )
+
         # Load persisted tools on init
         if self._persist and self._workflow_dir:
             self._load_persisted_tools()
+
+    @staticmethod
+    def _resolve_shared_dir(workflow_dir: Path) -> Optional[Path]:
+        """Locate the cross-run ``shared/dynamic_tools`` directory.
+
+        Supports two layouts:
+
+        1. **Per-run isolation (current)**: ``workflow_dir`` is
+           ``<exp>/runs/<run_id>``; shared dir lives at ``<exp>/shared/dynamic_tools``.
+        2. **Legacy flat**: ``workflow_dir`` is the experiment root; the
+           shared dir is ``<workflow_dir>/../shared/dynamic_tools`` if that
+           exists, else ``<workflow_dir>/shared/dynamic_tools``.
+
+        We walk upward a bounded number of levels and return the first
+        match whose parent (``shared/``) already exists, OR the per-run
+        candidate if the parent layout looks right (``runs/`` directory
+        present). This makes the resolution robust to both layouts
+        without over-reaching into unrelated parent directories.
+        """
+        try:
+            wd = workflow_dir.resolve()
+        except Exception:
+            wd = workflow_dir
+
+        # Case 1: per-run isolation — <exp>/runs/<run_id>.
+        # Detect by checking that parent is named "runs" (or that a sibling
+        # "shared" exists two levels up).
+        if wd.parent.name == "runs" and wd.parent.parent.exists():
+            return wd.parent.parent / "shared" / "dynamic_tools"
+
+        # Case 2: an existing shared/ directory one level up (legacy migrated).
+        one_up_shared = wd.parent / "shared"
+        if one_up_shared.is_dir():
+            return one_up_shared / "dynamic_tools"
+
+        # Case 3: legacy flat — no cross-run shared dir. Return None so
+        # callers fall back to workspace-local persistence only.
+        return None
 
     @property
     def enabled(self) -> bool:
@@ -1602,83 +1656,197 @@ class DynamicToolFactory:
         return tool_fn
 
     def _persist_tool(self, record: DynamicToolRecord) -> None:
-        """Save tool definition as JSON manifest to workspace/dynamic_tools/."""
+        """Save tool definition as JSON manifest for local + cross-run reuse.
+
+        Writes to two locations (either may resolve to the same file via a
+        symlink, which is fine — the writes are idempotent):
+
+        1. ``<workflow_dir>/workspace/dynamic_tools/<fqn>.json`` — the
+           canonical per-run path. Under the UI layout this is usually a
+           symlink to the experiment's ``shared/dynamic_tools`` directory,
+           so writing here also populates the shared registry.
+        2. ``<experiment>/shared/dynamic_tools/<fqn>.json`` — the direct
+           shared path, written defensively so cross-run reuse works even
+           if the symlink is broken or missing.
+
+        Both writes log success/failure so an empty registry can never be
+        silent.
+        """
         if not self._workflow_dir:
             return
+
+        payload = json.dumps(record.to_dict(), indent=2, ensure_ascii=False)
+        wrote_any = False
+
+        # 1) Workspace-local (primary). Under per-run isolation this is a
+        #    symlink into shared/, so one write populates both.
         persist_dir = self._workflow_dir / "workspace" / "dynamic_tools"
-        persist_dir.mkdir(parents=True, exist_ok=True)
-        persist_path = persist_dir / f"{record.fqn}.json"
-        persist_path.write_text(
-            json.dumps(record.to_dict(), indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        logger.debug("Persisted dynamic tool: %s", persist_path)
+        try:
+            persist_dir.mkdir(parents=True, exist_ok=True)
+            persist_path = persist_dir / f"{record.fqn}.json"
+            persist_path.write_text(payload, encoding="utf-8")
+            wrote_any = True
+            logger.info(
+                "Persisted dynamic tool %s -> %s", record.fqn, persist_path
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist tool %s to workspace/: %s",
+                record.fqn, exc,
+            )
 
-        # Also persist to shared/ for cross-run reuse
-        if self._workflow_dir:
-            shared_dir = self._workflow_dir.parent / "shared" / "dynamic_tools"
-            if shared_dir.parent.exists():
-                try:
-                    shared_dir.mkdir(parents=True, exist_ok=True)
-                    shared_path = shared_dir / f"{record.fqn}.json"
-                    shared_path.write_text(
-                        json.dumps(record.to_dict(), indent=2, ensure_ascii=False),
-                        encoding="utf-8",
-                    )
-                except Exception:
-                    pass  # Non-critical — workspace copy is the primary
-
-    def _load_persisted_tools(self) -> None:
-        """Load previously persisted dynamic tools from workspace/dynamic_tools/."""
-        if not self._workflow_dir:
-            return
-        persist_dir = self._workflow_dir / "workspace" / "dynamic_tools"
-        if not persist_dir.exists():
-            return
-
-        for json_file in sorted(persist_dir.glob("*.json")):
+        # 2) Shared (defensive second write). Only reach here if the
+        #    resolved shared_dir is DIFFERENT from the workspace target
+        #    (after symlink resolution) — otherwise we'd be writing the
+        #    same file twice.
+        if self._shared_dir is not None:
             try:
-                data = json.loads(json_file.read_text(encoding="utf-8"))
-                fqn = data["fqn"]
+                self._shared_dir.mkdir(parents=True, exist_ok=True)
+                shared_path = self._shared_dir / f"{record.fqn}.json"
 
-                # Skip if already registered
-                if fqn in self._registry._tools:
-                    continue
+                # Resolve both targets to compare canonical paths. If they
+                # collide (symlink layout), skip the second write.
+                try:
+                    ws_resolved = (persist_dir / f"{record.fqn}.json").resolve()
+                    sh_resolved = shared_path.resolve()
+                except Exception:
+                    ws_resolved = persist_dir / f"{record.fqn}.json"
+                    sh_resolved = shared_path
 
-                # Validate code
-                validation = self.validate_code(data["code"])
-                if not validation["ok"]:
-                    logger.warning(
-                        "Skipping persisted tool %s: %s", fqn, validation["error"]
+                if ws_resolved != sh_resolved:
+                    shared_path.write_text(payload, encoding="utf-8")
+                    wrote_any = True
+                    logger.info(
+                        "Persisted dynamic tool %s to shared/: %s",
+                        record.fqn, shared_path,
                     )
-                    continue
-
-                # Register (with secret keys if persisted)
-                persisted_secrets = data.get("required_secrets", [])
-                tool_fn = self._make_sandboxed_tool(
-                    data["code"], fqn, persisted_secrets
-                )
-                creator = data.get("provenance", {}).get("creator_agent", "persisted")
-                self._registry.register_dynamic(
-                    fqn,
-                    tool_fn,
-                    data["parameters"],
-                    data["description"],
-                    creator,
-                    secrets_keys=persisted_secrets if persisted_secrets else None,
-                )
-                self._records[fqn] = DynamicToolRecord(
-                    fqn=fqn,
-                    creator_agent=creator,
-                    code=data["code"],
-                    parameters=data["parameters"],
-                    description=data["description"],
-                    meta=data.get("meta"),
-                    required_secrets=persisted_secrets,
-                )
-                logger.info("Loaded persisted dynamic tool: %s", fqn)
-
+                else:
+                    logger.debug(
+                        "shared_dir write for %s skipped — same inode as "
+                        "workspace path (symlink layout)",
+                        record.fqn,
+                    )
             except Exception as exc:
                 logger.warning(
-                    "Failed to load persisted tool %s: %s", json_file.name, exc
+                    "Failed to persist tool %s to shared/ (%s): %s",
+                    record.fqn, self._shared_dir, exc,
                 )
+
+        if not wrote_any:
+            logger.error(
+                "Dynamic tool %s was registered in-memory but NOT persisted "
+                "to disk (workspace_dir=%s, shared_dir=%s). Tool will not "
+                "survive across runs.",
+                record.fqn, self._workflow_dir, self._shared_dir,
+            )
+
+    def _load_persisted_tools(self) -> None:
+        """Load previously persisted dynamic tools from workspace/ and shared/.
+
+        Deduplicates across candidate directories by canonical path, so a
+        symlink layout (workspace/dynamic_tools → shared/dynamic_tools)
+        never double-loads the same file.
+        """
+        if not self._workflow_dir:
+            return
+
+        # Collect candidate directories: local workspace first, then shared.
+        # We probe both; dedup happens per canonical path.
+        candidate_dirs: list[Path] = []
+        local_dir = self._workflow_dir / "workspace" / "dynamic_tools"
+        if local_dir.exists():
+            candidate_dirs.append(local_dir)
+        if self._shared_dir is not None and self._shared_dir.exists():
+            candidate_dirs.append(self._shared_dir)
+
+        if not candidate_dirs:
+            logger.debug(
+                "No persisted dynamic tool directories found "
+                "(workflow_dir=%s, shared_dir=%s)",
+                self._workflow_dir, self._shared_dir,
+            )
+            return
+
+        # Deduplicate by canonical path so a symlink doesn't double-register.
+        seen_canonical: set[Path] = set()
+        loaded_fqns: set[str] = set()
+        load_failures = 0
+
+        for persist_dir in candidate_dirs:
+            for json_file in sorted(persist_dir.glob("*.json")):
+                try:
+                    canonical = json_file.resolve()
+                except Exception:
+                    canonical = json_file
+                if canonical in seen_canonical:
+                    continue
+                seen_canonical.add(canonical)
+
+                try:
+                    data = json.loads(json_file.read_text(encoding="utf-8"))
+                    fqn = data["fqn"]
+
+                    # Skip if already registered (e.g. a tool with the
+                    # same FQN was loaded in this init call or registered
+                    # by another code path).
+                    if fqn in self._registry._tools or fqn in loaded_fqns:
+                        continue
+
+                    # Validate code (namespace-aware when we have one)
+                    ns_hint = fqn.split(".")[0] if "." in fqn else None
+                    validation = self.validate_code(data["code"], namespace=ns_hint)
+                    if not validation["ok"]:
+                        logger.warning(
+                            "Skipping persisted tool %s: %s", fqn, validation["error"]
+                        )
+                        load_failures += 1
+                        continue
+
+                    # Register (with secret keys if persisted)
+                    persisted_secrets = data.get("required_secrets", [])
+                    tool_fn = self._make_sandboxed_tool(
+                        data["code"], fqn, persisted_secrets
+                    )
+                    creator = data.get("provenance", {}).get("creator_agent", "persisted")
+                    self._registry.register_dynamic(
+                        fqn,
+                        tool_fn,
+                        data["parameters"],
+                        data["description"],
+                        creator,
+                        secrets_keys=persisted_secrets if persisted_secrets else None,
+                    )
+                    self._records[fqn] = DynamicToolRecord(
+                        fqn=fqn,
+                        creator_agent=creator,
+                        code=data["code"],
+                        parameters=data["parameters"],
+                        description=data["description"],
+                        meta=data.get("meta"),
+                        required_secrets=persisted_secrets,
+                        code_hash=data.get("code_hash", ""),
+                    )
+                    # Re-populate the content-addressable cache so a
+                    # subsequent create_tool() with identical code dedups
+                    # instead of failing with "already exists".
+                    if self._cache_enabled:
+                        self._hash_to_fqn[self._records[fqn].code_hash] = fqn
+                    loaded_fqns.add(fqn)
+                    logger.info(
+                        "Loaded persisted dynamic tool: %s (from %s)",
+                        fqn, persist_dir,
+                    )
+
+                except Exception as exc:
+                    load_failures += 1
+                    logger.warning(
+                        "Failed to load persisted tool %s: %s", json_file.name, exc
+                    )
+
+        if loaded_fqns or load_failures:
+            logger.info(
+                "Dynamic tool registry restored: %d loaded, %d failed "
+                "(candidates: %s)",
+                len(loaded_fqns), load_failures,
+                [str(p) for p in candidate_dirs],
+            )

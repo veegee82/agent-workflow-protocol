@@ -331,7 +331,8 @@ class CritiqueEngine:
             )
             if hasattr(llm, "total_tokens_used"):
                 self._total_repair_tokens += llm.total_tokens_used
-            return self._parse_critique_response(worker_id, result)
+            envelope_obj = self._parse_critique_response(worker_id, result)
+            return self._filter_false_positive_missing_data(envelope_obj)
         except Exception as exc:
             logger.warning("Critique LLM call failed for %s: %s", worker_id, exc)
             return self._heuristic_critique(worker_id, worker_result, envelope)
@@ -371,6 +372,12 @@ Respond with a JSON object:
 }}
 ```
 
+## CRITICAL: Ground-Truth Filesystem Verification
+When a "Ground-truth filesystem snapshot" section is provided in the user prompt,
+you MUST cross-reference it before flagging any `missing_data` defect.
+If a file appears in the snapshot with size > 0 bytes, it EXISTS — do NOT flag it as missing_data.
+Flagging an existing file as missing_data is a FALSE POSITIVE and degrades system reliability.
+
 ## Rules
 - Score 0.9-1.0: Excellent, no critical defects
 - Score 0.6-0.89: Acceptable with warnings
@@ -379,6 +386,24 @@ Respond with a JSON object:
 - Be specific in prescriptions — the worker will receive them as repair instructions
 - Only flag reusable_patterns if the issue is likely to affect other workers too
 - Respond ONLY with JSON, no other text
+
+## Example: Correct handling of ground-truth filesystem data
+
+If the ground-truth snapshot shows:
+```
+_workspace_dir/  (/tmp/experiment/workspace)
+  inputs/repo-a  (15234567 B)
+  manifests/report.json  (1234 B)
+_output_dir/  (/tmp/experiment/output/run-001)
+  summary.json  (567 B)
+```
+
+And the worker claims: "Saved report to /tmp/experiment/workspace/manifests/report.json"
+
+CORRECT critique: score=0.85, no missing_data defects (file verified in snapshot)
+WRONG critique: score=0.35, missing_data defect for report.json (this is a FALSE POSITIVE)
+
+The filesystem snapshot is AUTHORITATIVE. Trust it over the worker's narrative.
 """
 
     def _build_critic_user_prompt(
@@ -632,6 +657,110 @@ Respond with a JSON object:
             reusable_patterns=response.get("reusable_patterns", []),
             effort_estimate=response.get("effort_estimate", "trivial"),
             summary=response.get("summary", ""),
+        )
+
+    def _filter_false_positive_missing_data(self, critique: CritiqueEnvelope) -> CritiqueEnvelope:
+        """Deterministically remove hallucinated missing_data defects.
+
+        After the LLM returns its critique, scan every defect with
+        ``category == "missing_data"`` and check whether the file path
+        mentioned in ``description`` or ``location`` actually exists on disk
+        (workspace/ or output/<run_id>/) with a non-trivial size > 0 bytes.
+
+        If the file exists → downgrade the defect from ``critical`` to ``info``
+        and prepend "[FALSE POSITIVE — file exists on disk]" to the description.
+
+        After filtering, recalculate the score upward:
+        +0.15 per removed false-positive critical defect, capped at 1.0.
+        """
+        ws = self._workflow_dir / "workspace"
+        out = self._workflow_dir / "output" / (self._run_id or "")
+
+        # Build a flat set of all existing non-empty files in both roots so
+        # lookups are O(1) after the initial scan.
+        existing: set[str] = set()
+        for root in (ws, out):
+            if not root.exists():
+                continue
+            for p in root.rglob("*"):
+                if p.is_file():
+                    try:
+                        if p.stat().st_size > 0:
+                            # Store as stem, name, and absolute string for
+                            # flexible matching against arbitrary LLM text.
+                            existing.add(p.name.lower())
+                            existing.add(str(p).lower())
+                            existing.add(p.stem.lower())
+                            existing.add(str(p.relative_to(root)).lower())
+                    except OSError:
+                        pass
+
+        if not existing:
+            # No files on disk yet — nothing to filter.
+            return critique
+
+        removed_critical = 0
+        new_defects: list[Defect] = []
+        for defect in critique.defects:
+            if defect.category != "missing_data" or defect.severity != "critical":
+                new_defects.append(defect)
+                continue
+
+            # Check if any token from description or location matches a
+            # real file on disk (case-insensitive substring / name match).
+            combined = f"{defect.description} {defect.location}".lower()
+            matched = False
+            for entry in existing:
+                if entry and entry in combined:
+                    matched = True
+                    break
+            # Also check the reverse: any existing filename appears in the text.
+            if not matched:
+                for word in combined.split():
+                    word_clean = word.strip("\"'/\\,;:()")
+                    if word_clean and word_clean in existing:
+                        matched = True
+                        break
+
+            if matched:
+                logger.info(
+                    "  [critique-filter] Downgrading false-positive missing_data defect "
+                    "for worker '%s': '%s'",
+                    critique.worker_id,
+                    defect.description[:120],
+                )
+                new_defects.append(
+                    Defect(
+                        category=defect.category,
+                        location=defect.location,
+                        description=f"[FALSE POSITIVE — file exists on disk] {defect.description}",
+                        severity="info",
+                    )
+                )
+                removed_critical += 1
+            else:
+                new_defects.append(defect)
+
+        if removed_critical == 0:
+            return critique
+
+        new_score = min(1.0, critique.score + 0.15 * removed_critical)
+        logger.info(
+            "  [critique-filter] Removed %d false-positive critical defect(s) for '%s'; "
+            "score %.2f → %.2f",
+            removed_critical,
+            critique.worker_id,
+            critique.score,
+            new_score,
+        )
+        return CritiqueEnvelope(
+            worker_id=critique.worker_id,
+            score=new_score,
+            defects=new_defects,
+            prescriptions=critique.prescriptions,
+            reusable_patterns=critique.reusable_patterns,
+            effort_estimate=critique.effort_estimate,
+            summary=critique.summary,
         )
 
     def _heuristic_critique(

@@ -722,6 +722,141 @@ def test_process_tool_creation_succeeds_first_try(tmp_path: Path):
     assert factory.metrics["repair_attempts"] == 0
 
 
+# ---------------------------------------------------------------------------
+# Cross-run persistence: tools registered in run A must be available in run B
+# of the same experiment.
+# ---------------------------------------------------------------------------
+
+
+def _build_factory_for_run(run_dir: Path) -> DynamicToolFactory:
+    """Instantiate a factory that mimics the per-run isolation layout.
+
+    Also pre-creates a symlink ``workspace/dynamic_tools -> shared/dynamic_tools``
+    so the test exercises the real UI layout where workspace and shared point
+    at the same inode.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "workspace").mkdir(parents=True, exist_ok=True)
+    shared = run_dir.parent.parent / "shared" / "dynamic_tools"
+    shared.mkdir(parents=True, exist_ok=True)
+    link = run_dir / "workspace" / "dynamic_tools"
+    if not link.exists():
+        try:
+            link.symlink_to(shared.resolve())
+        except OSError:
+            pass
+
+    registry = ToolRegistry()
+    executor = CodeExecutor(working_dir=run_dir, max_timeout=15)
+    registry.set_code_executor(executor)
+    return DynamicToolFactory(
+        registry=registry,
+        code_executor=executor,
+        config={
+            "enabled": True,
+            "allowed_namespaces": ["dyn"],
+            "persist": True,
+            "dry_run": False,
+            "cache": True,
+        },
+        workflow_dir=run_dir,
+        sandbox_type="subprocess",
+    )
+
+
+def test_resolve_shared_dir_per_run_layout(tmp_path: Path):
+    """`<exp>/runs/<run_id>` must resolve to `<exp>/shared/dynamic_tools`."""
+    exp = tmp_path / "experiment_abc"
+    run_dir = exp / "runs" / "run_001"
+    run_dir.mkdir(parents=True)
+    resolved = DynamicToolFactory._resolve_shared_dir(run_dir)
+    assert resolved == (exp / "shared" / "dynamic_tools").resolve()
+
+
+def test_resolve_shared_dir_legacy_flat(tmp_path: Path):
+    exp = tmp_path / "experiment_flat"
+    exp.mkdir(parents=True)
+    # No sibling shared/ — legacy layout returns None so persistence
+    # falls back to workspace-local only.
+    assert DynamicToolFactory._resolve_shared_dir(exp) is None
+
+
+def test_tool_registered_in_run_a_is_loaded_by_run_b(tmp_path: Path):
+    """End-to-end: create a tool in run A, then a fresh factory in run B
+    (same experiment) must auto-load it."""
+    exp = tmp_path / "experiment_crossrun"
+
+    # --- Run A: create and register a tool ---
+    run_a = exp / "runs" / "run_A"
+    fa = _build_factory_for_run(run_a)
+    code = (
+        "def handler(*, x):\n"
+        "    return {'ok': True, 'status': 200, 'data': {'doubled': x*2}, 'error': None}\n"
+    )
+    params = {
+        "type": "object",
+        "properties": {"x": {"type": "integer"}},
+        "required": ["x"],
+    }
+    res = fa.create_tool(
+        name="dyn.doubler",
+        description="double an int",
+        parameters=params,
+        code=code,
+        creator_agent="agent_A",
+        allowed_namespace="dyn",
+    )
+    assert res["ok"], res
+    # The shared file must now exist at the experiment-level path
+    shared_file = exp / "shared" / "dynamic_tools" / "dyn.doubler.json"
+    assert shared_file.exists(), (
+        f"Tool was not persisted to shared/ (layout broken). "
+        f"Listing: {list((exp / 'shared' / 'dynamic_tools').iterdir()) if (exp / 'shared').exists() else 'no shared dir'}"
+    )
+
+    # --- Run B: fresh factory under the same experiment ---
+    run_b = exp / "runs" / "run_B"
+    fb = _build_factory_for_run(run_b)
+    # Run B's registry must expose the tool without the worker re-creating it.
+    assert "dyn.doubler" in fb._registry._tools, (
+        f"Cross-run load failed. Registry: {list(fb._registry._tools.keys())}"
+    )
+    # Metadata preserved (creator, code_hash)
+    rec_b = fb._records["dyn.doubler"]
+    assert rec_b.creator_agent == "agent_A"
+    assert rec_b.code_hash  # not empty
+
+
+def test_persist_survives_broken_symlink(tmp_path: Path):
+    """If the workspace symlink is missing, the shared/ write must still
+    succeed so tools don't vanish."""
+    exp = tmp_path / "experiment_broken_link"
+    run_dir = exp / "runs" / "run_X"
+    run_dir.mkdir(parents=True)
+    (run_dir / "workspace").mkdir()  # no dynamic_tools symlink
+
+    registry = ToolRegistry()
+    executor = CodeExecutor(working_dir=run_dir, max_timeout=15)
+    registry.set_code_executor(executor)
+    factory = DynamicToolFactory(
+        registry=registry,
+        code_executor=executor,
+        config={"enabled": True, "allowed_namespaces": ["dyn"], "persist": True, "dry_run": False},
+        workflow_dir=run_dir,
+    )
+    res = factory.create_tool(
+        name="dyn.noop",
+        description="noop",
+        parameters={"type": "object", "properties": {}},
+        code="def handler(**_):\n    return {'ok': True, 'status': 200, 'data': {}, 'error': None}\n",
+        creator_agent="a",
+        allowed_namespace="dyn",
+    )
+    assert res["ok"], res
+    # Shared copy must exist even without a pre-existing symlink.
+    assert (exp / "shared" / "dynamic_tools" / "dyn.noop.json").exists()
+
+
 def test_dry_run_handles_unicode(factory: DynamicToolFactory):
     code = textwrap.dedent("""\
         def handler(*, name):

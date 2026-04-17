@@ -2568,7 +2568,7 @@ class DelegationLoopRunner:
                     "plan_commit_mode",
                     "strict",
                 )
-                MAX_PRE_PROGRESS_PLANS = 2 if _plan_mode == "strict" else 3
+                MAX_PRE_PROGRESS_PLANS = 1 if _plan_mode == "strict" else 2
                 if self._task_plan is not None:
                     has_progress = any(
                         st.get("status") in ("in_progress", "completed", "failed")
@@ -3711,15 +3711,32 @@ class DelegationLoopRunner:
             # whole run.  If the same category appears too often, the
             # manager is forced into DIAGNOSE or a hard stop.
             _DEFECT_CAT_DIAGNOSE_THRESHOLD = int(
-                getattr(self._config.critique, "defect_category_diagnose_threshold", 3)
+                getattr(self._config.critique, "defect_category_diagnose_threshold", 8)
             )
-            _DEFECT_CAT_HARD_CAP = int(
-                getattr(self._config.critique, "defect_category_hard_cap", 5)
+            _DEFECT_CAT_HARD_CAP_BASE = int(
+                getattr(self._config.critique, "defect_category_hard_cap", 15)
+            )
+            # Scale the cap by the number of parallel workers in this
+            # iteration (M8). A static cap of 5 is fine for sequential
+            # 1-worker iterations but absurdly low when 5+ workers run in
+            # parallel — each contributing 2-3 defects produces 10-15
+            # cumulative defects in a single iteration, blowing the cap
+            # even when individual workers are acceptable.
+            n_envelopes = max(1, len(critique_envelopes)) if critique_envelopes else 1
+            _DEFECT_CAT_HARD_CAP = max(
+                _DEFECT_CAT_HARD_CAP_BASE,
+                _DEFECT_CAT_HARD_CAP_BASE * n_envelopes,
             )
             if critique_envelopes:
-                tracker: dict[str, int] = state.setdefault(
-                    "_defect_category_tracker", {}
-                )
+                # Per-iteration tracker (M8b): reset the tracker at the start
+                # of each iteration.  The old cumulative design punished runs
+                # for having ANY worker produce defects, even when repairs
+                # succeeded and later iterations were clean.  The per-iteration
+                # design only caps when a SINGLE iteration's workers produce
+                # an extreme number of the same defect category — which is a
+                # genuine signal that the system is stuck in a loop.
+                tracker: dict[str, int] = {}
+                state["_defect_category_tracker"] = tracker
                 # Structural-integrity repair is a directed repair driven
                 # by a deterministic gate, not a sign of worker failure.
                 # Don't let it contribute to defect_category_hard_cap —
@@ -3734,6 +3751,44 @@ class DelegationLoopRunner:
                         cat = getattr(d, "category", "") or "generic"
                         if sev in ("critical", "warning") and not _in_structural_repair:
                             tracker[cat] = tracker.get(cat, 0) + 1
+
+                # Recovery path (Fix M2): when a worker's FINAL critique
+                # (post-repair) shows a good score (>= 0.7), **reset** each
+                # tracked category that has no critical defect in this envelope
+                # back to zero.  The original decrement-by-1 approach was too
+                # conservative: the LLM critic adds 3-5 missing_data defects
+                # per bad critique but recovery only drained 1, so the counter
+                # always grew faster than it shrank and the hard cap fired
+                # even when every worker eventually passed repair.
+                #
+                # Reset is safe because the post-repair score already proves
+                # the category is clean for this worker.  If the NEXT worker
+                # genuinely has missing_data, the counter will start fresh
+                # from that worker's defects rather than carrying over ghosts
+                # from a worker that was already successfully repaired.
+                for ce in critique_envelopes:
+                    score = getattr(ce, "score", None)
+                    if score is None:
+                        sub = getattr(ce, "scores", None)
+                        if sub and isinstance(sub, dict):
+                            vals = [v for v in sub.values() if isinstance(v, (int, float))]
+                            score = sum(vals) / len(vals) if vals else None
+                    if score is not None and score >= 0.7:
+                        critical_cats_this_ce = {
+                            getattr(d, "category", "") or "generic"
+                            for d in getattr(ce, "defects", [])
+                            if getattr(d, "severity", "") == "critical"
+                        }
+                        for cat in list(tracker.keys()):
+                            if cat not in critical_cats_this_ce and tracker[cat] > 0:
+                                logger.debug(
+                                    "Resetting defect counter for '%s' "
+                                    "(%d → 0) after successful critique "
+                                    "(score=%.2f) for %s",
+                                    cat, tracker[cat], score,
+                                    getattr(ce, "worker_id", "?"),
+                                )
+                                tracker[cat] = 0
 
                 # Phase-aware scaling: "incomplete" defects are expected when
                 # only a fraction of the plan has been attempted.  Scale the
@@ -4266,6 +4321,16 @@ class DelegationLoopRunner:
 Use PLAN **once** on the first iteration to decompose the problem before delegating.
 You can only PLAN once — after that, use DELEGATE to execute the plan.
 After planning, you will see a Task Plan Progress section tracking subtask status.
+
+**Task Decomposition Strategy — match granularity to task type:**
+- **Synthesis tasks** (write a paper, generate a report, produce code): prefer FEWER, LARGER subtasks with
+  `delegation_strategy: "worker"`. A single worker with multiple `code.execute` calls can fetch data,
+  process it, and write output in one go. Do NOT split trivial prerequisites (like cloning a repo or
+  creating directories) into separate subtasks — include them as the first step of the worker that needs them.
+- **Pipeline tasks** (ETL, multi-stage data processing): use more granular subtasks with clear data handoffs.
+- **Rule of thumb**: if a subtask's only output is a precondition for the next subtask (e.g. "create dirs",
+  "fetch data"), merge it into the subtask that actually uses the data. Standalone prerequisite subtasks
+  waste an entire delegation loop iteration.
 **CRITICAL: In every DELEGATE decision, include `"subtask_id": "subtask_X"` in each delegation envelope to link the worker to a plan subtask.** This enables automatic progress tracking. Without `subtask_id`, the plan cannot track which subtasks are done.
 **A4 — Submanager autonomous decision (REQUIRED on every subtask):**
 For EACH subtask you plan, set `"delegation_strategy"` to either
@@ -4360,6 +4425,38 @@ targeted workers to test the most likely hypotheses before doing a full retry.
             section = self._task_plan.to_prompt_section()
             if section:
                 parts.append(section)
+
+        # Budget proportionality warning — prevent one subtask from consuming
+        # the entire budget (M6).  Show the manager how much budget is left and
+        # how many subtasks remain so it can pace itself.
+        if self._task_plan:
+            pending_st = sum(
+                1 for st in self._task_plan._subtasks
+                if st.get("status", "pending") == "pending"
+            )
+            total_st = len(self._task_plan._subtasks)
+            completed_st = total_st - pending_st
+            budget_pct = self._budget.budget_fraction_remaining * 100
+            if pending_st > 0:
+                fair_share = budget_pct / pending_st
+                parts.append(
+                    f"## Budget Proportionality\n"
+                    f"- **Budget remaining**: {budget_pct:.0f}%\n"
+                    f"- **Subtasks completed**: {completed_st}/{total_st}\n"
+                    f"- **Subtasks pending**: {pending_st}\n"
+                    f"- **Fair share per remaining subtask**: ~{fair_share:.0f}%\n"
+                )
+                if completed_st == 0 and budget_pct < 70:
+                    parts.append(
+                        "**WARNING: >30% of budget consumed without completing any subtask. "
+                        "Consider merging remaining subtasks or accepting partial results "
+                        "for the current subtask so later subtasks can still run.**\n"
+                    )
+                elif fair_share < 10:
+                    parts.append(
+                        "**WARNING: Very little budget per remaining subtask. "
+                        "Consider completing with best available results.**\n"
+                    )
 
         # Budget Phase
         if self._budget._reservation and self._budget._reservation.enabled:
@@ -6105,6 +6202,20 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if subtask.get("delegation_strategy") == "worker":
             return 0, ["manager-explicit-worker"]
 
+        # 2b. Prerequisite-type subtasks are NEVER submanager candidates.
+        # Tasks like "fetch repos", "create directories", "download template",
+        # "prepare workspace" are single code.execute calls — promoting them
+        # to submanager wastes an entire delegation loop on trivial I/O.
+        _PREREQ_KEYWORDS = (
+            "fetch", "clone", "download", "prepare", "setup", "create dir",
+            "mkdir", "copy", "ingest", "install",
+        )
+        if any(kw in combined for kw in _PREREQ_KEYWORDS):
+            # Check there are no complexity signals that outweigh the prereq
+            _COMPLEX_OVERRIDE = ("research", "analyze", "synthesize", "iterate")
+            if not any(kw in combined for kw in _COMPLEX_OVERRIDE):
+                return 0, ["prerequisite-task"]
+
         # 3. Description length — long descriptions usually mean multi-step work
         word_count = len(description.split())
         if word_count >= 80:
@@ -6187,13 +6298,14 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         if not scored:
             return []
 
-        # COLLECTIVE UPLIFT: when ≥2 subtasks all share at least one
-        # complexity indicator (score ≥ 1), they form a natural fan-out
-        # pattern that benefits from submanagers even if each individual
-        # subtask is small. Threshold lowered from 3 → 2 because realistic
-        # plans rarely have 3+ truly independent roots.
-        nontrivial = [(st, s, r) for (st, s, r) in scored if s >= 1]
-        if len(nontrivial) >= 2:
+        # COLLECTIVE UPLIFT: when ≥3 subtasks all share meaningful
+        # complexity (score ≥ 2), they form a natural fan-out pattern that
+        # benefits from submanagers even if each individual subtask is
+        # borderline. Threshold raised from 2 → 3 subtasks and score ≥ 1
+        # → ≥ 2 to avoid over-promoting prerequisite-heavy plans where most
+        # subtasks are simple I/O + one is genuinely complex.
+        nontrivial = [(st, s, r) for (st, s, r) in scored if s >= 2]
+        if len(nontrivial) >= 3:
             for st, s, r in nontrivial:
                 idx = scored.index((st, s, r))
                 scored[idx] = (st, s + 2, r + ["collective-fanout"])
@@ -7602,6 +7714,35 @@ Rules:
         # Keep original tools_created AND add enriched tools_registered
         # (tools_created is preserved as-is for backward compatibility)
         result["tools_registered"] = registered
+
+        # Summary log — one line that always fires, so diagnostics can
+        # answer "did anything get registered?" without grepping per-tool
+        # records. Also emits a run event for observability.
+        n_attempted = len(registered)
+        n_ok = sum(1 for r in registered if r.get("registered"))
+        n_fail = n_attempted - n_ok
+        logger.info(
+            "Worker %s tool-creation summary: %d attempted, %d registered, %d failed",
+            worker_id, n_attempted, n_ok, n_fail,
+        )
+        try:
+            if hasattr(self, "_logger") and self._logger is not None:
+                self._logger.trace(
+                    "tool",
+                    f"{worker_id} tool-creation: {n_ok}/{n_attempted} registered",
+                    level="INFO" if n_fail == 0 else "WARNING",
+                    worker=worker_id,
+                    attempted=n_attempted,
+                    registered=n_ok,
+                    failed=n_fail,
+                    fqns=[r.get("name") for r in registered if r.get("registered")],
+                    failures=[
+                        {"name": r.get("name"), "error": (r.get("error") or "")[:200]}
+                        for r in registered if not r.get("registered")
+                    ],
+                )
+        except Exception:
+            pass
 
     # -- Validation -------------------------------------------------------
 
