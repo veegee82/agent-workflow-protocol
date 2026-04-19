@@ -507,7 +507,7 @@ if __name__ == "__main__":
         title=title,
         task=TASK_V2,
         model="openai/gpt-5-mini",
-        worker_model="deepseek/deepseek-chat-v3.1",
+        worker_model="openai/gpt-5-mini",
         max_loops=120,
         max_total_tokens=50_000_000,
         max_wall_time=7200,         # 2h — delegation loop only, no compile.
