@@ -60,6 +60,7 @@ Doc sync is part of the **definition of done per logical task**, not per individ
 - When a task is "done" (code compiles, gates green, ready for commit), **every `*.md` statement invalidated by the change must already be updated**. No "I'll fix the docs later", no separate doc-cleanup commits.
 - Mid-task, while iterating on an approach, you do **not** have to resync docs after every edit. Resync once the approach is settled and before the task closes.
 - **Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code.
+- **Architecture docs MUST carry a linked mental model.** Any `.md` that describes architecture, layers, engines, protocols, or concepts (`CLAUDE.md`, `README.md`, `README_NERD.md`, `docs/`, `spec/`, `skill/SKILL.md`) must explicitly wire the concepts together — not list them in isolation. Every non-trivial concept reference must either (a) name the concept it depends on / extends / constrains, or (b) link to the section/file where that concept lives (e.g. `§3`, `docs/refinement.md`, `R17`, `packages/awp-runtime/`). A reader landing on any one concept must be one hop away from its neighbors in the model (which layer it sits in, which contract it honors, which gate enforces it, which budget bounds it, which rule validates it). Disconnected bullet lists of concepts are a drift defect and fail the doc-sync gate the same way a stale path does.
 
 **What changed → what to sync:**
 
