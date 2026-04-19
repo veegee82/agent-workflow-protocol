@@ -130,6 +130,31 @@ The runtime sorts agents topologically into batches. Agents within the same batc
 
   <img src="diagrams/inline-orchestration.svg" alt="orchestration diagram" width="100%"/>
 
+## Execution scheduler: `levels` vs. `ready_queue`
+
+The DAG runtime offers two scheduler strategies via `orchestration.execution.scheduler`:
+
+| Value | Behavior |
+|-------|----------|
+| `levels` (default) | Topological levels with a barrier between levels. All eligible nodes on level *N* are dispatched together; level *N+1* starts only after the last node of level *N* returns. |
+| `ready_queue` | A persistent worker pool dispatches nodes as soon as their direct dependencies complete. A fast node on level *N* unblocks its descendants on level *N+1* even while slow siblings on level *N* are still running. |
+
+Both modes use the same pool cap (`min(nodes, 16)`) and share all other semantics: eligibility (`enabled`, `when`, rate-limit, circuit-breaker), retry, loop, fan-out, state persistence, budgets, observability hooks. Only the dispatch strategy changes.
+
+**`when` evaluation timing.** In both modes the `when` expression is evaluated against a state snapshot at the moment the dispatch decision is made. That snapshot differs:
+
+- `levels` — state at the start of the level; all nodes in one level see the same snapshot.
+- `ready_queue` — state at the moment the node becomes enqueueable (its direct dependencies completed). Siblings at the same topological depth can see different snapshots because faster upstream branches may have written to the state earlier.
+
+Because agent writers are disjoint under [R17](validation.md) (every agent writes only into `{agent_id: {...}}`), the two snapshots agree on every key that a given `when` expression may read as long as the expression only references true upstream dependencies — the usual case.
+
+**When to pick which.**
+
+- Use `levels` for strictly prescribed, auditable workflows where every level must be a well-defined checkpoint (A0/A1 compliance, evaluation hooks that batch-eval a level, human-in-the-loop inspection between levels).
+- Use `ready_queue` when sibling nodes in the same level have heterogeneous runtimes and you want downstream fan-out to proceed as early as correctness allows. Typical gain: the fast-branch tail runs in parallel with the slow-branch body instead of after it.
+
+The default remains `levels` for bit-identical back-compat with existing workflows and tests. Switching to `ready_queue` is a pure local decision — no other AWP contracts change.
+
 ## Timeouts
 
 Timeouts are resolved in order of specificity:
@@ -184,33 +209,30 @@ The `loop` field on a graph node enables iterative execution.
 
 ```yaml
 loop:
-  type: standard
+  enabled: true
+  mode: standard
   max_iterations: 5
-  condition: "state.report_writer.quality_score < 0.9"
+  until_condition: "state.report_writer.quality_score < 0.9"
+  poll_interval: 2.0
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `type` | string | Yes | `"standard"` or `"interactive"`. |
-| `max_iterations` | integer | Yes | Maximum loop iterations. The runtime must enforce this limit. |
-| `condition` | string | Yes | Expression evaluated after each iteration. Loop continues while `true`. |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Must be `true` for the loop to fire. Disabled loops are a no-op. |
+| `mode` | string | `"standard"` | `"standard"` or `"interactive"`. |
+| `max_iterations` | integer | `5` | Hard cap on iterations. The runtime enforces this limit. |
+| `until_condition` | string | `""` | Safe expression evaluated against state **after each iteration**. The loop continues **while the expression is truthy**; it exits when the expression becomes falsy, raises, or `max_iterations` is reached. An empty condition runs the loop exactly `max_iterations` times. |
+| `poll_interval` | float | `2.0` | Seconds between iterations in interactive mode. Ignored in standard mode. |
+
+The runtime attaches `_loop_iterations` and `_loop_history` to the agent's
+final output so downstream nodes can inspect how many rounds ran.
 
 #### Interactive Loop
 
-```yaml
-loop:
-  type: interactive
-  max_iterations: 10
-  prompt_field: "state.report_writer.needs_input"
-  input_channel: "user_feedback"
-```
-
-Interactive loops pause execution to await external input (e.g., human feedback) before continuing.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `prompt_field` | string | Yes | State field that indicates input is needed. |
-| `input_channel` | string | Yes | Channel or endpoint for receiving input. |
+Setting `mode: interactive` is reserved for iterations that pause for
+external input (human feedback, external events). The current runtime
+falls back to standard semantics and logs a warning; full support is
+tracked separately.
 
 ### Subworkflows
 
@@ -239,34 +261,25 @@ Fan-out distributes work across multiple parallel instances of an agent:
 - id: parallel_researcher
   agent: agents/researcher
   fan_out:
-    source: "state.context.topics"
-    variable: "topic"
+    enabled: true
+    source_field: "state.context.topics"
     max_parallel: 5
-  fan_in:
-    strategy: merge
-    target_field: all_findings
+    aggregation: merge
 ```
 
 #### Fan-Out Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `fan_out.source` | string | Yes | State field containing an iterable to distribute. |
-| `fan_out.variable` | string | Yes | Variable name injected into each instance's state. |
-| `fan_out.max_parallel` | integer | No | Maximum concurrent instances. Default: unbounded. |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `fan_out.enabled` | boolean | `false` | Must be `true` for the fan-out to fire. |
+| `fan_out.source_field` | string | `""` | State path containing an iterable. Supports a leading `state.` prefix and dotted paths (e.g. `ctx.topics`). If the path is missing, empty, or resolves to a scalar the node emits a zero-count result with `error` set. |
+| `fan_out.agent_template` | string | `""` | Reserved for future per-item agent templating. Currently unused — the node's own agent is spawned per item. |
+| `fan_out.max_parallel` | integer | `4` | Maximum concurrent instances. Clamped to the number of items. |
+| `fan_out.aggregation` | string | `"merge"` | `"merge"` keeps per-item outputs under `items: [...]` with the mean confidence. `"concat"` additionally flattens list-valued fields across items. |
 
-#### Fan-In Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `fan_in.strategy` | string | Yes | `"merge"`, `"reduce"`, `"first"`, or `"majority"`. |
-| `fan_in.target_field` | string | Yes | State field where aggregated results are stored. |
-
-Fan-in strategies:
-- **merge:** Collect all outputs into a list.
-- **reduce:** Apply a reduction function to combine outputs.
-- **first:** Use the first completed output and cancel remaining instances.
-- **majority:** Use the most common output (requires comparable outputs).
+Each per-item invocation receives a shallow-copied state with the reserved
+key `fan_out_item` set to the current item and `_fan_out_index` set to its
+position. The aggregated result always includes `_fan_out_count`.
 
 ## Error Handling
 
@@ -409,6 +422,10 @@ A few delegation-loop concepts that materially affect orchestration design:
 - **Signal watchdog for blocking LLM calls.** The SIGTERM/SIGINT handler also invokes `LLMClient.close_all()`, which reaches into every live httpx client's connection pool and raw-socket-`shutdown()`s each in-flight connection. Without this step, the main thread stays blocked inside the C-level socket `recv()` of a slow `httpx.post()` call, so the Python-level `signal_state["pending"]` flag is never observed and the `finally` block never runs. The raw-socket abort raises `httpx.ReadError` into the blocking thread, which propagates up to the delegation loop's `except Exception` branch, the `finally` emits `run.complete` with `reason="sigterm"`/`"sigint"`, and the DB row transitions `running → aborted` immediately — no SIGKILL needed.
 - **Forbidden tools envelope.** `shell.execute` and `terminal.execute` are by default forbidden inside the delegation loop. Workers do shell-like work via `code.execute` in the sandbox or via dynamically generated MCP tools. See [tools.md](tools.md).
 - **Code mode + tool creation default to enabled** for delegation-loop workers, because token cost and tool coverage are the dominant constraints in A2-A4. The manager can disable them per-worker via the envelope.
+- **Persistent per-worker executor.** Every `code.execute` call inside a single worker targets the same warm Python subprocess — variables, imports, and helper functions defined in one call remain live in the next. Stderr is merged into stdout to avoid pipe deadlock, reads use `select()` with real timeout enforcement, and a bounded history is replayed into a fresh subprocess after a crash. See [ORCHESTRATION_ENGINES.md §Per-worker Executor Lifecycle](ORCHESTRATION_ENGINES.md#per-worker-executor-lifecycle).
+- **In-place repair.** When a repair worker (`*_repair`, `*_retry`, `*_vN`, `*_strict`, `*_final`, `*_runN`, `*_subtask_N`) is dispatched, the runtime reuses the prior worker's executor (same warm namespace) and prepends a `REPAIR MODE` block to the worker system prompt so the LLM picks up incrementally rather than re-hydrating state. The manager can force a clean slate via envelope field `fresh_worker: true`. See [ORCHESTRATION_ENGINES.md §Per-worker Executor Lifecycle](ORCHESTRATION_ENGINES.md#per-worker-executor-lifecycle).
+- **Auto-emergent tools.** The runtime watches every `code.execute` call and computes an AST-skeleton signature (literals → `<const>`, identifiers → `<vK>`). When the same signature appears from `N=3` distinct worker ids, a generalized tool is synthesized, persisted via `DynamicToolFactory` as `shared/dynamic_tools/dynamic.induced_<hash6>.json`, and exposed to later workers through `tool.list`. No new config flag; `N=3` is a hardcoded constant. See [ORCHESTRATION_ENGINES.md §Auto-Emergent Tools](ORCHESTRATION_ENGINES.md#auto-emergent-tools).
+- **Atomicity advisory.** Each pending subtask is scored on a deterministic 0.0-1.0 axis from its description features (atomic/composition keywords, required-output count, numbered-step count, log-length). The score is injected into the manager planning prompt as an advisory hint and MUST NOT block or override any manager decision. See [ORCHESTRATION_ENGINES.md §Atomicity Advisory](ORCHESTRATION_ENGINES.md#atomicity-advisory).
 
 ### Critique Configuration
 
@@ -443,3 +460,15 @@ orchestration:
 | `critique.repair_budget_fraction` | float | `0.15` | Max budget fraction for repairs |
 | `critique.pattern_memory` | bool | `true` | Accumulate cross-worker failure patterns |
 | `critique.defect_categories` | list | 6 defaults | Defect types to diagnose |
+
+### Parallelism toggles (opt-in)
+
+The delegation loop exposes two boolean flags under
+`delegation_loop` that trade determinism for wall-clock time. Both
+default to `false` so runs stay byte-identical to the sequential code
+path; enable only when reproducibility is not a concern.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pipeline_critique_planning` | bool | `false` | Overlap per-iteration critique with next-iteration manager prompt assembly. See [runtime.md](runtime.md#pipelined-critique--eval-opt-in). |
+| `parallel_gate_chain` | bool | `false` | Run independent Phase-A completion gates concurrently. Canonical first-failure-wins rejection order preserved. See [runtime.md](runtime.md#parallel-completion-gate-chain-opt-in). |

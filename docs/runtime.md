@@ -170,6 +170,7 @@ print(result)
 - State sharing between agents
 - Basic error handling (continue / skip / abort)
 - Auto-inject fields from the manifest
+- Opt-in ready-queue scheduler via `orchestration.execution.scheduler: ready_queue` — dispatches nodes as soon as their direct dependencies complete, eliminating the level-barrier penalty when sibling runtimes are asymmetric. Default is `levels` (bit-identical to the historical behavior). See `docs/orchestration.md` for semantics and trade-offs.
 
 **Not supported (use a full runtime):**
 - Loops and interactive agents
@@ -495,4 +496,197 @@ extraction rules.
 The curator report (`{tools_added, tools_versioned, facts_added,
 antipatterns_added, errors}`) is attached to the wrapped return
 value at `delegation_loop.curation_report` for observability.
+
+## Pipelined critique / eval (opt-in)
+
+End of every iteration in the delegation loop runs three stages in a row:
+worker fan-out → critique/eval → manager planning for the next iteration.
+The critique stage is a long-latency LLM call; manager-planning starts with
+a pure string-assembly step (`_build_manager_system_prompt` +
+`_build_manager_task`) before its own LLM call fires. These two sub-stages
+have no data dependency on each other — the critique result only enters
+the manager prompt at the assembly step — so they can run in parallel.
+
+`orchestration.delegation_loop.pipeline_critique_planning` (default
+`false`) toggles this. When `true`, the runner submits both onto a
+2-worker `ThreadPoolExecutor`: critique runs as today and writes its
+output into `delegation_results[i]["result"]` plus history/state, while
+`_prebuild_next_manager_prompt` assembles the next iteration's manager
+prompt into `self._pipelined_next_prompt`. `_run_inline_manager` (and the
+agent-mode path in `_run_manager`) consume the prebuilt prompt on
+iteration match and fall through to a normal synchronous build on any
+miss. Budget and state mutations still happen exactly once on the
+critique path, so the token envelope is invariant to the toggle — only
+wall-clock time changes.
+
+Failure modes:
+
+- **Critique exception** — propagates as before; critique is
+  authoritative. The prebuild future is abandoned.
+- **Prebuild exception / timeout** — degrades silently to a cache miss;
+  the next iteration falls back to a synchronous prompt build.
+- **Budget-order invariance** — neither the prebuild (pure string
+  assembly) nor the critique's token accounting changes under the toggle,
+  so running either one first leaves the budget snapshot identical.
+
+Default `false`. Under flag=false the old call `self._critique_and_repair(...)`
+is reached verbatim (byte-identical path); the dispatcher
+`_run_critique_stage_maybe_pipelined` is a passthrough. Unit coverage:
+`packages/awp-runtime/tests/test_pipelined_critique_planning.py`.
+
+## Parallel completion gate chain (opt-in)
+
+The Phase-A deliverable gates — `syntax_compile`, `schema`,
+`cross_reference`, `success_criteria`, `smoke_test` — are pure functions
+with the signature `(paths, ctx) -> rejection|None`. None of them mutate
+`ctx` or consume a prior gate's result, so they are independently
+evaluable. `smoke_test` is the only one that runs subprocesses; the
+other four are file-local regex / parse checks.
+
+`orchestration.delegation_loop.parallel_gate_chain` (default `false`)
+toggles parallel evaluation. When `true`, the runner routes
+`_run_new_deliverable_gates` through `run_new_completion_gates_parallel`
+in `packages/awp-runtime/src/awp/runtime/completion_gates.py`, which
+executes `GATE_GROUPS` on a bounded `ThreadPoolExecutor`:
+
+| Group | Gates | Rationale |
+|---|---|---|
+| 0 | `syntax_compile`, `schema`, `cross_reference`, `success_criteria` | pure, file-local, no subprocess |
+| 1 | `smoke_test` | executes user code; runs only after parse gates had a chance to reject |
+
+Groups are ordered: a later group only starts when the previous group
+has fully joined *and* carries no rejection. Within a group every gate
+reads the same immutable `ctx` snapshot and never writes to it.
+
+**First-failure-wins order is preserved.** After a group joins, the
+reporter walks `CANONICAL_GATE_ORDER` (identical to `NEW_GATE_PIPELINE`)
+and returns the first rejection — independent of completion order. A
+slow gate that rejects first in canonical order will still be reported
+over a fast gate that rejected first on the wall clock.
+
+Per-gate persistence (`run_dir/gates/<iter>/<gate>.json`) stays intact
+via an optional `per_gate_sink` callback that the runner wires to
+`_persist_gate_result`. Under parallel mode the sink fires in finish
+order, mirroring real timing.
+
+Failure modes:
+
+- **Gate raises** — fail-open as pass in both modes; logged with
+  `"<gate> gate raised — treating as pass"` and persisted with
+  `{"note": "gate raised, skipped"}`.
+- **Budget invariance** — Phase-A gates do not record tokens; LLM-based
+  gates (`critique`, `eval`) remain in the legacy sequential path and
+  are unaffected by this toggle.
+
+Pool size is `min(max(group_sizes), 8)`; the executor is created and
+torn down per completion attempt so no threads survive between
+iterations.
+
+Default `false`. Under flag=false the runner's sequential loop over
+`NEW_GATE_PIPELINE` is reached verbatim — byte-identical to the
+pre-Release-D-1 code. Unit coverage:
+`packages/awp-runtime/tests/test_parallel_gate_chain.py`.
+
+## Token budget reservation (opt-in)
+
+The legacy token accounting path is **consume-after-call**: each worker
+or gate fires its LLM request, waits for the response, then calls
+`BudgetSnapshot.record_tokens(usage.total_tokens)`. That works under
+low parallelism but loses correctness once N workers dispatch
+concurrently — all N see `tokens_consumed` unchanged during their
+pre-call `can_continue()` check, all N fire their HTTP requests, and
+the aggregate usage lands at the end, blowing past `max_total_tokens`.
+The overshoot grows linearly with the fan-out cap; at
+`max_workers_per_iteration=6` it is small but non-zero, and it gets
+worse with Release C pipelining and any future cap increase.
+
+`orchestration.delegation_loop.token_budget_reservation` (default
+`false`) switches the LLMClient to a **reserve → commit / release**
+protocol:
+
+1. Before each HTTP POST the client calls
+   `BudgetSnapshot.reserve_tokens(estimate)`. The estimate uses the
+   1-token-per-4-chars heuristic over the serialised prompt plus a
+   reserved output cap (`max_tokens` if set, else 4096).
+2. The reservation is atomic under `BudgetSnapshot._lock`. If
+   `tokens_consumed + pending_reserved + estimate > max_total_tokens`
+   the method returns `None` and the client raises
+   `BudgetExceededError` *before* any bytes hit the wire.
+3. On a successful response, `commit_tokens(reservation, actual)`
+   converts the reservation into real consumption: `pending_reserved`
+   drops by the reserved amount, `tokens_consumed` rises by the actual
+   usage from `usage.total_tokens`.
+4. On HTTP failure the client calls `release_reservation(reservation)`
+   so `pending_reserved` returns to its pre-call state.
+
+Effective budget formula under this mode:
+`tokens_consumed + pending_reserved ≤ max_total_tokens`. The
+`BudgetSnapshot.can_continue()` check reads this combined value, so a
+parallel check during an in-flight call honours the inbound usage
+instead of racing past it. `_record_llm_tokens_since` — the helper the
+runner uses at every LLM call site — is a no-op under this flag
+because the LLMClient already booked the actual usage into
+`tokens_consumed`; the legacy `record_tokens` path stays live when the
+flag is off, so the budget counter moves identically in either mode
+when there is no contention.
+
+When to enable this:
+
+- Running with elevated `max_workers_per_iteration` (e.g. 12+) or
+  `max_parallel_workers`.
+- Running with `pipeline_critique_planning` + `parallel_gate_chain`
+  together.
+- Any deployment where overshooting the token cap has a direct cost
+  impact (paid LLM APIs with per-run budgets).
+
+When to leave it off:
+
+- Default / reproducibility-sensitive runs. Flag off is byte-identical
+  to the pre-Release-D-2 path — the `LLMClient._budget` field stays
+  `None`, no estimate is computed, no reservation is made.
+- Runs with `max_total_tokens = 0` (unbounded). The reservation still
+  succeeds with a zero-cost handle so commit/release stays symmetric,
+  but there is nothing to protect.
+
+Authoritative code paths:
+`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`
+(`BudgetSnapshot.reserve_tokens` / `commit_tokens` /
+`release_reservation`, `TokenReservation`, `BudgetExceededError`,
+`estimate_llm_tokens`, `DelegationLoopRunner._wire_llm_budget` /
+`_record_llm_tokens_since`) and
+`packages/awp-runtime/src/awp/runtime/llm.py` (`LLMClient.set_budget`,
+`_reserve_for_call`, reservation wiring inside `_do_chat`). Unit
+coverage: `packages/awp-runtime/tests/test_token_budget_reservation.py`
+— including the parallel race test that proves the legacy path
+overshoots a 1500-token cap to 2000 tokens under 20 threads while the
+reservation path holds at exactly 1500.
+
+## Thread Safety of Shared Writers
+
+Several runtime components are touched concurrently by the DAG
+runner's `ToolWorkerPool`, the delegation loop's parallel fan-out,
+and the outer-loop suite runner. The reference implementation
+protects the shared state so concurrent writers cannot corrupt it:
+
+- **`DynamicToolFactory`** (`packages/awp-runtime/src/awp/runtime/dynamic_tool_factory.py`)
+  holds a `threading.RLock` and serialises access to `_records`,
+  `_hash_to_fqn`, `_agent_counts`, and `_metrics`. `create_tool`
+  re-checks uniqueness inside the lock before registering, so two
+  threads racing on the same FQN end up with exactly one registered
+  tool plus one `"already exists"` rejection. `remove_tool`,
+  `list_tools`, and `cleanup` run under the same lock.
+- **`_persist_tool`** writes JSON manifests via a temp file and
+  `os.replace()`. A reader that opens the manifest while a writer is
+  mid-flight sees either the old version or the new one — never a
+  half-written JSON. The temp file uses the parent PID as a suffix to
+  stay unique across processes that share the same workspace (common
+  under the per-run isolation layout).
+- **Observability writers** (`Tracer`, `MetricsCollector`,
+  `AuditTrail`) are thread-safe per process; see
+  [observability.md](observability.md#thread-safety).
+
+All locks are process-local. Cross-process coordination (multiple
+runners sharing the same experiment) relies on the filesystem and
+the outer-loop SQLite store, which runs in WAL mode — see
+[outer-loop.md](outer-loop.md#storage-layout).
 

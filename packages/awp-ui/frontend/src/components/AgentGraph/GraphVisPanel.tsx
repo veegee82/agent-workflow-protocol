@@ -356,22 +356,37 @@ function styledEdges(edges: Edge[], nodes: Node[]): Edge[] {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   return edges.map((edge) => {
     const sourceNode = nodeMap.get(edge.source);
-    const color = getEdgeColor(sourceNode);
-    const isAnimated = edge.animated;
+    const targetNode = nodeMap.get(edge.target);
+    const baseColor = getEdgeColor(sourceNode);
+    // Backend marks live branches via edge.data.onActivePath (see
+    // _mark_active_path in graph_builder.py). We also treat any edge whose
+    // target is currently running as on-path, so freshly streamed events
+    // (where the backend flag hasn't arrived yet) still light up. Finished
+    // edges fall back to the dim baseline.
+    const onActivePath =
+      Boolean((edge.data as Record<string, unknown> | undefined)?.onActivePath) ||
+      (targetNode?.data as Record<string, unknown> | undefined)?.status === 'running' ||
+      Boolean((targetNode?.data as Record<string, unknown> | undefined)?.onActivePath);
+    // Active-path edges pulse (animated), use the live-blue color to reinforce
+    // the pulsing-node glow, and thicken so the eye traces the branch. The
+    // original source-derived color stays for off-path edges so the decision
+    // color code (yellow=delegate, green=complete, red=fail) still reads.
+    const color = onActivePath ? '#40C4FF' : baseColor;
+    const strokeWidth = onActivePath ? 3 : 1.5;
     return {
       ...edge,
       type: 'smoothstep',
-      animated: isAnimated,
+      animated: onActivePath,
       style: {
         stroke: color,
-        strokeWidth: isAnimated ? 2.5 : 1.5,
-        opacity: isAnimated ? 1 : 0.6,
+        strokeWidth,
+        opacity: onActivePath ? 1 : 0.55,
       },
       markerEnd: {
         type: MarkerType.ArrowClosed,
         color,
-        width: 16,
-        height: 16,
+        width: onActivePath ? 18 : 16,
+        height: onActivePath ? 18 : 16,
       },
     };
   });
@@ -1136,12 +1151,26 @@ export function GraphVisPanel() {
   const [autoFit, setAutoFit] = useState(true);
   const prevNodeCountRef = useRef(0);
 
-  // Load graph from backend if needed
+  // Load graph from backend when the viewed run changes. Two trigger paths:
+  //
+  // 1) Cold load: no nodes yet for this run → fetch the full graph.
+  // 2) Re-open: switching back to a previously viewed run (via sidebar/tab).
+  //    Nodes from the session cache may be stale (positions from live
+  //    placeholders, missing nodes added after snapshot). A single explicit
+  //    reload converges the view to the authoritative backend layout.
+  //
+  // We intentionally do NOT gate on `runStatus !== 'running'` anymore: a
+  // running run is exactly when the user needs the freshest backend layout,
+  // and the backend walk is cheap (< 20 ms for typical A2 runs).
+  const viewingRunIdRaw = useWorkflowStore((s) => s.viewingRunId);
+  const activeRunId = viewingRunIdRaw ?? currentRunId;
   useEffect(() => {
-    if (currentRunId && storeNodes.length === 0 && runStatus !== 'running') {
-      loadRunGraph(currentRunId);
+    if (activeRunId) {
+      loadRunGraph(activeRunId);
     }
-  }, [currentRunId, storeNodes.length, runStatus, loadRunGraph]);
+    // runStatus is included so that a live run's graph refreshes once the
+    // WS transitions running → complete (picks up the final terminal status).
+  }, [activeRunId, runStatus, loadRunGraph]);
 
   // Filter nodes based on visibility toggles
   const filteredData = useMemo(() => {
@@ -1200,15 +1229,39 @@ export function GraphVisPanel() {
       }
       prevNodeCountRef.current = nodeCount;
     } else {
-      // Data-only change: update node data in-place without re-layouting.
-      // This preserves positions and avoids the O(n) layout pass.
-      const dataMap = new Map(filteredData.nodes.map((n) => [n.id, n.data]));
-      setNodes((prev) =>
-        prev.map((n) => {
-          const newData = dataMap.get(n.id);
-          return newData ? { ...n, data: newData } : n;
-        }),
-      );
+      // Data-only change: update node data in-place. We also adopt the
+      // store node's position when it differs meaningfully from the laid-
+      // out position, because loadRunGraph() pushes authoritative backend
+      // positions that must override the event-based placeholder coords.
+      // Without this, a running graph would keep the near-final positions
+      // computed by processEvent() forever and never converge to the
+      // backend layout — exactly the "wrong placement after reopen" bug.
+      const storeNodeMap = new Map(filteredData.nodes.map((n) => [n.id, n]));
+      let nextNodes: Node[] = [];
+      setNodes((prev) => {
+        nextNodes = prev.map((n) => {
+          const src = storeNodeMap.get(n.id);
+          if (!src) return n;
+          const dx = Math.abs((src.position?.x ?? n.position.x) - n.position.x);
+          const dy = Math.abs((src.position?.y ?? n.position.y) - n.position.y);
+          const positionChanged = dx > 4 || dy > 4;
+          return {
+            ...n,
+            data: src.data,
+            ...(positionChanged && src.position ? { position: src.position } : {}),
+          };
+        });
+        return nextNodes;
+      });
+      // Re-style edges against the fresh node data so active-path / running
+      // highlighting stays in sync when worker.complete flips a status.
+      // Without this, a finished branch would keep its blue pulse forever
+      // because styledEdges() only ran on structure changes.
+      const restyled = styledEdges(filteredData.edges, nextNodes);
+      if (layoutCacheRef.current) {
+        layoutCacheRef.current = { nodes: nextNodes, edges: restyled };
+      }
+      setEdges(restyled);
     }
   }, [filteredData, structureKey, setNodes, setEdges, autoFit]);
 
@@ -1218,12 +1271,11 @@ export function GraphVisPanel() {
   // never fires — without this effect a freshly-opened graph would
   // display at the last pan/zoom state (often off-screen).
   const activePanel = useWorkflowStore((s) => s.activePanel);
-  const viewingRunId = useWorkflowStore((s) => s.viewingRunId);
   useEffect(() => {
     if (activePanel !== 'graphvis') return;
     if (filteredData.nodes.length === 0) return;
     pendingFitRef.current = true;
-  }, [activePanel, viewingRunId, currentRunId, filteredData.nodes.length]);
+  }, [activePanel, viewingRunIdRaw, currentRunId, filteredData.nodes.length]);
 
   // Separate effect: execute pending fitView whenever the instance is available.
   // This decouples fitView from the layout pass so it also fires when:
@@ -1251,7 +1303,7 @@ export function GraphVisPanel() {
       });
     });
     return () => { cancelled = true; cancelAnimationFrame(scheduleId); };
-  }, [reactFlowInstance, structureKey, activePanel, viewingRunId, currentRunId]);
+  }, [reactFlowInstance, structureKey, activePanel, viewingRunIdRaw, currentRunId]);
 
   const stats = useMemo(() => computeStats(storeNodes), [storeNodes]);
 

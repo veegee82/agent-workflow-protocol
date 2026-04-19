@@ -19,6 +19,8 @@ import ast
 import hashlib
 import json
 import logging
+import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -348,6 +350,7 @@ class DynamicToolFactory:
         self._registry = registry
         self._executor = code_executor
         self._workflow_dir = workflow_dir
+        self._lock = threading.RLock()
         self._records: dict[str, DynamicToolRecord] = {}
         self._agent_counts: dict[str, int] = {}
         self._sandbox_type = sandbox_type
@@ -516,10 +519,12 @@ class DynamicToolFactory:
     @property
     def metrics(self) -> dict[str, int]:
         """Return a snapshot of tool-creation metrics counters."""
-        return dict(self._metrics)
+        with self._lock:
+            return dict(self._metrics)
 
     def _bump(self, key: str, n: int = 1) -> None:
-        self._metrics[key] = self._metrics.get(key, 0) + n
+        with self._lock:
+            self._metrics[key] = self._metrics.get(key, 0) + n
 
     def create_tool(
         self,
@@ -663,8 +668,12 @@ class DynamicToolFactory:
         # B5: Content-addressable cache — dedup identical generations.
         tool_hash = compute_tool_hash(name, code, parameters)
         if self._cache_enabled:
-            cached_fqn = self._hash_to_fqn.get(tool_hash)
-            if cached_fqn and cached_fqn in self._registry._tools:
+            with self._lock:
+                cached_fqn = self._hash_to_fqn.get(tool_hash)
+                cache_hit = bool(
+                    cached_fqn and cached_fqn in self._registry._tools
+                )
+            if cache_hit:
                 self._bump("cache_hits")
                 self._bump("successes")
                 logger.info(
@@ -708,24 +717,25 @@ class DynamicToolFactory:
                 403,
             )
 
-        # DT8: Check uniqueness
-        if name in self._registry._tools:
-            return _err(f"Tool '{name}' already exists", 409)
+        with self._lock:
+            # DT8: Check uniqueness
+            if name in self._registry._tools:
+                return _err(f"Tool '{name}' already exists", 409)
 
-        # Check per-agent limit
-        count = self._agent_counts.get(creator_agent, 0)
-        if count >= max_tools:
-            return _err(
-                f"Agent '{creator_agent}' has reached its tool creation limit ({max_tools})",
-                429,
-            )
+            # Check per-agent limit
+            count = self._agent_counts.get(creator_agent, 0)
+            if count >= max_tools:
+                return _err(
+                    f"Agent '{creator_agent}' has reached its tool creation limit ({max_tools})",
+                    429,
+                )
 
-        # Check global limit
-        if len(self._records) >= self._max_total:
-            return _err(
-                f"Global dynamic tool limit reached ({self._max_total})",
-                429,
-            )
+            # Check global limit
+            if len(self._records) >= self._max_total:
+                return _err(
+                    f"Global dynamic tool limit reached ({self._max_total})",
+                    429,
+                )
 
         # DT4: Validate code via AST (namespace-aware policy)
         validation = self.validate_code(code, namespace=namespace)
@@ -858,32 +868,38 @@ class DynamicToolFactory:
         # Create sandboxed wrapper function (with secret injection support)
         tool_fn = self._make_sandboxed_tool(code, name, secrets_list)
 
-        # Register in ToolRegistry (with secret keys so call() injects _secrets)
-        self._registry.register_dynamic(
-            name,
-            tool_fn,
-            parameters,
-            description,
-            creator_agent,
-            secrets_keys=secrets_list if secrets_list else None,
-        )
+        with self._lock:
+            # Re-check uniqueness inside the lock: a racing creator may have
+            # registered the same FQN while we were validating/smoke-testing.
+            if name in self._registry._tools:
+                return _err(f"Tool '{name}' already exists", 409)
 
-        # Track the record
-        record = DynamicToolRecord(
-            fqn=name,
-            creator_agent=creator_agent,
-            code=code,
-            parameters=parameters,
-            description=description,
-            meta=meta,
-            required_secrets=secrets_list,
-            code_hash=tool_hash,
-        )
-        self._records[name] = record
-        self._agent_counts[creator_agent] = count + 1
-        if self._cache_enabled:
-            self._hash_to_fqn[tool_hash] = name
-        self._bump("successes")
+            self._registry.register_dynamic(
+                name,
+                tool_fn,
+                parameters,
+                description,
+                creator_agent,
+                secrets_keys=secrets_list if secrets_list else None,
+            )
+
+            record = DynamicToolRecord(
+                fqn=name,
+                creator_agent=creator_agent,
+                code=code,
+                parameters=parameters,
+                description=description,
+                meta=meta,
+                required_secrets=secrets_list,
+                code_hash=tool_hash,
+            )
+            self._records[name] = record
+            self._agent_counts[creator_agent] = (
+                self._agent_counts.get(creator_agent, 0) + 1
+            )
+            if self._cache_enabled:
+                self._hash_to_fqn[tool_hash] = name
+            self._metrics["successes"] = self._metrics.get("successes", 0) + 1
 
         # Persist if enabled
         if self._persist and self._workflow_dir:
@@ -929,25 +945,26 @@ class DynamicToolFactory:
         Returns:
             Standard AWP result format.
         """
-        record = self._records.get(name)
-        if record is None:
-            return _err(f"Dynamic tool not found: {name}", 404)
+        with self._lock:
+            record = self._records.get(name)
+            if record is None:
+                return _err(f"Dynamic tool not found: {name}", 404)
 
-        if record.creator_agent != requester_agent:
-            return _err(
-                f"Agent '{requester_agent}' cannot remove tool created by '{record.creator_agent}'",
-                403,
+            if record.creator_agent != requester_agent:
+                return _err(
+                    f"Agent '{requester_agent}' cannot remove tool created by '{record.creator_agent}'",
+                    403,
+                )
+
+            self._registry.unregister(name)
+            del self._records[name]
+            self._agent_counts[record.creator_agent] = max(
+                0,
+                self._agent_counts.get(record.creator_agent, 1) - 1,
             )
+            if self._cache_enabled and record.code_hash:
+                self._hash_to_fqn.pop(record.code_hash, None)
 
-        # Unregister from ToolRegistry
-        self._registry.unregister(name)
-        del self._records[name]
-        self._agent_counts[record.creator_agent] = max(
-            0,
-            self._agent_counts.get(record.creator_agent, 1) - 1,
-        )
-
-        # Remove persisted file
         if self._persist and self._workflow_dir:
             persist_path = (
                 self._workflow_dir / "workspace" / "dynamic_tools" / f"{name}.json"
@@ -967,7 +984,9 @@ class DynamicToolFactory:
             Standard AWP result format with tool list.
         """
         tools = []
-        for fqn, record in self._records.items():
+        with self._lock:
+            items = list(self._records.items())
+        for fqn, record in items:
             if namespace and not fqn.startswith(f"{namespace}."):
                 continue
             tools.append(
@@ -982,10 +1001,13 @@ class DynamicToolFactory:
 
     def cleanup(self) -> None:
         """Remove all dynamic tools. Called at workflow completion."""
-        for name in list(self._records.keys()):
-            self._registry.unregister(name)
-        self._records.clear()
-        self._agent_counts.clear()
+        with self._lock:
+            names = list(self._records.keys())
+            for name in names:
+                self._registry.unregister(name)
+            self._records.clear()
+            self._agent_counts.clear()
+            self._hash_to_fqn.clear()
         logger.info("Dynamic tools cleaned up")
 
     def _get_denied_for_namespace(self, namespace: Optional[str] = None) -> frozenset[str]:
@@ -1678,13 +1700,18 @@ class DynamicToolFactory:
         payload = json.dumps(record.to_dict(), indent=2, ensure_ascii=False)
         wrote_any = False
 
+        def _atomic_write(path: Path, data: str) -> None:
+            tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            tmp.write_text(data, encoding="utf-8")
+            os.replace(tmp, path)
+
         # 1) Workspace-local (primary). Under per-run isolation this is a
         #    symlink into shared/, so one write populates both.
         persist_dir = self._workflow_dir / "workspace" / "dynamic_tools"
         try:
             persist_dir.mkdir(parents=True, exist_ok=True)
             persist_path = persist_dir / f"{record.fqn}.json"
-            persist_path.write_text(payload, encoding="utf-8")
+            _atomic_write(persist_path, payload)
             wrote_any = True
             logger.info(
                 "Persisted dynamic tool %s -> %s", record.fqn, persist_path
@@ -1714,7 +1741,7 @@ class DynamicToolFactory:
                     sh_resolved = shared_path
 
                 if ws_resolved != sh_resolved:
-                    shared_path.write_text(payload, encoding="utf-8")
+                    _atomic_write(shared_path, payload)
                     wrote_any = True
                     logger.info(
                         "Persisted dynamic tool %s to shared/: %s",
@@ -1808,29 +1835,30 @@ class DynamicToolFactory:
                         data["code"], fqn, persisted_secrets
                     )
                     creator = data.get("provenance", {}).get("creator_agent", "persisted")
-                    self._registry.register_dynamic(
-                        fqn,
-                        tool_fn,
-                        data["parameters"],
-                        data["description"],
-                        creator,
-                        secrets_keys=persisted_secrets if persisted_secrets else None,
-                    )
-                    self._records[fqn] = DynamicToolRecord(
-                        fqn=fqn,
-                        creator_agent=creator,
-                        code=data["code"],
-                        parameters=data["parameters"],
-                        description=data["description"],
-                        meta=data.get("meta"),
-                        required_secrets=persisted_secrets,
-                        code_hash=data.get("code_hash", ""),
-                    )
-                    # Re-populate the content-addressable cache so a
-                    # subsequent create_tool() with identical code dedups
-                    # instead of failing with "already exists".
-                    if self._cache_enabled:
-                        self._hash_to_fqn[self._records[fqn].code_hash] = fqn
+                    with self._lock:
+                        self._registry.register_dynamic(
+                            fqn,
+                            tool_fn,
+                            data["parameters"],
+                            data["description"],
+                            creator,
+                            secrets_keys=persisted_secrets if persisted_secrets else None,
+                        )
+                        self._records[fqn] = DynamicToolRecord(
+                            fqn=fqn,
+                            creator_agent=creator,
+                            code=data["code"],
+                            parameters=data["parameters"],
+                            description=data["description"],
+                            meta=data.get("meta"),
+                            required_secrets=persisted_secrets,
+                            code_hash=data.get("code_hash", ""),
+                        )
+                        # Re-populate the content-addressable cache so a
+                        # subsequent create_tool() with identical code dedups
+                        # instead of failing with "already exists".
+                        if self._cache_enabled:
+                            self._hash_to_fqn[self._records[fqn].code_hash] = fqn
                     loaded_fqns.add(fqn)
                     logger.info(
                         "Loaded persisted dynamic tool: %s (from %s)",

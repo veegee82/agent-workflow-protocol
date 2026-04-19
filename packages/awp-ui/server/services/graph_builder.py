@@ -139,6 +139,13 @@ def build_graph(run_dir: Path) -> GraphData:
     budget = manifest.get("budget", {})
     models = manifest.get("models", {})
 
+    # Run-level liveness: the disk carries no explicit "running" marker, so
+    # the absence of run_completion.json is the authoritative signal that
+    # the root run is still in flight. This drives running-state derivation
+    # for every descendant node (worker/iter/manager) inside _walk_run.
+    completion = _read_json(run_dir / "run_completion.json")
+    run_live = completion is None
+
     # Root task node
     root_id = "task_root"
     nodes.append(
@@ -167,17 +174,34 @@ def build_graph(run_dir: Path) -> GraphData:
         edges=edges,
         stats=stats,
         prefix="",
+        run_live=run_live,
     )
 
-    # Update root and manager statuses based on completion
-    completion = _read_json(run_dir / "run_completion.json")
+    # Finalize statuses based on completion. When the run is done, any node
+    # still flagged "running" from the walk falls back to the run-level
+    # terminal status. When the run is live, running managers / subs stay
+    # running so the UI can animate them.
     if completion:
         final_status = completion.get("status", "complete")
         for n in nodes:
             if n.id == root_id:
                 n.data["status"] = final_status
-            elif n.type in ("manager", "submanager") and n.data.get("status") == "running":
-                n.data["status"] = final_status
+            elif n.data.get("status") == "running":
+                # Only promote to final status for node types that otherwise
+                # have no per-node terminal marker (manager/submanager/iter).
+                if n.type in ("manager", "submanager", "iteration"):
+                    n.data["status"] = final_status
+    else:
+        # Run is live — ensure the root task reads as running (it was set
+        # that way above, but keep this explicit for future robustness).
+        for n in nodes:
+            if n.id == root_id:
+                n.data["status"] = "running"
+
+    # Active-path propagation: any node whose status is "running" is on the
+    # active path; so is every ancestor along the edge chain. This lights up
+    # the branch the user cares about without touching topology.
+    _mark_active_path(nodes, edges)
 
     # Dynamic tools + persisted skills are surfaced as side-panel registries,
     # not as in-graph nodes, so the graph stays focused on manager → iter →
@@ -319,6 +343,56 @@ def _build_tool_registry(
     return registry
 
 
+def _mark_active_path(
+    nodes: list[GraphNode],
+    edges: list[GraphEdge],
+) -> None:
+    """Flag the running-node ancestor chain and edges as the active path.
+
+    Why: the user wants to see at a glance which branch is currently executing.
+    Any node with ``status == 'running'`` is on the active path; its ancestors
+    (walking incoming edges) are too. Edges that land on an active-path node
+    are marked ``onActivePath`` so the frontend can animate them.
+    """
+    # Build reverse adjacency: target -> [sources]
+    parents_of: dict[str, list[str]] = {}
+    for e in edges:
+        parents_of.setdefault(e.target, []).append(e.source)
+
+    active: set[str] = set()
+    # Seed: every running node
+    for n in nodes:
+        if n.data.get("status") == "running":
+            active.add(n.id)
+
+    # BFS upward through parent chain
+    frontier = list(active)
+    while frontier:
+        nxt: list[str] = []
+        for nid in frontier:
+            for src in parents_of.get(nid, []):
+                if src not in active:
+                    active.add(src)
+                    nxt.append(src)
+        frontier = nxt
+
+    for n in nodes:
+        if n.id in active:
+            n.data["onActivePath"] = True
+
+    for e in edges:
+        if e.target in active and e.source in active:
+            e.data = dict(e.data or {})
+            e.data["onActivePath"] = True
+            # Light up edges on the active path: animate + stronger stroke so
+            # the eye immediately follows the live branch.
+            e.animated = True
+            style = dict(e.style or {})
+            # Preserve existing color (decision/confidence) but widen stroke.
+            style["strokeWidth"] = max(float(style.get("strokeWidth", 1.5) or 1.5), 2.5)
+            e.style = style
+
+
 def _walk_run(
     run_path: Path,
     parent_id: str,
@@ -329,6 +403,7 @@ def _walk_run(
     stats: dict[str, Any],
     prefix: str,
     depth: int = 0,
+    run_live: bool = False,
 ) -> tuple[int, int]:
     """Recursively walk a run directory and build nodes/edges.
 
@@ -341,6 +416,14 @@ def _walk_run(
     manifest = _read_json(run_path / "run_manifest.json")
     models = manifest.get("models", {}) if manifest else {}
 
+    # Per-run liveness: a sub-manager run has its own run_completion.json.
+    # Only when THIS run's completion marker is missing AND its parent run
+    # is live does the manager read as still running. Otherwise the walk is
+    # post-mortem and the final status is applied by build_graph() after
+    # the walk returns.
+    this_run_completion = _read_json(run_path / "run_completion.json")
+    this_run_live = run_live and this_run_completion is None
+
     # Manager node — depth 0 is the root manager, depth > 0 are sub-managers
     mgr_id = _uid(f"{prefix}mgr")
     mgr_model = models.get("manager", "?")
@@ -352,6 +435,13 @@ def _walk_run(
         if is_root_mgr
         else f"Sub-Manager d{mgr_depth} ({mgr_model[:20]})"
     )
+    # Pre-terminal status: "running" if this run is in-flight. Post-walk,
+    # build_graph() replaces any still-"running" manager with the run's
+    # final status. This keeps the status field a single-source-of-truth
+    # for the frontend animation logic.
+    mgr_status = "running" if this_run_live else (
+        this_run_completion.get("status", "complete") if this_run_completion else "complete"
+    )
     nodes.append(
         GraphNode(
             id=mgr_id,
@@ -362,7 +452,7 @@ def _walk_run(
                 "model": mgr_model,
                 "depth": mgr_depth,
                 "nodeType": mgr_type,
-                "status": "running",
+                "status": mgr_status,
             },
         )
     )
@@ -429,7 +519,7 @@ def _walk_run(
         # file is missing (partial write, in-flight iteration, or crashed
         # before decision). Previously we `continue`d here, which hid live
         # iterations from the graph entirely. Live-UX: the node appears as
-        # "pending" immediately and gets promoted once the JSON lands.
+        # "running" immediately and gets promoted once the JSON lands.
         if not decision_data:
             decision_data = {"decision": "pending", "reasoning": "", "confidence": None}
             decision_stub = True
@@ -442,6 +532,12 @@ def _walk_run(
         budget_snap = _read_json(iter_dir / "budget_snapshot.json") or {}
         iter_critique = _read_json(iter_dir / "critique.json")
 
+        # Per-iteration liveness: the iteration is running while its
+        # manager_decision.json hasn't landed yet AND the run is live. Once
+        # the decision is in, the node reads as terminal (delegate/complete/
+        # fail) so the user can distinguish "working on decision" from "done".
+        iter_running = this_run_live and decision_stub
+
         dec_color = {
             "delegate": _COLORS["yellow"],
             "complete": _COLORS["green"],
@@ -450,7 +546,12 @@ def _walk_run(
 
         dec_id = _uid(f"{prefix}iter_{iter_raw}")
 
-        # Iteration node: directly below manager, vertically stacked
+        # Iteration node: directly below manager, vertically stacked.
+        # Status is "running" while the decision is still pending and the
+        # run is live; otherwise the decision kind (delegate/complete/fail)
+        # is the terminal status. The `decision` field stays untouched as
+        # the semantic signal used for color-coding.
+        iter_status = "running" if iter_running else decision_type
         nodes.append(
             GraphNode(
                 id=dec_id,
@@ -467,7 +568,7 @@ def _walk_run(
                     "confidence": confidence,
                     "reasoning": _truncate(reasoning, 300),
                     "budget": budget_snap,
-                    "status": decision_type,
+                    "status": iter_status,
                     "stub": decision_stub,
                     **({"critique_active": True,
                         "critique_repairs": sum(
@@ -516,7 +617,15 @@ def _walk_run(
             worker_level = iter_level  # same row as iteration
 
             envelope = _read_json(worker_dir / "envelope.json") or {}
-            result = _read_json(worker_dir / "result.json") or {}
+            # Distinguish "result missing" (worker still running) from "result
+            # exists but empty". `_read_json` returns None on missing file.
+            result_raw = _read_json(worker_dir / "result.json")
+            worker_running = (
+                this_run_live
+                and result_raw is None
+                and (worker_dir / "envelope.json").exists()
+            )
+            result = result_raw or {}
             critique_data = _read_json(worker_dir / "critique.json")
             instructions = envelope.get("instructions", "")
             tools_allowed = envelope.get("tools_allowed", [])
@@ -592,7 +701,11 @@ def _walk_run(
                         "toolCallCount": n_tc,
                         "toolsAllowed": tools_allowed[:10],
                         "instructions": _truncate(instructions, 300),
-                        "status": "error" if has_error else "complete",
+                        "status": (
+                            "running" if worker_running
+                            else "error" if has_error
+                            else "complete"
+                        ),
                         **(_llm_trace_summary(worker_dir)),
                         **({"eval_score": result["_eval_score"],
                             "eval_action": result.get("_eval_action", ""),
@@ -709,6 +822,7 @@ def _walk_run(
                 stats=stats,
                 prefix=f"{prefix}sub_{_sub_wid}_",
                 depth=depth + 1,
+                run_live=this_run_live,
             )
             max_level = max(max_level, inner_max)
             max_x = max(max_x, inner_max_x)

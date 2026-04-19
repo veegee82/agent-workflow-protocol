@@ -1,0 +1,77 @@
+{
+  "section_text": "Regulatory compliance for the weather-monitoring cubesat requires national licensing (FCC/NOAA for US launches), ITU frequency coordination, export control compliance (ITAR/EAR), debris mitigation plan approval, and launch range safety certification. Key filings include FCC Space Station License (26-week lead time), ITU Frequency Notification (18 weeks), Debris Mitigation Plan (12 weeks), and Launch Range Safety certification (8 weeks). For non-US launches, equivalent national space agency authorization is required. Export controls apply to hardware and software transfers, requiring EAR/ITAR compliance reviews. The satellite must comply with orbital debris mitigation standards, demonstrating post-mission disposal within 25 years. Spectrum coordination must be completed 4-5 months before launch, and ground station licensing requires separate national telecommunications authority approval. Insurance requirements typically include third-party liability coverage of $100M-$500M.",
+  "assumptions": [
+    "US-based launch requiring FCC licensing and NOAA coordination for weather data",
+    "S-band communications requiring ITU frequency coordination",
+    "International suppliers requiring export control compliance",
+    "LEO orbit at 600-800 km altitude with passive deorbit capability",
+    "Commercial launch provider with established range safety requirements",
+    "Weather data sharing agreements may be required depending on data resolution"
+  ],
+  "prioritized_checklist": [
+    {
+      "task": "Submit FCC Space Station License application",
+      "lead_time": "26 weeks",
+      "priority": "Critical"
+    },
+    {
+      "task": "Initiate ITU frequency coordination filing",
+      "lead_time": "18 weeks",
+      "priority": "High"
+    },
+    {
+      "task": "Complete export control review (ITAR/EAR)",
+      "lead_time": "16 weeks",
+      "priority": "High"
+    },
+    {
+      "task": "Submit debris mitigation plan for approval",
+      "lead_time": "12 weeks",
+      "priority": "Medium"
+    },
+    {
+      "task": "Obtain ground station licensing",
+      "lead_time": "10 weeks",
+      "priority": "Medium"
+    },
+    {
+      "task": "Complete launch range safety certification",
+      "lead_time": "8 weeks",
+      "priority": "Medium"
+    },
+    {
+      "task": "Secure launch insurance coverage",
+      "lead_time": "6 weeks",
+      "priority": "Medium"
+    },
+    {
+      "task": "Finalize data sharing agreements",
+      "lead_time": "4 weeks",
+      "priority": "Low"
+    }
+  ],
+  "risks_and_mitigations": [
+    {
+      "risk": "Regulatory approval delays impacting launch schedule",
+      "mitigation": "Early agency engagement and schedule buffers"
+    },
+    {
+      "risk": "Frequency interference issues with other operators",
+      "mitigation": "Alternative frequency planning and coordination"
+    },
+    {
+      "risk": "Export control violations during international shipping",
+      "mitigation": "Early legal review and proper documentation"
+    },
+    {
+      "risk": "Debris mitigation plan rejection",
+      "mitigation": "Conservative deorbit analysis and margin"
+    },
+    {
+      "risk": "Launch range safety compliance issues",
+      "mitigation": "Early interface coordination with launch provider"
+    }
+  ],
+  "key_action_item": "Immediately initiate FCC license application process due to 26-week lead time requirement.",
+  "confidence": 0.85
+}

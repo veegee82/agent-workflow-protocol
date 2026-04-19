@@ -31,6 +31,7 @@
   <a href="docs/manager-intelligence.md">Manager Intelligence</a> &middot;
   <a href="docs/runtime-tool-generation.md">Tool Creation</a> &middot;
   <a href="docs/iterative-optimization.md">Iterative Optimization</a> &middot;
+  <a href="docs/outer-loop.md"><strong>Outer Loop (SGD)</strong></a> &middot;
   <a href="spec/versions/1.0/spec.md">Specification</a> &middot;
   <a href="https://pypi.org/project/awp-agents/">PyPI</a> &middot;
   <a href="skill/SKILL.md">AWP Skill</a> &middot;
@@ -60,6 +61,7 @@ This makes AWP uniquely suited for **deep data science and engineering problems*
 
 ### Feature Overview
 
+- :dna: **Outer Loop — SGD-style prompt optimization (A5, experimental)** — Runs are the forward pass, a deterministic scalar loss drives an LLM-as-optimizer (text-gradient), and six versioned prompt artifacts (pitfalls, planning preamble, critique rubric, …) update between epochs with rollback-on-regression. Makes the system learn across runs. *[Learn more](docs/outer-loop.md)*
 - :brain: **Runtime Tool & Skill Creation (A3+)** — Agents build domain-specific Python tools and Markdown skills at runtime. Each tool is AST-validated, schema-checked, dry-run probed, and sandboxed; failed generations are auto-repaired by an inline LLM repair loop without leaving the worker iteration. *[Overview](#runtime-adaptation-skills-and-tools-a3)* · *[Pipeline & sequence diagrams](docs/runtime-tool-generation.md)*
 - :chart_with_upwards_trend: **Deep Data Science Integration** — Native support for DataFrames, numpy arrays, images, SQL queries, S3 objects, REST APIs, and clipboard as workflow inputs. Workers write full Python programs in sandboxes with pip-installable packages. *[Learn more](#2-data-science-integration)*
 - :arrows_counterclockwise: **Delegation Loop Engine** — Manager-worker loop with parallel fan-out, rolling context summaries, stall detection, and two-tier validation. The manager decomposes problems, workers solve subtasks, results aggregate iteratively. *[Learn more](#7-the-delegation-loop-in-detail)*
@@ -935,6 +937,11 @@ awp compliance <dir> --level A2                   # Check autonomy level
 awp visualize <dir> --format mermaid              # Visualize DAG
 awp pack <dir>                                    # Create .awp.zip
 awp identity-card <agent.awp.yaml>                # Show agent capabilities
+awp optimize <suite.yaml>                         # Outer loop: run suite + report losses
+awp optimize <suite.yaml> --with-textgrad --epochs 5  # Outer loop A3: TextGrad artifact updates
+awp optimize-inspect <suite-name>                 # Outer loop: list past epochs
+awp optimize-inspect --artifact worker_pitfalls   # Outer loop A3: artifact version history
+awp optimize-rollback <artifact> <version>        # Outer loop A3: roll an artifact back
 ```
 
 ### Design Patterns
@@ -1398,7 +1405,7 @@ agent-workflow-protocol/
 
 | Technology | Purpose |
 |------------|---------|
-| ![pytest](https://img.shields.io/badge/pytest-Testing-0A9EDC?logo=pytest&logoColor=white) | 295+ tests (unit, integration, E2E) |
+| ![pytest](https://img.shields.io/badge/pytest-Testing-0A9EDC?logo=pytest&logoColor=white) | 1100+ tests (unit, integration, E2E) |
 | ![Ruff](https://img.shields.io/badge/Ruff-Linting%20%26%20Formatting-D7FF64?logo=ruff&logoColor=black) | Fast Python linter and formatter |
 | ![mypy](https://img.shields.io/badge/mypy-Type%20Checking-1674B1) | Static type analysis |
 | ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF?logo=github-actions&logoColor=white) | Lint, test (Python 3.10-3.13 matrix), build, publish |

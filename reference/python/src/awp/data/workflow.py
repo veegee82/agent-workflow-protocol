@@ -373,6 +373,18 @@ class AgentWorkflow:
         )
         tool_registry.set_dynamic_tool_factory(dynamic_tool_factory)
 
+        # 4b.1. Framework-Fix β: instantiate the tool inducer after the
+        # factory is wired into the registry. The DelegationLoopRunner
+        # below will pick this up via ``tool_registry._dynamic_tool_factory``
+        # (see DelegationLoopRunner.__init__). We keep a reference on the
+        # workflow so programmatic callers can query induced tools on
+        # completion without round-tripping run_completion.json.
+        from awp.runtime.tool_inducer import ToolInducer
+
+        self._tool_inducer = ToolInducer(
+            dynamic_tool_factory=dynamic_tool_factory if self.tool_creation else None
+        )
+
         # 4c. Inject secrets
         if self.secrets:
             tool_registry.inject_secrets(self.secrets)

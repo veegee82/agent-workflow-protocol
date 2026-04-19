@@ -1,6 +1,8 @@
-# AWP Validation Rules -- R1 through R24
+# AWP Validation Rules -- R1 through R32
 
 Use this checklist to validate AWP workflow correctness. All rules are mandatory unless noted.
+The authoritative source is `spec/versions/1.0/validation-rules.md`; this file is a condensed
+skill-local reference.
 
 ## Naming and Identity
 
@@ -49,3 +51,33 @@ Use this checklist to validate AWP workflow correctness. All rules are mandatory
 - [ ] **R22:** If `capabilities.codemode.sdk_surface.mode` is `"explicit"`, then `capabilities.codemode.sdk_surface.include` MUST contain at least one tool FQN.
 - [ ] **R23:** Every entry in `capabilities.codemode.sdk_surface.exclude` MUST match at least one tool in `capabilities.tools.allowed`.
 - [ ] **R24:** If `capabilities.sandbox.type` is `"isolate"`, the `capabilities.sandbox.network` section MUST be present with at least `network.enabled` defined.
+
+## Dynamic Tools (R25-R26)
+
+- [ ] **R25:** If `capabilities.codemode.tool_creation` is `true`, the `tool_creation_namespace` MUST NOT match a reserved namespace (`web`, `http`, `file`, `shell`, `agent`, `memory`, `arithmetic`, `numpy`, `matplot`, `pandas`, `doc`, `sklearn`) AND MUST be listed in `dynamic_tools.allowed_namespaces` in `workflow.awp.yaml`.
+- [ ] **R26:** If `capabilities.codemode.tool_creation` is `true`, then `capabilities.codemode.enabled` MUST be `true` AND `dynamic_tools.enabled` MUST be `true` in `workflow.awp.yaml`.
+
+## Evaluation (R27-R30)
+
+- [ ] **R27:** If `observability.evaluation.enabled: true`, every metric `kind` MUST be one of `deterministic_test`, `deterministic_assertion`, `rubric_judge`, `budget_utility`, `policy_score`.
+- [ ] **R28:** Evaluation thresholds `accept`, `retry`, `fail` MUST each be in `[0.0, 1.0]` AND satisfy `accept >= retry >= fail`.
+- [ ] **R29:** Every metric `weight` MUST be `>= 0`; at least one metric MUST have a strictly positive weight.
+- [ ] **R30:** `step_scores.hooks` MUST only contain valid hook names; `retry_policy.actions.below_retry` / `below_fail` MUST reference valid actions.
+
+## A4 Recursive Delegation (R31-R32)
+
+- [ ] **R31 (validator):** When `orchestration.delegation_loop.budget` is present, `max_depth` MUST be an integer `>= 0`. `max_depth: 0` disables recursive submanager spawning.
+- [ ] **R32 (validator):** `delegation_loop.budget.max_depth` MUST NOT exceed the hard ceiling of `10`. Values `> 5` emit a warning.
+
+> **Label clarification.** A separate prompt-level rule also named `R31` (Plan-Tool-Closure, in `packages/awp-runtime/src/awp/data/prompts.py`) grades each PLAN subtask's `tool_manifest`. It is enforced by the runtime when a manager issues a PLAN decision, not by `awp validate`. The validator-R31 and the prompt-R31 share the label only by historical accident — do not conflate them.
+
+## Runtime Completion Gates (not R-labelled, but normative at A2+)
+
+Runtime checks in the delegation-loop runner that reject a manager `COMPLETE` decision and force another iteration. Every rejection bumps `state["_rejected_completions"]`; after `budget.max_rejected_completions` consecutive rejections the run terminates with `status=partial`, `reason=max_rejected_completions`.
+
+- **critique** — mean critique score below `min_score_to_complete` (default `0.6`).
+- **deliverable_presence** — every path declared via `required_outputs` (preferred) or scraped from `success_criteria`/task text MUST exist and be non-empty.
+- **placeholder** — `TODO`, `XX%`, `???`, template stubs in deliverables.
+- **file** — rejects 1x1 PNGs and files `< 512 B`.
+- **structural_integrity** — markdown anchor adjacency, paragraph duplication, reference-format consistency.
+- **eval** — overall `observability.evaluation` score below `thresholds.fail`.

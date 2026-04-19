@@ -33,7 +33,7 @@ import sys
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -403,6 +403,20 @@ class WorkflowRunner:
 
         workflow_start = time.monotonic()
 
+        exec_cfg = getattr(orch, "execution", None)
+        scheduler_mode = getattr(exec_cfg, "scheduler", "levels") if exec_cfg else "levels"
+        if scheduler_mode == "ready_queue":
+            return self._execute_ready_queue(
+                orch,
+                task,
+                state,
+                levels,
+                obs,
+                root_span,
+                eval_engine,
+                workflow_start,
+            )
+
         for level_idx, level in enumerate(levels):
             # Budget check once per level
             if self._run_budget:
@@ -469,7 +483,7 @@ class WorkflowRunner:
                 self._tools._current_agent_id = agent_id
                 agent_dir = self._dir / "agents" / agent_id
                 node = self._get_node(orch, agent_id)
-                result = self._run_agent_with_retry(
+                result = self._execute_node(
                     agent_id,
                     agent_dir,
                     task,
@@ -510,7 +524,7 @@ class WorkflowRunner:
                     self._tools._current_agent_id = aid
                     adir = self._dir / "agents" / aid
                     anode = self._get_node(orch, aid)
-                    return aid, self._run_agent_with_retry(
+                    return aid, self._execute_node(
                         aid,
                         adir,
                         task,
@@ -635,6 +649,252 @@ class WorkflowRunner:
             logger.warning("Failed to save final state: %s", exc)
 
         return state
+
+    # -- Ready-queue scheduler ---------------------------------------------
+
+    def _execute_ready_queue(
+        self,
+        orch: AWPOrchestrationConfig,
+        task: str,
+        state: dict[str, Any],
+        levels: list[list[str]],
+        obs: ObservabilityContext,
+        root_span: Optional[str],
+        eval_engine: Optional[EvaluationEngine],
+        workflow_start: float,
+    ) -> dict[str, Any]:
+        """Execute the DAG as a ready-queue, dispatching nodes as soon as their
+        direct dependencies complete.
+
+        Semantics differ from the level scheduler in one observable way:
+        ``when`` expressions, circuit-breaker checks, and rate-limit checks
+        are evaluated at **dispatch time** (against the current state snapshot)
+        rather than at level-start. Every agent is dispatched at most once.
+
+        Concurrency: a persistent ``ThreadPoolExecutor`` is sized at
+        ``min(total_nodes, 16)`` — identical to the level path's cap. Only
+        ``state.update(result)`` is serialized via a lock; reads remain
+        lock-free because R17 guarantees disjoint writer keys per agent.
+        """
+        all_node_ids: list[str] = [node.id for node in orch.graph]
+        pending_deps: dict[str, set[str]] = {}
+        dependents: dict[str, list[str]] = {nid: [] for nid in all_node_ids}
+        for node in orch.graph:
+            dep_set: set[str] = set()
+            for dep in node.depends_on:
+                if isinstance(dep, ConditionalDependency):
+                    dep_set.add(dep.agent)
+                elif isinstance(dep, dict):
+                    agent_ref = dep.get("agent") or dep.get("id", "")
+                    if agent_ref:
+                        dep_set.add(agent_ref)
+                else:
+                    dep_set.add(dep)
+            pending_deps[node.id] = dep_set
+            for parent in dep_set:
+                if parent in dependents:
+                    dependents[parent].append(node.id)
+
+        total_nodes = len(all_node_ids)
+        pool_cap = min(total_nodes, 16) if total_nodes > 0 else 1
+
+        state_lock = threading.Lock()
+        in_flight: dict[Any, str] = {}
+        ready: list[str] = [nid for nid, deps in pending_deps.items() if not deps]
+        dispatched: set[str] = set()
+        completed: set[str] = set()
+        budget_exceeded_reason: Optional[str] = None
+
+        def _run_agent_thread(aid: str, snapshot: dict[str, Any]) -> tuple[str, dict]:
+            self._tools._current_agent_id = aid
+            adir = self._dir / "agents" / aid
+            anode = self._get_node(orch, aid)
+            return aid, self._execute_node(
+                aid,
+                adir,
+                task,
+                snapshot,
+                anode,
+                obs,
+                root_span_id=root_span,
+            )
+
+        def _skip_node(aid: str, reason: str, payload: Optional[dict] = None) -> None:
+            if payload is not None:
+                with state_lock:
+                    state[aid] = payload
+            if obs.audit:
+                obs.audit.record("agent.skipped", aid, details={"reason": reason})
+            completed.add(aid)
+            for child in dependents.get(aid, []):
+                if child in completed or child in dispatched:
+                    continue
+                pending_deps[child].discard(aid)
+                if not pending_deps[child] and child not in ready:
+                    ready.append(child)
+
+        pool: Optional[ThreadPoolExecutor] = None
+        try:
+            pool = ThreadPoolExecutor(max_workers=pool_cap)
+            while ready or in_flight:
+                # Dispatch as many ready nodes as possible.
+                i = 0
+                while i < len(ready):
+                    if budget_exceeded_reason:
+                        break
+                    if self._run_budget:
+                        can_go, reason = self._run_budget.check()
+                        if not can_go:
+                            budget_exceeded_reason = reason
+                            logger.warning(
+                                "  Run budget limit hit: %s — stopping workflow", reason
+                            )
+                            if obs.audit:
+                                obs.audit.record(
+                                    "workflow.budget_exceeded",
+                                    details={
+                                        "reason": reason,
+                                        "budget_summary": self._run_budget.summary(),
+                                    },
+                                )
+                            break
+                    agent_id = ready[i]
+                    node = self._get_node(orch, agent_id)
+
+                    if node and not node.enabled:
+                        logger.info("  Skipping disabled agent: %s", agent_id)
+                        ready.pop(i)
+                        dispatched.add(agent_id)
+                        _skip_node(agent_id, "disabled")
+                        continue
+
+                    with state_lock:
+                        state_snapshot = dict(state)
+
+                    if not self._evaluate_when(node, state_snapshot):
+                        logger.info("  Skipping agent %s: when condition not met", agent_id)
+                        ready.pop(i)
+                        dispatched.add(agent_id)
+                        _skip_node(agent_id, "when_condition")
+                        continue
+
+                    if self._security.rate_limiter and not self._security.rate_limiter.check(
+                        agent_id
+                    ):
+                        logger.warning("  Rate limited: %s", agent_id)
+                        ready.pop(i)
+                        dispatched.add(agent_id)
+                        _skip_node(
+                            agent_id,
+                            "rate_limited",
+                            payload={"error": "Rate limited", "confidence": 0.0},
+                        )
+                        if obs.audit:
+                            obs.audit.record("agent.rate_limited", agent_id)
+                        continue
+
+                    if (
+                        self._security.circuit_breaker
+                        and not self._security.circuit_breaker.check()
+                    ):
+                        logger.warning("  Circuit breaker open, skipping: %s", agent_id)
+                        ready.pop(i)
+                        dispatched.add(agent_id)
+                        _skip_node(
+                            agent_id,
+                            "circuit_breaker",
+                            payload={"error": "Circuit breaker open", "confidence": 0.0},
+                        )
+                        if obs.audit:
+                            obs.audit.record("agent.circuit_breaker", agent_id)
+                        continue
+
+                    if obs.audit:
+                        obs.audit.record(
+                            "agent.dispatched",
+                            agent_id,
+                            details={
+                                "scheduler": "ready_queue",
+                                "state_snapshot_keys": sorted(state_snapshot.keys()),
+                            },
+                        )
+                    logger.info("Dispatch (ready_queue): %s", agent_id)
+                    future = pool.submit(_run_agent_thread, agent_id, state_snapshot)
+                    in_flight[future] = agent_id
+                    ready.pop(i)
+                    dispatched.add(agent_id)
+
+                if budget_exceeded_reason and in_flight:
+                    # Drain currently in-flight futures but stop new dispatch.
+                    pass
+
+                if not in_flight:
+                    # No new dispatches happened and nothing is running.
+                    if budget_exceeded_reason:
+                        break
+                    # If ready is empty and in_flight is empty, loop will exit.
+                    if not ready:
+                        break
+                    # All ready items were consumed above; check again.
+                    continue
+
+                # Wait for at least one future to finish.
+                done_set, _ = wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+
+                for future in done_set:
+                    agent_id = in_flight.pop(future)
+                    try:
+                        aid, result = future.result()
+                    except Exception as exc:
+                        logger.error("  Ready-queue agent %s raised: %s", agent_id, exc)
+                        result = {agent_id: {"error": str(exc), "confidence": 0.0}}
+                        aid = agent_id
+
+                    with state_lock:
+                        state.update(result)
+
+                    if eval_engine:
+                        step_eval = eval_engine.evaluate_step(
+                            hook="worker_result",
+                            result=result,
+                            state=state,
+                            budget=self._run_budget,
+                            agent_id=aid,
+                        )
+                        if step_eval:
+                            logger.info(
+                                "  Eval [%s]: score=%.2f action=%s",
+                                aid,
+                                step_eval.score,
+                                step_eval.action,
+                            )
+
+                    if self._run_budget:
+                        self._run_budget.record_agent_run()
+                    if self._security.rate_limiter:
+                        self._security.rate_limiter.record(aid)
+
+                    try:
+                        self._state_persistence.save_checkpoint(aid, state)
+                    except Exception as exc:
+                        logger.warning("Failed to save checkpoint for %s: %s", aid, exc)
+
+                    completed.add(aid)
+                    for child in dependents.get(aid, []):
+                        if child in completed or child in dispatched:
+                            continue
+                        pending_deps[child].discard(aid)
+                        if not pending_deps[child] and child not in ready:
+                            ready.append(child)
+        finally:
+            if pool is not None:
+                pool.shutdown(wait=True)
+
+        if budget_exceeded_reason and self._run_budget:
+            state["_run_budget"] = self._run_budget.summary()
+            state["_run_budget"]["exceeded"] = budget_exceeded_reason
+
+        return self._finalize_run(state, obs, root_span, workflow_start, levels, eval_engine)
 
     # -- Delegation loop dispatch ------------------------------------------
 
@@ -812,6 +1072,240 @@ class WorkflowRunner:
 
         # Should not reach here, but just in case
         return {agent_id: {"error": "Max retries exceeded", "confidence": 0.0}}
+
+    # -- Node execution (loop + fan_out + retry) ---------------------------
+
+    def _execute_node(
+        self,
+        agent_id: str,
+        agent_dir: Path,
+        task: str,
+        state: dict[str, Any],
+        node: Any,
+        obs: ObservabilityContext,
+        root_span_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Run a node, honouring its loop and fan_out configuration.
+
+        Composition order: loop(fan_out(retry(run))). Both loop and fan_out
+        are pure no-ops unless ``.enabled`` is True on the node config.
+        """
+        loop_cfg = getattr(node, "loop", None) if node else None
+        if loop_cfg is not None and getattr(loop_cfg, "enabled", False):
+            return self._execute_loop(
+                agent_id, agent_dir, task, state, node, obs, root_span_id, loop_cfg
+            )
+
+        fan_out_cfg = getattr(node, "fan_out", None) if node else None
+        if fan_out_cfg is not None and getattr(fan_out_cfg, "enabled", False):
+            return self._execute_fan_out(
+                agent_id, agent_dir, task, state, node, obs, root_span_id, fan_out_cfg
+            )
+
+        return self._run_agent_with_retry(
+            agent_id, agent_dir, task, state, node, obs, root_span_id=root_span_id
+        )
+
+    def _execute_loop(
+        self,
+        agent_id: str,
+        agent_dir: Path,
+        task: str,
+        state: dict[str, Any],
+        node: Any,
+        obs: ObservabilityContext,
+        root_span_id: Optional[str],
+        loop_cfg: Any,
+    ) -> dict[str, Any]:
+        """Run a node iteratively.
+
+        Semantics of ``until_condition``: the loop continues **while the
+        expression evaluates truthy**; it exits when the expression becomes
+        falsy or when ``max_iterations`` is reached. An empty condition runs
+        the loop exactly ``max_iterations`` times. The expression is
+        evaluated against the running state *after* each iteration, so it
+        can reference the latest agent output via ``state.<agent_id>.*``.
+        """
+        max_iter = max(1, int(getattr(loop_cfg, "max_iterations", 5)))
+        cond = (getattr(loop_cfg, "until_condition", "") or "").strip()
+        mode = getattr(loop_cfg, "mode", "standard")
+        if mode == "interactive":
+            logger.warning(
+                "  Loop [%s]: interactive mode not implemented, falling back to standard",
+                agent_id,
+            )
+
+        fan_out_cfg = getattr(node, "fan_out", None) if node else None
+        use_fan_out = fan_out_cfg is not None and getattr(fan_out_cfg, "enabled", False)
+
+        iterations: list[dict[str, Any]] = []
+        last_result: dict[str, Any] = {}
+        for iteration in range(max_iter):
+            if use_fan_out:
+                step = self._execute_fan_out(
+                    agent_id, agent_dir, task, state, node, obs, root_span_id, fan_out_cfg
+                )
+            else:
+                step = self._run_agent_with_retry(
+                    agent_id, agent_dir, task, state, node, obs, root_span_id=root_span_id
+                )
+            state.update(step)
+            last_result = step
+            iterations.append(step.get(agent_id, {}))
+
+            if obs.audit:
+                obs.audit.record(
+                    "agent.loop_iteration",
+                    agent_id,
+                    details={"iteration": iteration + 1, "max": max_iter},
+                )
+
+            if not cond:
+                continue
+
+            try:
+                keep_going = bool(safe_eval(cond, {"state": state}))
+            except Exception as exc:
+                logger.warning(
+                    "  Loop [%s]: condition '%s' error: %s (exiting loop)",
+                    agent_id,
+                    cond,
+                    exc,
+                )
+                break
+
+            logger.info(
+                "  Loop [%s]: iteration %d/%d until_condition=%s",
+                agent_id,
+                iteration + 1,
+                max_iter,
+                keep_going,
+            )
+            if not keep_going:
+                break
+
+        final = dict(last_result.get(agent_id, {}))
+        final["_loop_iterations"] = len(iterations)
+        final["_loop_history"] = iterations
+        return {agent_id: final}
+
+    def _execute_fan_out(
+        self,
+        agent_id: str,
+        agent_dir: Path,
+        task: str,
+        state: dict[str, Any],
+        node: Any,
+        obs: ObservabilityContext,
+        root_span_id: Optional[str],
+        fan_out_cfg: Any,
+    ) -> dict[str, Any]:
+        """Spawn the agent in parallel across items from ``source_field``.
+
+        - ``source_field`` resolves against the current state. Supports a
+          leading ``state.`` prefix and dotted paths (``ctx.topics``).
+        - Each instance receives a shallow-copied state with the item
+          injected under the reserved key ``fan_out_item`` and its index
+          under ``_fan_out_index``.
+        - ``max_parallel`` caps the thread-pool size.
+        - ``aggregation`` chooses how per-item outputs are combined: ``merge``
+          returns ``{items: [...], confidence: mean}``; ``concat`` flattens
+          list-valued fields across items; anything else behaves as ``merge``.
+        """
+        items = self._resolve_fan_out_source(
+            getattr(fan_out_cfg, "source_field", "") or "", state
+        )
+        if not items:
+            logger.warning(
+                "  fan_out [%s]: source '%s' resolved to empty list",
+                agent_id,
+                getattr(fan_out_cfg, "source_field", ""),
+            )
+            return {
+                agent_id: {
+                    "confidence": 0.0,
+                    "error": f"fan_out source '{getattr(fan_out_cfg, 'source_field', '')}' empty",
+                    "_fan_out_count": 0,
+                    "items": [],
+                }
+            }
+
+        max_parallel = max(1, int(getattr(fan_out_cfg, "max_parallel", 4) or 4))
+        aggregation = getattr(fan_out_cfg, "aggregation", "merge") or "merge"
+
+        def _run_one(idx: int, item: Any) -> tuple[int, dict[str, Any]]:
+            item_state = dict(state)
+            item_state["fan_out_item"] = item
+            item_state["_fan_out_index"] = idx
+            return idx, self._run_agent_with_retry(
+                agent_id, agent_dir, task, item_state, node, obs, root_span_id=root_span_id
+            )
+
+        collected: list[tuple[int, dict[str, Any]]] = []
+        workers = min(max_parallel, len(items))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_run_one, i, it) for i, it in enumerate(items)]
+            for fut in as_completed(futures):
+                collected.append(fut.result())
+        collected.sort(key=lambda p: p[0])
+        outputs = [res.get(agent_id, {}) for _, res in collected]
+
+        confidences = [
+            o.get("confidence", 0.0)
+            for o in outputs
+            if isinstance(o.get("confidence"), (int, float))
+        ]
+        mean_conf = sum(confidences) / len(confidences) if confidences else 0.0
+
+        if aggregation == "concat":
+            merged: dict[str, Any] = {}
+            for o in outputs:
+                for k, v in o.items():
+                    if k in ("confidence", "_fan_out_index"):
+                        continue
+                    if isinstance(v, list):
+                        merged.setdefault(k, []).extend(v)
+                    else:
+                        merged.setdefault(k, []).append(v)
+            merged["confidence"] = mean_conf
+            merged["_fan_out_count"] = len(outputs)
+            merged["items"] = outputs
+            return {agent_id: merged}
+
+        # "merge" (default) or any unknown aggregation: preserve per-item outputs
+        return {
+            agent_id: {
+                "items": outputs,
+                "confidence": mean_conf,
+                "_fan_out_count": len(outputs),
+            }
+        }
+
+    @staticmethod
+    def _resolve_fan_out_source(source: str, state: dict[str, Any]) -> list[Any]:
+        """Resolve a dotted state path to an iterable list.
+
+        Accepts ``state.a.b``, ``a.b``, or just ``a``. Returns ``[]`` if the
+        path is empty, missing, or resolves to a non-iterable scalar.
+        """
+        path = source.strip()
+        if not path:
+            return []
+        if path.startswith("state."):
+            path = path[len("state."):]
+        node: Any = state
+        for part in path.split("."):
+            if isinstance(node, dict):
+                node = node.get(part)
+            else:
+                node = getattr(node, part, None)
+            if node is None:
+                return []
+        if isinstance(node, (list, tuple)):
+            return list(node)
+        if isinstance(node, dict):
+            return list(node.values())
+        return []
 
     # -- When conditions ---------------------------------------------------
 

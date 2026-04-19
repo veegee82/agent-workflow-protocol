@@ -246,6 +246,14 @@ class LLMClient:
         self.total_tokens_used: int = 0
         self._trace_callback: Callable[[dict[str, Any]], None] | None = None
         self.default_reasoning_effort: str | None = None
+        # Release D-2: optional reservation-based token budgeting. Wired by
+        # the delegation-loop runner via :meth:`set_budget` when the
+        # ``token_budget_reservation`` config flag is on. When unset the
+        # client stays on the legacy consume-after-call path (no reserve,
+        # no commit, no release) for byte-identical reproducibility.
+        self._budget: Any | None = None
+        self._budget_reservation_enabled: bool = False
+        self._default_max_output_tokens: int | None = None
 
         # Local models (Ollama) need longer timeouts and no API key
         if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
@@ -369,6 +377,74 @@ class LLMClient:
             self._client.close()
         except Exception:
             pass
+
+    def set_budget(
+        self,
+        budget: Any | None,
+        *,
+        reservation_enabled: bool = False,
+        default_max_output_tokens: int | None = None,
+    ) -> None:
+        """Wire a run budget to this client (Release D-2, opt-in).
+
+        When ``reservation_enabled`` is True and the given budget exposes
+        ``reserve_tokens`` / ``commit_tokens`` / ``release_reservation``,
+        each subsequent non-streaming chat call atomically reserves an
+        estimated token cost before the HTTP POST and commits the real
+        usage from the response. A reservation that would exceed the
+        budget raises :class:`BudgetExceededError` instead of firing the
+        HTTP call — the caller must treat that as a pre-LLM budget
+        rejection.
+
+        Passing ``budget=None`` or ``reservation_enabled=False`` reverts
+        to the legacy consume-after-call path; the runner still records
+        ``total_tokens_used`` delta into its own budget as today.
+        """
+        self._budget = budget
+        self._budget_reservation_enabled = bool(reservation_enabled and budget is not None)
+        self._default_max_output_tokens = default_max_output_tokens
+
+    def _reserve_for_call(
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: Optional[int],
+    ) -> Any | None:
+        """Return a reservation handle or raise ``BudgetExceededError``.
+
+        Returns ``None`` when reservations are disabled (legacy path).
+        """
+        if not self._budget_reservation_enabled:
+            return None
+        budget = self._budget
+        if budget is None or not hasattr(budget, "reserve_tokens"):
+            return None
+        # Serialise messages to a flat string for the char-count heuristic.
+        # ``content`` may be a list of blocks when prompt-caching is applied,
+        # so walk it explicitly.
+        parts: list[str] = []
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                parts.append(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        txt = block.get("text")
+                        if isinstance(txt, str):
+                            parts.append(txt)
+        prompt_text = "\n".join(parts)
+        # Local import to avoid a circular runtime dependency
+        # (delegation_loop_runner imports llm for LLMClient).
+        from .delegation_loop_runner import BudgetExceededError, estimate_llm_tokens
+
+        effective_max = max_tokens if max_tokens is not None else self._default_max_output_tokens
+        estimate = estimate_llm_tokens(prompt_text, max_output_tokens=effective_max)
+        reservation = budget.reserve_tokens(estimate)
+        if reservation is None:
+            raise BudgetExceededError(
+                f"token budget would be exceeded (estimate={estimate})"
+            )
+        return reservation
 
     def set_trace_callback(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
         """Register a callback invoked after every LLM API call.
@@ -567,18 +643,33 @@ class LLMClient:
             len(tools or []),
         )
 
+        # Release D-2: reserve estimated tokens before the HTTP call when
+        # the runner has opted in. A reservation that would overshoot the
+        # budget raises BudgetExceededError here, before any bytes hit the
+        # wire; releases on HTTP failure keep pending_reserved clean.
+        reservation = self._reserve_for_call(messages, max_tokens)
+
         _t0 = _time.monotonic()
-        resp = self._client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-        resp.raise_for_status()
+        try:
+            resp = self._client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+        except Exception:
+            if reservation is not None and self._budget is not None:
+                try:
+                    self._budget.release_reservation(reservation)
+                except Exception:
+                    logger.debug("release_reservation failed", exc_info=True)
+            raise
         _latency_ms = round((_time.monotonic() - _t0) * 1000, 1)
 
         result = resp.json()
 
         # Accumulate token usage from API response
+        actual_total = 0
         usage = result.get("usage")
         if isinstance(usage, dict):
             total = usage.get("total_tokens", 0)
@@ -593,6 +684,17 @@ class LLMClient:
             except (TypeError, ValueError):
                 total = 0
             self.total_tokens_used += total
+            actual_total = total
+
+        # Commit the reservation with the authoritative usage figure. In
+        # reservation mode the runner's record_tokens path is a no-op
+        # (_record_llm_tokens_since short-circuits) so tokens_consumed is
+        # bumped here exactly once — no double counting.
+        if reservation is not None and self._budget is not None:
+            try:
+                self._budget.commit_tokens(reservation, actual_total)
+            except Exception:
+                logger.debug("commit_tokens failed", exc_info=True)
 
         # Emit trace callback (best-effort — never break the hot path)
         if self._trace_callback:

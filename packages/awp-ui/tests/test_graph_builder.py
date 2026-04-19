@@ -311,6 +311,121 @@ class TestSubDelegation:
 
 
 # ---------------------------------------------------------------------------
+# Live-run state: running-node derivation + active-path marking
+# ---------------------------------------------------------------------------
+
+
+class TestLiveRunState:
+    """Root-cause tests for the 'graph renders wrong on reopen' bug.
+
+    The disk state has no explicit 'running' flag — the absence of
+    run_completion.json / manager_decision.json / result.json is the
+    authoritative signal that a node is still in flight. These tests pin
+    that contract so a future refactor cannot silently re-break running
+    status in the UI.
+    """
+
+    def _make_live_run(
+        self,
+        base: Path,
+        *,
+        finish_worker: bool = False,
+        finish_run: bool = False,
+    ) -> Path:
+        run_dir = base / "live_run"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run_manifest.json").write_text(
+            json.dumps({
+                "run_id": "live_001",
+                "task": "Live task",
+                "models": {"manager": "m", "worker": "w"},
+                "budget": {},
+            })
+        )
+        it_dir = run_dir / "iterations" / "001"
+        it_dir.mkdir(parents=True)
+        (it_dir / "manager_decision.json").write_text(
+            json.dumps({"decision": "delegate", "confidence": 0.7})
+        )
+        (it_dir / "budget_snapshot.json").write_text(json.dumps({}))
+
+        w_dir = it_dir / "delegations" / "live_worker"
+        w_dir.mkdir(parents=True)
+        (w_dir / "envelope.json").write_text(json.dumps({"instructions": "go"}))
+        if finish_worker:
+            (w_dir / "result.json").write_text(json.dumps({"confidence": 0.9}))
+        if finish_run:
+            (run_dir / "run_completion.json").write_text(
+                json.dumps({"status": "complete"})
+            )
+        return run_dir
+
+    def test_worker_with_envelope_but_no_result_is_running(
+        self, temp_dir: Path
+    ) -> None:
+        run_dir = self._make_live_run(temp_dir, finish_worker=False, finish_run=False)
+        graph = build_graph(run_dir)
+        workers = _nodes_by_type(graph, "worker")
+        assert len(workers) == 1
+        assert workers[0].data["status"] == "running", (
+            "a worker whose result.json has not yet landed must read as running"
+        )
+
+    def test_worker_with_result_is_complete(self, temp_dir: Path) -> None:
+        run_dir = self._make_live_run(temp_dir, finish_worker=True, finish_run=False)
+        graph = build_graph(run_dir)
+        workers = _nodes_by_type(graph, "worker")
+        assert workers[0].data["status"] == "complete"
+
+    def test_run_complete_demotes_running_manager(self, temp_dir: Path) -> None:
+        """Once run_completion.json lands, stale 'running' managers roll up to the
+        final status. This prevents the post-mortem graph from showing a ghost
+        running pulse for a finished run."""
+        run_dir = self._make_live_run(temp_dir, finish_worker=True, finish_run=True)
+        graph = build_graph(run_dir)
+        managers = _nodes_by_type(graph, "manager")
+        assert managers[0].data["status"] == "complete"
+
+    def test_active_path_flag_propagates_to_ancestors(self, temp_dir: Path) -> None:
+        """A running worker must light up the whole branch: worker → iteration
+        → manager → task_root. Otherwise the user can't see where progress is."""
+        run_dir = self._make_live_run(temp_dir, finish_worker=False, finish_run=False)
+        graph = build_graph(run_dir)
+        active_ids = {n.id for n in graph.nodes if n.data.get("onActivePath")}
+        # Root task, manager, iteration, and the running worker all on path
+        task = [n for n in graph.nodes if n.type == "task"][0]
+        mgr = [n for n in graph.nodes if n.type == "manager"][0]
+        it = [n for n in graph.nodes if n.type == "iteration"][0]
+        w = [n for n in graph.nodes if n.type == "worker"][0]
+        assert task.id in active_ids
+        assert mgr.id in active_ids
+        assert it.id in active_ids
+        assert w.id in active_ids
+
+    def test_active_path_edges_animated(self, temp_dir: Path) -> None:
+        """Edges along the active branch must carry `animated=True` and a
+        thicker strokeWidth so the frontend can draw the pulse without extra
+        state tracking."""
+        run_dir = self._make_live_run(temp_dir, finish_worker=False, finish_run=False)
+        graph = build_graph(run_dir)
+        animated = [e for e in graph.edges if e.animated]
+        assert len(animated) >= 3, (
+            "task→manager, manager→iter, iter→worker should all animate"
+        )
+        for e in animated:
+            assert e.data.get("onActivePath") is True
+            assert float(e.style.get("strokeWidth", 0)) >= 2.5
+
+    def test_finished_run_has_no_active_path(self, temp_dir: Path) -> None:
+        run_dir = self._make_live_run(temp_dir, finish_worker=True, finish_run=True)
+        graph = build_graph(run_dir)
+        active_ids = {n.id for n in graph.nodes if n.data.get("onActivePath")}
+        assert active_ids == set(), (
+            "a completed run must not keep any active-path markers"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Incremental graph building
 # ---------------------------------------------------------------------------
 

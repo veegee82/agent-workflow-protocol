@@ -465,6 +465,279 @@ async def get_run_graph(run_id: str) -> dict[str, Any]:
     return GraphData().model_dump(mode="json")
 
 
+# ---------------------------------------------------------------------------
+# Outer-loop / Optimizer (A5) — read-only views into ~/.awp/outer_loop.db
+# ---------------------------------------------------------------------------
+
+
+@router.get("/runs/{run_id}/epoch")
+async def get_run_epoch(run_id: str) -> Any:
+    """Return the optimizer epoch context for a run, or null if none.
+
+    The run_id is looked up in the outer-loop ``epoch_runs`` table
+    (``~/.awp/outer_loop.db`` or ``$AWP_OUTER_LOOP_DB``). If the run is
+    not part of any epoch, we return ``null`` — this is the common case
+    for ad-hoc runs that never went through ``awp optimize``.
+    """
+    from server.services.outer_loop_service import get_run_epoch as _get
+
+    return _get(run_id)
+
+
+@router.get("/suites")
+async def list_outer_loop_suites() -> dict[str, Any]:
+    """List every task suite tracked by the outer-loop DB."""
+    from server.services.outer_loop_service import list_suites
+
+    return {"suites": list_suites()}
+
+
+@router.get("/suites/{suite_id}/epochs")
+async def get_suite_epochs(suite_id: str) -> dict[str, Any]:
+    """Return every epoch of a suite with per-task losses and artifact events.
+
+    Shape::
+
+        { "epochs": [
+            { "epoch_id", "epoch_num", "started_at", "completed_at",
+              "mean_loss", "parent_artifacts": {name: version},
+              "child_artifacts": {name: version},
+              "events": [{"type": "update"|"rollback", ...}, ...],
+              "per_task_losses": [
+                {"run_id", "task_name", "loss", "scores": {...}}, ...
+              ]
+            }, ...
+        ]}
+
+    Returns 404 if the suite (or the outer-loop DB) does not exist.
+    """
+    from server.services.outer_loop_service import list_suite_epochs
+
+    epochs = list_suite_epochs(suite_id)
+    if epochs is None:
+        raise HTTPException(status_code=404, detail="Suite not found")
+    return {"epochs": epochs}
+
+
+@router.get("/artifacts/{name}/versions")
+async def get_artifact_versions(name: str) -> dict[str, Any]:
+    """Return every version (including synthetic v0) of an artifact.
+
+    Shape::
+
+        { "versions": [
+            {"version": 0, "content": "...", "parent_version": null,
+             "created_at": "...", "is_active": true|false}, ...
+        ]}
+
+    404 if the artifact name is unknown (not in ``DEFAULTS``). The
+    endpoint always returns at least the synthetic v0 default — even when
+    the outer-loop DB is missing.
+    """
+    from server.services.outer_loop_service import list_artifact_versions
+
+    versions = list_artifact_versions(name)
+    if versions is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"versions": versions}
+
+
+@router.get("/suites/{suite_id}/graph")
+async def get_suite_graph(suite_id: str) -> dict[str, Any]:
+    """Return the chained graph for every run across every epoch of a suite.
+
+    Each run's React Flow graph is rendered via the existing
+    :func:`server.services.graph_builder.build_graph` and then stitched
+    together vertically with decorative ``epochMarker`` nodes inserted
+    between consecutive epochs. The marker carries the epoch number,
+    mean loss, and the artifact delta vs the previous epoch.
+    """
+    from server.services.graph_builder import build_graph, find_run_dir
+    from server.services.outer_loop_service import (
+        get_suite_graph_runs,
+        get_suite_meta,
+    )
+    from server.app import store
+
+    suite_meta = get_suite_meta(suite_id)
+    if suite_meta is None:
+        raise HTTPException(status_code=404, detail="Suite not found")
+
+    epoch_runs = get_suite_graph_runs(suite_id)
+    if not epoch_runs:
+        return {
+            "nodes": [],
+            "edges": [],
+            "stats": {
+                "suite_id": suite_id,
+                "suite_name": suite_meta["name"],
+                "epoch_count": 0,
+                "run_count": 0,
+            },
+            "tool_registry": [],
+            "skill_registry": [],
+        }
+
+    # Y-stacking: each run occupies ~1200 px vertically; epoch markers
+    # are 140 px tall and sit between epoch blocks.
+    run_block_height = 1200.0
+    marker_height = 140.0
+
+    chained_nodes: list[dict[str, Any]] = []
+    chained_edges: list[dict[str, Any]] = []
+    y_cursor = 0.0
+    prev_epoch_num: int | None = None
+    prev_child: dict[str, int] = {}
+
+    for entry in epoch_runs:
+        # Insert an epoch marker at the start of each new epoch
+        if prev_epoch_num != entry["epoch_num"]:
+            delta_label = _format_artifact_delta(prev_child, entry["parent_artifacts"])
+            loss_str = (
+                f"{entry['mean_loss']:.3f}"
+                if entry["mean_loss"] is not None
+                else "pending"
+            )
+            marker_id = f"epoch_marker_{suite_id}_{entry['epoch_num']}"
+            chained_nodes.append(
+                {
+                    "id": marker_id,
+                    "type": "epochMarker",
+                    "position": {"x": -400.0, "y": y_cursor},
+                    "data": {
+                        "label": (
+                            f"Epoch {entry['epoch_num']} — {suite_meta['name']} — "
+                            f"mean_loss={loss_str}"
+                            + (f" — {delta_label}" if delta_label else "")
+                        ),
+                        "nodeType": "epochMarker",
+                        "suite_id": suite_id,
+                        "suite_name": suite_meta["name"],
+                        "epoch_num": entry["epoch_num"],
+                        "mean_loss": entry["mean_loss"],
+                        "delta": delta_label,
+                        "status": "complete",
+                    },
+                    "style": {"width": 1600, "height": marker_height},
+                    "zIndex": -1,
+                }
+            )
+            y_cursor += marker_height + 20.0
+            prev_epoch_num = entry["epoch_num"]
+            prev_child = entry["child_artifacts"] or entry["parent_artifacts"]
+
+        # Resolve the per-run directory via the same mechanism as
+        # /api/runs/{run_id}/graph, then build_graph + shift Y.
+        run_row = await store.get_run(entry["run_id"])
+        run_dir: Path | None = None
+        if run_row:
+            result = run_row.get("result") or {}
+            metadata = result.get("metadata", {})
+            explicit_run_dir = metadata.get("run_dir")
+            workspace = metadata.get("workspace")
+            loop_run_id = metadata.get("run_id")
+            if explicit_run_dir and Path(explicit_run_dir).exists():
+                run_dir = Path(explicit_run_dir)
+            if run_dir is None and workspace and loop_run_id:
+                candidate = Path(workspace) / "workspace" / "runs" / loop_run_id
+                if candidate.exists():
+                    run_dir = candidate
+            if run_dir is None and workspace:
+                run_dir = find_run_dir(Path(workspace))
+
+        if run_dir is None:
+            # Placeholder node so the suite graph still shows an entry even
+            # if the run artifacts have been cleaned up.
+            placeholder_id = f"missing_{entry['run_id']}"
+            chained_nodes.append(
+                {
+                    "id": placeholder_id,
+                    "type": "task",
+                    "position": {"x": 0.0, "y": y_cursor},
+                    "data": {
+                        "label": f"{entry['task_name']} (artifacts missing)",
+                        "nodeType": "task",
+                        "status": "error",
+                        "run_id": entry["run_id"],
+                    },
+                }
+            )
+            y_cursor += 200.0
+            continue
+
+        graph = build_graph(run_dir)
+        prefix = f"e{entry['epoch_num']}_{entry['run_id']}_"
+        for node in graph.nodes:
+            data = dict(node.data)
+            data["epoch_num"] = entry["epoch_num"]
+            data["suite_id"] = suite_id
+            data["source_run_id"] = entry["run_id"]
+            chained_nodes.append(
+                {
+                    "id": prefix + node.id,
+                    "type": node.type,
+                    "position": {
+                        "x": node.position.get("x", 0.0),
+                        "y": node.position.get("y", 0.0) + y_cursor,
+                    },
+                    "data": data,
+                    **(
+                        {"parentNode": prefix + node.parentNode}
+                        if node.parentNode
+                        else {}
+                    ),
+                    **({"extent": node.extent} if node.extent else {}),
+                    **({"style": node.style} if node.style else {}),
+                    **(
+                        {"zIndex": node.zIndex} if node.zIndex is not None else {}
+                    ),
+                }
+            )
+        for edge in graph.edges:
+            chained_edges.append(
+                {
+                    "id": prefix + edge.id,
+                    "source": prefix + edge.source,
+                    "target": prefix + edge.target,
+                    "type": edge.type,
+                    "animated": edge.animated,
+                    "style": edge.style,
+                    "data": edge.data,
+                }
+            )
+        y_cursor += run_block_height
+
+    return {
+        "nodes": chained_nodes,
+        "edges": chained_edges,
+        "stats": {
+            "suite_id": suite_id,
+            "suite_name": suite_meta["name"],
+            "epoch_count": len({e["epoch_num"] for e in epoch_runs}),
+            "run_count": len(epoch_runs),
+        },
+        "tool_registry": [],
+        "skill_registry": [],
+    }
+
+
+def _format_artifact_delta(
+    prev: dict[str, int], curr: dict[str, int]
+) -> str:
+    """Return a compact description of artifact-version changes.
+
+    Example: ``"pitfalls v1→v2, rubric v0→v1"``. Empty string if no
+    versions moved — used by the epoch marker label.
+    """
+    changes: list[str] = []
+    for name, new_v in curr.items():
+        old_v = prev.get(name, 0)
+        if old_v != new_v:
+            short = name.split(".")[-1].replace("_", " ")
+            changes.append(f"{short} v{old_v}->v{new_v}")
+    return ", ".join(changes[:4])
+
+
 @router.get("/runs/{run_id}/artifacts")
 async def list_run_artifacts(run_id: str) -> dict[str, Any]:
     """List all output artifacts (images, tables, HTML, text) for a run."""

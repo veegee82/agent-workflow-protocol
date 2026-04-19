@@ -1,0 +1,72 @@
+{
+  "scoring_tool": {
+    "name": "SimpleProductReviewScorer",
+    "description": "Scores short product reviews on a 0-10 scale based on sentiment, specificity, and severity of issues",
+    "formula": "Base score starts at 5.0 (neutral).\nPositive sentiment adjustments:\n- Strong positive endorsement (+2.0): loved, perfect, excellent, amazing, fantastic\n- Moderate positive sentiment (+1.0): decent, good, nice, ok\n- Would buy again statement (+1.5): would buy again, buy again, repurchase, rebuy\n- Durability/longevity praise (+1.5): lasted forever, long lasting, durable, long battery\n\nNegative sentiment adjustments:\n- Severe failure (-4.0): broke after, waste of money, stopped working, broken, complete failure, died after\n- Moderate issue (-2.0): buggy, glitchy, crashes, freezes, unreliable\n- Mild issue (-1.0): confusing, difficult, hard to use, complicated, not intuitive, steep learning curve\n\nSpecificity/concreteness bonus:\n- Specific detail (+0.5): concrete examples like 'battery lasted forever', 'broke after two days', 'confusing setup', 'works ok once configured'\n- Vague statement (no penalty)\n\nFinal score is clamped to 0-10 range, rounded to 1 decimal place.",
+    "tie_break_rule": "If two reviews have the same raw score, the more specific/concrete review wins (higher specificity score). If still tied, the more positive review wins."
+  },
+  "scores": [
+    {
+      "id": 1,
+      "text": "Battery lasted forever \u2014 loved it.",
+      "score": 9.0,
+      "rationale": "Score based on: Strong positive endorsement (+2.0); Durability praise (+1.5); Specific detail (+0.5)"
+    },
+    {
+      "id": 2,
+      "text": "Broke after two days. Waste of money.",
+      "score": 1.5,
+      "rationale": "Score based on: Severe failure (-4.0); Specific detail (+0.5)"
+    },
+    {
+      "id": 3,
+      "text": "Decent, but the app is buggy.",
+      "score": 4.0,
+      "rationale": "Score based on: Moderate positive sentiment (+1.0); Moderate issue (-2.0)"
+    },
+    {
+      "id": 4,
+      "text": "Perfect \u2014 would buy again.",
+      "score": 8.5,
+      "rationale": "Score based on: Strong positive endorsement (+2.0); Would buy again (+1.5)"
+    },
+    {
+      "id": 5,
+      "text": "Confusing setup, but works ok once configured.",
+      "score": 5.5,
+      "rationale": "Score based on: Moderate positive sentiment (+1.0); Mild issue (-1.0); Specific detail (+0.5)"
+    }
+  ],
+  "ordered_reviews": [
+    {
+      "rank": 1,
+      "id": 1,
+      "text": "Battery lasted forever \u2014 loved it.",
+      "score": 9.0
+    },
+    {
+      "rank": 2,
+      "id": 4,
+      "text": "Perfect \u2014 would buy again.",
+      "score": 8.5
+    },
+    {
+      "rank": 3,
+      "id": 5,
+      "text": "Confusing setup, but works ok once configured.",
+      "score": 5.5
+    },
+    {
+      "rank": 4,
+      "id": 3,
+      "text": "Decent, but the app is buggy.",
+      "score": 4.0
+    },
+    {
+      "rank": 5,
+      "id": 2,
+      "text": "Broke after two days. Waste of money.",
+      "score": 1.5
+    }
+  ]
+}

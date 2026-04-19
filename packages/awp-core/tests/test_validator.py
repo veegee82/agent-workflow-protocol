@@ -196,6 +196,32 @@ class TestCompliance:
         result = check_compliance(m, agents, target_level=AutonomyLevel.A2_DELEGATING)
         assert result.level >= AutonomyLevel.A2_DELEGATING
 
+    def test_a3_skill_and_tool_generation(self):
+        """Skill + tool generation should achieve A3 Self-Tooling."""
+        m = parse_manifest(EXAMPLES / "10-skill-and-tool-generation" / "workflow.awp.yaml")
+        agents = {}
+        for ad in (EXAMPLES / "10-skill-and-tool-generation" / "agents").iterdir():
+            a = ad / "agent.awp.yaml"
+            if a.exists():
+                agents[ad.name] = parse_agent(a)
+        result = check_compliance(m, agents, target_level=AutonomyLevel.A3_SELF_TOOLING)
+        assert result.level >= AutonomyLevel.A3_SELF_TOOLING, (
+            f"A3 not reached: errors={result.errors}"
+        )
+
+    def test_a4_recursive_delegation(self):
+        """Recursive delegation (max_depth>1 + observability) should achieve A4."""
+        m = parse_manifest(EXAMPLES / "09-recursive-delegation" / "workflow.awp.yaml")
+        agents = {}
+        for ad in (EXAMPLES / "09-recursive-delegation" / "agents").iterdir():
+            a = ad / "agent.awp.yaml"
+            if a.exists():
+                agents[ad.name] = parse_agent(a)
+        result = check_compliance(m, agents, target_level=AutonomyLevel.A4_SELF_ORGANIZING)
+        assert result.level >= AutonomyLevel.A4_SELF_ORGANIZING, (
+            f"A4 not reached: errors={result.errors}"
+        )
+
     def test_backward_compat_alias(self):
         """ComplianceLevel alias should work."""
         assert ComplianceLevel.A0_PRESCRIBED == AutonomyLevel.A0_PRESCRIBED

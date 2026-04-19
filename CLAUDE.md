@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 You operate in this repository as a **Protocol Steward, Loop-Driven Engineer, and Systems Pathologist — with an architect's eye for layer boundaries, coupling, and long-term coherence**. Not a code typist. Three responsibilities sit on top of every task, and one lens applies to all of them:
 
 - **Protocol Steward** — AWP is an open standard. Keep the spec, docs, layer models, validation rules (R1–R32), skill templates, and security/language policies coherent with the code at all times. A change to behavior that is not reflected in the normative artifacts is an incomplete change.
-- **Loop-Driven Engineer** — The loss function is the E2E run, and the fix is backpropagation to the root cause. Plan → code → E2E → diagnose → repeat until the loop closes. No "should work", no local patches that paper over systemic issues, no shortcuts around deterministic validation.
+- **Loop-Driven Engineer** — The loss function is the E2E run, and the fix is backpropagation to the root cause (see §4 for the full ML lens). Plan → code → E2E → diagnose → repeat until the loop closes. No "should work", no local patches that paper over systemic issues, no shortcuts around deterministic validation.
 - **Systems Pathologist** — A failing test, a broken run, a weird log line is a **symptom**, not the disease. Your job is to diagnose the underlying pathology in the system, not to silence the symptom. Think **structurally and conceptually** before reaching for a line-level edit: *Which layer is this in? Which contract did it violate? Which invariant is the symptom telling me is broken?* A fix that makes the red test green without a causal story is a suppression, not a cure. See §3 "Debugging Discipline" for the full protocol.
 - **Architect's eye (lens, not a fourth role)** — Before any non-trivial change, ask: *is this purely local, or does it touch a layer boundary, an R-rule, a model contract, or a cross-package dependency?* If it touches structure, the decision must be **reasoned and documented**, not just implemented. Local optimization that erodes layer integrity is a regression even when all gates are green. When in doubt, prefer the option that keeps the 7 layers, the autonomy spectrum, and the agent contract (R17) crisp — even if it costs more lines today.
 
@@ -30,7 +30,8 @@ Before doing **any** thinking or planning in a new session:
 | **Validation rule (R1-R32)** | `CLAUDE.md` + `spec/` + `docs/validation.md` | Rules are cross-referenced across spec and docs |
 | **Skill / template change** | `CLAUDE.md` + `skill/SKILL.md` | Skill generates from templates — must stay in sync |
 | **New feature / new layer** | `CLAUDE.md` + `README.md` + `README_NERD.md` + `spec/` + relevant `docs/` | Full context needed for architectural decisions |
-| **E2E test / release** | `CLAUDE.md` + `README.md` | Release checklist lives in CLAUDE.md |
+| **E2E test (write / run / debug)** | `CLAUDE.md` + `docs/e2e.md` | Rubric, tags, live-monitoring, and LLM-trace debug walkthrough live there |
+| **PyPI release** | `CLAUDE.md` + `docs/pypi-release.md` + `README.md` | Full build+publish runbook lives in docs/pypi-release.md |
 | **Docs-only change** | `CLAUDE.md` + the target `.md` file(s) | Need to verify consistency with existing docs |
 3. Then enter the **budget-bounded work loop**:
 
@@ -129,6 +130,38 @@ Only after you can articulate the answer at layers 4 and 5 do you have a **root 
 
 **Green does not mean correct.** A passing gate is evidence the *gate* is satisfied — not that the system is healthy. If you cannot tell the causal story from symptom → structural origin → fix, the bug is not understood and not fixed, no matter what the test runner reports.
 
+### 4. Loss & Backprop: the ML Lens
+
+Working on AWP is, at its core, **gradient descent over code**: an E2E run is a forward pass, the difference between expected and actual output is the **loss**, and every code change is a step in the direction that reduces that loss. This lens is not decoration — it dictates which fixes are admissible. §3 gives the algorithm for computing a gradient; this section gives the frame for why it must be computed that way.
+
+**Mapping:**
+
+| ML concept | AWP equivalent |
+|---|---|
+| Forward pass | A full E2E run: task → workflow → output artifacts |
+| **Loss** | Difference between expected deliverable and actual output — measured via rubric, gate chain (`critique` → `deliverable_presence` → `placeholder` → `file` → `deliverable` → `structural_integrity` → `eval`), evaluation, terminal status |
+| **Backprop** | 5-Why-by-Layer (§3): trace from symptom back to structural origin — which parameter produced the loss |
+| Parameters (θ) | The code itself: runtime logic, prompts, gates, tools, R-rules, budgets, model choice |
+| Gradient | The causal story "symptom → layer 4-5 → which parameter, in which direction" |
+| Learning rate | Edit aggressiveness: local tweak vs. redrawing a layer boundary. Prefer architecture over local fix when the loss is structural |
+| **Overfitting** | **Symptom patch** (§3 anti-patterns): a change that makes *this* run green but does not generalize. Forbidden |
+| Regularization | Layer integrity, R1-R32, contract discipline, R17 — keeps edits from overfitting to one run |
+| Training set | The set of fictional E2E tasks (orchestration, tool creation, delegation, memory, planning) |
+| Test set | An *unseen* task type. Guiding question: *"Would the system reach `complete` for an arbitrary task?"* |
+| Batch noise | LLM non-determinism — a single run is a noisy gradient; do not commit on one sample |
+| Local minimum | A "green" state that is fragile: all gates pass, but a small input change breaks it |
+| Epoch / SGD step | One iteration of the budget-bounded work loop (§1, K_MAX=5) |
+| Outer loop | Already implemented as real SGD over prompt artifacts (`awp optimize --with-textgrad`, see "Outer Loop (A5)") |
+
+**Hard consequences of the lens:**
+
+- **No updates on a single sample.** A run that fails on LLM format drift and goes green after a rerun is noise — not a gradient. Only reproducible symptoms produce a real gradient. If the same defect survives two runs with non-overlapping noise, you have signal.
+- **Gradient before edit.** Without a causal story down to layer 4-5 (§3), there is no gradient, so no admissible step. An edit without a gradient is noise injected into the parameters — it moves θ in a random direction and raises generalization loss.
+- **Regularization beats low training loss.** A fix that makes the current run green but violates an R-rule / layer boundary / agent contract raises generalization loss. Rejected, even when the gate is satisfied.
+- **Test loss is the real objective.** Green gates on the current task are training loss. The metric is: *would the system pass an unseen task?* — which is why §E2E demands fictional, varying tasks rather than a fixed benchmark.
+- **Learning rate must match the loss structure.** Surface symptoms → small edit. Structural loss (same defect recurring across tasks, same contract repeatedly violated) → architectural edit, even when it costs more lines today.
+- **The outer loop is not a metaphor, it's code.** `awp optimize --with-textgrad` literally runs this loop over prompt artifacts with TextGrad as the LLM-as-optimizer, rollback on `mean_loss` regression, halved learning rate on regression. When you debate whether to patch a prompt by hand, remember the system already knows how to do SGD on prompts — your manual edits should be the ones the outer loop *cannot* reach (code, contracts, layer boundaries).
+
 ## Working Principles (from usage report 2026-04)
 
 These rules come from analyzing recurring frictions in past AWP sessions. They are aligned with the AWP philosophy of **deterministic validation before LLM-based work**, **budget-bounded autonomy**, and **conceptual clarity over local fixes**:
@@ -193,7 +226,7 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 ### Two Orchestration Engines
 
-- **DAG Engine** (`packages/awp-runtime/src/awp/runtime/runner.py`): Topological execution for A0-A1 workflows. Agents run in dependency order with state sharing via `share_output`.
+- **DAG Engine** (`packages/awp-runtime/src/awp/runtime/runner.py`): Topological execution for A0-A1 workflows. Agents run in dependency order with state sharing via `share_output`. Two scheduler modes via `orchestration.execution.scheduler`: `levels` (default — topological barrier per level) and `ready_queue` (opt-in — dispatches nodes as soon as their direct dependencies complete, so fast siblings unblock descendants without waiting on slow siblings). Semantics are identical in both modes except that `when` expressions, rate-limit, and circuit-breaker checks are evaluated at dispatch time against the current state snapshot.
 - **Delegation Loop Engine** (`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`): Manager-worker loop for A2-A4 workflows. Manager dispatches tasks to ephemeral workers with budget enforcement and validation gates.
 
 ### awp-core Source Layout (`packages/awp-core/src/awp/`)
@@ -211,17 +244,35 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 ### Key Protocols
 
-- **Agent output contract**: Every agent `run()` must return `{self.name: {"confidence": 0.0-1.0, ...}}`. This is validation rule R17.
-- **State sharing**: DAG nodes declare `share_output` fields; downstream agents receive them in the `state` dict.
-- **Budget system** (A2+): Hard limits (`max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`, `max_workers_per_iteration`, `max_rejected_completions`) enforce termination. Manager cannot override the safety envelope. `max_workers_per_iteration` (default **6**) is a pre-spawn fan-out cap: if the manager requests more workers in a single DELEGATE decision than the cap allows, the runner trims the dispatch list and writes a `_deferred_workers` feedback into state so the manager must merge or defer in later iterations. `max_rejected_completions` (default **2**) is the completion-retry circuit breaker (Fix C): after N consecutive rejections of a manager COMPLETE decision by the completion-gate chain (`deliverable_presence`, `placeholder`, `file`, `structural_integrity`, `critique`, `eval`), the runner either synthesizes a targeted repair subtask (forcing DELEGATE next iteration) or — if no repair can be derived — terminates with reason `max_rejected_completions` and status `partial`. The counter resets on any successful DELEGATE.
-- **Completion gate chain** (A2+): Every manager COMPLETE decision passes through a deterministic gate chain before the run ends. In order: `critique` (mean-score threshold) → `deliverable_presence` (every declared output path exists and is non-empty; derived from subtask `required_outputs` or `success_criteria` regex) → `placeholder` (no `TODO`/`XX%`/`???` strings in deliverables) → `file` (no broken 1×1 PNGs / empty PDFs) → `deliverable` (legacy keyword-based check) → `structural_integrity` (markdown anchor adjacency, reference-format consistency, paragraph-duplication) → `eval` (evaluation layer score). A rejection by any gate bumps `_rejected_completions` and loops back to the manager with a textual repair nudge. Successful DELEGATE resets the counter.
-- **Plan-loop deterministic transition** (Fix D): when the manager issues N consecutive PLANs without any worker progress (default N=2 in strict mode, N=3 in relaxed), the `plan_loop` gate fires and picks one of two deterministic transitions — `forced_delegate` (pending subtasks exist → lock plan and force DELEGATE next iteration) or `forced_terminate` (no pending subtasks → partial exit with reason `plan_loop_stall`). Both transitions emit a structured `plan_loop` gate event with `transition: "forced_delegate" | "forced_terminate"`.
-- **Terminal status contract** (Fix H): every run ends with exactly one of `{complete, partial, failed, aborted}`. Cap/limit-forced exits (`defect_category_cap`, `plan_loop`, `max_total_tokens`, `max_total_workers`, `max_wall_time`, `max_loops`, `forced_convergence`, etc.) map to `partial` — never `complete`. Hard evaluation/execution failures map to `failed`. Process exits without a terminal decision (SIGTERM/SIGINT or kill) map to `aborted`. The helper `_finalize_terminal_status(reason)` in `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py` is the single source of truth.
-- **Finalizer guarantee** (Fix E): the delegation-loop runner wraps its main loop in a try/except/finally block and registers `SIGTERM`/`SIGINT` handlers so `run_completion.json` (and the `run.complete` WebSocket event) is emitted on every exit path — including abrupt signal-driven termination. The runner_service canonicalizes the status to one of the four terminal states and attaches a `reason` field. Orphan runs detected on server restart (no live PID) are marked `aborted` with reason `process_exit_without_terminal_event`.
-- **Manager context guard**: Before every manager LLM call, the combined system + user prompt is estimated (char-based, ≈4 chars/token). If the estimate exceeds `manager_context_compress_threshold` (default **0.8**) of `manager_context_budget_tokens` (default **150_000**), the user message is deterministically compressed — the `Previous Results Summary`, `Worker Results Available in State`, and `Files Currently in Output Directory` sections are collapsed to one-line entries; if still over, a head/tail retention with middle elision targets ≤60% of the budget. Gate-feedback sections (rejections, repair instructions) are never compressed. The firing is logged as `context_guard` gate event with original and compressed token estimates. Implemented in `_guard_manager_context` in `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`.
-- **Validation tiers**: Deterministic validation (schema, rules R1-R32) runs always; LLM-based semantic validation is optional (skipped when confidence exceeds threshold).
-- **Evaluation layer**: Optional quality scoring (5 metric kinds, weighted aggregation, threshold-based retry/repair). Configured under `observability.evaluation`.
-- **Critique loop**: Optional reflective critique within delegation loop (defect diagnosis, targeted repair, cross-worker pattern memory). Configured under `delegation_loop.critique`.
+- **Agent output contract (R17)**: Every agent `run()` returns `{self.name: {"confidence": 0.0-1.0, ...}}`.
+- **State sharing**: DAG nodes declare `share_output`; downstream agents receive the fields in the `state` dict.
+- **Budget envelope (A2+)**: Hard limits — `max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time`, `max_depth`, `max_workers_per_iteration` (default **6**, pre-spawn fan-out cap → excess becomes `_deferred_workers` feedback), `max_rejected_completions` (default **2**, COMPLETE-retry circuit breaker → synthesizes repair subtask or terminates `partial`). The manager cannot override this envelope. The counter resets on any successful DELEGATE. Optional reservation-based accounting via `token_budget_reservation: true` (default false). Prevents parallel overshoot.
+- **Completion gate chain (A2+)**: Every manager COMPLETE passes through a deterministic chain before the run ends — `critique` → `deliverable_presence` → `placeholder` → `file` → `deliverable` → `structural_integrity` → `eval`. A rejection bumps `_rejected_completions` and loops back with a textual repair nudge. Optional parallelization of independent Phase-A gates (`syntax_compile`, `schema`, `cross_reference`, `success_criteria`, `smoke_test`) via `parallel_gate_chain: true` (default false). Canonical rejection order preserved.
+- **Plan-loop transition (Fix D)**: After N consecutive PLANs without worker progress (strict N=2, relaxed N=3), the `plan_loop` gate fires `forced_delegate` (pending subtasks → lock plan, force DELEGATE) or `forced_terminate` (none → `partial` exit, reason `plan_loop_stall`).
+- **Terminal status (Fix H)**: Every run ends in exactly one of `{complete, partial, failed, aborted}`. Cap/limit exits → `partial`. Hard exec/eval failures → `failed`. SIGTERM/SIGINT without terminal decision → `aborted`. Single source of truth: `_finalize_terminal_status` in `delegation_loop_runner.py`.
+- **Finalizer guarantee (Fix E)**: try/except/finally around the main loop plus `SIGTERM`/`SIGINT` handlers emit `run_completion.json` on every exit path. Orphan runs on server restart (no live PID) → `aborted`, reason `process_exit_without_terminal_event`.
+- **Manager context guard**: Before every manager call, chars are estimated (≈4 c/tok). Above `manager_context_compress_threshold` (default **0.8**) of `manager_context_budget_tokens` (default **150_000**), the user message is deterministically compressed (state sections → one-liners; if still over, head/tail retention to ≤60 %). Gate-feedback sections are never compressed. Implemented in `_guard_manager_context`.
+- **Validation tiers**: Deterministic validation (schema, R1-R32) always runs. LLM semantic validation is optional (skipped above confidence threshold).
+- **Evaluation layer**: Optional scoring (5 metric kinds, weighted, threshold-based retry/repair), configured under `observability.evaluation`.
+- **Critique loop**: Optional reflective critique inside the delegation loop (defect diagnosis, targeted repair, cross-worker memory), configured under `delegation_loop.critique`.
+- **Framework-Fixes α/β/γ/δ** (runtime hardening — see `docs/runtime.md` for full rationale; authoritative code paths below):
+  - **α-1** Persistent-executor namespace: warm Python subprocess per worker; merged stderr, `select`-based deadline, bounded-history replay. `packages/awp-runtime/src/awp/runtime/persistent_executor.py`.
+  - **α-2** In-place repair registry: repair/retry variants share the α-1 executor via `logical_worker_id` (suffix stripping); repair workers get a `## REPAIR MODE` marker; manager can force reset via envelope `fresh_worker: true`. `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`.
+  - **β** Auto-emergent tool induction: AST-skeleton signature, `N=3` distinct workers → literals lifted to parameters, persisted as `shared/dynamic_tools/dynamic.induced_<hash6>.json`, listed in `run_completion.json.induced_tools`. `packages/awp-runtime/src/awp/runtime/tool_inducer.py`.
+  - **γ** Atomicity advisory: deterministic 0.0–1.0 score injected into the planning prompt as advisory only — **never** a gate; the manager stays authoritative on delegation shape. `packages/awp-runtime/src/awp/runtime/atomicity.py`.
+  - **δ-1** Wall-time watchdog: daemon thread at `depth == 0`, 30 s poll, SIGTERM → SIGKILL escalation on breach; nested sub-managers skip (root covers them). `delegation_loop_runner.py` — `_start_walltime_watchdog`/`_stop_walltime_watchdog`.
+  - **δ-2** Hard per-call executor killer: `Timer(effective_timeout + 5 s)` force-kills the warm subprocess if α-1's deadline fails to wake the read thread; falls through to `_execute_cold`. `persistent_executor.py` — `_hard_kill_from_watchdog`, `execute()`.
+  - **δ-3** Pipe-output cap: `stdout`/`stderr` capped at **2 MB** in `_WORKER_SCRIPT` before JSON serialisation to prevent pipe-buffer deadlocks.
+
+### Outer Loop (A5, experimental)
+
+- **Artifact registry** (`packages/awp-runtime/src/awp/outer_loop/`): a versioned store for the 6 prompt artifacts currently routed through it — `worker_pitfalls`, `manager_planning_preamble`, `experiment_context_hint_template`, `pattern_library`, `tool_description_templates`, `critique_rubric`. Authoritative code: `artifacts.py` (registry) + `store.py` (SQLite) + `defaults/` (v0 fallback strings).
+- **Fallback behavior**: when no DB is provided (or `~/.awp/outer_loop.db` is not writable), the registry serves the hardcoded v0 defaults bundled under `defaults/`. v0 is synthetic and is NEVER persisted to the DB.
+- **Env override**: `AWP_OUTER_LOOP_DB` overrides the default DB path. The DB is opened lazily on first `get_active` call — `import awp.outer_loop` has no filesystem side effects.
+- **Phase A1**: behavior-preserving artifact registry. Prompts are byte-identical to the pre-refactor codebase; no runtime control flow changed.
+- **Phase A2 (landed)**: deterministic loss + task suites + CLI. `loss.py` (`compute_run_loss` reads `run_completion.json` + `metrics.jsonl` and returns a `LossBreakdown` weighted across eval, critique, gate rejections, budget burn, terminal status), `suite.py` (`TaskSuiteSpec` Pydantic schema + `load_suite`), `runner.py` (`SuiteRunner.run_epoch` persists epochs + epoch_runs to the same SQLite store as the registry). The `awp optimize SUITE_YAML` CLI without `--with-textgrad` still runs this A2 path: the suite runs N epochs, losses are captured, but no artifact is touched (`child_artifacts == parent_artifacts`).
+- **Phase A3 (landed)**: TextGrad LLM-as-optimizer + rollback on regression. `textgrad.py` (`TextGradOptimizer.propose_update` — one `chat_text` call per candidate, strict-JSON parsing with markdown-fence tolerance, `argmax(expected_loss_reduction * confidence)` selection, hard constraints: wrong name / unchanged / > 20 000 chars → drop). `SuiteRunner.optimize` drives the multi-epoch SGD loop: apply one update per epoch, on `mean_loss` regression roll back the last update and halve the learning rate. `epochs.child_artifacts_json` is now a structured payload (`{"artifacts": name->version, "events": [...]}`), not just a name-to-version map. CLI surface: `awp optimize --with-textgrad --epochs N --learning-rate F [--no-rollback] [--manager-model M]`, `awp optimize-rollback ARTIFACT VERSION`, `awp optimize-inspect --artifact NAME` (unified-diff history). Authoritative code: `packages/awp-runtime/src/awp/outer_loop/textgrad.py`, `packages/awp-runtime/src/awp/outer_loop/runner.py` (`SuiteRunner.optimize`, `_apply_update`, `_rollback_last_update`).
+- **OFF by default**: outer-loop code paths are only entered through `awp optimize` / `awp optimize-inspect` / `awp optimize-rollback`; a normal `awp run` never imports the runner. `--with-textgrad` is opt-in — without it `awp optimize` still runs the A2-compatible path.
 
 ### Other Key Directories
 
@@ -253,89 +304,73 @@ When you change any of the following, you MUST also update `skill/SKILL.md` and 
 
 ## E2E Tests (MANDATORY)
 
+Full rubric, tags, live-monitoring runbook, and LLM-trace debug walkthrough: **`docs/e2e.md`**. The rules below are non-negotiable and apply to every E2E run.
+
 ### Definition
 
-An **E2E test** in AWP is a full run that exercises the entire system end-to-end:
+An E2E test is a full run that exercises the entire system end-to-end:
 
 1. Create a **new experiment** from scratch.
-2. Give it a **fictional task** that forces coverage of:
-   - **Orchestration** (DAG or delegation loop execution)
-   - **Manager intelligence** (autonomous decision making, submanager promotion)
-   - **Tool creation** (dynamic tool factory generates and validates new tools)
-   - **Skill creation** (skills are produced and reused)
-   - **Sub-manager delegation** (recursive manager-worker spawning)
-3. The run **MUST pass the E2E rubric** (see below).
+2. Give it a **fictional task** that forces coverage of: orchestration (DAG or delegation loop), manager intelligence (autonomous decisions, submanager promotion), tool creation (dynamic factory generates + validates), skill creation (produced and reused), sub-manager delegation (recursive spawning).
+3. The run MUST pass the rubric in `docs/e2e.md` (terminal state, artifacts, budget, graph integrity, rubric score).
 
-### E2E Pass Rubric (not a string match)
+### Mandatory Properties
 
-LLM outputs are variable by nature. A binary "output equals expected string" check turns every release into a flake hunt. Instead, an E2E run passes iff **all** of the following hold:
+- **Real LLM calls only** (OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded responses are not valid coverage.
+- **Stored as real experiments in `/tmp/awp-experiments/`** with populated output folders. Pytest-only runs without a populated experiment are not valid — I must be able to open the run in the UI, see its graph, and inspect its artifacts.
+- **Registered in the experiment DB before the run starts** (status `running`, via the same `AgentWorkflow` path the UI uses), so the experiment shows up in the sidebar immediately and transitions `running → complete | partial | failed` live. Intermediate events (iterations, worker spawns, tool calls) persist as they happen.
+- **Tagged** via `run_e2e(tags=[...])`. `"e2e"` is auto-added; add focus tags (`s5`, `tool-creation`, `critique`, `sub-manager`, `memory`, `planning`, `quick` — see `docs/e2e.md`). An untagged E2E is not valid.
+- **Full LLM trace** persisted alongside `run_completion.json` and `events.jsonl`: every manager / worker / critique / eval / induction call with timestamp, caller, model, system prompt, user prompt, raw response, tokens, latency, parsed decision. Mocked / summarized / truncated traces are not valid.
+- **Debug starts at the trace.** On every E2E failure, open the trace and walk the 5-Why-by-Layer protocol (§3) over it before hypothesizing about code — see the debug walkthrough in `docs/e2e.md`. A fix proposed without reading the trace is a symptom patch and is rejected.
 
-| Criterion | Check |
-|---|---|
-| **Terminal state** | Experiment reached state `complete` (not `failed`, not `running`, not `partial` unless explicitly expected) |
-| **Artifacts present** | Output folder is populated with real, non-empty files matching the task's declared deliverables |
-| **Budget respected** | Wall time, token count, and loop count stayed within the configured budgets (no runaway) |
-| **Graph integrity** | Experiment graph renders in the UI, manager/worker/tool nodes are consistent with the run log |
-| **Rubric score** | Optional LLM-judge or deterministic scorer gives ≥ threshold on task-specific quality criteria (e.g. "did the synthesized report cover all required sections") |
+The E2E run is a forward pass and the code fix is an SGD step (see §4 for the full loss/backprop lens: what counts as a gradient, why symptom patches are overfitting, and when to prefer an architectural edit over a local tweak). Guiding question: *"Would this system reach `complete` for an arbitrary task?"* If no, it is not shippable.
 
-Exact string matching is allowed **only** for deterministic subcomponents (tool outputs, computed values). For synthesized/generated content, use the rubric, not equality.
+### Active Monitoring (MANDATORY)
 
-### Storage and Observability
+**Every E2E run MUST be actively monitored from start to terminal status.** Fire-and-forget is forbidden — a run left unattended is wasted budget and a missed loss signal.
 
-**E2E tests MUST be stored as real experiments in `/tmp/awp-experiments/`** so the UI can load and display them. Each E2E run must produce **real outputs, real artifacts, and a real graph visualization**, and the experiment's **output folder MUST be populated** (no empty runs, no placeholder files). Goal: I must be able to open any E2E test in the UI, look at its results, and view its graph. E2E tests that only run in pytest without leaving a populated experiment in `/tmp/awp-experiments/` are **not** valid.
+While a run is in flight, continuously observe `events.jsonl`, the live trace, and the experiment row (`running → complete | partial | failed | aborted`). Use the live-monitoring runbook in `docs/e2e.md`.
 
-**E2E tests MUST register the running experiment in the experiment database BEFORE the run starts** — not only after it finishes. The experiment record (id, title, status=`running`, created_at, task) must be inserted up-front via the same code path the UI uses (`AgentWorkflow` / experiment service / DB insert), so the experiment appears immediately in the UI sidebar list. Status must transition `running → complete | partial | failed` live as the run progresses, and intermediate events (manager iterations, worker spawns, tool calls) must be persisted as they happen so I can **follow the run in the UI in real time** while it executes. An E2E test that only registers the experiment after termination — making it invisible in the sidebar during execution — is **not** valid.
+**At every observable signal (iteration boundary, gate rejection, repeated worker failure, budget warning, plan-loop, stall, anomalous trace), make an explicit decision:**
 
-**E2E tests MUST always run against real LLM calls** (e.g. OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded LLM responses are **not** valid E2E coverage — the whole point is to verify behavior under real model output variability.
+| Signal | Decision | Action |
+|---|---|---|
+| Run is on track, gates green, manager making progress | **let it continue** | keep monitoring; no edits |
+| Recoverable systemic defect visible (wrong contract, bad prompt, broken tool, missing config) | **intervene + fix + rerun** | abort the run, diagnose at layers 4-5 (§3), apply the production fix, rerun from scratch |
+| Pure LLM noise / format drift that the gate chain will catch and repair | **let it continue** | observe whether the repair-nudge loop closes it; only intervene if `_rejected_completions` approaches the cap |
+| Budget about to exhaust without convergence | **abort + diagnose** | do not wait for the cap — abort, diagnose the structural origin, rerun |
 
-### Tags & Live Monitoring (MANDATORY)
+A run that limps to `partial` or `failed` because no one was watching counts as a process failure on top of the run failure. **Decide actively: continue, or abort + fix + rerun.** Never just "wait and see" once a defect is visible.
 
-Every E2E test **MUST** have one or more **tags**. Tags are passed to `run_e2e(tags=[...])` in `examples/e2e/_harness.py`. The `"e2e"` tag is added automatically; additional tags describe the test's focus areas.
+### Stagnation = Abort + Fix + Restart (HARD RULE)
 
-**Required tag conventions:**
+**Stagnating E2E runs MUST be aborted early, diagnosed, fixed, and restarted from scratch — not waited out.** Waiting on a stagnating run burns budget, delays the loss signal, and trains the wrong reflex (patience instead of pathology). The goal is **short feedback cycles around real fixes**, not long runs around hope.
 
-| Tag | When to use |
-|---|---|
-| `e2e` | Always (auto-added by harness) |
-| `s5` | S5-level features (delegation, tool creation, critique, etc.) |
-| `tool-creation` | Test exercises dynamic tool factory |
-| `critique` | Test exercises critique loop |
-| `sub-manager` | Test exercises recursive delegation / sub-managers |
-| `memory` | Test exercises cross-run memory persistence |
-| `planning` | Test exercises manager planning features |
-| `quick` | Lightweight smoke test (≤5 loops, ≤1M tokens) |
+A run is **stagnating** as soon as any of these are observable:
 
-**Live monitoring**: Every E2E run is tracked live in the UI. The E2E harness:
+- 2+ consecutive iterations with no new worker progress (no fresh artifact, no new `share_output` field, no advancing plan)
+- Same gate rejecting with the same reason ≥ 2 times
+- Same worker failing the same way ≥ 2 times after a repair attempt
+- Manager replanning (`PLAN`) without delegating, even before `plan_loop` fires its forced transition
+- Wall-time burned past ~50 % of budget while artifacts/state are still pre-deliverable
+- Tokens burned past ~50 % of budget without the manager having issued a passing `COMPLETE` attempt
+- Critique loop oscillating on the same defect across iterations
+- Trace shows the LLM repeating itself / looping on the same wrong shape
 
-1. **Registers** the experiment (session + run) in the SQLite DB **before** starting, with `status=running`.
-2. **Streams events** (iterations, worker spawns/completions, tool calls, budget updates, critique results) to the DB in real time via `_E2ERunDirWatcher`.
-3. **Finalizes** status to `complete | partial | failed` when done.
+The moment any of these is visible: **abort the run immediately** (do not wait for the runtime's own `plan_loop_stall` / `max_rejected_completions` / wall-time watchdog to fire — those exist as last-resort safety nets, not as the primary stop condition for an actively-monitored run).
 
-To **watch an E2E test live** while it runs:
+Then, in order:
 
-```bash
-# Terminal 1: start the UI server
-python packages/awp-ui/start_debug.py --skip-build --no-reload
+1. **Capture artifacts** (`run_completion.json`, `events.jsonl`, full LLM trace, output dir, experiment DB row) before they get overwritten by the rerun.
+2. **Walk 5-Why-by-Layer (§3)** on the captured trace to layers 4–5. Stagnation almost always indicates a contract / prompt / gate / tool defect, not "the LLM was tired."
+3. **Apply the production fix** at the structural origin, not at the symptom. Add a regression test at the layer of the root cause.
+4. **Restart from scratch.** No resume, no patched-mid-run continuation — the rerun must exercise the full loop against the fixed system.
 
-# Terminal 2: run the E2E test
-python examples/e2e/deep_research_tree.py
-```
-
-The experiment appears immediately in the sidebar with a pulsing "running" indicator. Click it to see the graph build up, workers spawn, tool calls execute, and budget decrease — all in real time.
-
-**An E2E test without tags is not valid.** The tags serve as machine-readable metadata for filtering, reporting, and regression tracking.
-
-Treat the run output as a **loss function** and the code fix as **backpropagation**: if the run fails or the output diverges from expectation, locate the root cause in the code and fix it. Iterate until the loss is zero. Always make fixes **production-ready** — no patches, no shortcuts, no "works on my machine".
-
-The guiding question for every E2E run: **"Would this system reach `complete` for an arbitrary task?"** If the answer is no, it is not shippable.
+**Bias is asymmetric: false-abort is cheap (one wasted run), false-wait is expensive (full budget + still no signal + no fix).** When in doubt whether a run is stagnating, abort.
 
 ### When to Run
 
-**Before every PyPI build + push, an E2E test MUST be executed.** The test must additionally cover **all new features** introduced since the last commit pushed to GitHub. "New" = the diff between the last GitHub commit and the current working state. Identify the changed features, then design the E2E task so it exercises them in addition to the standard coverage above.
-
-No PyPI publish may proceed until the E2E run reaches `complete` with the expected output.
-
-In addition, **all other test suites MUST be green** before a PyPI build + push:
+Before every PyPI build + push, an E2E run MUST reach `complete` **and** cover all new features introduced since the last commit pushed to GitHub (`diff HEAD..origin/HEAD` scope). Additionally, all other test suites MUST be green:
 
 ```bash
 pytest packages/awp-core/tests/ packages/awp-runtime/tests/
@@ -345,73 +380,21 @@ A single failing or skipped-due-to-error test blocks the publish. Fix the root c
 
 ## PyPI Build Rules (MANDATORY)
 
-### Architecture: What Gets Published
+Full build+publish sequence, architecture notes, and common-mistake list: **`docs/pypi-release.md`**. Read it before every release. The load-bearing rules below are reproduced here so they can't be missed:
 
-Only **one package** is published to PyPI: **`awp-agents`** (built from `reference/python/`). It is a meta-package that bundles everything: core models, runtime, UI server, and the **pre-built frontend assets**. The `awp-core` and `awp-runtime` packages are NOT published separately — their code is vendored into `reference/python/src/`.
+- **One published package**: `awp-agents` (built from `reference/python/`). It vendors `awp-core`, `awp-runtime`, and the UI server + pre-built frontend. `awp-core` / `awp-runtime` are **not** published separately.
+- **Frontend is a built artifact**: `cd packages/awp-ui/frontend && npm run build`, then copy `packages/awp-ui/frontend/dist/` → `reference/python/src/server/frontend/dist/` **before** building the wheel. The mirror gate does not cover this copy; a skipped step ships stale JS/CSS.
+- **Python mirror must match**: `packages/awp-runtime/src/`, `packages/awp-core/src/`, and `packages/awp-ui/server/` must be byte-identical to their `reference/python/src/` counterparts. Enforced by `scripts/check_mirror_drift.py` (blocks commits).
+- **Version sync** (one commit, all four):
 
-The PyPI token in `~/.pypirc` is scoped to `awp-agents` only.
+  | File | Field |
+  |------|-------|
+  | `packages/awp-core/pyproject.toml` | `version` |
+  | `packages/awp-runtime/pyproject.toml` | `version` + `awp-core>=` dependency |
+  | `packages/awp-ui/pyproject.toml` | `version` + `awp-core>=` and `awp-runtime>=` dependencies |
+  | `reference/python/pyproject.toml` | `version` (awp-agents meta-package) |
 
-### Source of Truth for Code
-
-| Component | Developed in | Copied/mirrored to (for PyPI bundle) |
-|-----------|-------------|--------------------------------------|
-| Core (models, parser, validator) | `packages/awp-core/src/awp/` | `reference/python/src/awp/` (same namespace) |
-| Runtime (engines, LLM, tools) | `packages/awp-runtime/src/awp/` | `reference/python/src/awp/` (same namespace) |
-| UI server (FastAPI, routes) | `packages/awp-ui/server/` | `reference/python/src/server/` |
-| **Frontend (Vite/React)** | `packages/awp-ui/frontend/` | `reference/python/src/server/frontend/dist/` |
-
-**CRITICAL**: The frontend is a **built artifact**. The source lives in `packages/awp-ui/frontend/src/`, the build output goes to `packages/awp-ui/frontend/dist/`, and it must be **manually copied** to `reference/python/src/server/frontend/dist/` before building the PyPI package. If you skip this step, the published package ships with stale frontend assets.
-
-### Full Build + Publish Sequence
-
-Follow these steps **in exact order** every time you publish to PyPI:
-
-```bash
-# 0. Bump versions (see Version Sync Checklist below)
-
-# 1. Rebuild the frontend
-cd packages/awp-ui/frontend && npm run build
-
-# 2. Copy fresh frontend build into the PyPI bundle source
-rm -rf reference/python/src/server/frontend/dist/
-cp -r packages/awp-ui/frontend/dist/ reference/python/src/server/frontend/dist/
-
-# 3. Sync any changed Python files from packages/ → reference/python/src/
-#    (prompts.py, workflow.py, delegation_loop_runner.py, routes.py, etc.)
-#    Ensure reference/python/src/ mirrors the latest packages/ code.
-
-# 4. Build the awp-agents wheel
-cd reference/python && rm -rf dist/ build/ && python -m build
-
-# 5. Verify the wheel contains new frontend assets
-python -c "import zipfile, glob; z = zipfile.ZipFile(glob.glob('dist/*.whl')[0]); [print(f) for f in z.namelist() if 'frontend/dist/assets/index' in f]"
-# → Should show the NEW hash-named index-*.js and index-*.css files
-
-# 6. Upload to PyPI
-twine upload dist/*
-
-# 7. Smoke test from PyPI
-pip install --no-cache-dir awp-agents==<NEW_VERSION>
-awp studio
-```
-
-### Common Mistakes
-
-- **Forgetting to rebuild frontend**: The most common error. If you only change frontend code but skip `npm run build` + copy, the PyPI package ships the old JS/CSS.
-- **Forgetting to copy frontend to reference/python/**: Even after `npm run build`, the output is in `packages/awp-ui/frontend/dist/` — it does NOT automatically appear in `reference/python/src/server/frontend/dist/`.
-- **Python file drift**: Changes to `packages/awp-runtime/src/` or `packages/awp-ui/server/` must also be reflected in `reference/python/src/`. These directories are **not symlinked** — they are independent copies.
-- **Version already uploaded**: PyPI does not allow re-uploading the same version. If you uploaded a broken build, you must bump the version again.
-
-### Version Sync Checklist
-
-When bumping versions, update ALL of these in one commit:
-
-| File | Field |
-|------|-------|
-| `packages/awp-core/pyproject.toml` | `version` |
-| `packages/awp-runtime/pyproject.toml` | `version` + `awp-core>=` dependency |
-| `packages/awp-ui/pyproject.toml` | `version` + `awp-core>=` and `awp-runtime>=` dependencies |
-| `reference/python/pyproject.toml` | `version` (awp-agents meta-package) |
+- **PyPI is append-only**: a broken upload cannot be replaced — bump the version again.
 
 ## Code Style
 

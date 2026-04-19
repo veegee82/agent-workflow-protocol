@@ -1,0 +1,46 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0f172a",
+    "primaryColor": "#1e3a8a",
+    "primaryBorderColor": "#60a5fa",
+    "primaryTextColor": "#f1f5f9",
+    "secondaryColor": "#4c1d95",
+    "tertiaryColor": "#0ea5e9",
+    "lineColor": "#94a3b8",
+    "fontFamily": "Inter, system-ui, sans-serif",
+    "fontSize": "15px",
+    "clusterBkg": "#1e293b",
+    "clusterBorder": "#475569",
+    "edgeLabelBackground": "#1e293b",
+    "titleColor": "#f1f5f9",
+    "mainBkg": "#1e3a8a",
+    "labelTextColor": "#f1f5f9"
+  },
+  "flowchart": {"htmlLabels": true, "curve": "basis", "padding": 20}
+}}%%
+flowchart LR
+    subgraph SGD["<b>Classical SGD</b>"]
+        direction TB
+        X1["Batch x_b"] --> F1["forward<br/>y = f(x_b; theta_t)"]
+        F1 --> L1["loss<br/>L(y, y*)"]
+        L1 --> G1["grad<br/>dL/d theta"]
+        G1 --> U1["update<br/>theta_t+1 = theta_t - eta grad"]
+        U1 --> F1
+    end
+
+    subgraph AWP["<b>AWP Outer Loop</b>"]
+        direction TB
+        X2["task batch<br/>(3 tasks / suite)"] --> F2["forward<br/>run_e2e() with artifacts_t"]
+        F2 --> L2["loss scalar<br/>w_e(1-eval) + w_c(1-crit) + ..."]
+        L2 --> G2["text-gradient<br/>LLM proposes ArtifactUpdate"]
+        G2 --> U2["update<br/>put_version + set_active<br/>(one artifact)"]
+        U2 --> F2
+    end
+
+    SGD -. <b>analogy</b> .-> AWP
+
+    classDef sgd fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#e0f2fe;
+    classDef awp fill:#4c1d95,stroke:#c084fc,stroke-width:2px,color:#f3e8ff;
+    class X1,F1,L1,G1,U1 sgd
+    class X2,F2,L2,G2,U2 awp

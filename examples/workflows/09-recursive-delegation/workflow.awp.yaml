@@ -76,3 +76,20 @@ state:
   model: shared_dict
   sharing:
     strategy: full
+
+observability:
+  tracing:
+    enabled: true
+    export:
+      format: jsonl
+      path: data/traces
+  metrics:
+    enabled: true
+    export:
+      format: json
+      path: data/metrics
+  audit:
+    enabled: true
+    export:
+      format: jsonl
+      path: data/audit

@@ -1,0 +1,72 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0f172a",
+    "primaryColor": "#1e3a8a",
+    "primaryBorderColor": "#60a5fa",
+    "primaryTextColor": "#f1f5f9",
+    "secondaryColor": "#4c1d95",
+    "tertiaryColor": "#0ea5e9",
+    "lineColor": "#94a3b8",
+    "fontFamily": "Inter, system-ui, sans-serif",
+    "fontSize": "14px",
+    "clusterBkg": "#1e293b",
+    "clusterBorder": "#475569",
+    "edgeLabelBackground": "#1e293b",
+    "titleColor": "#f1f5f9",
+    "mainBkg": "#1e3a8a",
+    "labelTextColor": "#f1f5f9",
+    "nodeBorder": "#60a5fa"
+  },
+  "flowchart": {"htmlLabels": true, "curve": "basis", "padding": 20}
+}}%%
+flowchart TB
+    Start(["<b>awp optimize suite.yaml</b><br/>--with-textgrad --epochs N"]) --> Load["load_suite(path)<br/>TaskSuiteSpec"]
+    Load --> Init["ArtifactRegistry<br/>snapshot active versions<br/>parent_artifacts"]
+    Init --> Epoch{{"for epoch e in 1..N"}}
+
+    Epoch --> TaskLoop{{"for task t in suite.tasks"}}
+    TaskLoop --> RunWF["AgentWorkflow.run(task)<br/>AWP delegation-loop inner run"]
+    RunWF --> Complete["run_completion.json<br/>metrics.jsonl"]
+    Complete --> Loss["compute_run_loss(run_dir)<br/>scalar L_t"]
+    Loss --> Store1[("insert epoch_runs<br/>loss = L_t, scores_json")]
+    Store1 --> NextTask{"more<br/>tasks?"}
+    NextTask -- yes --> TaskLoop
+    NextTask -- no --> Mean["mean_loss_e = avg(L_t)"]
+
+    Mean --> Regression{"regression?<br/>mean_loss_e &gt; mean_loss_prev"}
+    Regression -- yes --> Rollback["rollback_to(parent_version)<br/>eta := eta / 2<br/>skip TextGrad this epoch"]
+    Regression -- no --> TG
+
+    subgraph TG["<b>TextGradOptimizer.propose_update(...)</b>"]
+        direction TB
+        Aggregate["aggregate defects<br/>from critique + eval"] --> ForCand{{"for each candidate artifact"}}
+        ForCand --> LLM["LLM call<br/>artifact + defects + eta"]
+        LLM --> Parse["parse strict JSON<br/>validate artifact name"]
+        Parse --> Rank["rank by<br/>expected_loss_reduction confidence"]
+        Rank --> Pick["argmax<br/>ArtifactUpdate | None"]
+    end
+
+    TG --> Apply{"update proposed?"}
+    Apply -- yes --> Put["put_version + set_active<br/>record event in child_artifacts_json"]
+    Apply -- no --> Continue["no-op this epoch"]
+    Put --> NextEpoch
+    Rollback --> NextEpoch
+    Continue --> NextEpoch
+
+    NextEpoch{"more<br/>epochs?"} -- yes --> Epoch
+    NextEpoch -- no --> End(["<b>print loss table</b><br/>awp optimize-inspect"])
+
+    classDef run fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#d1fae5;
+    classDef loss fill:#78350f,stroke:#fbbf24,stroke-width:2px,color:#fef3c7;
+    classDef tg fill:#4c1d95,stroke:#c084fc,stroke-width:2px,color:#f3e8ff;
+    classDef store fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe;
+    classDef guard fill:#7f1d1d,stroke:#f87171,stroke-width:2px,color:#fee2e2;
+    classDef startend fill:#1e3a8a,stroke:#60a5fa,stroke-width:3px,color:#f1f5f9;
+
+    class RunWF,Complete run
+    class Loss,Mean loss
+    class Aggregate,LLM,Parse,Rank,Pick,Put tg
+    class Store1 store
+    class Rollback,Regression guard
+    class Start,End startend

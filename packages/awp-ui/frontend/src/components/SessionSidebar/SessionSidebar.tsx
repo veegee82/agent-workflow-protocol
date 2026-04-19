@@ -27,7 +27,7 @@ interface SessionSidebarProps {
   onRenameSession: (id: string, title: string) => void;
   onOpenFolder?: (session: Session) => void;
   /** Live run status for the currently active session — drives the active row's button. */
-  activeRunStatus?: 'idle' | 'running' | 'complete' | 'error';
+  activeRunStatus?: 'idle' | 'running' | 'complete' | 'partial' | 'error';
   /** Toggle start/stop for a given session. App.tsx handles selecting + start/stop. */
   onToggleRun?: (session: Session) => void;
 }
@@ -92,11 +92,12 @@ function groupByTime(
 function groupByStatus(
   sessions: Session[],
 ): { label: string; sessions: Session[] }[] {
-  const statusOrder = ['running', 'draft', 'complete', 'failed', 'archived'];
+  const statusOrder = ['running', 'draft', 'complete', 'partial', 'failed', 'archived'];
   const statusLabels: Record<string, string> = {
     running: 'Running',
     draft: 'Draft',
     complete: 'Complete',
+    partial: 'Partial',
     failed: 'Failed',
     archived: 'Archived',
   };
@@ -122,10 +123,13 @@ function statusDotClass(status: string | null | undefined): string {
   switch (status) {
     case 'complete':
       return 'bg-awp-green';
+    case 'partial':
+      return 'bg-awp-yellow';
     case 'running':
       return 'bg-awp-blue animate-pulse';
     case 'error':
     case 'failed':
+    case 'aborted':
       return 'bg-awp-red';
     case 'stopped':
     case 'interrupted':

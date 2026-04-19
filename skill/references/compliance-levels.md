@@ -33,7 +33,7 @@
 **What it measures:** Manager agents can spawn workers dynamically via the delegation loop engine.
 **Additional requirements beyond A1:**
 - At least one manager agent with delegation enabled.
-- Budget section with `max_agents` and `max_llm_calls`.
+- Budget section with `max_loops`, `max_total_workers`, `max_total_tokens`, `max_wall_time` (and optionally `max_tool_calls`, `max_workers_per_iteration` default `6`, `max_rejected_completions` default `2`).
 - Spawned workers must conform to output contracts.
 - Delegation loop configuration with budget and worker policy.
 

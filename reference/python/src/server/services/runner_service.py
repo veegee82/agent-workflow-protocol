@@ -30,9 +30,7 @@ def _next_seq(run_id: str) -> int:
         return val
 
 
-def _make_event(
-    run_id: str, event_type: EventType, data: dict[str, Any] | None = None
-) -> RunEvent:
+def _make_event(run_id: str, event_type: EventType, data: dict[str, Any] | None = None) -> RunEvent:
     return RunEvent(
         run_id=run_id,
         seq=_next_seq(run_id),
@@ -42,7 +40,7 @@ def _make_event(
     )
 
 
-_FULL_DETAIL_RUNS = 3   # Show last N runs with full results in prompt
+_FULL_DETAIL_RUNS = 3  # Show last N runs with full results in prompt
 _MEDIUM_DETAIL_RUNS = 7  # Runs FULL+1..FULL+MEDIUM get a shorter result snippet
 _MAX_RESULT_CHARS = 2000  # Full-detail result snippet size
 _MEDIUM_RESULT_CHARS = 400  # Medium-detail result snippet size
@@ -71,8 +69,10 @@ def _task_similarity(a: str, b: str) -> float:
     Jaccard punishes that asymmetry and misses genuine reuse candidates.
     Cheap, deterministic, no embeddings. Returns 0.0 on empty input.
     """
+
     def _tokens(s: str) -> set[str]:
         import re as _re
+
         return {t for t in _re.findall(r"[A-Za-zÄÖÜäöüß]+", s.lower()) if len(t) > 3}
 
     ta, tb = _tokens(a), _tokens(b)
@@ -109,9 +109,18 @@ def _pick_reusable_artifacts(output_dir: str, limit: int = 12) -> list[str]:
         score = float(size)
         name_lower = f.name.lower()
         for keyword in (
-            "abstract", "introduction", "methodology", "draft",
-            "paper", "report", "summary", "analysis", "references",
-            "bibliography", "conclusion", "results",
+            "abstract",
+            "introduction",
+            "methodology",
+            "draft",
+            "paper",
+            "report",
+            "summary",
+            "analysis",
+            "references",
+            "bibliography",
+            "conclusion",
+            "results",
         ):
             if keyword in name_lower:
                 score *= 2.0
@@ -205,11 +214,7 @@ def _build_experiment_context(
             if sim < _REUSE_SIMILARITY_THRESHOLD:
                 continue
             result_meta = run.get("result") or {}
-            metadata = (
-                result_meta.get("metadata", {})
-                if isinstance(result_meta, dict)
-                else {}
-            )
+            metadata = result_meta.get("metadata", {}) if isinstance(result_meta, dict) else {}
             out_dir = metadata.get("output_dir", "")
             internal_rid = metadata.get("run_id", "")
             if out_dir and internal_rid:
@@ -280,16 +285,18 @@ def _build_experiment_context(
                     if candidate2.is_dir():
                         output_dir = str(candidate2)
 
-            run_pairs.append({
-                "task": history[i]["content"],
-                "result": history[i + 1]["content"],
-                "run_id": rid,
-                "timestamp": history[i].get("timestamp", ""),
-                "status": run_data.get("status", ""),
-                "model": run_data.get("model", ""),
-                "output_dir": output_dir,
-                "workspace": workspace,
-            })
+            run_pairs.append(
+                {
+                    "task": history[i]["content"],
+                    "result": history[i + 1]["content"],
+                    "run_id": rid,
+                    "timestamp": history[i].get("timestamp", ""),
+                    "status": run_data.get("status", ""),
+                    "model": run_data.get("model", ""),
+                    "output_dir": output_dir,
+                    "workspace": workspace,
+                }
+            )
             i += 2
         else:
             i += 1
@@ -313,9 +320,11 @@ def _build_experiment_context(
             result_preview = pair["result"][:_MAX_RESULT_CHARS]
             if len(pair["result"]) > _MAX_RESULT_CHARS:
                 result_preview += "\n... (truncated — full result in `_experiment_context/` files)"
-            parts.append(f"#### Run {run_num} — \"{task_preview}\"")
+            parts.append(f'#### Run {run_num} — "{task_preview}"')
             if pair.get("timestamp"):
-                parts.append(f"*{pair['timestamp']}* | model: {pair.get('model', '?')} | status: {pair.get('status', '?')}")
+                parts.append(
+                    f"*{pair['timestamp']}* | model: {pair.get('model', '?')} | status: {pair.get('status', '?')}"
+                )
             parts.append(f"\n**Result:**\n{result_preview}\n")
 
             # List output artifacts from this run
@@ -337,7 +346,7 @@ def _build_experiment_context(
                 if len(pair["result"]) > _MEDIUM_RESULT_CHARS:
                     snippet += "…"
                 parts.append(
-                    f"- Run {run_num}: \"{pair['task'][:120]}\" — "
+                    f'- Run {run_num}: "{pair["task"][:120]}" — '
                     f"{pair.get('status', '?')} — {snippet}"
                 )
 
@@ -345,7 +354,7 @@ def _build_experiment_context(
             parts.append("\n### Earlier Runs (summary)\n")
             for idx, pair in enumerate(older):
                 run_num = total - _FULL_DETAIL_RUNS - _MEDIUM_DETAIL_RUNS - idx
-                parts.append(f"- Run {run_num}: \"{pair['task'][:80]}\" — {pair.get('status', '?')}")
+                parts.append(f'- Run {run_num}: "{pair["task"][:80]}" — {pair.get("status", "?")}')
 
     parts.append("")
 
@@ -395,26 +404,26 @@ def _build_experiment_context(
                 dynamic_tools_dir = legacy_dt
 
     if dynamic_tools_dir and dynamic_tools_dir.is_dir():
-            tool_files = sorted(dynamic_tools_dir.glob("*.json"))
-            if tool_files:
-                parts.append("### Available Dynamic Tools from Previous Runs\n")
-                parts.append(
-                    "These tools were created in previous runs and are **automatically "
-                    "available** to workers in the current run. Workers can call them "
-                    "directly without recreating them.\n"
-                )
-                for tf in tool_files[:30]:
-                    try:
-                        tool_data = json.loads(tf.read_text(encoding="utf-8"))
-                        fqn = tool_data.get("fqn", tf.stem)
-                        desc = tool_data.get("description", "")[:120]
-                        creator = tool_data.get("provenance", {}).get("creator_agent", "")
-                        parts.append(f"- **`{fqn}`**: {desc}")
-                        if creator:
-                            parts.append(f"  (created by: {creator})")
-                    except (json.JSONDecodeError, OSError):
-                        parts.append(f"- `{tf.stem}`")
-                parts.append("")
+        tool_files = sorted(dynamic_tools_dir.glob("*.json"))
+        if tool_files:
+            parts.append("### Available Dynamic Tools from Previous Runs\n")
+            parts.append(
+                "These tools were created in previous runs and are **automatically "
+                "available** to workers in the current run. Workers can call them "
+                "directly without recreating them.\n"
+            )
+            for tf in tool_files[:30]:
+                try:
+                    tool_data = json.loads(tf.read_text(encoding="utf-8"))
+                    fqn = tool_data.get("fqn", tf.stem)
+                    desc = tool_data.get("description", "")[:120]
+                    creator = tool_data.get("provenance", {}).get("creator_agent", "")
+                    parts.append(f"- **`{fqn}`**: {desc}")
+                    if creator:
+                        parts.append(f"  (created by: {creator})")
+                except (json.JSONDecodeError, OSError):
+                    parts.append(f"- `{tf.stem}`")
+            parts.append("")
 
     # List persisted skills from the skill registry
     skills_dir: Path | None = None
@@ -430,28 +439,28 @@ def _build_experiment_context(
                 skills_dir = legacy_sk
 
     if skills_dir and skills_dir.is_dir():
-            skill_files = sorted(skills_dir.glob("*.md"))
-            if skill_files:
-                parts.append("### Available Skills (from previous runs)\n")
-                parts.append(
-                    "These skills are persisted in `workspace/skills/` and automatically "
-                    "loaded by name when referenced in a worker's `skills` array. The "
-                    "manager can also update them by providing new content with the same heading.\n"
-                )
-                for sf in skill_files[:30]:
-                    try:
-                        content = sf.read_text(encoding="utf-8")
-                        # Extract first non-empty line as description
-                        desc = ""
-                        for line in content.splitlines():
-                            line = line.strip()
-                            if line and not line.startswith("#"):
-                                desc = line[:150]
-                                break
-                        parts.append(f"- **`{sf.stem}`**: {desc}" if desc else f"- **`{sf.stem}`**")
-                    except OSError:
-                        parts.append(f"- **`{sf.stem}`**")
-                parts.append("")
+        skill_files = sorted(skills_dir.glob("*.md"))
+        if skill_files:
+            parts.append("### Available Skills (from previous runs)\n")
+            parts.append(
+                "These skills are persisted in `workspace/skills/` and automatically "
+                "loaded by name when referenced in a worker's `skills` array. The "
+                "manager can also update them by providing new content with the same heading.\n"
+            )
+            for sf in skill_files[:30]:
+                try:
+                    content = sf.read_text(encoding="utf-8")
+                    # Extract first non-empty line as description
+                    desc = ""
+                    for line in content.splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            desc = line[:150]
+                            break
+                    parts.append(f"- **`{sf.stem}`**: {desc}" if desc else f"- **`{sf.stem}`**")
+                except OSError:
+                    parts.append(f"- **`{sf.stem}`**")
+            parts.append("")
 
     prompt_context = "\n".join(parts)
 
@@ -462,7 +471,8 @@ def _build_experiment_context(
     if len(prompt_context) > _MAX_CONTEXT_CHARS:
         logger.warning(
             "experiment_context %d chars exceeds cap %d — collapsing to summary",
-            len(prompt_context), _MAX_CONTEXT_CHARS,
+            len(prompt_context),
+            _MAX_CONTEXT_CHARS,
         )
         summary = [
             f"## Experiment: {session.get('title', '?')}",
@@ -473,9 +483,7 @@ def _build_experiment_context(
         ]
         for idx, pair in enumerate(reversed(run_pairs)):
             run_num = len(run_pairs) - idx
-            summary.append(
-                f"- Run {run_num}: \"{pair['task'][:100]}\" — {pair.get('status', '?')}"
-            )
+            summary.append(f'- Run {run_num}: "{pair["task"][:100]}" — {pair.get("status", "?")}')
         prompt_context = "\n".join(summary)
 
     # ── Approach 2: Build state files dict ───────────────────────────
@@ -518,7 +526,9 @@ def _build_experiment_context(
     brief_parts.append(f"## Runs ({len(run_pairs)} total)\n")
     for idx, pair in enumerate(run_pairs):
         brief_parts.append(f"### Run {idx + 1}: {pair['task'][:120]}")
-        brief_parts.append(f"*Model: {pair.get('model', '?')} | Status: {pair.get('status', '?')}*\n")
+        brief_parts.append(
+            f"*Model: {pair.get('model', '?')} | Status: {pair.get('status', '?')}*\n"
+        )
         brief_parts.append(f"{pair['result']}\n")
         if pair.get("output_dir"):
             artifacts = _list_output_artifacts(pair["output_dir"])
@@ -549,9 +559,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
     os.replace(tmp, path)
 
 
-def _write_experiment_state_files(
-    workspace_dir: Path, state_files: dict[str, Any]
-) -> None:
+def _write_experiment_state_files(workspace_dir: Path, state_files: dict[str, Any]) -> None:
     """Write experiment state files to the workspace for worker access."""
     ctx_dir = workspace_dir / "workspace" / "_experiment_context"
     ctx_dir.mkdir(parents=True, exist_ok=True)
@@ -599,8 +607,7 @@ def _write_experiment_state_files(
                     if artifacts:
                         (prior_outputs_dir / f"run_{num:03d}_files.txt").write_text(
                             f"# Output files from run {num}\n"
-                            f"# Directory: {output_dir}\n\n"
-                            + "\n".join(artifacts),
+                            f"# Directory: {output_dir}\n\n" + "\n".join(artifacts),
                             encoding="utf-8",
                         )
 
@@ -683,6 +690,7 @@ def _setup_run_isolation(
                         await store.close()
 
                 import asyncio
+
                 asyncio.run(_delete_old_runs())
             except Exception as exc:
                 logger.warning("Failed to delete old DB runs: %s", exc)
@@ -732,6 +740,7 @@ def _setup_run_isolation(
 
         # Symlinks not supported — copy instead (one-time)
         import shutil as _sh
+
         try:
             _sh.copytree(str(target), str(link))
         except Exception:
@@ -756,6 +765,9 @@ class _RunDirWatcher:
         self._run_id = run_id
         self._workspace_dir = workspace_dir
         self._seen_files: set[str] = set()
+        # Per-JSONL-file byte offsets so append-only streams (metrics.jsonl)
+        # can be tailed incrementally without reprocessing existing lines.
+        self._jsonl_offsets: dict[str, int] = {}
         self._stop = threading.Event()
         self._pinned_run_dir: Path | None = None
         # Snapshot existing run directories at init time so _find_run_dir
@@ -763,9 +775,7 @@ class _RunDirWatcher:
         # experiment) from the new directory created by the current run.
         runs_dir = self._workspace_dir / "workspace" / "runs"
         if runs_dir.exists():
-            self._pre_existing_dirs = {
-                d.name for d in runs_dir.iterdir() if d.is_dir()
-            }
+            self._pre_existing_dirs = {d.name for d in runs_dir.iterdir() if d.is_dir()}
         else:
             self._pre_existing_dirs: set[str] = set()
 
@@ -791,11 +801,7 @@ class _RunDirWatcher:
         # started.  This prevents pinning to a stale run directory from
         # a previous experiment run that shares the same workspace.
         candidates = sorted(
-            [
-                d
-                for d in runs_dir.iterdir()
-                if d.is_dir() and d.name not in self._pre_existing_dirs
-            ],
+            [d for d in runs_dir.iterdir() if d.is_dir() and d.name not in self._pre_existing_dirs],
             key=lambda d: d.name,
         )
         if candidates:
@@ -851,6 +857,12 @@ class _RunDirWatcher:
 
     def _process_file(self, path: Path, rel: str) -> None:
         """Translate a newly-observed file into one or more events."""
+        # Append-only JSONL streams (metrics.jsonl) are tailed incrementally
+        # — we read only bytes past the previously-seen offset so repeated
+        # scans don't re-emit the same entries.
+        if rel.endswith(".jsonl"):
+            self._process_jsonl_tail(path, rel)
+            return
         if rel in self._seen_files:
             return
         self._seen_files.add(rel)
@@ -882,8 +894,7 @@ class _RunDirWatcher:
                                 "model": models.get("manager", "?"),
                                 "models": models,
                                 "task": data.get("task", ""),
-                                **{k: v for k, v in data.items()
-                                   if k not in ("models", "task")},
+                                **{k: v for k, v in data.items() if k not in ("models", "task")},
                             },
                         ),
                     )
@@ -924,11 +935,13 @@ class _RunDirWatcher:
                 delegation_summaries = []
                 for d in delegations if isinstance(delegations, list) else []:
                     if isinstance(d, dict):
-                        delegation_summaries.append({
-                            "worker": d.get("worker_id", d.get("id", "?")),
-                            "task": str(d.get("instructions", d.get("task", "")))[:200],
-                            "tools": d.get("tools_allowed", []),
-                        })
+                        delegation_summaries.append(
+                            {
+                                "worker": d.get("worker_id", d.get("id", "?")),
+                                "task": str(d.get("instructions", d.get("task", "")))[:200],
+                                "tools": d.get("tools_allowed", []),
+                            }
+                        )
                 event_bus.emit_threadsafe(
                     self._run_id,
                     _make_event(
@@ -1002,9 +1015,9 @@ class _RunDirWatcher:
                             "parent_id": parent_worker_id,
                             "instructions": str(data.get("instructions", "")),
                             "tools_allowed": data.get("tools_allowed", []),
-                            "skills": [
-                                str(s)[:200] for s in data.get("skills", [])
-                            ] if data.get("skills") else [],
+                            "skills": [str(s)[:200] for s in data.get("skills", [])]
+                            if data.get("skills")
+                            else [],
                             "code_mode": data.get("tool_config", {}).get(
                                 "code_mode", data.get("code_mode")
                             ),
@@ -1036,9 +1049,10 @@ class _RunDirWatcher:
                     "has_error": bool(data.get("error")),
                     "result": findings,
                     "tools_created": [
-                        t if isinstance(t, str) else t.get("name", "?")
-                        for t in tools_created
-                    ] if isinstance(tools_created, list) else [],
+                        t if isinstance(t, str) else t.get("name", "?") for t in tools_created
+                    ]
+                    if isinstance(tools_created, list)
+                    else [],
                 }
                 # Include eval scores if present
                 if data.get("_eval_score") is not None:
@@ -1100,9 +1114,19 @@ class _RunDirWatcher:
                                     "call_index": i,
                                     "tool": tc.get("tool", "unknown"),
                                     "arguments": tc.get("arguments", tc.get("args", {})),
-                                    "ok": result_data.get("ok", True) if isinstance(result_data, dict) else True,
-                                    "output": str(result_data.get("output", result_data.get("stdout", "")))[:1000] if isinstance(result_data, dict) else str(result)[:1000],
-                                    "error": str(result_data.get("error", result_data.get("stderr", "")))[:500] if isinstance(result_data, dict) else None,
+                                    "ok": result_data.get("ok", True)
+                                    if isinstance(result_data, dict)
+                                    else True,
+                                    "output": str(
+                                        result_data.get("output", result_data.get("stdout", ""))
+                                    )[:1000]
+                                    if isinstance(result_data, dict)
+                                    else str(result)[:1000],
+                                    "error": str(
+                                        result_data.get("error", result_data.get("stderr", ""))
+                                    )[:500]
+                                    if isinstance(result_data, dict)
+                                    else None,
                                 },
                             ),
                         )
@@ -1178,6 +1202,69 @@ class _RunDirWatcher:
                     _make_event(self._run_id, EventType.RUN_COMPLETE, data),
                 )
 
+    # ------------------------------------------------------------------
+    # JSONL tail processing (metrics.jsonl and future append-only streams)
+    # ------------------------------------------------------------------
+
+    _METRIC_EVENT_TYPES: dict[str, EventType] = {
+        "metric.confidence": EventType.METRIC_CONFIDENCE,
+        "metric.critique": EventType.METRIC_CRITIQUE,
+        "metric.eval": EventType.METRIC_EVAL,
+        "metric.budget": EventType.METRIC_BUDGET,
+        "metric.gate": EventType.METRIC_GATE,
+        "metric.tool_call": EventType.METRIC_TOOL_CALL,
+    }
+
+    def _process_jsonl_tail(self, path: Path, rel: str) -> None:
+        """Read new lines from an append-only JSONL file and emit events.
+
+        Tracks byte offsets per file so only lines appended since the
+        previous scan are processed. Currently only ``metrics.jsonl`` is
+        handled — unknown JSONL files are ignored.
+        """
+        base = Path(rel).name
+        if base != "metrics.jsonl":
+            return
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return
+        prev = self._jsonl_offsets.get(rel, 0)
+        if size <= prev:
+            return
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(prev)
+                chunk = fh.read(size - prev)
+        except OSError:
+            return
+        # Advance offset only by the last newline we fully consumed so a
+        # half-written line is re-read next pass.
+        last_nl = chunk.rfind(b"\n")
+        if last_nl < 0:
+            return
+        self._jsonl_offsets[rel] = prev + last_nl + 1
+        lines = chunk[: last_nl + 1].decode("utf-8", errors="replace").splitlines()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            kind = entry.get("kind")
+            event_type = self._METRIC_EVENT_TYPES.get(str(kind))
+            if event_type is None:
+                continue
+            data = {k: v for k, v in entry.items() if k not in ("kind",)}
+            event_bus.emit_threadsafe(
+                self._run_id,
+                _make_event(self._run_id, event_type, data),
+            )
+
     def watch(self) -> None:
         """Poll the run directory until stop() is called or completion is detected."""
         while not self._stop.is_set():
@@ -1200,7 +1287,7 @@ class _RunDirWatcher:
         """
         try:
             all_paths: list[tuple[str, Path]] = []
-            for pattern in ("*.json", "*.md"):
+            for pattern in ("*.json", "*.md", "metrics.jsonl"):
                 for path in run_dir.rglob(pattern):
                     try:
                         rel = str(path.relative_to(run_dir))
@@ -1331,7 +1418,8 @@ class RunnerService:
                 )
             except Exception:
                 logger.warning(
-                    "stop_run: failed to write stop sentinel for %s", run_id,
+                    "stop_run: failed to write stop sentinel for %s",
+                    run_id,
                     exc_info=True,
                 )
         # Phase 3 (pragmatic): abort in-flight LLM HTTP calls so the worker
@@ -1345,24 +1433,26 @@ class RunnerService:
         # active one, so concurrent runs are not disturbed.
         with _active_lock:
             active_count = sum(
-                1 for i in _active_runs.values()
-                if i.get("thread") and i["thread"].is_alive()
+                1 for i in _active_runs.values() if i.get("thread") and i["thread"].is_alive()
             )
         if active_count <= 1:
             try:
                 from awp.runtime.llm import LLMClient
+
                 aborted = LLMClient.close_all()
                 if aborted:
                     logger.info(
                         "stop_run: aborted %d in-flight LLM client(s) for %s",
-                        aborted, run_id,
+                        aborted,
+                        run_id,
                     )
             except Exception:
                 logger.debug("stop_run: LLMClient.close_all failed", exc_info=True)
         else:
             logger.info(
                 "stop_run: %d concurrent runs active — relying on sentinel only "
-                "(LLM abort skipped to not disturb other runs)", active_count,
+                "(LLM abort skipped to not disturb other runs)",
+                active_count,
             )
         return True
 
@@ -1373,7 +1463,9 @@ class RunnerService:
                 return False
             return info["thread"].is_alive()
 
-    def _run_workflow(self, run_id: str, config: dict[str, Any], session_id: str | None = None) -> None:
+    def _run_workflow(
+        self, run_id: str, config: dict[str, Any], session_id: str | None = None
+    ) -> None:
         """Execute the workflow synchronously in a background thread."""
         from server.services.store import StoreService
 
@@ -1384,9 +1476,7 @@ class RunnerService:
         safe_config = dict(config)
         safe_config.pop("api_key", None)
         if "secrets" in safe_config:
-            safe_config["secrets"] = {
-                k: "***" for k in safe_config["secrets"]
-            }
+            safe_config["secrets"] = {k: "***" for k in safe_config["secrets"]}
         event_bus.emit_threadsafe(
             run_id,
             _make_event(run_id, EventType.RUN_START, {"run_id": run_id, **safe_config}),
@@ -1420,29 +1510,27 @@ class RunnerService:
 
                 # Determine which key name this model needs
                 import re
+
                 if model_lower.startswith("ollama/") or model_lower.startswith("localhost"):
                     # Local Ollama – no key needed, set dummy to skip validation
                     wf_kwargs["api_key"] = "ollama-local"
                 elif re.match(r"^(gpt-|o[0-9]|dall-e|text-|tts-|whisper)", model_lower):
                     # Direct OpenAI model
                     preferred_key = "OPENAI_API_KEY"
-                    wf_kwargs["api_key"] = (
-                        secrets_dict.get(preferred_key, "")
-                        or os.environ.get(preferred_key, "")
+                    wf_kwargs["api_key"] = secrets_dict.get(preferred_key, "") or os.environ.get(
+                        preferred_key, ""
                     )
                 elif model_lower.startswith("claude-"):
                     # Direct Anthropic model
                     preferred_key = "ANTHROPIC_API_KEY"
-                    wf_kwargs["api_key"] = (
-                        secrets_dict.get(preferred_key, "")
-                        or os.environ.get(preferred_key, "")
+                    wf_kwargs["api_key"] = secrets_dict.get(preferred_key, "") or os.environ.get(
+                        preferred_key, ""
                     )
                 else:
                     # provider/model format → OpenRouter
                     preferred_key = "OPENROUTER_API_KEY"
-                    wf_kwargs["api_key"] = (
-                        secrets_dict.get(preferred_key, "")
-                        or os.environ.get(preferred_key, "")
+                    wf_kwargs["api_key"] = secrets_dict.get(preferred_key, "") or os.environ.get(
+                        preferred_key, ""
                     )
 
                 # Fallback: try any *_API_KEY from secrets
@@ -1479,14 +1567,8 @@ class RunnerService:
             # Inject experiment context from previous runs (if in a session)
             if session_id:
                 try:
-                    current_task = (
-                        wf_kwargs.get("task")
-                        or config.get("task")
-                        or ""
-                    )
-                    ctx, files = _build_experiment_context(
-                        session_id, current_task=current_task
-                    )
+                    current_task = wf_kwargs.get("task") or config.get("task") or ""
+                    ctx, files = _build_experiment_context(session_id, current_task=current_task)
                     if ctx:
                         wf_kwargs["experiment_context"] = ctx
                     if files:
@@ -1503,12 +1585,18 @@ class RunnerService:
                     store = StoreService()
                     await store.init_db()
                     try:
-                        early = {"metadata": {"workspace": str(workspace_dir), "output_dir": str(output_dir)}}
+                        early = {
+                            "metadata": {
+                                "workspace": str(workspace_dir),
+                                "output_dir": str(output_dir),
+                            }
+                        }
                         await store.update_run(run_id, result=early)
                     finally:
                         await store.close()
 
                 import asyncio
+
                 asyncio.run(_write_early_meta())
             except Exception as exc:
                 logger.debug("Failed to write early metadata: %s", exc)
@@ -1567,17 +1655,14 @@ class RunnerService:
 
         except ImportError as exc:
             logger.error(
-                "AWP runtime not installed: %s. "
-                "Install with: pip install -e packages/awp-runtime/",
+                "AWP runtime not installed: %s. Install with: pip install -e packages/awp-runtime/",
                 exc,
             )
             status = "failed"
             result = {"error": f"AWP runtime not available: {exc}"}
             event_bus.emit_threadsafe(
                 run_id,
-                _make_event(
-                    run_id, EventType.ERROR, {"message": str(exc)}
-                ),
+                _make_event(run_id, EventType.ERROR, {"message": str(exc)}),
             )
 
         except Exception as exc:
@@ -1586,9 +1671,7 @@ class RunnerService:
             result = {"error": str(exc)}
             event_bus.emit_threadsafe(
                 run_id,
-                _make_event(
-                    run_id, EventType.ERROR, {"message": str(exc)}
-                ),
+                _make_event(run_id, EventType.ERROR, {"message": str(exc)}),
             )
 
         finally:
@@ -1601,9 +1684,11 @@ class RunnerService:
             # already stamped a terminal_status on the result, trust it.
             canon_reason = ""
             if isinstance(result, dict):
-                dl = result.get("delegation_loop") if isinstance(
-                    result.get("delegation_loop"), dict
-                ) else None
+                dl = (
+                    result.get("delegation_loop")
+                    if isinstance(result.get("delegation_loop"), dict)
+                    else None
+                )
                 if dl and dl.get("_terminal_status"):
                     status = dl["_terminal_status"]
                     canon_reason = str(dl.get("_terminal_reason") or "")
@@ -1636,8 +1721,7 @@ class RunnerService:
                     {
                         "status": status,
                         "reason": canon_reason
-                        or ("process_exit_without_terminal_event"
-                            if status == "aborted" else ""),
+                        or ("process_exit_without_terminal_event" if status == "aborted" else ""),
                         "result": result,
                     },
                 ),
@@ -1656,9 +1740,7 @@ class RunnerService:
                         loop,
                     ).result(timeout=30)
             except Exception:
-                logger.warning(
-                    "Failed to persist result for run %s", run_id, exc_info=True
-                )
+                logger.warning("Failed to persist result for run %s", run_id, exc_info=True)
 
             # Cleanup active runs
             with _active_lock:
@@ -1684,7 +1766,9 @@ class RunnerService:
         try:
             existing = await store.get_run(run_id)
             existing_status = (
-                existing.get("status") if isinstance(existing, dict) else getattr(existing, "status", None)
+                existing.get("status")
+                if isinstance(existing, dict)
+                else getattr(existing, "status", None)
             )
             if existing_status == "stopped":
                 await store.update_run(run_id, result=result)
@@ -1783,6 +1867,7 @@ class RunnerService:
         try:
             import inspect
             from awp.data.workflow import AgentWorkflow as _AW
+
             _sig = inspect.signature(_AW.__init__)
             _supported = set(_sig.parameters.keys())
             for key in _mi_keys:
@@ -1830,6 +1915,7 @@ class RunnerService:
             try:
                 import inspect as _ins
                 from awp.data.workflow import AgentWorkflow as _AW2
+
                 if "extra_config" in _ins.signature(_AW2.__init__).parameters:
                     kwargs["extra_config"] = config["extra_config"]
             except Exception:

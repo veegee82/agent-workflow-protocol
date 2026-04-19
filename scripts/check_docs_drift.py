@@ -39,11 +39,23 @@ PATH_RE = re.compile(r"`([A-Za-z0-9_./\-]+)`")
 SKIP_PREFIXES = (
     "http://", "https://", "sk-", "gpt-", "o1-", "o3",
     "claude-", "ollama/", "openai/", "anthropic/", "provider/",
+    # Model slugs for default worker model mentioned in CLAUDE.md.
+    "deepseek/",
 )
+
+# Tokens that look like paths but are really Python/code syntax shorthand.
+SKIP_PATH_TOKENS = frozenset({
+    "try/except",
+    "try/finally",
+    "and/or",
+    "if/else",
+})
 
 
 def is_path_like(token: str) -> bool:
     if "/" not in token:
+        return False
+    if token in SKIP_PATH_TOKENS:
         return False
     if token.startswith(SKIP_PREFIXES):
         return False

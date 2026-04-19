@@ -428,3 +428,102 @@ orchestration:
 8. Fan-out instances MUST be isolated: each instance receives its own copy of the relevant state.
 9. Fan-in MUST NOT proceed until all fan-out instances have completed (or timed out).
 10. Subworkflow execution MUST be atomic: either all agents in the subworkflow succeed, or the subworkflow fails as a unit.
+
+---
+
+## 10. Delegation-Loop Runtime Contract
+
+The DAG engine is the only *declarative* orchestration engine defined in this
+version of the specification. Autonomy levels A2-A4 additionally rely on a
+**delegation-loop runtime** in which a manager agent dynamically dispatches
+ephemeral workers inside a safety envelope (see compliance.md §2.3-2.5).
+This section defines the runtime behavior a conforming implementation MUST
+guarantee once a delegation loop is active. It does not introduce new
+workflow-manifest fields.
+
+### 10.1 Persistent Code-Execution Namespace
+
+A conforming runtime SHOULD provide a **warm code-execution context** per
+worker: multiple `code.execute` calls issued by the same worker SHOULD
+share a single Python namespace, so that imports, variables, and helper
+functions defined in an earlier call remain visible in later calls of the
+same worker.
+
+- The runtime MUST enforce the per-call timeout even if the child process
+  produces no output; a blocked child MUST NOT cause the worker call to
+  hang past its deadline.
+- The runtime MUST NOT allow the child process's `stderr` stream to
+  deadlock the parent on a full pipe. Merging `stderr` into `stdout` at
+  the pipe level is the RECOMMENDED mechanism.
+- If the warm context dies, the runtime SHOULD spawn a replacement and
+  MAY silently replay a bounded recorded history so the caller observes a
+  warm namespace. Timed-out calls MUST NOT be replayed.
+- If the warm context cannot be maintained, the runtime MUST fall back to
+  a cold-start execution that preserves the `code.execute` contract
+  (return object shape, timeout semantics) but MAY drop the namespace
+  invariant.
+
+### 10.2 In-Place Repair via Logical Worker Identity
+
+A conforming runtime MUST treat a dispatched worker id as having a
+*logical* component for the purpose of executor continuity. The logical
+id is obtained by stripping well-known repair / retry suffixes
+(`_repair`, `_retry`, `_vN`, `_strict`, `_final`, `_runN`, `_subtask_N`)
+from the worker id to a fixpoint, case-insensitively.
+
+- When a worker with a logical id that already ran in this session is
+  re-dispatched, the runtime SHOULD re-enter the prior worker's
+  code-execution context so namespace, imports, and helper functions
+  defined by the earlier attempt are still live.
+- When re-entering, the runtime SHOULD inform the worker via its system
+  prompt that this is a repair / continuation pass, so the LLM does not
+  attempt to re-hydrate state from scratch.
+- The manager MAY opt out of re-entry by setting the envelope field
+  `fresh_worker: true`. When set, the runtime MUST retire the prior
+  executor for that logical id and spawn a new one. `fresh_worker` is an
+  envelope-level signal; it is NOT a workflow-manifest configuration
+  knob.
+- The runtime MUST release all per-worker executors during the terminal
+  finalizer, regardless of the run's terminal status.
+
+### 10.3 Observational Tool Induction
+
+A conforming runtime MUST record every `code.execute` call issued during
+a run when `dynamic_tools.enabled: true` (see 02-capabilities.md §9) so
+that post-hoc pattern induction is possible.
+
+- The runtime SHOULD compute a structural signature over each recorded
+  call that is invariant under changes to literal values and identifier
+  names (e.g. an AST skeleton with literals replaced by a placeholder
+  token and identifiers renamed by first-occurrence index).
+- When the same signature has been observed from `N >= 3` **distinct**
+  worker ids within a single run, the runtime SHOULD synthesize a
+  generalized MCP tool whose varying literal slots are lifted to
+  parameters, register it via the `DynamicToolFactory`, and persist it
+  under `shared/dynamic_tools/` so subsequent workers discover it via
+  `tool.list`.
+- The induced tool MUST satisfy rules DT1-DT8 defined in
+  02-capabilities.md §9.9.
+- Induction MUST NOT reject, rewrite, or delay the observed
+  `code.execute` call. If the signature's varying slots cannot be
+  cleanly parameterized, the runtime MUST skip synthesis and record an
+  informational log entry rather than emit a broken tool.
+- Every induced tool MUST appear in `run_completion.json.induced_tools`.
+
+### 10.4 Atomicity Advisory
+
+A conforming runtime MAY compute a deterministic atomicity score on the
+closed interval `[0.0, 1.0]` for each pending subtask in the manager's
+task plan, derived from description features such as action-keyword
+density, composition-keyword density, required-output count, explicit
+step count, and description length.
+
+- When computed, the score MUST be surfaced to the manager solely as an
+  advisory signal (e.g. an informational line in the planning prompt).
+- The runtime MUST NOT use the atomicity score to block, override, or
+  auto-promote a manager delegation decision. The manager remains the
+  authority on delegation shape at autonomy levels A3 and A4; violating
+  this invariant compromises the autonomy contract of compliance.md
+  §2.4-2.5.
+- The score MAY be recorded in observability artifacts for tuning and
+  post-hoc analysis.

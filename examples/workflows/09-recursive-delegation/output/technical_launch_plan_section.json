@@ -1,0 +1,40 @@
+{
+  "section_text": "The 6U weather-monitoring cubesat requires comprehensive technical integration with the launch vehicle deployer system. Mechanical interfaces must comply with P-POD Mk III specifications, including maximum dimensions of 10x20x30cm and mass limit of 14kg (with 10kg allocated for our payload). The center of gravity must remain within \u00b12cm of the geometric center in all axes to ensure stable separation dynamics. Electrical interfaces include a separation switch circuit (28V nominal, 100mA max) and umbilical connector for pre-launch power and telemetry. The satellite must withstand qualification-level vibration (14.1 Grms random, 10-2000Hz) and shock (1500g, 0.5ms) per NASA GEVS standards. Thermal constraints during launch require survival from -40\u00b0C to +85\u00b0C with non-operational margins. Early orbit operations demand reliable S-band communications (437MHz downlink, 2Mbps) within 4 hours of separation, with ADCS achieving sun-pointing mode within 12 hours. Payload commissioning involves a 48-hour thermal stabilization period followed by radiometer calibration sequences. Ground segment interfaces require TCP/IP over SSH for command/control and CCSDS File Delivery Protocol for data downlink. Critical schedule milestones include protoflight environmental testing completion 12 weeks before launch, flight software baseline freeze 8 weeks out, and final integration review 4 weeks prior.",
+  "assumptions": [
+    "P-POD Mk III deployer compatibility (most common 6U standard)",
+    "Launch from US-based provider requiring FCC licensing",
+    "S-band communications with 2Mbps downlink capability",
+    "3-axis ADCS with sun sensor and magnetometer-based pointing",
+    "Passive thermal control with heaters for survival heating",
+    "LEO sun-synchronous orbit at 600-800km altitude"
+  ],
+  "critical_interface_requirements": [
+    "Mechanical: P-POD dimensional compliance (100x200x340.5mm max) - ensures fit within deployer",
+    "Mass properties: Total mass \u226414kg with CG within 20mm of geometric center - critical for separation stability",
+    "Electrical: Separation switch interface (28V \u00b14V, <100mA) - enables clean deployment signal",
+    "Thermal: Survival temperature range -40\u00b0C to +85\u00b0C - protects components during launch/ascent",
+    "Structural: Vibration qualification to 14.1 Grms random vibration - validates launch environment survival",
+    "RF: S-band frequency coordination and out-of-band emissions compliance - prevents interference with launch vehicle",
+    "Data: CCSDS packetization and command protocol compatibility - enables ground station interoperability",
+    "Power: Umbilical interface for pre-launch power (28V, 2A max) - supports integration testing"
+  ],
+  "test_and_verification_plan_outline": [
+    "Protoflight vibration testing: 14.1 Grms random, 10-2000Hz (3 weeks duration)",
+    "Shock testing: 1500g peak, 0.5ms half-sine (1 week)",
+    "Thermal vacuum cycling: -40\u00b0C to +85\u00b0C, 4 cycles (4 weeks)",
+    "RF compatibility testing: S-band TX/RX, out-of-band emissions (2 weeks)",
+    "Deployer fit check and separation spring force verification (1 week)",
+    "Functional testing in thermal vacuum with payload operating (2 weeks)",
+    "EMC/EMI testing per MIL-STD-461G (2 weeks)",
+    "End-to-end communications test with ground station (1 week)"
+  ],
+  "risks_and_mitigations": [
+    "Risk: Thermal control margin insufficient for radiometer operation. Mitigation: Add redundant heater circuits and optimize radiator surface finish",
+    "Risk: RF interference between S-band transmitter and microwave payload. Mitigation: Frequency separation, shielding, and filtered power supplies",
+    "Risk: ADCS pointing accuracy inadequate for weather monitoring. Mitigation: Redundant sun sensors, extended calibration sequence",
+    "Risk: Vibration-induced connector failures. Mitigation: Additional strain relief, connector locking mechanisms",
+    "Risk: Power system latch-up during launch. Mitigation: Radiation-hardened components, watchdog timers"
+  ],
+  "key_action_item": "Initiate procurement of long-lead ADCS components immediately due to 16-week lead time and critical path impact on integration schedule.",
+  "confidence": 0.85
+}

@@ -91,11 +91,32 @@ List files in a directory.
 
 Execute a shell command in a sandboxed environment.
 
+> **Restricted.** `shell.execute` is in the delegation loop's default `forbidden_tools` list. Workers MUST NOT receive it via `tools_allowed`; it will be silently removed by the runtime. Use `code.execute` for Python execution or `terminal.execute` for sudo-free shell access.
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `command` | string | Yes | -- | Command to execute |
 | `timeout` | integer | No | 30 | Timeout in seconds |
 | `cwd` | string | No | null | Working directory |
+
+### `terminal.execute`
+
+Sudo-free shell execution. Rejects any command containing `sudo`, `pkexec`, or `doas`. Use instead of `shell.execute` when an agent needs terminal access without privilege escalation.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `command` | string | Yes | -- | Command (no sudo/pkexec/doas) |
+| `timeout` | integer | No | 30 | Timeout in seconds |
+| `cwd` | string | No | null | Working directory |
+
+### `code.execute`
+
+Execute a Python snippet in a sandbox subprocess with an auto-injected preamble (`json`, `pathlib`, `re`, `math`, `datetime` pre-imported; `_workspace_dir`, `_output_dir`, `_secrets`, `_ensure_dir()`, `_output_file()`, `_input_file()`, `_list_files()`, `_verify_png()` pre-bound). Each call is a fresh subprocess — pass state via files under `_workspace_dir`. This is the default code execution tool for delegation-loop workers and replaces `shell.execute`.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `code` | string | Yes | -- | Python snippet (no `import os`, `subprocess`, `sys`, `ctypes`, `importlib`, `signal`, `multiprocessing`) |
+| `timeout` | integer | No | 60 | Timeout in seconds |
 
 ---
 
@@ -165,6 +186,62 @@ Trigger LLM-based curation: extract stable facts from daily logs into MEMORY.md.
 
 ---
 
+## Delegation Loop Runtime Tools (auto-injected, A2+)
+
+These tools are automatically injected into every worker's tool surface by the delegation-loop runner when the corresponding feature flag is enabled. Workers do NOT need to list them in `tools_allowed`.
+
+### `board.post` — sibling blackboard append (auto-injected when `delegation_loop.blackboard_enabled: true`, default `true`)
+
+Append an entry to the run-scoped append-only JSONL blackboard at `<workspace>/blackboard/<manager_run_id>.jsonl`. Siblings in the SAME manager run see each other's signals.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `topic` | string | Yes | -- | Topic identifier (e.g., "dead_end", "finding") |
+| `payload` | object | Yes | -- | JSON-serialisable payload |
+
+### `board.read` — sibling blackboard read (auto-injected)
+
+Read entries from the same run-scoped blackboard.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `topic` | string | No | null | Filter by topic |
+| `since` | integer | No | null | Return only entries after this sequence number |
+
+### `digest.fetch` — hierarchical context digest lookup (auto-injected when `delegation_loop.digest_enabled: true`, default `true`)
+
+Fetch a per-level digest record by SHA from the current manager run's `DigestStore`. Used by workers to access digest layers deeper than `digest_max_depth` that are not inlined in the prompt. Cross-run access is refused.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `sha` | string | Yes | -- | Content-addressed digest SHA |
+
+---
+
+## Dynamic Tool Creation Meta-Tool (A3)
+
+### `dynamic.create_tool`
+
+Create a new MCP tool at runtime. Requires `capabilities.codemode.tool_creation: true` on the calling agent AND `dynamic_tools.enabled: true` in `workflow.awp.yaml` (R26). The `name` MUST use an approved `allowed_namespaces` prefix (R25).
+
+Preferred modes — `reuse_or_generate`:
+- `reuse` — bind to an existing `pattern_id` from the seeded pattern table.
+- `synthesize` — deterministic archetype instantiation. Set `archetype_id` ∈ {`compute`, `fetch`, `parse`, `transform`, `render`, `probe`} and `recipe_params`. Recipes that succeed are auto-captured under `~/.awp/recipes/` (Quarantined → Probationary → Trusted).
+- `generate` — last-resort free-form codegen. Requires an `assumptions` list.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | `<namespace>.<action>`, namespace MUST be in `dynamic_tools.allowed_namespaces` |
+| `description` | string | Yes | One-line purpose |
+| `parameters` | object | Yes | JSON Schema object for inputs |
+| `code` | string | Conditional | Required for `generate`; optional for `synthesize` when the archetype skeleton is complete |
+| `archetype_id` | string | Conditional | Required for `synthesize` |
+| `recipe_params` | object | Conditional | Required for `synthesize` |
+| `pattern_id` | string | Conditional | Required for `reuse` |
+| `required_secrets` | array | No | Secret keys injected as `_secrets` dict in the sandbox |
+
+---
+
 ## Arithmetic Tools
 
 ### `arithmetic.add` / `arithmetic.subtract` / `arithmetic.multiply` / `arithmetic.divide`
@@ -180,6 +257,6 @@ Basic arithmetic operations.
 
 ## Reserved Namespaces
 
-The following namespaces are reserved for built-in tools. Custom tools MUST NOT use these namespaces (R15):
+The following namespaces are reserved for built-in tools. Custom tools and dynamically-created tools MUST NOT use these namespaces (R25):
 
-`web`, `http`, `file`, `shell`, `agent`, `memory`, `arithmetic`, `numpy`, `matplot`, `pandas`, `doc`, `sklearn`
+`web`, `http`, `file`, `shell`, `terminal`, `code`, `agent`, `memory`, `arithmetic`, `numpy`, `matplot`, `pandas`, `doc`, `sklearn`, `board`, `digest`, `dynamic`

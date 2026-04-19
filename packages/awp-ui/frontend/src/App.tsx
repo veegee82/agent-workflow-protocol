@@ -29,6 +29,7 @@ import {
   WifiOff,
   CircleDot,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Loader2,
   Key,
@@ -62,6 +63,8 @@ import { SecretsPanel } from '@/components/SecretsPanel/SecretsPanel';
 import { GraphVisPanel } from '@/components/AgentGraph/GraphVisPanel';
 import { RegistrySidebar } from '@/components/AgentGraph/RegistrySidebar';
 import { RunSelector } from '@/components/RunSelector/RunSelector';
+import { MetricsPanel } from '@/components/MetricsPanel/MetricsPanel';
+import { OptimizerPanel } from '@/components/OptimizerPanel/OptimizerPanel';
 
 // ---------------------------------------------------------------------------
 // Code block with syntax highlighting
@@ -177,7 +180,11 @@ function statusVariant(status: string) {
       return 'blue' as const;
     case 'complete':
       return 'green' as const;
+    case 'partial':
+      return 'yellow' as const;
     case 'error':
+    case 'failed':
+    case 'aborted':
       return 'red' as const;
     default:
       return 'default' as const;
@@ -190,7 +197,11 @@ function statusIcon(status: string) {
       return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
     case 'complete':
       return <CheckCircle2 className="h-3.5 w-3.5" />;
+    case 'partial':
+      return <AlertTriangle className="h-3.5 w-3.5" />;
     case 'error':
+    case 'failed':
+    case 'aborted':
       return <AlertCircle className="h-3.5 w-3.5" />;
     default:
       return <CircleDot className="h-3.5 w-3.5" />;
@@ -226,6 +237,7 @@ function TopBar() {
     { id: 'graphvis' as const, label: 'Graph Vis', icon: <Network className="h-4 w-4" /> },
     { id: 'memory' as const, label: 'Memory', icon: <BookOpen className="h-4 w-4" /> },
     { id: 'history' as const, label: 'History', icon: <History className="h-4 w-4" /> },
+    { id: 'optimizer' as const, label: 'Optimizer', icon: <FlaskConical className="h-4 w-4" /> },
   ];
 
   const tokensPercent = budget.tokens_max > 0 ? budget.tokens_used / budget.tokens_max : 0;
@@ -991,6 +1003,7 @@ function ProtocolPanel() {
     draft: 'text-awp-muted border-awp-border',
     running: 'text-awp-blue border-awp-blue/50',
     complete: 'text-awp-green border-awp-green/50',
+    partial: 'text-awp-yellow border-awp-yellow/50',
     failed: 'text-awp-red border-awp-red/50',
     archived: 'text-awp-muted border-awp-muted/50',
   };
@@ -1028,6 +1041,7 @@ function ProtocolPanel() {
           <option value="draft">Draft</option>
           <option value="running">Running</option>
           <option value="complete">Complete</option>
+          <option value="partial">Partial</option>
           <option value="failed">Failed</option>
           <option value="archived">Archived</option>
         </select>
@@ -1165,6 +1179,9 @@ function ProtocolPanel() {
           </div>
         </div>
       </div>
+
+      {/* Metrics — live observability charts (confidence, critique, eval, budget) */}
+      <MetricsPanel />
 
       {/* Stats */}
       <div className="rounded-lg border border-awp-border bg-awp-bg p-4">
@@ -3077,6 +3094,7 @@ export function App() {
             <div className={`absolute inset-0 ${activePanel === 'graphvis' ? '' : 'hidden'}`}><GraphVisPanel /></div>
             <div className={`absolute inset-0 ${activePanel === 'memory' ? '' : 'hidden'}`}><MemoryPanel /></div>
             <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'hidden'}`}><HistoryPanel /></div>
+            <div className={`absolute inset-0 ${activePanel === 'optimizer' ? '' : 'hidden'}`}><OptimizerPanel /></div>
           </main>
           <TaskInputBar />
         </div>

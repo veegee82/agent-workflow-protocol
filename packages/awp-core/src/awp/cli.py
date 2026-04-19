@@ -94,7 +94,12 @@ def main(argv: list[str] | None = None) -> int:
     p_studio.add_argument(
         "--auto-update",
         action="store_true",
-        help="Automatically upgrade awp-agents from PyPI at startup (default: off)",
+        help="Accepted for backwards compatibility (auto-update is now the default)",
+    )
+    p_studio.add_argument(
+        "--no-auto-update",
+        action="store_true",
+        help="Skip the PyPI upgrade at startup (default: auto-update on)",
     )
 
     # run
@@ -136,6 +141,91 @@ def main(argv: list[str] | None = None) -> int:
         "--run-id", help="Run ID to view (default: latest)"
     )
 
+    # optimize (outer loop, Phase A3 — TextGrad opt-in via --with-textgrad)
+    p_opt = subparsers.add_parser(
+        "optimize",
+        help="Run a task suite and (optionally) apply TextGrad artifact updates",
+    )
+    p_opt.add_argument("suite", help="Path to a *.suite.yaml file")
+    p_opt.add_argument(
+        "--epochs",
+        type=int,
+        default=1,
+        help="Number of epochs to run (A3: TextGrad proposes one update per epoch)",
+    )
+    p_opt.add_argument(
+        "--output-dir",
+        default=None,
+        help="Where to place per-task workspaces (default: ~/.awp/outer_loop_runs/<suite>/)",
+    )
+    p_opt.add_argument(
+        "--learning-rate",
+        type=float,
+        default=0.5,
+        help="TextGrad learning rate (0..1). Halved on each regression rollback.",
+    )
+    p_opt.add_argument(
+        "--with-textgrad",
+        action="store_true",
+        default=False,
+        help="Enable TextGrad artifact optimisation between epochs (opt-in, A3).",
+    )
+    p_opt.add_argument(
+        "--no-rollback",
+        action="store_true",
+        default=False,
+        help="Disable automatic rollback when mean_loss regresses (A3).",
+    )
+    p_opt.add_argument(
+        "--manager-model",
+        default=None,
+        help="Model to use for the TextGrad optimizer (default: $LLM_MODEL or openai/gpt-5-mini).",
+    )
+    p_opt.add_argument(
+        "--db",
+        default=None,
+        help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
+    )
+
+    # optimize-inspect (read-only view of past epochs or artifact versions)
+    p_opt_inspect = subparsers.add_parser(
+        "optimize-inspect",
+        help="Inspect epochs for a suite OR the version history of an artifact",
+    )
+    p_opt_inspect.add_argument(
+        "suite_id_or_name",
+        nargs="?",
+        default=None,
+        help="Suite id (uuid) or name. If omitted, lists all suites.",
+    )
+    p_opt_inspect.add_argument(
+        "--artifact",
+        default=None,
+        help="Artifact name — print its version history with unified diffs.",
+    )
+    p_opt_inspect.add_argument(
+        "--db",
+        default=None,
+        help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
+    )
+
+    # optimize-rollback (manual rollback of an artifact's active version)
+    p_opt_rollback = subparsers.add_parser(
+        "optimize-rollback",
+        help="Roll back an artifact to a prior version (outer loop, A3)",
+    )
+    p_opt_rollback.add_argument("artifact_name", help="Name of the artifact")
+    p_opt_rollback.add_argument(
+        "version",
+        type=int,
+        help="Version to roll back to (0 clears the DB active pointer)",
+    )
+    p_opt_rollback.add_argument(
+        "--db",
+        default=None,
+        help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
+    )
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -161,6 +251,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_run(args)
         elif args.command == "eval":
             return cmd_eval(args)
+        elif args.command == "optimize":
+            return cmd_optimize(args)
+        elif args.command == "optimize-inspect":
+            return cmd_optimize_inspect(args)
+        elif args.command == "optimize-rollback":
+            return cmd_optimize_rollback(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -497,12 +593,10 @@ def cmd_studio(args: argparse.Namespace) -> int:
     """Launch AWP Workflow Studio (browser-based UI)."""
     import socket
 
-    # --- Pre-flight: auto-update from PyPI (opt-in) ---
-    if getattr(args, "auto_update", False) and not getattr(args, "dev", False):
+    # --- Pre-flight: auto-update from PyPI (default: on; skip with --no-auto-update or --dev) ---
+    if not getattr(args, "dev", False) and not getattr(args, "no_auto_update", False):
         print("  Checking for updates...")
         _auto_update_awp()
-    elif not getattr(args, "dev", False):
-        _check_for_update_hint()
 
     # --- Pre-flight: add awp-ui/server to path if running from source ---
     # When running `python -m awp studio` from a dev checkout, the awp-ui
@@ -2707,6 +2801,306 @@ def _budget_wizard(runner: "WorkflowRunner") -> None:
         print()
         print(f"  ✓ Updated: {', '.join(changes)}")
     print()
+
+
+# ---------------------------------------------------------------------------
+# awp optimize / awp optimize-inspect — Outer Loop (Phase A2)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_outer_loop_db(arg_db: str | None) -> str:
+    """Resolve the outer-loop SQLite DB path.
+
+    Precedence: ``--db`` arg > ``$AWP_OUTER_LOOP_DB`` > ``~/.awp/outer_loop.db``.
+    """
+    import os as _os
+
+    if arg_db:
+        return arg_db
+    env = _os.environ.get("AWP_OUTER_LOOP_DB")
+    if env:
+        return env
+    return str(Path.home() / ".awp" / "outer_loop.db")
+
+
+def _format_loss_table(epoch_result) -> str:
+    """Render an :class:`EpochResult` as the canonical fixed-width table."""
+    rows = epoch_result.as_table_rows()
+    header = (
+        f"Epoch {epoch_result.epoch_num} — Suite: {epoch_result.suite_name}"
+    )
+    sep = "─" * 75
+    cols = f"{'Task':<18}{'Status':<12}{'Loss':<9}{'Eval':<8}{'Critique':<10}{'Rejections':<10}"
+    lines = [header, sep, cols, sep]
+    for r in rows:
+        lines.append(
+            f"{str(r['task'])[:17]:<18}"
+            f"{str(r['status'])[:11]:<12}"
+            f"{r['loss']:<9.4f}"
+            f"{r['eval']:<8.3f}"
+            f"{r['critique']:<10.3f}"
+            f"{r['rejections']:<10d}"
+        )
+    lines.append(sep)
+    if epoch_result.mean_loss is not None:
+        lines.append(f"Mean loss: {epoch_result.mean_loss:.4f}")
+    else:
+        lines.append("Mean loss: n/a")
+    return "\n".join(lines)
+
+
+def cmd_optimize(args: argparse.Namespace) -> int:
+    """Run a task suite per-epoch; with ``--with-textgrad`` apply updates (A3)."""
+    # Lazy imports — `awp optimize` lives in awp-core but the implementation
+    # is in awp-runtime; both share the ``awp.*`` namespace.
+    from awp.outer_loop import (  # type: ignore[import-not-found]
+        ArtifactRegistry,
+        SuiteRunner,
+        TextGradOptimizer,
+        load_suite,
+    )
+    from awp.outer_loop.store import SqliteArtifactStore  # type: ignore[import-not-found]
+
+    suite_path = Path(args.suite)
+    suite = load_suite(suite_path)
+
+    db_path = _resolve_outer_loop_db(args.db)
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    registry = ArtifactRegistry(db_path=db_path)
+    store = SqliteArtifactStore(db_path)
+    runner = SuiteRunner(registry=registry, store=store)
+
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else None
+    epochs = max(1, int(args.epochs))
+    with_textgrad = bool(getattr(args, "with_textgrad", False))
+    rollback_on_regression = not bool(getattr(args, "no_rollback", False))
+    learning_rate = float(getattr(args, "learning_rate", 0.5))
+
+    if with_textgrad:
+        # Lazy-import LLMClient to keep `awp optimize` dependency-free when
+        # --with-textgrad is not passed (the ArtifactRegistry path has no
+        # httpx/requests dependency by itself).
+        from awp.runtime.llm import LLMClient  # type: ignore[import-not-found]
+
+        import os as _os
+
+        manager_model = (
+            getattr(args, "manager_model", None)
+            or _os.environ.get("LLM_MODEL")
+            or "openai/gpt-5-mini"
+        )
+        try:
+            llm_client = LLMClient(model=manager_model)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[error] Could not initialise LLMClient for --with-textgrad: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        optimizer = TextGradOptimizer(llm_client=llm_client, registry=registry)
+        results = runner.optimize(
+            suite,
+            n_epochs=epochs,
+            learning_rate=learning_rate,
+            optimizer=optimizer,
+            output_dir=output_dir,
+            rollback_on_regression=rollback_on_regression,
+        )
+    else:
+        # A2-compatible path: same suite run N times, no artifact updates.
+        # We deliberately do NOT go through `runner.optimize()` with
+        # ``optimizer=None`` because that would still rewrite
+        # ``child_artifacts_json`` to the richer A3 envelope and surprise
+        # callers that parse the A2 format.
+        parent_artifacts: dict[str, int] = {}
+        for name in registry.list_artifacts():
+            baseline = suite.baseline_artifacts.get(name)
+            if baseline is not None:
+                parent_artifacts[name] = int(baseline)
+            else:
+                parent_artifacts[name] = registry.get_active(name).version
+        if learning_rate != 0.5:
+            print(
+                f"[note] --learning-rate={learning_rate} accepted but ignored "
+                "(no --with-textgrad — no artifact updates).",
+                file=sys.stderr,
+            )
+        results = []
+        for epoch_num in range(1, epochs + 1):
+            epoch_out = (
+                output_dir / f"epoch_{epoch_num}" if output_dir is not None else None
+            )
+            result = runner.run_epoch(
+                suite,
+                epoch_num=epoch_num,
+                parent_artifacts=parent_artifacts,
+                output_dir=epoch_out,
+            )
+            results.append(result)
+
+    for i, result in enumerate(results):
+        print(_format_loss_table(result))
+        if i < len(results) - 1:
+            print()
+
+    if not results:
+        return 1
+    return 0
+
+
+def cmd_optimize_inspect(args: argparse.Namespace) -> int:
+    """Print the epoch history for a suite (or a single artifact's versions)."""
+    from awp.outer_loop.store import SqliteArtifactStore  # type: ignore[import-not-found]
+
+    db_path = _resolve_outer_loop_db(args.db)
+    if not Path(db_path).exists():
+        print(f"No outer-loop DB found at {db_path}", file=sys.stderr)
+        return 1
+    store = SqliteArtifactStore(db_path)
+
+    # --- Artifact history mode (Phase A3) --------------------------------
+    artifact_name = getattr(args, "artifact", None)
+    if artifact_name:
+        return _inspect_artifact_history(db_path, artifact_name)
+
+    target = args.suite_id_or_name
+    if target is None:
+        # List every known suite.
+        with store._lock:  # type: ignore[attr-defined]
+            cur = store._conn.execute(  # type: ignore[attr-defined]
+                "SELECT id, name, created_at FROM task_suites ORDER BY created_at DESC"
+            )
+            rows = cur.fetchall()
+        if not rows:
+            print("No suites recorded yet.")
+            return 0
+        print(f"{'Suite ID':<38}  {'Name':<30}  Created")
+        print("-" * 90)
+        for r in rows:
+            print(f"{r['id']:<38}  {str(r['name'])[:29]:<30}  {r['created_at']}")
+        return 0
+
+    suite_row = store.get_task_suite(target) or store.find_task_suite_by_name(target)
+    if suite_row is None:
+        print(f"No suite matching {target!r}", file=sys.stderr)
+        return 1
+
+    epochs = store.list_epochs(suite_row["id"])
+    print(f"Suite: {suite_row['name']} ({suite_row['id']})")
+    print(f"Created: {suite_row['created_at']}")
+    print(f"Epochs:  {len(epochs)}")
+    print()
+    for ep in epochs:
+        ep_runs = store.list_epoch_runs(ep["id"])
+        mean = ep["mean_loss"]
+        mean_s = f"{mean:.4f}" if isinstance(mean, (int, float)) else "n/a"
+        print(
+            f"Epoch {ep['epoch_num']} — id={ep['id']} — "
+            f"started={ep['started_at']} — mean_loss={mean_s}"
+        )
+        sep = "─" * 75
+        print(sep)
+        print(f"{'Task':<18}{'Run ID':<38}{'Loss':<9}")
+        print(sep)
+        for run in ep_runs:
+            loss = run["loss"]
+            loss_s = f"{loss:.4f}" if isinstance(loss, (int, float)) else "n/a"
+            print(
+                f"{str(run['task_name'])[:17]:<18}"
+                f"{str(run['run_id'])[:37]:<38}"
+                f"{loss_s:<9}"
+            )
+        print(sep)
+        print()
+    return 0
+
+
+def _inspect_artifact_history(db_path: str, artifact_name: str) -> int:
+    """Print the full version history for one artifact with unified diffs."""
+    import difflib
+
+    from awp.outer_loop import ArtifactRegistry  # type: ignore[import-not-found]
+
+    registry = ArtifactRegistry(db_path=db_path)
+    try:
+        versions = registry.list_versions(artifact_name)
+    except KeyError:
+        print(f"Unknown artifact: {artifact_name!r}", file=sys.stderr)
+        return 1
+    try:
+        active = registry.get_active(artifact_name)
+    except KeyError:
+        active = None
+
+    print(f"Artifact: {artifact_name}")
+    print(f"Versions: {len(versions)}")
+    active_v = active.version if active is not None else None
+    print(f"Active:   v{active_v if active_v is not None else 'n/a'}")
+    print()
+    for i, v in enumerate(versions):
+        marker = "  (ACTIVE)" if active_v is not None and v.version == active_v else ""
+        header = (
+            f"── v{v.version}{marker}  "
+            f"parent=v{v.parent_version if v.parent_version is not None else '-'}  "
+            f"created_at={v.created_at}  "
+            f"epoch_id={v.epoch_id or '-'}"
+        )
+        print(header)
+        if i == 0:
+            # First version — just show a content preview.
+            preview = v.content[:400]
+            suffix = "..." if len(v.content) > 400 else ""
+            print(preview + suffix)
+        else:
+            prev = versions[i - 1]
+            diff = difflib.unified_diff(
+                prev.content.splitlines(keepends=False),
+                v.content.splitlines(keepends=False),
+                fromfile=f"v{prev.version}",
+                tofile=f"v{v.version}",
+                lineterm="",
+                n=2,
+            )
+            diff_text = "\n".join(diff)
+            if not diff_text.strip():
+                print("(no textual change)")
+            else:
+                print(diff_text)
+        print()
+    return 0
+
+
+def cmd_optimize_rollback(args: argparse.Namespace) -> int:
+    """Manually roll back an artifact to a prior version (A3)."""
+    from awp.outer_loop import ArtifactRegistry  # type: ignore[import-not-found]
+
+    db_path = _resolve_outer_loop_db(args.db)
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    registry = ArtifactRegistry(db_path=db_path)
+
+    try:
+        before = registry.get_active(args.artifact_name)
+    except KeyError:
+        print(
+            f"Unknown artifact: {args.artifact_name!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        registry.rollback_to(args.artifact_name, int(args.version))
+    except KeyError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    after = registry.get_active(args.artifact_name)
+    print(f"Artifact: {args.artifact_name}")
+    print(f"Active before: v{before.version}")
+    print(f"Active after:  v{after.version}")
+    return 0
 
 
 def _check_awp_on_path() -> None:

@@ -1,0 +1,1045 @@
+{
+  "consolidated_summary": "This launch plan outlines a comprehensive approach for deploying a 6U weather-monitoring cubesat targeting a 500 km sun-synchronous orbit with 2-year operational lifetime. The mission employs a microwave radiometer payload complemented by visible/IR imagers for atmospheric profiling and cloud cover analysis. Technically, the spacecraft features 3-axis stabilized ADCS, S/X-band communications, and deployable solar arrays generating 60W average power, with rigorous testing including mechanical fit checks, EMC/EMI, vibration, and thermal vacuum protocols. Logistically, critical long-lead procurements include ADCS (14-week lead) and hyperspectral imager (16-week lead), requiring immediate action with ITAR clearance. Transport involves temperature-controlled shipping to Cape Canaveral with comprehensive insurance coverage. Regulatory compliance must address national licensing, ITU frequency coordination, export controls, and debris mitigation planning, with filings typically requiring 6-12 month lead times. The integrated approach ensures technical readiness, supply chain stability, and regulatory compliance for successful mission execution.",
+  "key_action_items": {
+    "regulatory": "Immediately initiate FCC license application and ITU frequency coordination filing, as these regulatory processes have 6-12 month lead times and must be completed before launch vehicle integration.",
+    "technical": "Immediately procure P-POD Mk III interface fixture and conduct first mechanical fit check with engineering model structure to validate mechanical design and identify any clearance issues before CDR. This gates all subsequent structural fabrication and is the highest schedule risk item.",
+    "logistics": "Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments."
+  },
+  "cross_dependencies": [
+    "FCC license approval must precede frequency coordination filing with ITU (regulatory dependency)",
+    "P-POD mechanical compatibility validation gates all structural fabrication (technical dependency)",
+    "ADCS procurement completion (14 weeks) gates integration and testing schedule (logistics-technical dependency)",
+    "ITAR clearance for hyperspectral imager (4-6 weeks) gates international component shipments (regulatory-logistics dependency)",
+    "Launch provider safety review completion required before range access approval (regulatory dependency)",
+    "Final mass properties measurement required for launch vehicle interface compliance (technical-logistics dependency)"
+  ],
+  "combined_risks": [
+    "Regulatory: FCC/ITU filing delays (6-12 month lead time) - Mitigation: Engage specialized space law firm for expedited processing",
+    "Technical: RF interference between X-band downlink and radiometer - Mitigation: Early EMC testing with 200 MHz guard band and time-domain scheduling",
+    "Logistics: ITAR clearance delays for critical components - Mitigation: Dual-source procurement and expedited DSP-5 filing with customs broker",
+    "Technical: Thermal control of radiometer focal plane - Mitigation: Early TVAC testing with 2x design margin and redundant sensors",
+    "Logistics: Customs clearance delays at launch site - Mitigation: Pre-arrange Carnet ATA and temporary import bonds",
+    "Regulatory: Debris mitigation compliance verification - Mitigation: Early submission of orbital lifetime analysis and drag sail deployment plan"
+  ],
+  "annexes": {
+    "regulatory_section": {
+      "status": "INCOMPLETE - Worker failed with error: peer closed connection without sending complete message body",
+      "expected_fields": [
+        "regulatory_summary",
+        "required_filings",
+        "responsible_parties",
+        "timeline",
+        "risks_and_mitigations",
+        "key_action"
+      ],
+      "instructions": "Cover national license/authorization, frequency coordination/ITU filings, export controls, launch range requirements, debris mitigation, insurance requirements"
+    },
+    "technical_section": {
+      "technical_summary": "The 6U weather-monitoring cubesat employs a microwave radiometer payload for atmospheric moisture and temperature profiling, complemented by visible/IR imagers for cloud cover analysis. The mission targets a 500 km sun-synchronous orbit with 2-year operational lifetime. The spacecraft uses a 3-axis stabilized ADCS with reaction wheels and magnetorquers, S-band uplink/X-band downlink communications, and deployable solar arrays generating 60W average power. Key technical drivers include thermal management of the radiometer focal plane, RF interference mitigation between payload and bus systems, and strict mass/CG constraints for P-POD compatibility. The design emphasizes protoflight qualification to minimize schedule risk.",
+      "system_specifications": {
+        "mass": {
+          "total": "8.5 kg (max 10 kg for P-POD)",
+          "bus": "4.2 kg",
+          "payload": "3.8 kg",
+          "margin": "0.5 kg (5.9%)"
+        },
+        "volume": {
+          "external": "100 mm \u00d7 200 mm \u00d7 340 mm (6U)",
+          "internal_allocated": "Bus: 3.5U, Payload: 2.5U",
+          "deployables": "2\u00d7 0.5U solar panels (stowed)"
+        },
+        "power": {
+          "generation": "60W average (80W peak), triple-junction GaAs cells",
+          "storage": "40 Wh Li-ion battery",
+          "consumption": {
+            "payload": "25W (operational), 5W (standby)",
+            "bus": "20W (normal), 35W (peak during comms)",
+            "margin": "15%"
+          }
+        },
+        "payload_summary": {
+          "primary": "Multichannel microwave radiometer (23.8, 31.4, 50.3, 52.8, 53.6, 54.4, 54.9, 55.5, 57.3 GHz)",
+          "secondary": "Visible/IR imager (0.4-1.1 \u03bcm, 1.6-2.2 \u03bcm)",
+          "data_rate": "50 Mbps peak (X-band downlink)",
+          "thermal_control": "Passive radiators + thermoelectric cooler for focal plane (< -40\u00b0C)"
+        },
+        "comms": {
+          "uplink": "S-band, 9.6 kbps command rate",
+          "downlink": "X-band, 50 Mbps peak (5 Mbps average)",
+          "antennas": "2\u00d7 deployable patch antennas (S-band), 1\u00d7 horn antenna (X-band)",
+          "modulation": "QPSK with convolutional coding"
+        },
+        "adcs": {
+          "type": "3-axis stabilized, reaction wheels (4\u00d7 10 mNms) + magnetorquers",
+          "sensors": "Star tracker (0.01\u00b0 accuracy), MEMS gyros, magnetometer, sun sensors",
+          "pointing": "\u00b10.1\u00b0 knowledge, \u00b10.5\u00b0 control (payload), \u00b12\u00b0 (bus)",
+          "detumbling": "B-dot controller for initial acquisition"
+        },
+        "propulsion": {
+          "type": "None (passive deorbit via drag sail)",
+          "deorbit": "25 m\u00b2 drag sail (deploys at EOL25 year deorbit compliance"
+        },
+        "onboard_computer": {
+          "processor": "Rad-hard LEON3-FT, 100 MHz",
+          "memory": "2 GB flash, 256 MB RAM",
+          "redundancy": "Dual cold-spare OBC"
+        }
+      },
+      "integration_and_test_plan": {
+        "test_articles": {
+          "engineering_model": "1 unit (full functional, non-flight structure)",
+          "qualification_model": "1 unit (flight-like, subjected to qualification levels)",
+          "flight_model": "1 unit (flight hardware)",
+          "spares": "Critical boards (OBC, EPS, COMMS)"
+        },
+        "ground_support_equipment": {
+          "mechanical": "P-POD fit check fixture, mass properties measurement rig",
+          "electrical": "EGSE with simulated power bus, command/telemetry interface",
+          "thermal": "Thermal vacuum chamber with LN2 shroud (-100\u00b0C to +100\u00b0C)",
+          "rf": "RF anechoic chamber, spectrum analyzer, vector network analyzer",
+          "software": "Mission control software simulators, ground station emulator"
+        },
+        "environmental_test_schedule": [
+          {
+            "test": "Mechanical fit check",
+            "purpose": "Verify P-POD compatibility and clearance",
+            "duration": "3 days",
+            "article": "Engineering + Flight models",
+            "criteria": "\u00b11 mm clearance on all sides, smooth rail insertion"
+          },
+          {
+            "test": "Functional verification (ambient)",
+            "purpose": "Baseline performance of all subsystems",
+            "duration": "10 days",
+            "article": "All models",
+            "criteria": "100% command success, telemetry within spec"
+          },
+          {
+            "test": "EMC/EMI",
+            "purpose": "Verify no interference between payload and bus",
+            "duration": "5 days",
+            "article": "Qualification model",
+            "criteria": "Meet MIL-STD-461G RE102/CE102, payload -120 dBm"
+          },
+          {
+            "test": "Random vibration (qualification)",
+            "purpose": "Verify survival at 1.5\u00d7 flight levels",
+            "duration": "3 days",
+            "article": "Qualification model",
+            "levels": "14.1 Grms overall (20-2000 Hz)",
+            "criteria": "No mechanical failure, post-test functional OK"
+          },
+          {
+            "test": "Sine vibration (protoflight)",
+            "purpose": "Verify response at launch vehicle frequencies",
+            "duration": "2 days",
+            "article": "Flight model",
+            "levels": "\u00b15g (5-100 Hz)",
+            "criteria": "No resonance below 100 Hz,10"
+          },
+          {
+            "test": "Shock (pyroshock)",
+            "purpose": "Verify survival of separation shock",
+            "duration": "1 day",
+            "article": "Qualification model",
+            "levels": "2000g peak (0.5 ms duration)",
+            "criteria": "No damage, post-test functional OK"
+          },
+          {
+            "test": "Thermal vacuum (qualification)",
+            "purpose": "Verify operation at temperature extremes",
+            "duration": "14 days",
+            "article": "Qualification model",
+            "range": "-40\u00b0C to +60\u00b0C (operational), -50\u00b0C to +70\u00b0C (survival)",
+            "cycles": "4 thermal cycles (operational), 2 (survival)",
+            "criteria": "All functions nominal, no outgassing contamination"
+          },
+          {
+            "test": "Thermal vacuum (protoflight)",
+            "purpose": "Acceptance testing of flight hardware",
+            "duration": "10 days",
+            "article": "Flight model",
+            "range": "-35\u00b0C to +55\u00b0C (operational)",
+            "cycles": "3 thermal cycles",
+            "criteria": "Performance within spec, mass loss <1% TML, <0.1% CVCM"
+          },
+          {
+            "test": "RF acceptance",
+            "purpose": "Verify antenna patterns and link budget",
+            "duration": "5 days",
+            "article": "Flight model",
+            "criteria": "EIRP > 37 dBm (X-band), G/T > -25 dB/K (S-band)"
+          },
+          {
+            "test": "Deployment mechanism test",
+            "purpose": "Verify solar panel and antenna deployment",
+            "duration": "2 days",
+            "article": "Flight model",
+            "criteria": "Full deployment in <30s, no binding, latch confirmation"
+          }
+        ],
+        "total_i_t_duration": "~60 working days (12 weeks)",
+        "schedule_margin": "20% contingency (adds 2.4 weeks)",
+        "critical_path": "Thermal vacuum \u2192 RF acceptance \u2192 Final functional"
+      },
+      "launch_vehicle_compatibility": {
+        "deployer_type": "P-POD Mk III (6U)",
+        "interface_requirements": {
+          "mechanical": {
+            "rails": "Aluminum 6061-T6, 6.35 mm wide, 11.5 mm height",
+            "clearance": "Minimum 1 mm radial, 2 mm axial",
+            "cg_tolerance": "\u00b15 mm from geometric center",
+            "separation_springs": "4\u00d7 (provided by deployer), 15N each"
+          },
+          "electrical": {
+            "switch": "Remove-before-flight pin, 2.5 k\u03a9 pull-up to 5V",
+            "separation_switch": "Momentary closure indicates deployment",
+            "rf_connectors": "SMA bulkhead (sealed), must survive vibe"
+          },
+          "thermal": {
+            "surface_finish": "Black anodize (\u03b1=0.85, \u03b5=0.85)",
+            "internal_conduction": "Minimum 5 W/\u00b0C path to rails"
+          }
+        },
+        "constraints": {
+          "mass": "\u226410 kg (including margin)",
+          "cg_offset": "\u22645 mm from geometric center",
+          "natural_frequency": ">100 Hz (all axes)",
+          "magnetic_moment": "<0.2 A\u00b7m\u00b2 (to avoid ADCS interference)",
+          "outgassing": "TML <1.0%, CV0.1%",
+          "debris": "No loose parts, all fasteners captured or tethered"
+        },
+        "deployment_sequence": {
+          "trigger": "Deployer door opens after 30 min on orbit",
+          "spring_force": "60N total (0.5-1.0 m/s separation velocity)",
+          "clearance": "Minimum 10 cm from deployer before any activation",
+          "timeline": "Door open (T+0), spring release (T+0.1s), clear (T+0.5s)"
+        },
+        "compatible_launchers": [
+          "Falcon 9 (SpaceX)",
+          "Electron (Rocket Lab)",
+          "Vega-C (Arianespace)",
+          "PSLV (ISRO)",
+          "LauncherOne (Virgin Orbit)"
+        ]
+      },
+      "critical_milestones_and_schedule": {
+        "reference_date": "Launch Date (L)",
+        "milestones": [
+          {
+            "name": "PDR (Preliminary Design Review)",
+            "date": "L-18 months",
+            "duration": "2 weeks",
+            "deliverables": [
+              "System requirements",
+              "Interface control documents",
+              "Preliminary test plan"
+            ]
+          },
+          {
+            "name": "CDR (Critical Design Review)",
+            "date": "L-12 months",
+            "duration": "3 weeks",
+            "deliverables": [
+              "Final design drawings",
+              "Detailed test procedures",
+              "Parts procurement complete"
+            ]
+          },
+          {
+            "name": "Engineering Model integration complete",
+            "date": "L-10 months",
+            "duration": "4 weeks",
+            "deliverables": [
+              "Full functional test",
+              "Software validation",
+              "GSE verification"
+            ]
+          },
+          {
+            "name": "Qualification testing start",
+            "date": "L-8 months",
+            "duration": "8 weeks",
+            "deliverables": [
+              "Vibe/Shock/TVAC complete",
+              "EMC compliance cert",
+              "Materials testing data"
+            ]
+          },
+          {
+            "name": "Flight model integration start",
+            "date": "L-6 months",
+            "duration": "6 weeks",
+            "deliverables": [
+              "Flight hardware assembled",
+              "Initial functional test",
+              "Mass properties measured"
+            ]
+          },
+          {
+            "name": "Protoflight testing start",
+            "date": "L-4.5 months",
+            "duration": "6 weeks",
+            "deliverables": [
+              "Sine vibe complete",
+              "TVAC acceptance",
+              "RF acceptance"
+            ]
+          },
+          {
+            "name": "MRR (Mission Readiness Review)",
+            "date": "L-2 months",
+            "duration": "2 weeks",
+            "deliverables": [
+              "All test reports",
+              "Launch authorization",
+              "Operations plan approved"
+            ]
+          },
+          {
+            "name": "Ship to launch site",
+            "date": "L-1 month",
+            "duration": "1 week",
+            "deliverables": [
+              "Transport container certified",
+              "Final integration with deployer",
+              "Launch site acceptance"
+            ]
+          },
+          {
+            "name": "Launch",
+            "date": "L-0",
+            "duration": "N/A",
+            "deliverables": [
+              "Successful deployment",
+              "First contact",
+              "Commissioning start"
+            ]
+          }
+        ],
+        "total_schedule": "18 months from PDR to launch",
+        "recommended_margin": "3 months contingency (16.7%) distributed across integration and test phases",
+        "critical_path_items": [
+          "Qualification testing",
+          "Protoflight TVAC",
+          "RF acceptance"
+        ]
+      },
+      "key_risks_and_mitigations": [
+        {
+          "risk": "Thermal control of radiometer focal plane",
+          "impact": "High - Payload performance degradation or failure",
+          "probability": "Medium",
+          "mitigation": [
+            "Early thermal vacuum testing of focal plane assembly",
+            "Design margin: TEC capacity 2\u00d7 worst-case heat load",
+            "Redundant temperature sensors with independent control loops",
+            "Ground testing with flight-like vacuum and temperature profiles"
+          ]
+        },
+        {
+          "risk": "RF interference between X-band downlink and radiometer receivers",
+          "impact": "High - Science data corruption",
+          "probability": "Medium",
+          "mitigation": [
+            "Early EMC testing with both systems operating",
+            "Frequency planning: 200 MHz guard band between payload and downlink",
+            "Shielded enclosures for sensitive analog circuits",
+            "Time-domain scheduling: No downlink during critical observation periods"
+          ]
+        },
+        {
+          "risk": "P-POD mechanical compatibility issues",
+          "impact": "High - Launch rejection",
+          "probability": "Low",
+          "mitigation": [
+            "Early fit check with actual P-POD fixture (not just drawings)",
+            "3D scanning of flight structure before final machining",
+            "Design margin: 2 mm clearance minimum (vs 1 mm requirement)",
+            "Vibration testing with P-POD interface simulator"
+          ]
+        },
+        {
+          "risk": "Solar panel deployment failure",
+          "impact": "Medium - Reduced power, mission degradation",
+          "probability": "Low",
+          "mitigation": [
+            "Redundant deployment mechanisms (primary spring + backup actuator)",
+            "Ground testing with thermal vacuum and vibration pre-conditioning",
+            "Design for single-fault tolerance in deployment circuit",
+            "In-orbit contingency: Use body-mounted panels as backup"
+          ]
+        },
+        {
+          "risk": "ADCS pointing accuracy insufficient for radiometer",
+          "impact": "Medium - Reduced data quality",
+          "probability": "Low",
+          "mitigation": [
+            "Early testing with engineering model in 3-axis air bearing",
+            "Design margin: 0.1\u00b0 control (vs 0.5\u00b0 requirement)",
+            "On-orbit calibration using star tracker and ground targets",
+            "Software updates to improve control algorithms post-launch"
+          ]
+        },
+        {
+          "risk": "Schedule slip due to parts procurement delays",
+          "impact": "Medium - Increased cost, missed launch window",
+          "probability": "Medium",
+          "mitigation": [
+            "Dual-source critical components (OBC, radios, reaction wheels)",
+            "Early procurement of long-lead items (12+ month lead time)",
+            "Buffer stock of common components",
+            "Flexible design allowing substitution of equivalent parts"
+          ]
+        }
+      ],
+      "key_action": "Immediately procure P-POD Mk III interface fixture and conduct first mechanical fit check with engineering model structure to validate mechanical design and identify any clearance issues before CDR. This gates all subsequent structural fabrication and is the highest schedule risk item.",
+      "confidence": 0.95,
+      "tools_created": [
+        {
+          "name": "dynamic.generate_technical_plan",
+          "description": "Generate a technical launch plan for a cubesat mission with customizable parameters",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mission_type": {
+                "type": "string",
+                "description": "Type of mission (e.g., 'weather-monitoring', 'Earth observation', 'communications')"
+              },
+              "cubesat_size": {
+                "type": "string",
+                "description": "Cubesat size (e.g., '3U', '6U', '12U')"
+              },
+              "orbit_altitude": {
+                "type": "number",
+                "description": "Target orbit altitude in km"
+              },
+              "mission_lifetime": {
+                "type": "number",
+                "description": "Mission lifetime in years"
+              }
+            },
+            "required": [
+              "mission_type",
+              "cubesat_size",
+              "orbit_altitude",
+              "mission_lifetime"
+            ]
+          },
+          "code": "def handler(*, mission_type, cubesat_size, orbit_altitude, mission_lifetime):\n    \"\"\"\n    Generate a technical launch plan for a cubesat mission.\n    \n    Args:\n        mission_type: Type of mission (e.g., \"weather-monitoring\", \"Earth observation\", \"communications\")\n        cubesat_size: Cubesat size (e.g., \"3U\", \"6U\", \"12U\")\n        orbit_altitude: Target orbit altitude in km\n        mission_lifetime: Mission lifetime in years\n        \n    Returns:\n        Technical plan JSON with all required sections\n    \"\"\"\n    import json\n    import datetime\n    \n    # Parse cubesat size\n    if cubesat_size == \"3U\":\n        volume_ext = \"100 mm \u00d7 100 mm \u00d7 340 mm\"\n        mass_max = 4.0\n    elif cubesat_size == \"6U\":\n        volume_ext = \"100 mm \u00d7 200 mm \u00d7 340 mm\"\n        mass_max = 10.0\n    elif cubesat_size == \"12U\":\n        volume_ext = \"200 mm \u00d7 200 mm \u00d7 340 mm\"\n        mass_max = 20.0\n    else:\n        volume_ext = \"Custom dimensions\"\n        mass_max = 15.0\n    \n    # Determine payload based on mission type\n    if \"weather\" in mission_type.lower():\n        payload_desc = \"Multichannel microwave radiometer for atmospheric profiling\"\n        data_rate = \"50 Mbps peak\"\n        power_consumption = \"25W operational\"\n    elif \"earth\" in mission_type.lower() or \"observation\" in mission_type.lower():\n        payload_desc = \"Multispectral imager with visible and near-IR bands\"\n        data_rate = \"100 Mbps peak\"\n        power_consumption = \"30W operational\"\n    elif \"communication\" in mission_type.lower():\n        payload_desc = \"S-band/UHF transponder for store-and-forward communications\"\n        data_rate = \"10 Mbps peak\"\n        power_consumption = \"40W operational\"\n    else:\n        payload_desc = \"Mission-specific payload\"\n        data_rate = \"20 Mbps peak\"\n        power_consumption = \"20W operational\"\n    \n    # Calculate power generation based on size\n    if cubesat_size == \"3U\":\n        power_gen = \"30W average\"\n        battery = \"20 Wh\"\n    elif cubesat_size == \"6U\":\n        power_gen = \"60W average\"\n        battery = \"40 Wh\"\n    elif cubesat_size == \"12U\":\n        power_gen = \"120W average\"\n        battery = \"80 Wh\"\n    else:\n        power_gen = \"45W average\"\n        battery = \"30 Wh\"\n    \n    # Create technical plan structure\n    technical_plan = {\n        \"technical_summary\": f\"The {cubesat_size} {mission_type} cubesat targets a {orbit_altitude} km sun-synchronous orbit with {mission_lifetime}-year operational lifetime. The spacecraft employs {payload_desc.lower()} for primary mission objectives, supported by 3-axis stabilized ADCS, S/X-band communications, and deployable solar arrays generating {power_gen}. Key technical drivers include thermal management, RF interference mitigation, and strict mass/CG constraints for P-POD compatibility.\",\n        \n        \"system_specifications\": {\n            \"mass\": {\n                \"total\": f\"{mass_max * 0.85:.1f} kg (max {mass_max} kg for P-POD)\",\n                \"margin\": f\"{mass_max * 0.15:.1f} kg ({15:.1f}%)\"\n            },\n            \"volume\": {\n                \"external\": volume_ext,\n                \"deployables\": \"Solar panels and antennas (stowed within envelope)\"\n            },\n            \"power\": {\n                \"generation\": power_gen,\n                \"storage\": f\"{battery} Li-ion battery\",\n                \"consumption\": {\n                    \"payload\": power_consumption,\n                    \"bus\": \"15-25W depending on mode\",\n                    \"margin\": \"15%\"\n                }\n            },\n            \"payload_summary\": {\n                \"primary\": payload_desc,\n                \"data_rate\": data_rate,\n                \"thermal_control\": \"Passive radiators + active heating/cooling as needed\"\n            },\n            \"comms\": {\n                \"uplink\": \"S-band, 9.6-64 kbps\",\n                \"downlink\": \"X-band, 5-100 Mbps depending on payload\",\n                \"antennas\": \"Deployable patch/horn antennas\"\n            },\n            \"adcs\": {\n                \"type\": \"3-axis stabilized with reaction wheels and magnetorquers\",\n                \"pointing\": \"\u00b10.5\u00b0 control (payload), \u00b12\u00b0 (bus)\"\n            }\n        },\n        \n        \"integration_and_test_plan\": {\n            \"test_articles\": [\"Engineering model\", \"Qualification model\", \"Flight model\"],\n            \"critical_tests\": [\n                \"Mechanical fit check (3 days)\",\n                \"EMC/EMI testing (5 days)\",\n                \"Random vibration (3 days)\",\n                \"Thermal vacuum (14 days qualification, 10 days acceptance)\",\n                \"RF acceptance (5 days)\"\n            ],\n            \"total_duration\": \"~60 working days (12 weeks)\",\n            \"schedule_margin\": \"20% contingency\"\n        },\n        \n        \"launch_vehicle_compatibility\": {\n            \"deployer_type\": f\"P-POD compatible ({cubesat_size})\",\n            \"mass_constraint\": f\"\u2264{mass_max} kg\",\n            \"cg_offset\": \"\u22645 mm from geometric center\",\n            \"natural_frequency\": \">100 Hz (all axes)\"\n        },\n        \n        \"critical_milestones_and_schedule\": {\n            \"total_schedule\": \"18 months from PDR to launch\",\n            \"key_milestones\": [\n                \"PDR: L-18 months\",\n                \"CDR: L-12 months\",\n                \"Qual testing complete: L-8 months\",\n                \"Flight integration: L-6 months\",\n                \"Protoflight complete: L-4.5 months\",\n                \"MRR: L-2 months\",\n                \"Launch: L-0\"\n            ],\n            \"recommended_margin\": \"3 months contingency (16.7%)\"\n        },\n        \n        \"key_risks_and_mitigations\": [\n            {\n                \"risk\": \"Thermal management\",\n                \"mitigation\": \"Early TVAC testing, design margin, redundant sensors\"\n            },\n            {\n                \"risk\": \"RF interference\",\n                \"mitigation\": \"Early EMC testing, frequency planning, shielding\"\n            },\n            {\n                \"risk\": \"Mechanical compatibility\",\n                \"mitigation\": \"Early fit check, 3D scanning, design margin\"\n            },\n            {\n                \"risk\": \"Deployment failure\",\n                \"mitigation\": \"Redundant mechanisms, ground testing, contingency plans\"\n            },\n            {\n                \"risk\": \"ADCS performance\",\n                \"mitigation\": \"Early testing, design margin, on-orbit calibration\"\n            },\n            {\n                \"risk\": \"Schedule delays\",\n                \"mitigation\": \"Dual sourcing, early procurement, buffer stock\"\n            }\n        ],\n        \n        \"key_action\": f\"Immediately procure P-POD interface fixture for {cubesat_size} and conduct first mechanical fit check to validate design before CDR.\"\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": technical_plan, \"error\": None}"
+        }
+      ],
+      "_tool_calls": [
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "import json\nimport os\n\n# List files to see what's available\nprint(\"Workspace files:\")\nprint(_list_files())\n\n# Read the technical plan envelope to see what's already been done\ntech_path = _workspace_dir + \"/runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/technical_plan_cubesat/envelope.json\"\nprint(f\"\\nReading technical plan envelope from: {tech_path}\")\n\nif os.path.exists(tech_path):\n    with open(tech_path, 'r') as f:\n        tech_data = json.load(f)\n    print(\"Technical plan envelope content:\")\n    print(json.dumps(tech_data, indent=2))\nelse:\n    print(\"Technical plan envelope not found\")\n\n# Also check the manager decision to understand context\nmanager_path = _workspace_dir + \"/runs/2026-04-18_15-15-02_183055f2/iterations/001/manager_decision.json\"\nprint(f\"\\nReading manager decision from: {manager_path}\")\n\nif os.path.exists(manager_path):\n    with open(manager_path, 'r') as f:\n        manager_data = json.load(f)\n    print(\"Manager decision keys:\")\n    print(list(manager_data.keys()))\n    # Look for task description\n    if 'task' in manager_data:\n        print(\"\\nTask description:\")\n        print(manager_data['task'])\nelse:\n    print(\"Manager decision not found\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Workspace files:\n['runs/2026-04-18_15-15-02_183055f2/RUN_SUMMARY.md', 'runs/2026-04-18_15-15-02_183055f2/metrics.jsonl', 'runs/2026-04-18_15-15-02_183055f2/run_manifest.json', 'runs/2026-04-18_15-15-02_183055f2/iterations/001/manager_decision.json', 'runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/regulatory_analysis_cubesat/envelope.json', 'runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/integrator_consolidate_plan/envelope.json', 'runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/technical_plan_cubesat/envelope.json', 'runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/logistics_plan_cubesat/envelope.json', 'skills/logistics_and_operations_for_satellite_launch.md', 'skills/plan_integration_and_consolidation.md', 'skills/regulatory_planning_for_small_satellites.md', 'skills/technical_systems_planning_for_cubesats.md', 'blackboard/2026-04-18_15-15-02_183055f2.jsonl']\n\nReading technical plan envelope from: /home/shumway/projects/agent-workflow-protocol/examples/workflows/09-recursive-delegation/workspace/runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/technical_plan_cubesat/envelope.json\nTechnical plan envelope content:\n{\n  \"worker_id\": \"technical_plan_cubesat\",\n  \"subtask_id\": \"subtask_technical\",\n  \"instructions\": \"Produce a first-draft technical launch-plan section for the same fictional weather-monitoring 6U cubesat. Deliver a JSON object containing: technical_summary (<= 500 words), system_specifications (mass, volume, power, payload summary, comms, ADCS, propulsion if any), integration_and_test_plan (major test types, minimum test articles, GSE needs, environmental test schedule with durations), launch_vehicle_compatibility (interfaces, deployment mechanism, constraints), critical_milestones_and_schedule (milestone list with recommended dates relative to launch date and estimated durations), key_risks_and_mitigations (top 6 technical risks with mitigation steps), and key_action (one concise, high-priority technical action to start now). Prioritize items that affect the launch cadence: mechanical/fit checks, vibration/shock, thermal-vacuum, RF acceptance, and P-POD/CubeSat deployer compatibility. Include recommended margin for schedule and contingency recommendations. Use concise, technical, actionable language.\",\n  \"skills\": [\n    \"# Technical Systems Planning for Cubesats\\n\\n## Purpose\\nProvide core engineering knowledge needed to produce a practical technical launch plan for a cubesat.\\n\\n## Concepts\\n- Bus Subsystems: ADCS, EPS, OBC, COMMS, Structure\\n- Environmental Testing: vibration, shock, thermal vacuum, EMC/EMI\\n- Integration & Test (I&T): mechanical fit checks, harnessing, functional verification\\n- Launch Interface: deployer type (e.g., P-POD), separation dynamics, mass/CG constraints\\n- Ground Support Equipment (GSE): test benches, power supplies, RF test rigs\\n\\n## Rules\\n1. Provide measurable spec targets (mass, power, volume) and tolerances.\\n2. List tests, their purpose, and typical durations.\\n3. Prioritize tests and interface checks that gate launch acceptance.\\n4. Provide clear mitigation steps for each critical risk.\\n5. Deliver one single prioritized technical key action.\\n\\n## Procedure\\n1. Enumerate system specs and constraints.\\n2. Create a minimum viable I&T schedule with durations and dependencies.\\n3. Identify top technical risks and propose mitigations.\\n\\n## Examples\\nInput: 6U cubesat with passive ADCS and microwave radiometer payload. Output: system spec block, I&T schedule including protoflight testing, and identified risks like thermal control and RF interference.\"\n  ],\n  \"tools_allowed\": [],\n  \"output_contract\": {\n    \"required_fields\": [\n      \"technical_summary\",\n      \"system_specifications\",\n      \"integration_and_test_plan\",\n      \"launch_vehicle_compatibility\",\n      \"critical_milestones_and_schedule\",\n      \"key_risks_and_mitigations\",\n      \"key_action\"\n    ],\n    \"description\": \"Structured technical section JSON describing specs, test plan, milestones, risks, and one prioritized technical action.\"\n  },\n  \"temperature\": 0.1\n}\n\nReading manager decision from: /home/shumway/projects/agent-workflow-protocol/examples/workflows/09-recursive-delegation/workspace/runs/2026-04-18_15-15-02_183055f2/iterations/001/manager_decision.json\nManager decision keys:\n['decision', 'reasoning', 'delegations', 'confidence']\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 4.6
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "# Read the technical systems planning skills file\nskills_path = _workspace_dir + \"/skills/technical_systems_planning_for_cubesats.md\"\nprint(f\"Reading skills from: {skills_path}\")\n\nif os.path.exists(skills_path):\n    with open(skills_path, 'r') as f:\n        skills_content = f.read()\n    print(\"Skills content:\")\n    print(skills_content)\nelse:\n    print(\"Skills file not found\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Reading skills from: /home/shumway/projects/agent-workflow-protocol/examples/workflows/09-recursive-delegation/workspace/skills/technical_systems_planning_for_cubesats.md\nSkills content:\n# Technical Systems Planning for Cubesats\n\n## Purpose\nProvide core engineering knowledge needed to produce a practical technical launch plan for a cubesat.\n\n## Concepts\n- Bus Subsystems: ADCS, EPS, OBC, COMMS, Structure\n- Environmental Testing: vibration, shock, thermal vacuum, EMC/EMI\n- Integration & Test (I&T): mechanical fit checks, harnessing, functional verification\n- Launch Interface: deployer type (e.g., P-POD), separation dynamics, mass/CG constraints\n- Ground Support Equipment (GSE): test benches, power supplies, RF test rigs\n\n## Rules\n1. Provide measurable spec targets (mass, power, volume) and tolerances.\n2. List tests, their purpose, and typical durations.\n3. Prioritize tests and interface checks that gate launch acceptance.\n4. Provide clear mitigation steps for each critical risk.\n5. Deliver one single prioritized technical key action.\n\n## Procedure\n1. Enumerate system specs and constraints.\n2. Create a minimum viable I&T schedule with durations and dependencies.\n3. Identify top technical risks and propose mitigations.\n\n## Examples\nInput: 6U cubesat with passive ADCS and microwave radiometer payload. Output: system spec block, I&T schedule including protoflight testing, and identified risks like thermal control and RF interference.\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 3.48
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "import json\nimport datetime\n\n# Create the technical plan\ntechnical_plan = {\n    \"technical_summary\": \"The 6U weather-monitoring cubesat employs a microwave radiometer payload for atmospheric moisture and temperature profiling, complemented by visible/IR imagers for cloud cover analysis. The mission targets a 500 km sun-synchronous orbit with 2-year operational lifetime. The spacecraft uses a 3-axis stabilized ADCS with reaction wheels and magnetorquers, S-band uplink/X-band downlink communications, and deployable solar arrays generating 60W average power. Key technical drivers include thermal management of the radiometer focal plane, RF interference mitigation between payload and bus systems, and strict mass/CG constraints for P-POD compatibility. The design emphasizes protoflight qualification to minimize schedule risk.\",\n    \n    \"system_specifications\": {\n        \"mass\": {\n            \"total\": \"8.5 kg (max 10 kg for P-POD)\",\n            \"bus\": \"4.2 kg\",\n            \"payload\": \"3.8 kg\",\n            \"margin\": \"0.5 kg (5.9%)\"\n        },\n        \"volume\": {\n            \"external\": \"100 mm \u00d7 200 mm \u00d7 340 mm (6U)\",\n            \"internal_allocated\": \"Bus: 3.5U, Payload: 2.5U\",\n            \"deployables\": \"2\u00d7 0.5U solar panels (stowed)\"\n        },\n        \"power\": {\n            \"generation\": \"60W average (80W peak), triple-junction GaAs cells\",\n            \"storage\": \"40 Wh Li-ion battery\",\n            \"consumption\": {\n                \"payload\": \"25W (operational), 5W (standby)\",\n                \"bus\": \"20W (normal), 35W (peak during comms)\",\n                \"margin\": \"15%\"\n            }\n        },\n        \"payload_summary\": {\n            \"primary\": \"Multichannel microwave radiometer (23.8, 31.4, 50.3, 52.8, 53.6, 54.4, 54.9, 55.5, 57.3 GHz)\",\n            \"secondary\": \"Visible/IR imager (0.4-1.1 \u03bcm, 1.6-2.2 \u03bcm)\",\n            \"data_rate\": \"50 Mbps peak (X-band downlink)\",\n            \"thermal_control\": \"Passive radiators + thermoelectric cooler for focal plane (< -40\u00b0C)\"\n        },\n        \"comms\": {\n            \"uplink\": \"S-band, 9.6 kbps command rate\",\n            \"downlink\": \"X-band, 50 Mbps peak (5 Mbps average)\",\n            \"antennas\": \"2\u00d7 deployable patch antennas (S-band), 1\u00d7 horn antenna (X-band)\",\n            \"modulation\": \"QPSK with convolutional coding\"\n        },\n        \"adcs\": {\n            \"type\": \"3-axis stabilized, reaction wheels (4\u00d7 10 mNms) + magnetorquers\",\n            \"sensors\": \"Star tracker (0.01\u00b0 accuracy), MEMS gyros, magnetometer, sun sensors\",\n            \"pointing\": \"\u00b10.1\u00b0 knowledge, \u00b10.5\u00b0 control (payload), \u00b12\u00b0 (bus)\",\n            \"detumbling\": \"B-dot controller for initial acquisition\"\n        },\n        \"propulsion\": {\n            \"type\": \"None (passive deorbit via drag sail)\",\n            \"deorbit\": \"25 m\u00b2 drag sail (deploys at EOL), <25 year deorbit compliance\"\n        },\n        \"onboard_computer\": {\n            \"processor\": \"Rad-hard LEON3-FT, 100 MHz\",\n            \"memory\": \"2 GB flash, 256 MB RAM\",\n            \"redundancy\": \"Dual cold-spare OBC\"\n        }\n    },\n    \n    \"integration_and_test_plan\": {\n        \"test_articles\": {\n            \"engineering_model\": \"1 unit (full functional, non-flight structure)\",\n            \"qualification_model\": \"1 unit (flight-like, subjected to qualification levels)\",\n            \"flight_model\": \"1 unit (flight hardware)\",\n            \"spares\": \"Critical boards (OBC, EPS, COMMS)\"\n        },\n        \"ground_support_equipment\": {\n            \"mechanical\": \"P-POD fit check fixture, mass properties measurement rig\",\n            \"electrical\": \"EGSE with simulated power bus, command/telemetry interface\",\n            \"thermal\": \"Thermal vacuum chamber with LN2 shroud (-100\u00b0C to +100\u00b0C)\",\n            \"rf\": \"RF anechoic chamber, spectrum analyzer, vector network analyzer\",\n            \"software\": \"Mission control software simulators, ground station emulator\"\n        },\n        \"environmental_test_schedule\": [\n            {\n                \"test\": \"Mechanical fit check\",\n                \"purpose\": \"Verify P-POD compatibility and clearance\",\n                \"duration\": \"3 days\",\n                \"article\": \"Engineering + Flight models\",\n                \"criteria\": \"\u00b11 mm clearance on all sides, smooth rail insertion\"\n            },\n            {\n                \"test\": \"Functional verification (ambient)\",\n                \"purpose\": \"Baseline performance of all subsystems\",\n                \"duration\": \"10 days\",\n                \"article\": \"All models\",\n                \"criteria\": \"100% command success, telemetry within spec\"\n            },\n            {\n                \"test\": \"EMC/EMI\",\n                \"purpose\": \"Verify no interference between payload and bus\",\n                \"duration\": \"5 days\",\n                \"article\": \"Qualification model\",\n                \"criteria\": \"Meet MIL-STD-461G RE102/CE102, payload noise < -120 dBm\"\n            },\n            {\n                \"test\": \"Random vibration (qualification)\",\n                \"purpose\": \"Verify survival at 1.5\u00d7 flight levels\",\n                \"duration\": \"3 days\",\n                \"article\": \"Qualification model\",\n                \"levels\": \"14.1 Grms overall (20-2000 Hz)\",\n                \"criteria\": \"No mechanical failure, post-test functional OK\"\n            },\n            {\n                \"test\": \"Sine vibration (protoflight)\",\n                \"purpose\": \"Verify response at launch vehicle frequencies\",\n                \"duration\": \"2 days\",\n                \"article\": \"Flight model\",\n                \"levels\": \"\u00b15g (5-100 Hz)\",\n                \"criteria\": \"No resonance below 100 Hz, Q<10\"\n            },\n            {\n                \"test\": \"Shock (pyroshock)\",\n                \"purpose\": \"Verify survival of separation shock\",\n                \"duration\": \"1 day\",\n                \"article\": \"Qualification model\",\n                \"levels\": \"2000g peak (0.5 ms duration)\",\n                \"criteria\": \"No damage, post-test functional OK\"\n            },\n            {\n                \"test\": \"Thermal vacuum (qualification)\",\n                \"purpose\": \"Verify operation at temperature extremes\",\n                \"duration\": \"14 days\",\n                \"article\": \"Qualification model\",\n                \"range\": \"-40\u00b0C to +60\u00b0C (operational), -50\u00b0C to +70\u00b0C (survival)\",\n                \"cycles\": \"4 thermal cycles (operational), 2 (survival)\",\n                \"criteria\": \"All functions nominal, no outgassing contamination\"\n            },\n            {\n                \"test\": \"Thermal vacuum (protoflight)\",\n                \"purpose\": \"Acceptance testing of flight hardware\",\n                \"duration\": \"10 days\",\n                \"article\": \"Flight model\",\n                \"range\": \"-35\u00b0C to +55\u00b0C (operational)\",\n                \"cycles\": \"3 thermal cycles\",\n                \"criteria\": \"Performance within spec, mass loss <1% TML, <0.1% CVCM\"\n            },\n            {\n                \"test\": \"RF acceptance\",\n                \"purpose\": \"Verify antenna patterns and link budget\",\n                \"duration\": \"5 days\",\n                \"article\": \"Flight model\",\n                \"criteria\": \"EIRP > 37 dBm (X-band), G/T > -25 dB/K (S-band)\"\n            },\n            {\n                \"test\": \"Deployment mechanism test\",\n                \"purpose\": \"Verify solar panel and antenna deployment\",\n                \"duration\": \"2 days\",\n                \"article\": \"Flight model\",\n                \"criteria\": \"Full deployment in <30s, no binding, latch confirmation\"\n            }\n        ],\n        \"total_i_t_duration\": \"~60 working days (12 weeks)\",\n        \"schedule_margin\": \"20% contingency (adds 2.4 weeks)\",\n        \"critical_path\": \"Thermal vacuum \u2192 RF acceptance \u2192 Final functional\"\n    },\n    \n    \"launch_vehicle_compatibility\": {\n        \"deployer_type\": \"P-POD Mk III (6U)\",\n        \"interface_requirements\": {\n            \"mechanical\": {\n                \"rails\": \"Aluminum 6061-T6, 6.35 mm wide, 11.5 mm height\",\n                \"clearance\": \"Minimum 1 mm radial, 2 mm axial\",\n                \"cg_tolerance\": \"\u00b15 mm from geometric center\",\n                \"separation_springs\": \"4\u00d7 (provided by deployer), 15N each\"\n            },\n            \"electrical\": {\n                \"switch\": \"Remove-before-flight pin, 2.5 k\u03a9 pull-up to 5V\",\n                \"separation_switch\": \"Momentary closure indicates deployment\",\n                \"rf_connectors\": \"SMA bulkhead (sealed), must survive vibe\"\n            },\n            \"thermal\": {\n                \"surface_finish\": \"Black anodize (\u03b1=0.85, \u03b5=0.85)\",\n                \"internal_conduction\": \"Minimum 5 W/\u00b0C path to rails\"\n            }\n        },\n        \"constraints\": {\n            \"mass\": \"\u226410 kg (including margin)\",\n            \"cg_offset\": \"\u22645 mm from geometric center\",\n            \"natural_frequency\": \">100 Hz (all axes)\",\n            \"magnetic_moment\": \"<0.2 A\u00b7m\u00b2 (to avoid ADCS interference)\",\n            \"outgassing\": \"TML <1.0%, CVCM <0.1%\",\n            \"debris\": \"No loose parts, all fasteners captured or tethered\"\n        },\n        \"deployment_sequence\": {\n            \"trigger\": \"Deployer door opens after 30 min on orbit\",\n            \"spring_force\": \"60N total (0.5-1.0 m/s separation velocity)\",\n            \"clearance\": \"Minimum 10 cm from deployer before any activation\",\n            \"timeline\": \"Door open (T+0), spring release (T+0.1s), clear (T+0.5s)\"\n        },\n        \"compatible_launchers\": [\n            \"Falcon 9 (SpaceX)\",\n            \"Electron (Rocket Lab)\",\n            \"Vega-C (Arianespace)\",\n            \"PSLV (ISRO)\",\n            \"LauncherOne (Virgin Orbit)\"\n        ]\n    },\n    \n    \"critical_milestones_and_schedule\": {\n        \"reference_date\": \"Launch Date (L)\",\n        \"milestones\": [\n            {\n                \"name\": \"PDR (Preliminary Design Review)\",\n                \"date\": \"L-18 months\",\n                \"duration\": \"2 weeks\",\n                \"deliverables\": [\"System requirements\", \"Interface control documents\", \"Preliminary test plan\"]\n            },\n            {\n                \"name\": \"CDR (Critical Design Review)\",\n                \"date\": \"L-12 months\",\n                \"duration\": \"3 weeks\",\n                \"deliverables\": [\"Final design drawings\", \"Detailed test procedures\", \"Parts procurement complete\"]\n            },\n            {\n                \"name\": \"Engineering Model integration complete\",\n                \"date\": \"L-10 months\",\n                \"duration\": \"4 weeks\",\n                \"deliverables\": [\"Full functional test\", \"Software validation\", \"GSE verification\"]\n            },\n            {\n                \"name\": \"Qualification testing start\",\n                \"date\": \"L-8 months\",\n                \"duration\": \"8 weeks\",\n                \"deliverables\": [\"Vibe/Shock/TVAC complete\", \"EMC compliance cert\", \"Materials testing data\"]\n            },\n            {\n                \"name\": \"Flight model integration start\",\n                \"date\": \"L-6 months\",\n                \"duration\": \"6 weeks\",\n                \"deliverables\": [\"Flight hardware assembled\", \"Initial functional test\", \"Mass properties measured\"]\n            },\n            {\n                \"name\": \"Protoflight testing start\",\n                \"date\": \"L-4.5 months\",\n                \"duration\": \"6 weeks\",\n                \"deliverables\": [\"Sine vibe complete\", \"TVAC acceptance\", \"RF acceptance\"]\n            },\n            {\n                \"name\": \"MRR (Mission Readiness Review)\",\n                \"date\": \"L-2 months\",\n                \"duration\": \"2 weeks\",\n                \"deliverables\": [\"All test reports\", \"Launch authorization\", \"Operations plan approved\"]\n            },\n            {\n                \"name\": \"Ship to launch site\",\n                \"date\": \"L-1 month\",\n                \"duration\": \"1 week\",\n                \"deliverables\": [\"Transport container certified\", \"Final integration with deployer\", \"Launch site acceptance\"]\n            },\n            {\n                \"name\": \"Launch\",\n                \"date\": \"L-0\",\n                \"duration\": \"N/A\",\n                \"deliverables\": [\"Successful deployment\", \"First contact\", \"Commissioning start\"]\n            }\n        ],\n        \"total_schedule\": \"18 months from PDR to launch\",\n        \"recommended_margin\": \"3 months contingency (16.7%) distributed across integration and test phases\",\n        \"critical_path_items\": [\"Qualification testing\", \"Protoflight TVAC\", \"RF acceptance\"]\n    },\n    \n    \"key_risks_and_mitigations\": [\n        {\n            \"risk\": \"Thermal control of radiometer focal plane\",\n            \"impact\": \"High - Payload performance degradation or failure\",\n            \"probability\": \"Medium\",\n            \"mitigation\": [\n                \"Early thermal vacuum testing of focal plane assembly\",\n                \"Design margin: TEC capacity 2\u00d7 worst-case heat load\",\n                \"Redundant temperature sensors with independent control loops\",\n                \"Ground testing with flight-like vacuum and temperature profiles\"\n            ]\n        },\n        {\n            \"risk\": \"RF interference between X-band downlink and radiometer receivers\",\n            \"impact\": \"High - Science data corruption\",\n            \"probability\": \"Medium\",\n            \"mitigation\": [\n                \"Early EMC testing with both systems operating\",\n                \"Frequency planning: 200 MHz guard band between payload and downlink\",\n                \"Shielded enclosures for sensitive analog circuits\",\n                \"Time-domain scheduling: No downlink during critical observation periods\"\n            ]\n        },\n        {\n            \"risk\": \"P-POD mechanical compatibility issues\",\n            \"impact\": \"High - Launch rejection\",\n            \"probability\": \"Low\",\n            \"mitigation\": [\n                \"Early fit check with actual P-POD fixture (not just drawings)\",\n                \"3D scanning of flight structure before final machining\",\n                \"Design margin: 2 mm clearance minimum (vs 1 mm requirement)\",\n                \"Vibration testing with P-POD interface simulator\"\n            ]\n        },\n        {\n            \"risk\": \"Solar panel deployment failure\",\n            \"impact\": \"Medium - Reduced power, mission degradation\",\n            \"probability\": \"Low\",\n            \"mitigation\": [\n                \"Redundant deployment mechanisms (primary spring + backup actuator)\",\n                \"Ground testing with thermal vacuum and vibration pre-conditioning\",\n                \"Design for single-fault tolerance in deployment circuit\",\n                \"In-orbit contingency: Use body-mounted panels as backup\"\n            ]\n        },\n        {\n            \"risk\": \"ADCS pointing accuracy insufficient for radiometer\",\n            \"impact\": \"Medium - Reduced data quality\",\n            \"probability\": \"Low\",\n            \"mitigation\": [\n                \"Early testing with engineering model in 3-axis air bearing\",\n                \"Design margin: 0.1\u00b0 control (vs 0.5\u00b0 requirement)\",\n                \"On-orbit calibration using star tracker and ground targets\",\n                \"Software updates to improve control algorithms post-launch\"\n            ]\n        },\n        {\n            \"risk\": \"Schedule slip due to parts procurement delays\",\n            \"impact\": \"Medium - Increased cost, missed launch window\",\n            \"probability\": \"Medium\",\n            \"mitigation\": [\n                \"Dual-source critical components (OBC, radios, reaction wheels)\",\n                \"Early procurement of long-lead items (12+ month lead time)\",\n                \"Buffer stock of common components\",\n                \"Flexible design allowing substitution of equivalent parts\"\n            ]\n        }\n    ],\n    \n    \"key_action\": \"Immediately procure P-POD Mk III interface fixture and conduct first mechanical fit check with engineering model structure to validate mechanical design and identify any clearance issues before CDR. This gates all subsequent structural fabrication and is the highest schedule risk item.\"\n}\n\n# Save the technical plan to output directory\noutput_path = _output_dir + \"/technical_plan_cubesat.json\"\nwith open(output_path, 'w') as f:\n    json.dump(technical_plan, f, indent=2)\n\nprint(f\"Technical plan saved to: {output_path}\")\nprint(f\"File size: {os.path.getsize(output_path)} bytes\")\n\n# Verify all required fields are present\nrequired_fields = [\n    \"technical_summary\", \"system_specifications\", \"integration_and_test_plan\",\n    \"launch_vehicle_compatibility\", \"critical_milestones_and_schedule\",\n    \"key_risks_and_mitigations\", \"key_action\"\n]\n\nmissing_fields = [field for field in required_fields if field not in technical_plan]\nif missing_fields:\n    print(f\"WARNING: Missing required fields: {missing_fields}\")\nelse:\n    print(\"All required fields present\")\n\n# Check word count for technical_summary\nsummary_words = len(technical_plan[\"technical_summary\"].split())\nprint(f\"Technical summary word count: {summary_words} (max 500)\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Technical plan saved to: /home/shumway/projects/agent-workflow-protocol/examples/workflows/09-recursive-delegation/output/technical_plan_cubesat.json\nFile size: 14436 bytes\nAll required fields present\nTechnical summary word count: 94 (max 500)\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 6.81
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "# Create a reusable tool for technical systems planning\ntool_code = '''def handler(*, mission_type, cubesat_size, orbit_altitude, mission_lifetime):\n    \"\"\"\n    Generate a technical launch plan for a cubesat mission.\n    \n    Args:\n        mission_type: Type of mission (e.g., \"weather-monitoring\", \"Earth observation\", \"communications\")\n        cubesat_size: Cubesat size (e.g., \"3U\", \"6U\", \"12U\")\n        orbit_altitude: Target orbit altitude in km\n        mission_lifetime: Mission lifetime in years\n        \n    Returns:\n        Technical plan JSON with all required sections\n    \"\"\"\n    import json\n    import datetime\n    \n    # Parse cubesat size\n    if cubesat_size == \"3U\":\n        volume_ext = \"100 mm \u00d7 100 mm \u00d7 340 mm\"\n        mass_max = 4.0\n    elif cubesat_size == \"6U\":\n        volume_ext = \"100 mm \u00d7 200 mm \u00d7 340 mm\"\n        mass_max = 10.0\n    elif cubesat_size == \"12U\":\n        volume_ext = \"200 mm \u00d7 200 mm \u00d7 340 mm\"\n        mass_max = 20.0\n    else:\n        volume_ext = \"Custom dimensions\"\n        mass_max = 15.0\n    \n    # Determine payload based on mission type\n    if \"weather\" in mission_type.lower():\n        payload_desc = \"Multichannel microwave radiometer for atmospheric profiling\"\n        data_rate = \"50 Mbps peak\"\n        power_consumption = \"25W operational\"\n    elif \"earth\" in mission_type.lower() or \"observation\" in mission_type.lower():\n        payload_desc = \"Multispectral imager with visible and near-IR bands\"\n        data_rate = \"100 Mbps peak\"\n        power_consumption = \"30W operational\"\n    elif \"communication\" in mission_type.lower():\n        payload_desc = \"S-band/UHF transponder for store-and-forward communications\"\n        data_rate = \"10 Mbps peak\"\n        power_consumption = \"40W operational\"\n    else:\n        payload_desc = \"Mission-specific payload\"\n        data_rate = \"20 Mbps peak\"\n        power_consumption = \"20W operational\"\n    \n    # Calculate power generation based on size\n    if cubesat_size == \"3U\":\n        power_gen = \"30W average\"\n        battery = \"20 Wh\"\n    elif cubesat_size == \"6U\":\n        power_gen = \"60W average\"\n        battery = \"40 Wh\"\n    elif cubesat_size == \"12U\":\n        power_gen = \"120W average\"\n        battery = \"80 Wh\"\n    else:\n        power_gen = \"45W average\"\n        battery = \"30 Wh\"\n    \n    # Create technical plan structure\n    technical_plan = {\n        \"technical_summary\": f\"The {cubesat_size} {mission_type} cubesat targets a {orbit_altitude} km sun-synchronous orbit with {mission_lifetime}-year operational lifetime. The spacecraft employs {payload_desc.lower()} for primary mission objectives, supported by 3-axis stabilized ADCS, S/X-band communications, and deployable solar arrays generating {power_gen}. Key technical drivers include thermal management, RF interference mitigation, and strict mass/CG constraints for P-POD compatibility.\",\n        \n        \"system_specifications\": {\n            \"mass\": {\n                \"total\": f\"{mass_max * 0.85:.1f} kg (max {mass_max} kg for P-POD)\",\n                \"margin\": f\"{mass_max * 0.15:.1f} kg ({15:.1f}%)\"\n            },\n            \"volume\": {\n                \"external\": volume_ext,\n                \"deployables\": \"Solar panels and antennas (stowed within envelope)\"\n            },\n            \"power\": {\n                \"generation\": power_gen,\n                \"storage\": f\"{battery} Li-ion battery\",\n                \"consumption\": {\n                    \"payload\": power_consumption,\n                    \"bus\": \"15-25W depending on mode\",\n                    \"margin\": \"15%\"\n                }\n            },\n            \"payload_summary\": {\n                \"primary\": payload_desc,\n                \"data_rate\": data_rate,\n                \"thermal_control\": \"Passive radiators + active heating/cooling as needed\"\n            },\n            \"comms\": {\n                \"uplink\": \"S-band, 9.6-64 kbps\",\n                \"downlink\": \"X-band, 5-100 Mbps depending on payload\",\n                \"antennas\": \"Deployable patch/horn antennas\"\n            },\n            \"adcs\": {\n                \"type\": \"3-axis stabilized with reaction wheels and magnetorquers\",\n                \"pointing\": \"\u00b10.5\u00b0 control (payload), \u00b12\u00b0 (bus)\"\n            }\n        },\n        \n        \"integration_and_test_plan\": {\n            \"test_articles\": [\"Engineering model\", \"Qualification model\", \"Flight model\"],\n            \"critical_tests\": [\n                \"Mechanical fit check (3 days)\",\n                \"EMC/EMI testing (5 days)\",\n                \"Random vibration (3 days)\",\n                \"Thermal vacuum (14 days qualification, 10 days acceptance)\",\n                \"RF acceptance (5 days)\"\n            ],\n            \"total_duration\": \"~60 working days (12 weeks)\",\n            \"schedule_margin\": \"20% contingency\"\n        },\n        \n        \"launch_vehicle_compatibility\": {\n            \"deployer_type\": f\"P-POD compatible ({cubesat_size})\",\n            \"mass_constraint\": f\"\u2264{mass_max} kg\",\n            \"cg_offset\": \"\u22645 mm from geometric center\",\n            \"natural_frequency\": \">100 Hz (all axes)\"\n        },\n        \n        \"critical_milestones_and_schedule\": {\n            \"total_schedule\": \"18 months from PDR to launch\",\n            \"key_milestones\": [\n                \"PDR: L-18 months\",\n                \"CDR: L-12 months\",\n                \"Qual testing complete: L-8 months\",\n                \"Flight integration: L-6 months\",\n                \"Protoflight complete: L-4.5 months\",\n                \"MRR: L-2 months\",\n                \"Launch: L-0\"\n            ],\n            \"recommended_margin\": \"3 months contingency (16.7%)\"\n        },\n        \n        \"key_risks_and_mitigations\": [\n            {\n                \"risk\": \"Thermal management\",\n                \"mitigation\": \"Early TVAC testing, design margin, redundant sensors\"\n            },\n            {\n                \"risk\": \"RF interference\",\n                \"mitigation\": \"Early EMC testing, frequency planning, shielding\"\n            },\n            {\n                \"risk\": \"Mechanical compatibility\",\n                \"mitigation\": \"Early fit check, 3D scanning, design margin\"\n            },\n            {\n                \"risk\": \"Deployment failure\",\n                \"mitigation\": \"Redundant mechanisms, ground testing, contingency plans\"\n            },\n            {\n                \"risk\": \"ADCS performance\",\n                \"mitigation\": \"Early testing, design margin, on-orbit calibration\"\n            },\n            {\n                \"risk\": \"Schedule delays\",\n                \"mitigation\": \"Dual sourcing, early procurement, buffer stock\"\n            }\n        ],\n        \n        \"key_action\": f\"Immediately procure P-POD interface fixture for {cubesat_size} and conduct first mechanical fit check to validate design before CDR.\"\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": technical_plan, \"error\": None}\n'''\n\nprint(\"Tool code created successfully\")\nprint(\"\\nTool signature:\")\nprint(\"def handler(*, mission_type, cubesat_size, orbit_altitude, mission_lifetime)\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Tool code created successfully\n\nTool signature:\ndef handler(*, mission_type, cubesat_size, orbit_altitude, mission_lifetime)\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 4.45
+        }
+      ],
+      "tools_registered": [
+        {
+          "name": "dynamic.generate_technical_plan",
+          "description": "Generate a technical launch plan for a cubesat mission with customizable parameters",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mission_type": {
+                "type": "string",
+                "description": "Type of mission (e.g., 'weather-monitoring', 'Earth observation', 'communications')"
+              },
+              "cubesat_size": {
+                "type": "string",
+                "description": "Cubesat size (e.g., '3U', '6U', '12U')"
+              },
+              "orbit_altitude": {
+                "type": "number",
+                "description": "Target orbit altitude in km"
+              },
+              "mission_lifetime": {
+                "type": "number",
+                "description": "Mission lifetime in years"
+              }
+            },
+            "required": [
+              "mission_type",
+              "cubesat_size",
+              "orbit_altitude",
+              "mission_lifetime"
+            ]
+          },
+          "code": "def handler(*, mission_type, cubesat_size, orbit_altitude, mission_lifetime):\n    \"\"\"\n    Generate a technical launch plan for a cubesat mission.\n    \n    Args:\n        mission_type: Type of mission (e.g., \"weather-monitoring\", \"Earth observation\", \"communications\")\n        cubesat_size: Cubesat size (e.g., \"3U\", \"6U\", \"12U\")\n        orbit_altitude: Target orbit altitude in km\n        mission_lifetime: Mission lifetime in years\n        \n    Returns:\n        Technical plan JSON with all required sections\n    \"\"\"\n    import json\n    import datetime\n    \n    # Parse cubesat size\n    if cubesat_size == \"3U\":\n        volume_ext = \"100 mm \u00d7 100 mm \u00d7 340 mm\"\n        mass_max = 4.0\n    elif cubesat_size == \"6U\":\n        volume_ext = \"100 mm \u00d7 200 mm \u00d7 340 mm\"\n        mass_max = 10.0\n    elif cubesat_size == \"12U\":\n        volume_ext = \"200 mm \u00d7 200 mm \u00d7 340 mm\"\n        mass_max = 20.0\n    else:\n        volume_ext = \"Custom dimensions\"\n        mass_max = 15.0\n    \n    # Determine payload based on mission type\n    if \"weather\" in mission_type.lower():\n        payload_desc = \"Multichannel microwave radiometer for atmospheric profiling\"\n        data_rate = \"50 Mbps peak\"\n        power_consumption = \"25W operational\"\n    elif \"earth\" in mission_type.lower() or \"observation\" in mission_type.lower():\n        payload_desc = \"Multispectral imager with visible and near-IR bands\"\n        data_rate = \"100 Mbps peak\"\n        power_consumption = \"30W operational\"\n    elif \"communication\" in mission_type.lower():\n        payload_desc = \"S-band/UHF transponder for store-and-forward communications\"\n        data_rate = \"10 Mbps peak\"\n        power_consumption = \"40W operational\"\n    else:\n        payload_desc = \"Mission-specific payload\"\n        data_rate = \"20 Mbps peak\"\n        power_consumption = \"20W operational\"\n    \n    # Calculate power generation based on size\n    if cubesat_size == \"3U\":\n        power_gen = \"30W average\"\n        battery = \"20 Wh\"\n    elif cubesat_size == \"6U\":\n        power_gen = \"60W average\"\n        battery = \"40 Wh\"\n    elif cubesat_size == \"12U\":\n        power_gen = \"120W average\"\n        battery = \"80 Wh\"\n    else:\n        power_gen = \"45W average\"\n        battery = \"30 Wh\"\n    \n    # Create technical plan structure\n    technical_plan = {\n        \"technical_summary\": f\"The {cubesat_size} {mission_type} cubesat targets a {orbit_altitude} km sun-synchronous orbit with {mission_lifetime}-year operational lifetime. The spacecraft employs {payload_desc.lower()} for primary mission objectives, supported by 3-axis stabilized ADCS, S/X-band communications, and deployable solar arrays generating {power_gen}. Key technical drivers include thermal management, RF interference mitigation, and strict mass/CG constraints for P-POD compatibility.\",\n        \n        \"system_specifications\": {\n            \"mass\": {\n                \"total\": f\"{mass_max * 0.85:.1f} kg (max {mass_max} kg for P-POD)\",\n                \"margin\": f\"{mass_max * 0.15:.1f} kg ({15:.1f}%)\"\n            },\n            \"volume\": {\n                \"external\": volume_ext,\n                \"deployables\": \"Solar panels and antennas (stowed within envelope)\"\n            },\n            \"power\": {\n                \"generation\": power_gen,\n                \"storage\": f\"{battery} Li-ion battery\",\n                \"consumption\": {\n                    \"payload\": power_consumption,\n                    \"bus\": \"15-25W depending on mode\",\n                    \"margin\": \"15%\"\n                }\n            },\n            \"payload_summary\": {\n                \"primary\": payload_desc,\n                \"data_rate\": data_rate,\n                \"thermal_control\": \"Passive radiators + active heating/cooling as needed\"\n            },\n            \"comms\": {\n                \"uplink\": \"S-band, 9.6-64 kbps\",\n                \"downlink\": \"X-band, 5-100 Mbps depending on payload\",\n                \"antennas\": \"Deployable patch/horn antennas\"\n            },\n            \"adcs\": {\n                \"type\": \"3-axis stabilized with reaction wheels and magnetorquers\",\n                \"pointing\": \"\u00b10.5\u00b0 control (payload), \u00b12\u00b0 (bus)\"\n            }\n        },\n        \n        \"integration_and_test_plan\": {\n            \"test_articles\": [\"Engineering model\", \"Qualification model\", \"Flight model\"],\n            \"critical_tests\": [\n                \"Mechanical fit check (3 days)\",\n                \"EMC/EMI testing (5 days)\",\n                \"Random vibration (3 days)\",\n                \"Thermal vacuum (14 days qualification, 10 days acceptance)\",\n                \"RF acceptance (5 days)\"\n            ],\n            \"total_duration\": \"~60 working days (12 weeks)\",\n            \"schedule_margin\": \"20% contingency\"\n        },\n        \n        \"launch_vehicle_compatibility\": {\n            \"deployer_type\": f\"P-POD compatible ({cubesat_size})\",\n            \"mass_constraint\": f\"\u2264{mass_max} kg\",\n            \"cg_offset\": \"\u22645 mm from geometric center\",\n            \"natural_frequency\": \">100 Hz (all axes)\"\n        },\n        \n        \"critical_milestones_and_schedule\": {\n            \"total_schedule\": \"18 months from PDR to launch\",\n            \"key_milestones\": [\n                \"PDR: L-18 months\",\n                \"CDR: L-12 months\",\n                \"Qual testing complete: L-8 months\",\n                \"Flight integration: L-6 months\",\n                \"Protoflight complete: L-4.5 months\",\n                \"MRR: L-2 months\",\n                \"Launch: L-0\"\n            ],\n            \"recommended_margin\": \"3 months contingency (16.7%)\"\n        },\n        \n        \"key_risks_and_mitigations\": [\n            {\n                \"risk\": \"Thermal management\",\n                \"mitigation\": \"Early TVAC testing, design margin, redundant sensors\"\n            },\n            {\n                \"risk\": \"RF interference\",\n                \"mitigation\": \"Early EMC testing, frequency planning, shielding\"\n            },\n            {\n                \"risk\": \"Mechanical compatibility\",\n                \"mitigation\": \"Early fit check, 3D scanning, design margin\"\n            },\n            {\n                \"risk\": \"Deployment failure\",\n                \"mitigation\": \"Redundant mechanisms, ground testing, contingency plans\"\n            },\n            {\n                \"risk\": \"ADCS performance\",\n                \"mitigation\": \"Early testing, design margin, on-orbit calibration\"\n            },\n            {\n                \"risk\": \"Schedule delays\",\n                \"mitigation\": \"Dual sourcing, early procurement, buffer stock\"\n            }\n        ],\n        \n        \"key_action\": f\"Immediately procure P-POD interface fixture for {cubesat_size} and conduct first mechanical fit check to validate design before CDR.\"\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": technical_plan, \"error\": None}",
+          "worker_id": "technical_plan_cubesat",
+          "namespace": "dynamic",
+          "required_secrets": [],
+          "registered": false,
+          "reason": "no_factory"
+        }
+      ]
+    },
+    "logistics_section": {
+      "logistics_summary": "This logistics plan outlines the procurement, transport, and launch-site integration for a 6U weather-monitoring cubesat (~10 kg). The mission targets a commercial LEO launch from Cape Canaveral with a US-based team. Critical long-lead items include the ADCS system (12-16 weeks), hyperspectral imager (14-18 weeks), and flight computer (8-10 weeks). Transport requires temperature-controlled shipping (15-25\u00b0C) with shock monitoring and insurance coverage of $2M. Launch-site integration spans 3 weeks including arrival inspection, functional testing, fueling, and mating to the deployer. Customs paperwork for international components must be initiated 8 weeks before shipment. The plan assumes a 6-month procurement-to-launch timeline with buffer for contingencies.",
+      "procurement_and_supply_chain": {
+        "critical_items": [
+          {
+            "item": "ADCS (Attitude Determination & Control System)",
+            "lead_time_weeks": 14,
+            "vendor": "Blue Canyon / Pumpkin",
+            "notes": "Includes reaction wheels, magnetorquers, star tracker. Longest lead item."
+          },
+          {
+            "item": "Hyperspectral Imager (Weather sensor)",
+            "lead_time_weeks": 16,
+            "vendor": "Planet / Satlantis",
+            "notes": "Custom calibration adds 2 weeks. Requires ITAR clearance."
+          },
+          {
+            "item": "Flight Computer & OBC",
+            "lead_time_weeks": 10,
+            "vendor": "Clyde Space / ISISpace",
+            "notes": "Radiation-hardened variant."
+          },
+          {
+            "item": "S-band/X-band Transceiver",
+            "lead_time_weeks": 8,
+            "vendor": "Syrius / Astrodev",
+            "notes": "FCC licensing concurrent."
+          },
+          {
+            "item": "Solar Panels & EPS",
+            "lead_time_weeks": 6,
+            "vendor": "MMA / GOMSpace",
+            "notes": "Triple-junction GaAs cells."
+          },
+          {
+            "item": "Structure & Deployer",
+            "lead_time_weeks": 4,
+            "vendor": "Nanoracks / Tyvak",
+            "notes": "6U P-POD compatible."
+          }
+        ],
+        "procurement_timeline": [
+          {
+            "phase": "ADCS & Sensor PO",
+            "weeks_before_launch": 26,
+            "duration_weeks": 2
+          },
+          {
+            "phase": "Flight Computer & Comms PO",
+            "weeks_before_launch": 22,
+            "duration_weeks": 2
+          },
+          {
+            "phase": "Power & Structure PO",
+            "weeks_before_launch": 18,
+            "duration_weeks": 2
+          },
+          {
+            "phase": "Integration Components",
+            "weeks_before_launch": 12,
+            "duration_weeks": 2
+          }
+        ],
+        "long_lead_alert": "ADCS (14 weeks) and Hyperspectral Imager (16 weeks) exceed 8-week threshold. Order immediately.",
+        "supply_chain_risks": [
+          "ITAR-controlled components require export licenses (add 4-6 weeks)",
+          "Custom calibration of imager may slip schedule",
+          "Single-source vendors for radiation-hardened parts"
+        ]
+      },
+      "transport_and_handling_plan": {
+        "shipping_method": "Temperature-controlled air freight (15-25\u00b0C) with active monitoring",
+        "carrier": "FedEx Custom Critical / DHL Temperature Control",
+        "packaging": [
+          "ESD-safe foam inserts in Pelican case",
+          "Desiccant packs and humidity indicators",
+          "Shockwatch labels (25g threshold)",
+          "Temperature data logger (records every 15 min)"
+        ],
+        "environmental_controls": {
+          "temperature": "15-25\u00b0C maintained",
+          "humidity": "30-60% RH",
+          "shock_limit": "25g peak",
+          "vibration": "MIL-STD-810G compliant"
+        },
+        "insurance": "$2M all-risk transit insurance (covers physical damage, theft, delay)",
+        "customs_requirements": [
+          "Commercial invoice with harmonized tariff codes (HS 8542.39)",
+          "Export license for ITAR components (DSP-5)",
+          "Carnet ATA for temporary import to launch site",
+          "Shipper's Export Declaration (SED)",
+          "End-use certificate for satellite components"
+        ],
+        "customs_risks": [
+          "ITAR clearance delays (4-6 weeks typical)",
+          "Carnet ATA rejection if value > $500k",
+          "Florida state import tax if classified as 'finished goods'",
+          "Launch provider may require temporary import bond"
+        ],
+        "transport_timeline": [
+          {
+            "step": "Final integration complete",
+            "weeks_before_launch": 4
+          },
+          {
+            "step": "Packaging and documentation",
+            "weeks_before_launch": 3.5
+          },
+          {
+            "step": "Ship from integration facility",
+            "weeks_before_launch": 3
+          },
+          {
+            "step": "Arrival at Cape Canaveral",
+            "weeks_before_launch": 2.5
+          },
+          {
+            "step": "Customs clearance complete",
+            "weeks_before_launch": 2
+          }
+        ]
+      },
+      "launch_site_integration_schedule": {
+        "arrival_window": "L-21 to L-14 days (3 weeks before launch)",
+        "integration_facility": "Astrotech Space Operations (Titusville) or SpaceX Payload Processing Facility",
+        "schedule": [
+          {
+            "day": "L-21",
+            "activity": "Arrival inspection, unpack in cleanroom",
+            "duration": "4 hours"
+          },
+          {
+            "day": "L-20",
+            "activity": "Visual inspection, mass properties verification",
+            "duration": "6 hours"
+          },
+          {
+            "day": "L-19",
+            "activity": "Functional testing (power-on, comms check)",
+            "duration": "8 hours"
+          },
+          {
+            "day": "L-18",
+            "activity": "Sensor calibration verification",
+            "duration": "6 hours"
+          },
+          {
+            "day": "L-17",
+            "activity": "Deployer fit check",
+            "duration": "4 hours"
+          },
+          {
+            "day": "L-16",
+            "activity": "Final software load",
+            "duration": "4 hours"
+          },
+          {
+            "day": "L-15",
+            "activity": "Battery conditioning",
+            "duration": "24 hours (passive)"
+          },
+          {
+            "day": "L-14",
+            "activity": "Fueling (if propulsion equipped)",
+            "duration": "8 hours"
+          },
+          {
+            "day": "L-13",
+            "activity": "Closeout photos, documentation",
+            "duration": "4 hours"
+          },
+          {
+            "day": "L-12",
+            "activity": "Mate to launch vehicle adapter",
+            "duration": "6 hours"
+          },
+          {
+            "day": "L-11 to L-1",
+            "activity": "Storage in controlled environment",
+            "duration": "Passive"
+          },
+          {
+            "day": "L-0",
+            "activity": "Launch",
+            "duration": "N/A"
+          }
+        ],
+        "storage_requirements": {
+          "cleanroom_class": "ISO 8 (Class 100,000) minimum",
+          "temperature": "18-22\u00b0C controlled",
+          "humidity": "40-60% RH",
+          "ESD_protection": "Wrist straps, grounded workstations",
+          "access_control": "Badged personnel only, visitor logs"
+        },
+        "handover_checklist": [
+          "Satellite in flight configuration",
+          "Mass properties report (CG, inertia)",
+          "RF compliance test results",
+          "Final software load verification",
+          "Battery state-of-charge certificate",
+          "ESD test logs",
+          "Cleanroom access logs",
+          "Non-conformance reports (if any)",
+          "Launch provider specific forms (PHSR, ICD compliance)"
+        ]
+      },
+      "personnel_and_training": {
+        "onsite_roles": [
+          {
+            "role": "Principal Investigator (PI)",
+            "duration": "L-21 to L-12 (10 days)",
+            "responsibilities": "Final go/no-go decisions, anomaly resolution"
+          },
+          {
+            "role": "Systems Engineer",
+            "duration": "L-21 to L-12 (10 days)",
+            "responsibilities": "Integration oversight, test procedure execution"
+          },
+          {
+            "role": "Mechanical Lead",
+            "duration": "L-21 to L-14 (8 days)",
+            "responsibilities": "Deployer mating, mechanical inspections"
+          },
+          {
+            "role": "Electrical/Test Engineer",
+            "duration": "L-21 to L-16 (6 days)",
+            "responsibilities": "Power-on, functional testing"
+          },
+          {
+            "role": "QA/Flight Ops",
+            "duration": "L-21 to L-12 (10 days)",
+            "responsibilities": "Documentation, procedure compliance"
+          }
+        ],
+        "training_requirements": [
+          "Cleanroom protocol (ASTM E2315)",
+          "ESD awareness (ANSI/ESD S20.20)",
+          "Range safety briefing (Cape Canaveral)",
+          "Hazardous materials handling (if fueled)",
+          "Launch provider specific procedures"
+        ],
+        "checklists": [
+          "Daily startup: cleanroom gowning, ESD check, tool inventory",
+          "Pre-test: procedure review, safety walkthrough, data recording setup",
+          "Post-test: data backup, anomaly logging, equipment stowage",
+          "Closeout: photo documentation, form completion, handover preparation"
+        ],
+        "accommodation_logistics": [
+          "Hotel near Cape Canaveral (Titusville/Cocoa Beach)",
+          "Rental vehicles (2 SUVs minimum)",
+          "Badge processing (2 weeks lead time)",
+          "Site access training (1 day onsite)"
+        ]
+      },
+      "insurance_and_contracts": {
+        "insurance_types": [
+          {
+            "type": "Transit Insurance",
+            "coverage": "$2M",
+            "timing": "Initiate 2 weeks before shipment",
+            "provider": "Lloyd's of London / AIG"
+          },
+          {
+            "type": "Launch Insurance",
+            "coverage": "$10M satellite value + $5M third-party",
+            "timing": "Bind 30 days before launch",
+            "provider": "Space Insurance Consortium"
+          },
+          {
+            "type": "In-Orbit Insurance",
+            "coverage": "$8M (first year)",
+            "timing": "Bind at launch confirmation",
+            "provider": "Global aerospace insurers"
+          },
+          {
+            "type": "Third-Party Liability",
+            "coverage": "$100M minimum",
+            "timing": "Required by launch provider",
+            "provider": "Launch provider may arrange"
+          }
+        ],
+        "contracts": [
+          {
+            "document": "Launch Services Agreement",
+            "parties": "Satellite operator & Launch provider",
+            "timing": "Sign 9 months before launch"
+          },
+          {
+            "document": "Payload Integration Agreement",
+            "parties": "Satellite operator & Integration facility",
+            "timing": "Sign 6 months before launch"
+          },
+          {
+            "document": "Range Use Agreement",
+            "parties": "Satellite operator & Range operator",
+            "timing": "Sign 4 months before launch"
+          },
+          {
+            "document": "Spectrum License",
+            "parties": "Satellite operator & FCC/ITU",
+            "timing": "File 1 year before launch"
+          }
+        ],
+        "key_dates": [
+          {
+            "milestone": "Launch contract signature",
+            "months_before_launch": 9
+          },
+          {
+            "milestone": "Insurance binding for transit",
+            "weeks_before_launch": 2
+          },
+          {
+            "milestone": "Launch insurance binding",
+            "days_before_launch": 30
+          },
+          {
+            "milestone": "Final payment to launch provider",
+            "days_before_launch": 45
+          }
+        ]
+      },
+      "key_action": "Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.",
+      "confidence": 0.95,
+      "tools_created": [
+        {
+          "name": "dynamic.generate_cubesat_logistics_plan",
+          "description": "Generate a comprehensive logistics launch plan for a cubesat mission including procurement, transport, integration schedule, personnel needs, insurance, and key actions.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mission_type": {
+                "type": "string",
+                "description": "Type of mission (e.g., 'weather-monitoring cubesat')",
+                "default": "weather-monitoring cubesat"
+              },
+              "launch_site": {
+                "type": "string",
+                "description": "Launch site location (e.g., 'Cape Canaveral')",
+                "default": "Cape Canaveral"
+              }
+            },
+            "required": []
+          },
+          "code": "import json\nimport datetime\n\ndef handler(*, mission_type=\"weather-monitoring cubesat\", launch_site=\"Cape Canaveral\"):\n    \"\"\"Generate a logistics launch plan for a cubesat mission.\"\"\"\n    \n    # Current date for timeline calculations\n    today = datetime.date.today()\n    \n    # Logistics summary\n    logistics_summary = \"\"\"This logistics plan outlines the procurement, transport, and launch-site integration for a 6U weather-monitoring cubesat (~10 kg). The mission targets a commercial LEO launch from Cape Canaveral with a US-based team. Critical long-lead items include the ADCS system (12-16 weeks), hyperspectral imager (14-18 weeks), and flight computer (8-10 weeks). Transport requires temperature-controlled shipping (15-25\u00b0C) with shock monitoring and insurance coverage of $2M. Launch-site integration spans 3 weeks including arrival inspection, functional testing, fueling, and mating to the deployer. Customs paperwork for international components must be initiated 8 weeks before shipment. The plan assumes a 6-month procurement-to-launch timeline with buffer for contingencies.\"\"\"\n    \n    # Procurement and supply chain\n    procurement_and_supply_chain = {\n        \"critical_items\": [\n            {\"item\": \"ADCS (Attitude Determination & Control System)\", \"lead_time_weeks\": 14, \"vendor\": \"Blue Canyon / Pumpkin\", \"notes\": \"Includes reaction wheels, magnetorquers, star tracker. Longest lead item.\"},\n            {\"item\": \"Hyperspectral Imager (Weather sensor)\", \"lead_time_weeks\": 16, \"vendor\": \"Planet / Satlantis\", \"notes\": \"Custom calibration adds 2 weeks. Requires ITAR clearance.\"},\n            {\"item\": \"Flight Computer & OBC\", \"lead_time_weeks\": 10, \"vendor\": \"Clyde Space / ISISpace\", \"notes\": \"Radiation-hardened variant.\"},\n            {\"item\": \"S-band/X-band Transceiver\", \"lead_time_weeks\": 8, \"vendor\": \"Syrius / Astrodev\", \"notes\": \"FCC licensing concurrent.\"},\n            {\"item\": \"Solar Panels & EPS\", \"lead_time_weeks\": 6, \"vendor\": \"MMA / GOMSpace\", \"notes\": \"Triple-junction GaAs cells.\"},\n            {\"item\": \"Structure & Deployer\", \"lead_time_weeks\": 4, \"vendor\": \"Nanoracks / Tyvak\", \"notes\": \"6U P-POD compatible.\"}\n        ],\n        \"procurement_timeline\": [\n            {\"phase\": \"ADCS & Sensor PO\", \"weeks_before_launch\": 26, \"duration_weeks\": 2},\n            {\"phase\": \"Flight Computer & Comms PO\", \"weeks_before_launch\": 22, \"duration_weeks\": 2},\n            {\"phase\": \"Power & Structure PO\", \"weeks_before_launch\": 18, \"duration_weeks\": 2},\n            {\"phase\": \"Integration Components\", \"weeks_before_launch\": 12, \"duration_weeks\": 2}\n        ],\n        \"long_lead_alert\": \"ADCS (14 weeks) and Hyperspectral Imager (16 weeks) exceed 8-week threshold. Order immediately.\",\n        \"supply_chain_risks\": [\n            \"ITAR-controlled components require export licenses (add 4-6 weeks)\",\n            \"Custom calibration of imager may slip schedule\",\n            \"Single-source vendors for radiation-hardened parts\"\n        ]\n    }\n    \n    # Transport and handling plan\n    transport_and_handling_plan = {\n        \"shipping_method\": \"Temperature-controlled air freight (15-25\u00b0C) with active monitoring\",\n        \"carrier\": \"FedEx Custom Critical / DHL Temperature Control\",\n        \"packaging\": [\n            \"ESD-safe foam inserts in Pelican case\",\n            \"Desiccant packs and humidity indicators\",\n            \"Shockwatch labels (25g threshold)\",\n            \"Temperature data logger (records every 15 min)\"\n        ],\n        \"environmental_controls\": {\n            \"temperature\": \"15-25\u00b0C maintained\",\n            \"humidity\": \"30-60% RH\",\n            \"shock_limit\": \"25g peak\",\n            \"vibration\": \"MIL-STD-810G compliant\"\n        },\n        \"insurance\": \"$2M all-risk transit insurance (covers physical damage, theft, delay)\",\n        \"customs_requirements\": [\n            \"Commercial invoice with harmonized tariff codes (HS 8542.39)\",\n            \"Export license for ITAR components (DSP-5)\",\n            \"Carnet ATA for temporary import to launch site\",\n            \"Shipper's Export Declaration (SED)\",\n            \"End-use certificate for satellite components\"\n        ],\n        \"customs_risks\": [\n            \"ITAR clearance delays (4-6 weeks typical)\",\n            \"Carnet ATA rejection if value > $500k\",\n            \"Florida state import tax if classified as 'finished goods'\",\n            \"Launch provider may require temporary import bond\"\n        ],\n        \"transport_timeline\": [\n            {\"step\": \"Final integration complete\", \"weeks_before_launch\": 4},\n            {\"step\": \"Packaging and documentation\", \"weeks_before_launch\": 3.5},\n            {\"step\": \"Ship from integration facility\", \"weeks_before_launch\": 3},\n            {\"step\": \"Arrival at Cape Canaveral\", \"weeks_before_launch\": 2.5},\n            {\"step\": \"Customs clearance complete\", \"weeks_before_launch\": 2}\n        ]\n    }\n    \n    # Launch site integration schedule\n    launch_site_integration_schedule = {\n        \"arrival_window\": \"L-21 to L-14 days (3 weeks before launch)\",\n        \"integration_facility\": \"Astrotech Space Operations (Titusville) or SpaceX Payload Processing Facility\",\n        \"schedule\": [\n            {\"day\": \"L-21\", \"activity\": \"Arrival inspection, unpack in cleanroom\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-20\", \"activity\": \"Visual inspection, mass properties verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-19\", \"activity\": \"Functional testing (power-on, comms check)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-18\", \"activity\": \"Sensor calibration verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-17\", \"activity\": \"Deployer fit check\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-16\", \"activity\": \"Final software load\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-15\", \"activity\": \"Battery conditioning\", \"duration\": \"24 hours (passive)\"},\n            {\"day\": \"L-14\", \"activity\": \"Fueling (if propulsion equipped)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-13\", \"activity\": \"Closeout photos, documentation\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-12\", \"activity\": \"Mate to launch vehicle adapter\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-11 to L-1\", \"activity\": \"Storage in controlled environment\", \"duration\": \"Passive\"},\n            {\"day\": \"L-0\", \"activity\": \"Launch\", \"duration\": \"N/A\"}\n        ],\n        \"storage_requirements\": {\n            \"cleanroom_class\": \"ISO 8 (Class 100,000) minimum\",\n            \"temperature\": \"18-22\u00b0C controlled\",\n            \"humidity\": \"40-60% RH\",\n            \"ESD_protection\": \"Wrist straps, grounded workstations\",\n            \"access_control\": \"Badged personnel only, visitor logs\"\n        },\n        \"handover_checklist\": [\n            \"Satellite in flight configuration\",\n            \"Mass properties report (CG, inertia)\",\n            \"RF compliance test results\",\n            \"Final software load verification\",\n            \"Battery state-of-charge certificate\",\n            \"ESD test logs\",\n            \"Cleanroom access logs\",\n            \"Non-conformance reports (if any)\",\n            \"Launch provider specific forms (PHSR, ICD compliance)\"\n        ]\n    }\n    \n    # Personnel and training\n    personnel_and_training = {\n        \"onsite_roles\": [\n            {\"role\": \"Principal Investigator (PI)\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Final go/no-go decisions, anomaly resolution\"},\n            {\"role\": \"Systems Engineer\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Integration oversight, test procedure execution\"},\n            {\"role\": \"Mechanical Lead\", \"duration\": \"L-21 to L-14 (8 days)\", \"responsibilities\": \"Deployer mating, mechanical inspections\"},\n            {\"role\": \"Electrical/Test Engineer\", \"duration\": \"L-21 to L-16 (6 days)\", \"responsibilities\": \"Power-on, functional testing\"},\n            {\"role\": \"QA/Flight Ops\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Documentation, procedure compliance\"}\n        ],\n        \"training_requirements\": [\n            \"Cleanroom protocol (ASTM E2315)\",\n            \"ESD awareness (ANSI/ESD S20.20)\",\n            \"Range safety briefing (Cape Canaveral)\",\n            \"Hazardous materials handling (if fueled)\",\n            \"Launch provider specific procedures\"\n        ],\n        \"checklists\": [\n            \"Daily startup: cleanroom gowning, ESD check, tool inventory\",\n            \"Pre-test: procedure review, safety walkthrough, data recording setup\",\n            \"Post-test: data backup, anomaly logging, equipment stowage\",\n            \"Closeout: photo documentation, form completion, handover preparation\"\n        ],\n        \"accommodation_logistics\": [\n            \"Hotel near Cape Canaveral (Titusville/Cocoa Beach)\",\n            \"Rental vehicles (2 SUVs minimum)\",\n            \"Badge processing (2 weeks lead time)\",\n            \"Site access training (1 day onsite)\"\n        ]\n    }\n    \n    # Insurance and contracts\n    insurance_and_contracts = {\n        \"insurance_types\": [\n            {\"type\": \"Transit Insurance\", \"coverage\": \"$2M\", \"timing\": \"Initiate 2 weeks before shipment\", \"provider\": \"Lloyd's of London / AIG\"},\n            {\"type\": \"Launch Insurance\", \"coverage\": \"$10M satellite value + $5M third-party\", \"timing\": \"Bind 30 days before launch\", \"provider\": \"Space Insurance Consortium\"},\n            {\"type\": \"In-Orbit Insurance\", \"coverage\": \"$8M (first year)\", \"timing\": \"Bind at launch confirmation\", \"provider\": \"Global aerospace insurers\"},\n            {\"type\": \"Third-Party Liability\", \"coverage\": \"$100M minimum\", \"timing\": \"Required by launch provider\", \"provider\": \"Launch provider may arrange\"}\n        ],\n        \"contracts\": [\n            {\"document\": \"Launch Services Agreement\", \"parties\": \"Satellite operator & Launch provider\", \"timing\": \"Sign 9 months before launch\"},\n            {\"document\": \"Payload Integration Agreement\", \"parties\": \"Satellite operator & Integration facility\", \"timing\": \"Sign 6 months before launch\"},\n            {\"document\": \"Range Use Agreement\", \"parties\": \"Satellite operator & Range operator\", \"timing\": \"Sign 4 months before launch\"},\n            {\"document\": \"Spectrum License\", \"parties\": \"Satellite operator & FCC/ITU\", \"timing\": \"File 1 year before launch\"}\n        ],\n        \"key_dates\": [\n            {\"milestone\": \"Launch contract signature\", \"months_before_launch\": 9},\n            {\"milestone\": \"Insurance binding for transit\", \"weeks_before_launch\": 2},\n            {\"milestone\": \"Launch insurance binding\", \"days_before_launch\": 30},\n            {\"milestone\": \"Final payment to launch provider\", \"days_before_launch\": 45}\n        ]\n    }\n    \n    # Key action\n    key_action = \"Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.\"\n    \n    result = {\n        \"logistics_summary\": logistics_summary,\n        \"procurement_and_supply_chain\": procurement_and_supply_chain,\n        \"transport_and_handling_plan\": transport_and_handling_plan,\n        \"launch_site_integration_schedule\": launch_site_integration_schedule,\n        \"personnel_and_training\": personnel_and_training,\n        \"insurance_and_contracts\": insurance_and_contracts,\n        \"key_action\": key_action\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": result, \"error\": None}"
+        }
+      ],
+      "_tool_calls": [
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "import json\nimport os\n\n# List all files to see what's available\nprint(\"Workspace directory contents:\")\nfor root, dirs, files in os.walk(_workspace_dir):\n    for file in files:\n        path = os.path.join(root, file)\n        rel_path = os.path.relpath(path, _workspace_dir)\n        size = os.path.getsize(path)\n        print(f\"  {rel_path} ({size} B)\")\n\nprint(\"\\nOutput directory contents:\")\nif os.path.exists(_output_dir):\n    for root, dirs, files in os.walk(_output_dir):\n        for file in files:\n            path = os.path.join(root, file)\n            rel_path = os.path.relpath(path, _output_dir)\n            size = os.path.getsize(path)\n            print(f\"  {rel_path} ({size} B)\")\nelse:\n    print(\"  Output directory does not exist yet\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Workspace directory contents:\n  runs/2026-04-18_15-15-02_183055f2/run_manifest.json (807 B)\n  runs/2026-04-18_15-15-02_183055f2/metrics.jsonl (338 B)\n  runs/2026-04-18_15-15-02_183055f2/RUN_SUMMARY.md (476 B)\n  runs/2026-04-18_15-15-02_183055f2/iterations/001/manager_decision.json (12727 B)\n  runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/regulatory_analysis_cubesat/envelope.json (3312 B)\n  runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/integrator_consolidate_plan/envelope.json (2932 B)\n  runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/technical_plan_cubesat/envelope.json (2909 B)\n  runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/logistics_plan_cubesat/envelope.json (2754 B)\n  skills/regulatory_planning_for_small_satellites.md (1469 B)\n  skills/technical_systems_planning_for_cubesats.md (1264 B)\n  skills/logistics_and_operations_for_satellite_launch.md (1204 B)\n  skills/plan_integration_and_consolidation.md (1232 B)\n  blackboard/2026-04-18_15-15-02_183055f2.jsonl (0 B)\n\nOutput directory contents:\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 224.32
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "import json\n\n# Read the logistics plan envelope\nenvelope_path = _workspace_dir + \"/runs/2026-04-18_15-15-02_183055f2/iterations/001/delegations/logistics_plan_cubesat/envelope.json\"\nwith open(envelope_path, 'r') as f:\n    envelope = json.load(f)\n\nprint(\"Logistics plan envelope contents:\")\nprint(json.dumps(envelope, indent=2))"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Logistics plan envelope contents:\n{\n  \"worker_id\": \"logistics_plan_cubesat\",\n  \"subtask_id\": \"subtask_logistics\",\n  \"instructions\": \"Produce a first-draft logistics launch-plan section for the fictional cubesat. Deliver JSON with: logistics_summary (<= 350 words), procurement_and_supply_chain (lead times for critical items, long-lead components), transport_and_handling_plan (shipping to launch site, customs, packaging, environmental controls), launch_site_integration_schedule (arrival windows, integration checkpoints, storage requirements), personnel_and_training (roles needed onsite and suggested training/checklists), insurance_and_contracts (types of insurance to obtain and timing), and key_action (one concise, high-priority logistics action to start now). Include estimated durations/lead times in weeks for major procurement and transport steps, customs risks for international launches, and a brief checklist of items that must be handed to the launch provider on arrival. Be specific and operational.\",\n  \"skills\": [\n    \"# Logistics and Operations for Satellite Launch\\n\\n## Purpose\\nProvide operational guidance for logistics, procurement, transport, and launch-site integration of a small satellite.\\n\\n## Concepts\\n- Long-Lead Items: components with long procurement times (ADCS, sensors, flight computers)\\n- Transport Requirements: temperature, shock limits, insurance, authorised carriers\\n- Launch Site Integration: clean-room access, environmental control, storage, ESD handling\\n- Contracts & Permits: customs paperwork, temporary import bonds, insurance\\n- Crew Roles: PI, systems engineer, mechanical lead, QA/flight ops\\n\\n## Rules\\n1. Report lead times in weeks and highlight any items >8 weeks.\\n2. Provide a step-by-step arrival/integration checklist for the launch site.\\n3. Call out customs and export paperwork needed for cross-border transport.\\n4. Provide a single prioritized logistics key action.\\n\\n## Procedure\\n1. Identify critical procurements and their lead times.\\n2. Draft transport and arrival checklist.\\n3. Map out a high-level integration schedule at the launch site.\\n\\n## Examples\\nInput: international launch from Cape Canaveral with US-based team. Output: procurement table, customs notes, and arrival checklist.\"\n  ],\n  \"tools_allowed\": [],\n  \"output_contract\": {\n    \"required_fields\": [\n      \"logistics_summary\",\n      \"procurement_and_supply_chain\",\n      \"transport_and_handling_plan\",\n      \"launch_site_integration_schedule\",\n      \"personnel_and_training\",\n      \"insurance_and_contracts\",\n      \"key_action\"\n    ],\n    \"description\": \"Structured logistics JSON describing procurement lead times, transport, integration schedule, personnel needs, insurance, and one prioritized logistics action.\"\n  },\n  \"temperature\": 0.15\n}\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 4.67
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "# Read the logistics skills document\nskills_path = _workspace_dir + \"/skills/logistics_and_operations_for_satellite_launch.md\"\nwith open(skills_path, 'r') as f:\n    skills_content = f.read()\n\nprint(\"Logistics skills document:\")\nprint(skills_content)"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Logistics skills document:\n# Logistics and Operations for Satellite Launch\n\n## Purpose\nProvide operational guidance for logistics, procurement, transport, and launch-site integration of a small satellite.\n\n## Concepts\n- Long-Lead Items: components with long procurement times (ADCS, sensors, flight computers)\n- Transport Requirements: temperature, shock limits, insurance, authorised carriers\n- Launch Site Integration: clean-room access, environmental control, storage, ESD handling\n- Contracts & Permits: customs paperwork, temporary import bonds, insurance\n- Crew Roles: PI, systems engineer, mechanical lead, QA/flight ops\n\n## Rules\n1. Report lead times in weeks and highlight any items >8 weeks.\n2. Provide a step-by-step arrival/integration checklist for the launch site.\n3. Call out customs and export paperwork needed for cross-border transport.\n4. Provide a single prioritized logistics key action.\n\n## Procedure\n1. Identify critical procurements and their lead times.\n2. Draft transport and arrival checklist.\n3. Map out a high-level integration schedule at the launch site.\n\n## Examples\nInput: international launch from Cape Canaveral with US-based team. Output: procurement table, customs notes, and arrival checklist.\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 4.79
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "# Check the manager decision file for context about the overall mission\nmanager_decision_path = _workspace_dir + \"/runs/2026-04-18_15-15-02_183055f2/iterations/001/manager_decision.json\"\nwith open(manager_decision_path, 'r') as f:\n    manager_decision = json.load(f)\n\nprint(\"Manager decision (first 2000 chars):\")\nprint(json.dumps(manager_decision, indent=2)[:2000])"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Manager decision (first 2000 chars):\n{\n  \"decision\": \"delegate\",\n  \"reasoning\": \"Split the launch-plan drafting into focused research/analysis subtasks (regulatory, technical, logistics) so each worker can produce a high-quality section; then a short integrator task will consolidate the sections into the requested short summary with one key action per angle. This parallel decomposition fits within the available worker budget and keeps responsibilities clear.\",\n  \"delegations\": [\n    {\n      \"worker_id\": \"regulatory_analysis_cubesat\",\n      \"subtask_id\": \"subtask_regulatory\",\n      \"instructions\": \"Produce a first-draft regulatory launch-plan section for a fictional weather-monitoring 6U cubesat (assume ~10 kg payload). Your deliverable must be JSON (UTF-8) containing the following fields: regulatory_summary (<= 400 words), required_filings (list of items with brief purpose and typical lead time), responsible_parties (who signs/coordinates), timeline (milestone list with typical durations and earliest deadlines relative to planned launch date), risks_and_mitigations (top 5 regulatory risks and mitigations), and key_action (one concise, high-priority action to start now). Cover at minimum: national license/authorization for satellite operation and ground stations, frequency coordination/ITU filings, export controls (e.g., ITAR/EAR or local equivalents), launch range/launch operator safety/regulatory requirements, debris mitigation and orbital lifetime/disposal plan compliance, insurance requirements, and spectrum or data-sharing agreements if relevant. Assume launch from a commercial low-Earth-orbit provider; if any requirement is jurisdiction-dependent, present a short note of which jurisdictions trigger it. Use precise, actionable language and attach typical lead times (in weeks/months) for each major filing. Keep tone concise and prescriptive. Do not produce marketing text.\",\n      \"skills\": [\n        \"# Regulatory Planning for Small Satellites\\n\\n## Purpose\\nProvide domain knowledge needed to identif\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 4.64
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "import json\nimport datetime\n\ndef create_logistics_plan():\n    \"\"\"Create a comprehensive logistics plan for a weather-monitoring cubesat.\"\"\"\n    \n    # Current date for timeline calculations\n    today = datetime.date.today()\n    \n    # Logistics summary\n    logistics_summary = \"\"\"This logistics plan outlines the procurement, transport, and launch-site integration for a 6U weather-monitoring cubesat (~10 kg). The mission targets a commercial LEO launch from Cape Canaveral with a US-based team. Critical long-lead items include the ADCS system (12-16 weeks), hyperspectral imager (14-18 weeks), and flight computer (8-10 weeks). Transport requires temperature-controlled shipping (15-25\u00b0C) with shock monitoring and insurance coverage of $2M. Launch-site integration spans 3 weeks including arrival inspection, functional testing, fueling, and mating to the deployer. Customs paperwork for international components must be initiated 8 weeks before shipment. The plan assumes a 6-month procurement-to-launch timeline with buffer for contingencies.\"\"\"\n    \n    # Procurement and supply chain\n    procurement_and_supply_chain = {\n        \"critical_items\": [\n            {\"item\": \"ADCS (Attitude Determination & Control System)\", \"lead_time_weeks\": 14, \"vendor\": \"Blue Canyon / Pumpkin\", \"notes\": \"Includes reaction wheels, magnetorquers, star tracker. Longest lead item.\"},\n            {\"item\": \"Hyperspectral Imager (Weather sensor)\", \"lead_time_weeks\": 16, \"vendor\": \"Planet / Satlantis\", \"notes\": \"Custom calibration adds 2 weeks. Requires ITAR clearance.\"},\n            {\"item\": \"Flight Computer & OBC\", \"lead_time_weeks\": 10, \"vendor\": \"Clyde Space / ISISpace\", \"notes\": \"Radiation-hardened variant.\"},\n            {\"item\": \"S-band/X-band Transceiver\", \"lead_time_weeks\": 8, \"vendor\": \"Syrius / Astrodev\", \"notes\": \"FCC licensing concurrent.\"},\n            {\"item\": \"Solar Panels & EPS\", \"lead_time_weeks\": 6, \"vendor\": \"MMA / GOMSpace\", \"notes\": \"Triple-junction GaAs cells.\"},\n            {\"item\": \"Structure & Deployer\", \"lead_time_weeks\": 4, \"vendor\": \"Nanoracks / Tyvak\", \"notes\": \"6U P-POD compatible.\"}\n        ],\n        \"procurement_timeline\": [\n            {\"phase\": \"ADCS & Sensor PO\", \"weeks_before_launch\": 26, \"duration_weeks\": 2},\n            {\"phase\": \"Flight Computer & Comms PO\", \"weeks_before_launch\": 22, \"duration_weeks\": 2},\n            {\"phase\": \"Power & Structure PO\", \"weeks_before_launch\": 18, \"duration_weeks\": 2},\n            {\"phase\": \"Integration Components\", \"weeks_before_launch\": 12, \"duration_weeks\": 2}\n        ],\n        \"long_lead_alert\": \"ADCS (14 weeks) and Hyperspectral Imager (16 weeks) exceed 8-week threshold. Order immediately.\",\n        \"supply_chain_risks\": [\n            \"ITAR-controlled components require export licenses (add 4-6 weeks)\",\n            \"Custom calibration of imager may slip schedule\",\n            \"Single-source vendors for radiation-hardened parts\"\n        ]\n    }\n    \n    # Transport and handling plan\n    transport_and_handling_plan = {\n        \"shipping_method\": \"Temperature-controlled air freight (15-25\u00b0C) with active monitoring\",\n        \"carrier\": \"FedEx Custom Critical / DHL Temperature Control\",\n        \"packaging\": [\n            \"ESD-safe foam inserts in Pelican case\",\n            \"Desiccant packs and humidity indicators\",\n            \"Shockwatch labels (25g threshold)\",\n            \"Temperature data logger (records every 15 min)\"\n        ],\n        \"environmental_controls\": {\n            \"temperature\": \"15-25\u00b0C maintained\",\n            \"humidity\": \"30-60% RH\",\n            \"shock_limit\": \"25g peak\",\n            \"vibration\": \"MIL-STD-810G compliant\"\n        },\n        \"insurance\": \"$2M all-risk transit insurance (covers physical damage, theft, delay)\",\n        \"customs_requirements\": [\n            \"Commercial invoice with harmonized tariff codes (HS 8542.39)\",\n            \"Export license for ITAR components (DSP-5)\",\n            \"Carnet ATA for temporary import to launch site\",\n            \"Shipper's Export Declaration (SED)\",\n            \"End-use certificate for satellite components\"\n        ],\n        \"customs_risks\": [\n            \"ITAR clearance delays (4-6 weeks typical)\",\n            \"Carnet ATA rejection if value > $500k\",\n            \"Florida state import tax if classified as 'finished goods'\",\n            \"Launch provider may require temporary import bond\"\n        ],\n        \"transport_timeline\": [\n            {\"step\": \"Final integration complete\", \"weeks_before_launch\": 4},\n            {\"step\": \"Packaging and documentation\", \"weeks_before_launch\": 3.5},\n            {\"step\": \"Ship from integration facility\", \"weeks_before_launch\": 3},\n            {\"step\": \"Arrival at Cape Canaveral\", \"weeks_before_launch\": 2.5},\n            {\"step\": \"Customs clearance complete\", \"weeks_before_launch\": 2}\n        ]\n    }\n    \n    # Launch site integration schedule\n    launch_site_integration_schedule = {\n        \"arrival_window\": \"L-21 to L-14 days (3 weeks before launch)\",\n        \"integration_facility\": \"Astrotech Space Operations (Titusville) or SpaceX Payload Processing Facility\",\n        \"schedule\": [\n            {\"day\": \"L-21\", \"activity\": \"Arrival inspection, unpack in cleanroom\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-20\", \"activity\": \"Visual inspection, mass properties verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-19\", \"activity\": \"Functional testing (power-on, comms check)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-18\", \"activity\": \"Sensor calibration verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-17\", \"activity\": \"Deployer fit check\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-16\", \"activity\": \"Final software load\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-15\", \"activity\": \"Battery conditioning\", \"duration\": \"24 hours (passive)\"},\n            {\"day\": \"L-14\", \"activity\": \"Fueling (if propulsion equipped)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-13\", \"activity\": \"Closeout photos, documentation\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-12\", \"activity\": \"Mate to launch vehicle adapter\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-11 to L-1\", \"activity\": \"Storage in controlled environment\", \"duration\": \"Passive\"},\n            {\"day\": \"L-0\", \"activity\": \"Launch\", \"duration\": \"N/A\"}\n        ],\n        \"storage_requirements\": {\n            \"cleanroom_class\": \"ISO 8 (Class 100,000) minimum\",\n            \"temperature\": \"18-22\u00b0C controlled\",\n            \"humidity\": \"40-60% RH\",\n            \"ESD_protection\": \"Wrist straps, grounded workstations\",\n            \"access_control\": \"Badged personnel only, visitor logs\"\n        },\n        \"handover_checklist\": [\n            \"Satellite in flight configuration\",\n            \"Mass properties report (CG, inertia)\",\n            \"RF compliance test results\",\n            \"Final software load verification\",\n            \"Battery state-of-charge certificate\",\n            \"ESD test logs\",\n            \"Cleanroom access logs\",\n            \"Non-conformance reports (if any)\",\n            \"Launch provider specific forms (PHSR, ICD compliance)\"\n        ]\n    }\n    \n    # Personnel and training\n    personnel_and_training = {\n        \"onsite_roles\": [\n            {\"role\": \"Principal Investigator (PI)\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Final go/no-go decisions, anomaly resolution\"},\n            {\"role\": \"Systems Engineer\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Integration oversight, test procedure execution\"},\n            {\"role\": \"Mechanical Lead\", \"duration\": \"L-21 to L-14 (8 days)\", \"responsibilities\": \"Deployer mating, mechanical inspections\"},\n            {\"role\": \"Electrical/Test Engineer\", \"duration\": \"L-21 to L-16 (6 days)\", \"responsibilities\": \"Power-on, functional testing\"},\n            {\"role\": \"QA/Flight Ops\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Documentation, procedure compliance\"}\n        ],\n        \"training_requirements\": [\n            \"Cleanroom protocol (ASTM E2315)\",\n            \"ESD awareness (ANSI/ESD S20.20)\",\n            \"Range safety briefing (Cape Canaveral)\",\n            \"Hazardous materials handling (if fueled)\",\n            \"Launch provider specific procedures\"\n        ],\n        \"checklists\": [\n            \"Daily startup: cleanroom gowning, ESD check, tool inventory\",\n            \"Pre-test: procedure review, safety walkthrough, data recording setup\",\n            \"Post-test: data backup, anomaly logging, equipment stowage\",\n            \"Closeout: photo documentation, form completion, handover preparation\"\n        ],\n        \"accommodation_logistics\": [\n            \"Hotel near Cape Canaveral (Titusville/Cocoa Beach)\",\n            \"Rental vehicles (2 SUVs minimum)\",\n            \"Badge processing (2 weeks lead time)\",\n            \"Site access training (1 day onsite)\"\n        ]\n    }\n    \n    # Insurance and contracts\n    insurance_and_contracts = {\n        \"insurance_types\": [\n            {\"type\": \"Transit Insurance\", \"coverage\": \"$2M\", \"timing\": \"Initiate 2 weeks before shipment\", \"provider\": \"Lloyd's of London / AIG\"},\n            {\"type\": \"Launch Insurance\", \"coverage\": \"$10M satellite value + $5M third-party\", \"timing\": \"Bind 30 days before launch\", \"provider\": \"Space Insurance Consortium\"},\n            {\"type\": \"In-Orbit Insurance\", \"coverage\": \"$8M (first year)\", \"timing\": \"Bind at launch confirmation\", \"provider\": \"Global aerospace insurers\"},\n            {\"type\": \"Third-Party Liability\", \"coverage\": \"$100M minimum\", \"timing\": \"Required by launch provider\", \"provider\": \"Launch provider may arrange\"}\n        ],\n        \"contracts\": [\n            {\"document\": \"Launch Services Agreement\", \"parties\": \"Satellite operator & Launch provider\", \"timing\": \"Sign 9 months before launch\"},\n            {\"document\": \"Payload Integration Agreement\", \"parties\": \"Satellite operator & Integration facility\", \"timing\": \"Sign 6 months before launch\"},\n            {\"document\": \"Range Use Agreement\", \"parties\": \"Satellite operator & Range operator\", \"timing\": \"Sign 4 months before launch\"},\n            {\"document\": \"Spectrum License\", \"parties\": \"Satellite operator & FCC/ITU\", \"timing\": \"File 1 year before launch\"}\n        ],\n        \"key_dates\": [\n            {\"milestone\": \"Launch contract signature\", \"months_before_launch\": 9},\n            {\"milestone\": \"Insurance binding for transit\", \"weeks_before_launch\": 2},\n            {\"milestone\": \"Launch insurance binding\", \"days_before_launch\": 30},\n            {\"milestone\": \"Final payment to launch provider\", \"days_before_launch\": 45}\n        ]\n    }\n    \n    # Key action\n    key_action = \"Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.\"\n    \n    return {\n        \"logistics_summary\": logistics_summary,\n        \"procurement_and_supply_chain\": procurement_and_supply_chain,\n        \"transport_and_handling_plan\": transport_and_handling_plan,\n        \"launch_site_integration_schedule\": launch_site_integration_schedule,\n        \"personnel_and_training\": personnel_and_training,\n        \"insurance_and_contracts\": insurance_and_contracts,\n        \"key_action\": key_action\n    }\n\n# Test the function\nplan = create_logistics_plan()\nprint(\"Logistics plan created successfully\")\nprint(f\"Logistics summary length: {len(plan['logistics_summary'])} characters\")\nprint(f\"Key action: {plan['key_action']}\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Logistics plan created successfully\nLogistics summary length: 768 characters\nKey action: Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 5.27
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "import json\nimport datetime\n\n# Create the tool code\ntool_code = '''import json\nimport datetime\n\ndef handler(*, mission_type=\"weather-monitoring cubesat\", launch_site=\"Cape Canaveral\"):\n    \"\"\"Generate a logistics launch plan for a cubesat mission.\"\"\"\n    \n    # Current date for timeline calculations\n    today = datetime.date.today()\n    \n    # Logistics summary\n    logistics_summary = \"\"\"This logistics plan outlines the procurement, transport, and launch-site integration for a 6U weather-monitoring cubesat (~10 kg). The mission targets a commercial LEO launch from Cape Canaveral with a US-based team. Critical long-lead items include the ADCS system (12-16 weeks), hyperspectral imager (14-18 weeks), and flight computer (8-10 weeks). Transport requires temperature-controlled shipping (15-25\u00b0C) with shock monitoring and insurance coverage of $2M. Launch-site integration spans 3 weeks including arrival inspection, functional testing, fueling, and mating to the deployer. Customs paperwork for international components must be initiated 8 weeks before shipment. The plan assumes a 6-month procurement-to-launch timeline with buffer for contingencies.\"\"\"\n    \n    # Procurement and supply chain\n    procurement_and_supply_chain = {\n        \"critical_items\": [\n            {\"item\": \"ADCS (Attitude Determination & Control System)\", \"lead_time_weeks\": 14, \"vendor\": \"Blue Canyon / Pumpkin\", \"notes\": \"Includes reaction wheels, magnetorquers, star tracker. Longest lead item.\"},\n            {\"item\": \"Hyperspectral Imager (Weather sensor)\", \"lead_time_weeks\": 16, \"vendor\": \"Planet / Satlantis\", \"notes\": \"Custom calibration adds 2 weeks. Requires ITAR clearance.\"},\n            {\"item\": \"Flight Computer & OBC\", \"lead_time_weeks\": 10, \"vendor\": \"Clyde Space / ISISpace\", \"notes\": \"Radiation-hardened variant.\"},\n            {\"item\": \"S-band/X-band Transceiver\", \"lead_time_weeks\": 8, \"vendor\": \"Syrius / Astrodev\", \"notes\": \"FCC licensing concurrent.\"},\n            {\"item\": \"Solar Panels & EPS\", \"lead_time_weeks\": 6, \"vendor\": \"MMA / GOMSpace\", \"notes\": \"Triple-junction GaAs cells.\"},\n            {\"item\": \"Structure & Deployer\", \"lead_time_weeks\": 4, \"vendor\": \"Nanoracks / Tyvak\", \"notes\": \"6U P-POD compatible.\"}\n        ],\n        \"procurement_timeline\": [\n            {\"phase\": \"ADCS & Sensor PO\", \"weeks_before_launch\": 26, \"duration_weeks\": 2},\n            {\"phase\": \"Flight Computer & Comms PO\", \"weeks_before_launch\": 22, \"duration_weeks\": 2},\n            {\"phase\": \"Power & Structure PO\", \"weeks_before_launch\": 18, \"duration_weeks\": 2},\n            {\"phase\": \"Integration Components\", \"weeks_before_launch\": 12, \"duration_weeks\": 2}\n        ],\n        \"long_lead_alert\": \"ADCS (14 weeks) and Hyperspectral Imager (16 weeks) exceed 8-week threshold. Order immediately.\",\n        \"supply_chain_risks\": [\n            \"ITAR-controlled components require export licenses (add 4-6 weeks)\",\n            \"Custom calibration of imager may slip schedule\",\n            \"Single-source vendors for radiation-hardened parts\"\n        ]\n    }\n    \n    # Transport and handling plan\n    transport_and_handling_plan = {\n        \"shipping_method\": \"Temperature-controlled air freight (15-25\u00b0C) with active monitoring\",\n        \"carrier\": \"FedEx Custom Critical / DHL Temperature Control\",\n        \"packaging\": [\n            \"ESD-safe foam inserts in Pelican case\",\n            \"Desiccant packs and humidity indicators\",\n            \"Shockwatch labels (25g threshold)\",\n            \"Temperature data logger (records every 15 min)\"\n        ],\n        \"environmental_controls\": {\n            \"temperature\": \"15-25\u00b0C maintained\",\n            \"humidity\": \"30-60% RH\",\n            \"shock_limit\": \"25g peak\",\n            \"vibration\": \"MIL-STD-810G compliant\"\n        },\n        \"insurance\": \"$2M all-risk transit insurance (covers physical damage, theft, delay)\",\n        \"customs_requirements\": [\n            \"Commercial invoice with harmonized tariff codes (HS 8542.39)\",\n            \"Export license for ITAR components (DSP-5)\",\n            \"Carnet ATA for temporary import to launch site\",\n            \"Shipper's Export Declaration (SED)\",\n            \"End-use certificate for satellite components\"\n        ],\n        \"customs_risks\": [\n            \"ITAR clearance delays (4-6 weeks typical)\",\n            \"Carnet ATA rejection if value > $500k\",\n            \"Florida state import tax if classified as 'finished goods'\",\n            \"Launch provider may require temporary import bond\"\n        ],\n        \"transport_timeline\": [\n            {\"step\": \"Final integration complete\", \"weeks_before_launch\": 4},\n            {\"step\": \"Packaging and documentation\", \"weeks_before_launch\": 3.5},\n            {\"step\": \"Ship from integration facility\", \"weeks_before_launch\": 3},\n            {\"step\": \"Arrival at Cape Canaveral\", \"weeks_before_launch\": 2.5},\n            {\"step\": \"Customs clearance complete\", \"weeks_before_launch\": 2}\n        ]\n    }\n    \n    # Launch site integration schedule\n    launch_site_integration_schedule = {\n        \"arrival_window\": \"L-21 to L-14 days (3 weeks before launch)\",\n        \"integration_facility\": \"Astrotech Space Operations (Titusville) or SpaceX Payload Processing Facility\",\n        \"schedule\": [\n            {\"day\": \"L-21\", \"activity\": \"Arrival inspection, unpack in cleanroom\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-20\", \"activity\": \"Visual inspection, mass properties verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-19\", \"activity\": \"Functional testing (power-on, comms check)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-18\", \"activity\": \"Sensor calibration verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-17\", \"activity\": \"Deployer fit check\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-16\", \"activity\": \"Final software load\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-15\", \"activity\": \"Battery conditioning\", \"duration\": \"24 hours (passive)\"},\n            {\"day\": \"L-14\", \"activity\": \"Fueling (if propulsion equipped)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-13\", \"activity\": \"Closeout photos, documentation\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-12\", \"activity\": \"Mate to launch vehicle adapter\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-11 to L-1\", \"activity\": \"Storage in controlled environment\", \"duration\": \"Passive\"},\n            {\"day\": \"L-0\", \"activity\": \"Launch\", \"duration\": \"N/A\"}\n        ],\n        \"storage_requirements\": {\n            \"cleanroom_class\": \"ISO 8 (Class 100,000) minimum\",\n            \"temperature\": \"18-22\u00b0C controlled\",\n            \"humidity\": \"40-60% RH\",\n            \"ESD_protection\": \"Wrist straps, grounded workstations\",\n            \"access_control\": \"Badged personnel only, visitor logs\"\n        },\n        \"handover_checklist\": [\n            \"Satellite in flight configuration\",\n            \"Mass properties report (CG, inertia)\",\n            \"RF compliance test results\",\n            \"Final software load verification\",\n            \"Battery state-of-charge certificate\",\n            \"ESD test logs\",\n            \"Cleanroom access logs\",\n            \"Non-conformance reports (if any)\",\n            \"Launch provider specific forms (PHSR, ICD compliance)\"\n        ]\n    }\n    \n    # Personnel and training\n    personnel_and_training = {\n        \"onsite_roles\": [\n            {\"role\": \"Principal Investigator (PI)\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Final go/no-go decisions, anomaly resolution\"},\n            {\"role\": \"Systems Engineer\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Integration oversight, test procedure execution\"},\n            {\"role\": \"Mechanical Lead\", \"duration\": \"L-21 to L-14 (8 days)\", \"responsibilities\": \"Deployer mating, mechanical inspections\"},\n            {\"role\": \"Electrical/Test Engineer\", \"duration\": \"L-21 to L-16 (6 days)\", \"responsibilities\": \"Power-on, functional testing\"},\n            {\"role\": \"QA/Flight Ops\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Documentation, procedure compliance\"}\n        ],\n        \"training_requirements\": [\n            \"Cleanroom protocol (ASTM E2315)\",\n            \"ESD awareness (ANSI/ESD S20.20)\",\n            \"Range safety briefing (Cape Canaveral)\",\n            \"Hazardous materials handling (if fueled)\",\n            \"Launch provider specific procedures\"\n        ],\n        \"checklists\": [\n            \"Daily startup: cleanroom gowning, ESD check, tool inventory\",\n            \"Pre-test: procedure review, safety walkthrough, data recording setup\",\n            \"Post-test: data backup, anomaly logging, equipment stowage\",\n            \"Closeout: photo documentation, form completion, handover preparation\"\n        ],\n        \"accommodation_logistics\": [\n            \"Hotel near Cape Canaveral (Titusville/Cocoa Beach)\",\n            \"Rental vehicles (2 SUVs minimum)\",\n            \"Badge processing (2 weeks lead time)\",\n            \"Site access training (1 day onsite)\"\n        ]\n    }\n    \n    # Insurance and contracts\n    insurance_and_contracts = {\n        \"insurance_types\": [\n            {\"type\": \"Transit Insurance\", \"coverage\": \"$2M\", \"timing\": \"Initiate 2 weeks before shipment\", \"provider\": \"Lloyd's of London / AIG\"},\n            {\"type\": \"Launch Insurance\", \"coverage\": \"$10M satellite value + $5M third-party\", \"timing\": \"Bind 30 days before launch\", \"provider\": \"Space Insurance Consortium\"},\n            {\"type\": \"In-Orbit Insurance\", \"coverage\": \"$8M (first year)\", \"timing\": \"Bind at launch confirmation\", \"provider\": \"Global aerospace insurers\"},\n            {\"type\": \"Third-Party Liability\", \"coverage\": \"$100M minimum\", \"timing\": \"Required by launch provider\", \"provider\": \"Launch provider may arrange\"}\n        ],\n        \"contracts\": [\n            {\"document\": \"Launch Services Agreement\", \"parties\": \"Satellite operator & Launch provider\", \"timing\": \"Sign 9 months before launch\"},\n            {\"document\": \"Payload Integration Agreement\", \"parties\": \"Satellite operator & Integration facility\", \"timing\": \"Sign 6 months before launch\"},\n            {\"document\": \"Range Use Agreement\", \"parties\": \"Satellite operator & Range operator\", \"timing\": \"Sign 4 months before launch\"},\n            {\"document\": \"Spectrum License\", \"parties\": \"Satellite operator & FCC/ITU\", \"timing\": \"File 1 year before launch\"}\n        ],\n        \"key_dates\": [\n            {\"milestone\": \"Launch contract signature\", \"months_before_launch\": 9},\n            {\"milestone\": \"Insurance binding for transit\", \"weeks_before_launch\": 2},\n            {\"milestone\": \"Launch insurance binding\", \"days_before_launch\": 30},\n            {\"milestone\": \"Final payment to launch provider\", \"days_before_launch\": 45}\n        ]\n    }\n    \n    # Key action\n    key_action = \"Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.\"\n    \n    result = {\n        \"logistics_summary\": logistics_summary,\n        \"procurement_and_supply_chain\": procurement_and_supply_chain,\n        \"transport_and_handling_plan\": transport_and_handling_plan,\n        \"launch_site_integration_schedule\": launch_site_integration_schedule,\n        \"personnel_and_training\": personnel_and_training,\n        \"insurance_and_contracts\": insurance_and_contracts,\n        \"key_action\": key_action\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": result, \"error\": None}\n\n# Test the handler\nif __name__ == \"__main__\":\n    test_result = handler(mission_type=\"weather-monitoring cubesat\", launch_site=\"Cape Canaveral\")\n    print(\"Test successful:\", test_result[\"ok\"])\n    print(\"Logistics summary preview:\", test_result[\"data\"][\"logistics_summary\"][:100] + \"...\")'''\n\nprint(\"Tool code created successfully\")\nprint(\"\\nTool code length:\", len(tool_code), \"characters\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Tool code created successfully\n\nTool code length: 11812 characters\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 5.57
+        },
+        {
+          "tool": "code.execute",
+          "arguments": {
+            "code": "# Execute the tool to generate the logistics plan\nimport json\nimport datetime\n\ndef handler(*, mission_type=\"weather-monitoring cubesat\", launch_site=\"Cape Canaveral\"):\n    \"\"\"Generate a logistics launch plan for a cubesat mission.\"\"\"\n    \n    # Current date for timeline calculations\n    today = datetime.date.today()\n    \n    # Logistics summary\n    logistics_summary = \"\"\"This logistics plan outlines the procurement, transport, and launch-site integration for a 6U weather-monitoring cubesat (~10 kg). The mission targets a commercial LEO launch from Cape Canaveral with a US-based team. Critical long-lead items include the ADCS system (12-16 weeks), hyperspectral imager (14-18 weeks), and flight computer (8-10 weeks). Transport requires temperature-controlled shipping (15-25\u00b0C) with shock monitoring and insurance coverage of $2M. Launch-site integration spans 3 weeks including arrival inspection, functional testing, fueling, and mating to the deployer. Customs paperwork for international components must be initiated 8 weeks before shipment. The plan assumes a 6-month procurement-to-launch timeline with buffer for contingencies.\"\"\"\n    \n    # Procurement and supply chain\n    procurement_and_supply_chain = {\n        \"critical_items\": [\n            {\"item\": \"ADCS (Attitude Determination & Control System)\", \"lead_time_weeks\": 14, \"vendor\": \"Blue Canyon / Pumpkin\", \"notes\": \"Includes reaction wheels, magnetorquers, star tracker. Longest lead item.\"},\n            {\"item\": \"Hyperspectral Imager (Weather sensor)\", \"lead_time_weeks\": 16, \"vendor\": \"Planet / Satlantis\", \"notes\": \"Custom calibration adds 2 weeks. Requires ITAR clearance.\"},\n            {\"item\": \"Flight Computer & OBC\", \"lead_time_weeks\": 10, \"vendor\": \"Clyde Space / ISISpace\", \"notes\": \"Radiation-hardened variant.\"},\n            {\"item\": \"S-band/X-band Transceiver\", \"lead_time_weeks\": 8, \"vendor\": \"Syrius / Astrodev\", \"notes\": \"FCC licensing concurrent.\"},\n            {\"item\": \"Solar Panels & EPS\", \"lead_time_weeks\": 6, \"vendor\": \"MMA / GOMSpace\", \"notes\": \"Triple-junction GaAs cells.\"},\n            {\"item\": \"Structure & Deployer\", \"lead_time_weeks\": 4, \"vendor\": \"Nanoracks / Tyvak\", \"notes\": \"6U P-POD compatible.\"}\n        ],\n        \"procurement_timeline\": [\n            {\"phase\": \"ADCS & Sensor PO\", \"weeks_before_launch\": 26, \"duration_weeks\": 2},\n            {\"phase\": \"Flight Computer & Comms PO\", \"weeks_before_launch\": 22, \"duration_weeks\": 2},\n            {\"phase\": \"Power & Structure PO\", \"weeks_before_launch\": 18, \"duration_weeks\": 2},\n            {\"phase\": \"Integration Components\", \"weeks_before_launch\": 12, \"duration_weeks\": 2}\n        ],\n        \"long_lead_alert\": \"ADCS (14 weeks) and Hyperspectral Imager (16 weeks) exceed 8-week threshold. Order immediately.\",\n        \"supply_chain_risks\": [\n            \"ITAR-controlled components require export licenses (add 4-6 weeks)\",\n            \"Custom calibration of imager may slip schedule\",\n            \"Single-source vendors for radiation-hardened parts\"\n        ]\n    }\n    \n    # Transport and handling plan\n    transport_and_handling_plan = {\n        \"shipping_method\": \"Temperature-controlled air freight (15-25\u00b0C) with active monitoring\",\n        \"carrier\": \"FedEx Custom Critical / DHL Temperature Control\",\n        \"packaging\": [\n            \"ESD-safe foam inserts in Pelican case\",\n            \"Desiccant packs and humidity indicators\",\n            \"Shockwatch labels (25g threshold)\",\n            \"Temperature data logger (records every 15 min)\"\n        ],\n        \"environmental_controls\": {\n            \"temperature\": \"15-25\u00b0C maintained\",\n            \"humidity\": \"30-60% RH\",\n            \"shock_limit\": \"25g peak\",\n            \"vibration\": \"MIL-STD-810G compliant\"\n        },\n        \"insurance\": \"$2M all-risk transit insurance (covers physical damage, theft, delay)\",\n        \"customs_requirements\": [\n            \"Commercial invoice with harmonized tariff codes (HS 8542.39)\",\n            \"Export license for ITAR components (DSP-5)\",\n            \"Carnet ATA for temporary import to launch site\",\n            \"Shipper's Export Declaration (SED)\",\n            \"End-use certificate for satellite components\"\n        ],\n        \"customs_risks\": [\n            \"ITAR clearance delays (4-6 weeks typical)\",\n            \"Carnet ATA rejection if value > $500k\",\n            \"Florida state import tax if classified as 'finished goods'\",\n            \"Launch provider may require temporary import bond\"\n        ],\n        \"transport_timeline\": [\n            {\"step\": \"Final integration complete\", \"weeks_before_launch\": 4},\n            {\"step\": \"Packaging and documentation\", \"weeks_before_launch\": 3.5},\n            {\"step\": \"Ship from integration facility\", \"weeks_before_launch\": 3},\n            {\"step\": \"Arrival at Cape Canaveral\", \"weeks_before_launch\": 2.5},\n            {\"step\": \"Customs clearance complete\", \"weeks_before_launch\": 2}\n        ]\n    }\n    \n    # Launch site integration schedule\n    launch_site_integration_schedule = {\n        \"arrival_window\": \"L-21 to L-14 days (3 weeks before launch)\",\n        \"integration_facility\": \"Astrotech Space Operations (Titusville) or SpaceX Payload Processing Facility\",\n        \"schedule\": [\n            {\"day\": \"L-21\", \"activity\": \"Arrival inspection, unpack in cleanroom\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-20\", \"activity\": \"Visual inspection, mass properties verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-19\", \"activity\": \"Functional testing (power-on, comms check)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-18\", \"activity\": \"Sensor calibration verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-17\", \"activity\": \"Deployer fit check\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-16\", \"activity\": \"Final software load\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-15\", \"activity\": \"Battery conditioning\", \"duration\": \"24 hours (passive)\"},\n            {\"day\": \"L-14\", \"activity\": \"Fueling (if propulsion equipped)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-13\", \"activity\": \"Closeout photos, documentation\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-12\", \"activity\": \"Mate to launch vehicle adapter\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-11 to L-1\", \"activity\": \"Storage in controlled environment\", \"duration\": \"Passive\"},\n            {\"day\": \"L-0\", \"activity\": \"Launch\", \"duration\": \"N/A\"}\n        ],\n        \"storage_requirements\": {\n            \"cleanroom_class\": \"ISO 8 (Class 100,000) minimum\",\n            \"temperature\": \"18-22\u00b0C controlled\",\n            \"humidity\": \"40-60% RH\",\n            \"ESD_protection\": \"Wrist straps, grounded workstations\",\n            \"access_control\": \"Badged personnel only, visitor logs\"\n        },\n        \"handover_checklist\": [\n            \"Satellite in flight configuration\",\n            \"Mass properties report (CG, inertia)\",\n            \"RF compliance test results\",\n            \"Final software load verification\",\n            \"Battery state-of-charge certificate\",\n            \"ESD test logs\",\n            \"Cleanroom access logs\",\n            \"Non-conformance reports (if any)\",\n            \"Launch provider specific forms (PHSR, ICD compliance)\"\n        ]\n    }\n    \n    # Personnel and training\n    personnel_and_training = {\n        \"onsite_roles\": [\n            {\"role\": \"Principal Investigator (PI)\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Final go/no-go decisions, anomaly resolution\"},\n            {\"role\": \"Systems Engineer\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Integration oversight, test procedure execution\"},\n            {\"role\": \"Mechanical Lead\", \"duration\": \"L-21 to L-14 (8 days)\", \"responsibilities\": \"Deployer mating, mechanical inspections\"},\n            {\"role\": \"Electrical/Test Engineer\", \"duration\": \"L-21 to L-16 (6 days)\", \"responsibilities\": \"Power-on, functional testing\"},\n            {\"role\": \"QA/Flight Ops\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Documentation, procedure compliance\"}\n        ],\n        \"training_requirements\": [\n            \"Cleanroom protocol (ASTM E2315)\",\n            \"ESD awareness (ANSI/ESD S20.20)\",\n            \"Range safety briefing (Cape Canaveral)\",\n            \"Hazardous materials handling (if fueled)\",\n            \"Launch provider specific procedures\"\n        ],\n        \"checklists\": [\n            \"Daily startup: cleanroom gowning, ESD check, tool inventory\",\n            \"Pre-test: procedure review, safety walkthrough, data recording setup\",\n            \"Post-test: data backup, anomaly logging, equipment stowage\",\n            \"Closeout: photo documentation, form completion, handover preparation\"\n        ],\n        \"accommodation_logistics\": [\n            \"Hotel near Cape Canaveral (Titusville/Cocoa Beach)\",\n            \"Rental vehicles (2 SUVs minimum)\",\n            \"Badge processing (2 weeks lead time)\",\n            \"Site access training (1 day onsite)\"\n        ]\n    }\n    \n    # Insurance and contracts\n    insurance_and_contracts = {\n        \"insurance_types\": [\n            {\"type\": \"Transit Insurance\", \"coverage\": \"$2M\", \"timing\": \"Initiate 2 weeks before shipment\", \"provider\": \"Lloyd's of London / AIG\"},\n            {\"type\": \"Launch Insurance\", \"coverage\": \"$10M satellite value + $5M third-party\", \"timing\": \"Bind 30 days before launch\", \"provider\": \"Space Insurance Consortium\"},\n            {\"type\": \"In-Orbit Insurance\", \"coverage\": \"$8M (first year)\", \"timing\": \"Bind at launch confirmation\", \"provider\": \"Global aerospace insurers\"},\n            {\"type\": \"Third-Party Liability\", \"coverage\": \"$100M minimum\", \"timing\": \"Required by launch provider\", \"provider\": \"Launch provider may arrange\"}\n        ],\n        \"contracts\": [\n            {\"document\": \"Launch Services Agreement\", \"parties\": \"Satellite operator & Launch provider\", \"timing\": \"Sign 9 months before launch\"},\n            {\"document\": \"Payload Integration Agreement\", \"parties\": \"Satellite operator & Integration facility\", \"timing\": \"Sign 6 months before launch\"},\n            {\"document\": \"Range Use Agreement\", \"parties\": \"Satellite operator & Range operator\", \"timing\": \"Sign 4 months before launch\"},\n            {\"document\": \"Spectrum License\", \"parties\": \"Satellite operator & FCC/ITU\", \"timing\": \"File 1 year before launch\"}\n        ],\n        \"key_dates\": [\n            {\"milestone\": \"Launch contract signature\", \"months_before_launch\": 9},\n            {\"milestone\": \"Insurance binding for transit\", \"weeks_before_launch\": 2},\n            {\"milestone\": \"Launch insurance binding\", \"days_before_launch\": 30},\n            {\"milestone\": \"Final payment to launch provider\", \"days_before_launch\": 45}\n        ]\n    }\n    \n    # Key action\n    key_action = \"Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.\"\n    \n    result = {\n        \"logistics_summary\": logistics_summary,\n        \"procurement_and_supply_chain\": procurement_and_supply_chain,\n        \"transport_and_handling_plan\": transport_and_handling_plan,\n        \"launch_site_integration_schedule\": launch_site_integration_schedule,\n        \"personnel_and_training\": personnel_and_training,\n        \"insurance_and_contracts\": insurance_and_contracts,\n        \"key_action\": key_action\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": result, \"error\": None}\n\n# Generate the plan\nplan_result = handler(mission_type=\"weather-monitoring cubesat\", launch_site=\"Cape Canaveral\")\nplan = plan_result[\"data\"]\n\nprint(\"Logistics plan generated successfully\")\nprint(f\"Logistics summary length: {len(plan['logistics_summary'])} characters\")\nprint(f\"Number of critical items: {len(plan['procurement_and_supply_chain']['critical_items'])}\")\nprint(f\"Handover checklist items: {len(plan['launch_site_integration_schedule']['handover_checklist'])}\")\nprint(f\"Key action: {plan['key_action'][:100]}...\")"
+          },
+          "result": {
+            "ok": true,
+            "status": 200,
+            "data": {
+              "stdout": "Logistics plan generated successfully\nLogistics summary length: 768 characters\nNumber of critical items: 6\nHandover checklist items: 9\nKey action: Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) wi...\n",
+              "stderr": "",
+              "returncode": 0
+            },
+            "error": null
+          },
+          "duration_ms": 155.8
+        }
+      ],
+      "tools_registered": [
+        {
+          "name": "dynamic.generate_cubesat_logistics_plan",
+          "description": "Generate a comprehensive logistics launch plan for a cubesat mission including procurement, transport, integration schedule, personnel needs, insurance, and key actions.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mission_type": {
+                "type": "string",
+                "description": "Type of mission (e.g., 'weather-monitoring cubesat')",
+                "default": "weather-monitoring cubesat"
+              },
+              "launch_site": {
+                "type": "string",
+                "description": "Launch site location (e.g., 'Cape Canaveral')",
+                "default": "Cape Canaveral"
+              }
+            },
+            "required": []
+          },
+          "code": "import json\nimport datetime\n\ndef handler(*, mission_type=\"weather-monitoring cubesat\", launch_site=\"Cape Canaveral\"):\n    \"\"\"Generate a logistics launch plan for a cubesat mission.\"\"\"\n    \n    # Current date for timeline calculations\n    today = datetime.date.today()\n    \n    # Logistics summary\n    logistics_summary = \"\"\"This logistics plan outlines the procurement, transport, and launch-site integration for a 6U weather-monitoring cubesat (~10 kg). The mission targets a commercial LEO launch from Cape Canaveral with a US-based team. Critical long-lead items include the ADCS system (12-16 weeks), hyperspectral imager (14-18 weeks), and flight computer (8-10 weeks). Transport requires temperature-controlled shipping (15-25\u00b0C) with shock monitoring and insurance coverage of $2M. Launch-site integration spans 3 weeks including arrival inspection, functional testing, fueling, and mating to the deployer. Customs paperwork for international components must be initiated 8 weeks before shipment. The plan assumes a 6-month procurement-to-launch timeline with buffer for contingencies.\"\"\"\n    \n    # Procurement and supply chain\n    procurement_and_supply_chain = {\n        \"critical_items\": [\n            {\"item\": \"ADCS (Attitude Determination & Control System)\", \"lead_time_weeks\": 14, \"vendor\": \"Blue Canyon / Pumpkin\", \"notes\": \"Includes reaction wheels, magnetorquers, star tracker. Longest lead item.\"},\n            {\"item\": \"Hyperspectral Imager (Weather sensor)\", \"lead_time_weeks\": 16, \"vendor\": \"Planet / Satlantis\", \"notes\": \"Custom calibration adds 2 weeks. Requires ITAR clearance.\"},\n            {\"item\": \"Flight Computer & OBC\", \"lead_time_weeks\": 10, \"vendor\": \"Clyde Space / ISISpace\", \"notes\": \"Radiation-hardened variant.\"},\n            {\"item\": \"S-band/X-band Transceiver\", \"lead_time_weeks\": 8, \"vendor\": \"Syrius / Astrodev\", \"notes\": \"FCC licensing concurrent.\"},\n            {\"item\": \"Solar Panels & EPS\", \"lead_time_weeks\": 6, \"vendor\": \"MMA / GOMSpace\", \"notes\": \"Triple-junction GaAs cells.\"},\n            {\"item\": \"Structure & Deployer\", \"lead_time_weeks\": 4, \"vendor\": \"Nanoracks / Tyvak\", \"notes\": \"6U P-POD compatible.\"}\n        ],\n        \"procurement_timeline\": [\n            {\"phase\": \"ADCS & Sensor PO\", \"weeks_before_launch\": 26, \"duration_weeks\": 2},\n            {\"phase\": \"Flight Computer & Comms PO\", \"weeks_before_launch\": 22, \"duration_weeks\": 2},\n            {\"phase\": \"Power & Structure PO\", \"weeks_before_launch\": 18, \"duration_weeks\": 2},\n            {\"phase\": \"Integration Components\", \"weeks_before_launch\": 12, \"duration_weeks\": 2}\n        ],\n        \"long_lead_alert\": \"ADCS (14 weeks) and Hyperspectral Imager (16 weeks) exceed 8-week threshold. Order immediately.\",\n        \"supply_chain_risks\": [\n            \"ITAR-controlled components require export licenses (add 4-6 weeks)\",\n            \"Custom calibration of imager may slip schedule\",\n            \"Single-source vendors for radiation-hardened parts\"\n        ]\n    }\n    \n    # Transport and handling plan\n    transport_and_handling_plan = {\n        \"shipping_method\": \"Temperature-controlled air freight (15-25\u00b0C) with active monitoring\",\n        \"carrier\": \"FedEx Custom Critical / DHL Temperature Control\",\n        \"packaging\": [\n            \"ESD-safe foam inserts in Pelican case\",\n            \"Desiccant packs and humidity indicators\",\n            \"Shockwatch labels (25g threshold)\",\n            \"Temperature data logger (records every 15 min)\"\n        ],\n        \"environmental_controls\": {\n            \"temperature\": \"15-25\u00b0C maintained\",\n            \"humidity\": \"30-60% RH\",\n            \"shock_limit\": \"25g peak\",\n            \"vibration\": \"MIL-STD-810G compliant\"\n        },\n        \"insurance\": \"$2M all-risk transit insurance (covers physical damage, theft, delay)\",\n        \"customs_requirements\": [\n            \"Commercial invoice with harmonized tariff codes (HS 8542.39)\",\n            \"Export license for ITAR components (DSP-5)\",\n            \"Carnet ATA for temporary import to launch site\",\n            \"Shipper's Export Declaration (SED)\",\n            \"End-use certificate for satellite components\"\n        ],\n        \"customs_risks\": [\n            \"ITAR clearance delays (4-6 weeks typical)\",\n            \"Carnet ATA rejection if value > $500k\",\n            \"Florida state import tax if classified as 'finished goods'\",\n            \"Launch provider may require temporary import bond\"\n        ],\n        \"transport_timeline\": [\n            {\"step\": \"Final integration complete\", \"weeks_before_launch\": 4},\n            {\"step\": \"Packaging and documentation\", \"weeks_before_launch\": 3.5},\n            {\"step\": \"Ship from integration facility\", \"weeks_before_launch\": 3},\n            {\"step\": \"Arrival at Cape Canaveral\", \"weeks_before_launch\": 2.5},\n            {\"step\": \"Customs clearance complete\", \"weeks_before_launch\": 2}\n        ]\n    }\n    \n    # Launch site integration schedule\n    launch_site_integration_schedule = {\n        \"arrival_window\": \"L-21 to L-14 days (3 weeks before launch)\",\n        \"integration_facility\": \"Astrotech Space Operations (Titusville) or SpaceX Payload Processing Facility\",\n        \"schedule\": [\n            {\"day\": \"L-21\", \"activity\": \"Arrival inspection, unpack in cleanroom\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-20\", \"activity\": \"Visual inspection, mass properties verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-19\", \"activity\": \"Functional testing (power-on, comms check)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-18\", \"activity\": \"Sensor calibration verification\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-17\", \"activity\": \"Deployer fit check\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-16\", \"activity\": \"Final software load\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-15\", \"activity\": \"Battery conditioning\", \"duration\": \"24 hours (passive)\"},\n            {\"day\": \"L-14\", \"activity\": \"Fueling (if propulsion equipped)\", \"duration\": \"8 hours\"},\n            {\"day\": \"L-13\", \"activity\": \"Closeout photos, documentation\", \"duration\": \"4 hours\"},\n            {\"day\": \"L-12\", \"activity\": \"Mate to launch vehicle adapter\", \"duration\": \"6 hours\"},\n            {\"day\": \"L-11 to L-1\", \"activity\": \"Storage in controlled environment\", \"duration\": \"Passive\"},\n            {\"day\": \"L-0\", \"activity\": \"Launch\", \"duration\": \"N/A\"}\n        ],\n        \"storage_requirements\": {\n            \"cleanroom_class\": \"ISO 8 (Class 100,000) minimum\",\n            \"temperature\": \"18-22\u00b0C controlled\",\n            \"humidity\": \"40-60% RH\",\n            \"ESD_protection\": \"Wrist straps, grounded workstations\",\n            \"access_control\": \"Badged personnel only, visitor logs\"\n        },\n        \"handover_checklist\": [\n            \"Satellite in flight configuration\",\n            \"Mass properties report (CG, inertia)\",\n            \"RF compliance test results\",\n            \"Final software load verification\",\n            \"Battery state-of-charge certificate\",\n            \"ESD test logs\",\n            \"Cleanroom access logs\",\n            \"Non-conformance reports (if any)\",\n            \"Launch provider specific forms (PHSR, ICD compliance)\"\n        ]\n    }\n    \n    # Personnel and training\n    personnel_and_training = {\n        \"onsite_roles\": [\n            {\"role\": \"Principal Investigator (PI)\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Final go/no-go decisions, anomaly resolution\"},\n            {\"role\": \"Systems Engineer\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Integration oversight, test procedure execution\"},\n            {\"role\": \"Mechanical Lead\", \"duration\": \"L-21 to L-14 (8 days)\", \"responsibilities\": \"Deployer mating, mechanical inspections\"},\n            {\"role\": \"Electrical/Test Engineer\", \"duration\": \"L-21 to L-16 (6 days)\", \"responsibilities\": \"Power-on, functional testing\"},\n            {\"role\": \"QA/Flight Ops\", \"duration\": \"L-21 to L-12 (10 days)\", \"responsibilities\": \"Documentation, procedure compliance\"}\n        ],\n        \"training_requirements\": [\n            \"Cleanroom protocol (ASTM E2315)\",\n            \"ESD awareness (ANSI/ESD S20.20)\",\n            \"Range safety briefing (Cape Canaveral)\",\n            \"Hazardous materials handling (if fueled)\",\n            \"Launch provider specific procedures\"\n        ],\n        \"checklists\": [\n            \"Daily startup: cleanroom gowning, ESD check, tool inventory\",\n            \"Pre-test: procedure review, safety walkthrough, data recording setup\",\n            \"Post-test: data backup, anomaly logging, equipment stowage\",\n            \"Closeout: photo documentation, form completion, handover preparation\"\n        ],\n        \"accommodation_logistics\": [\n            \"Hotel near Cape Canaveral (Titusville/Cocoa Beach)\",\n            \"Rental vehicles (2 SUVs minimum)\",\n            \"Badge processing (2 weeks lead time)\",\n            \"Site access training (1 day onsite)\"\n        ]\n    }\n    \n    # Insurance and contracts\n    insurance_and_contracts = {\n        \"insurance_types\": [\n            {\"type\": \"Transit Insurance\", \"coverage\": \"$2M\", \"timing\": \"Initiate 2 weeks before shipment\", \"provider\": \"Lloyd's of London / AIG\"},\n            {\"type\": \"Launch Insurance\", \"coverage\": \"$10M satellite value + $5M third-party\", \"timing\": \"Bind 30 days before launch\", \"provider\": \"Space Insurance Consortium\"},\n            {\"type\": \"In-Orbit Insurance\", \"coverage\": \"$8M (first year)\", \"timing\": \"Bind at launch confirmation\", \"provider\": \"Global aerospace insurers\"},\n            {\"type\": \"Third-Party Liability\", \"coverage\": \"$100M minimum\", \"timing\": \"Required by launch provider\", \"provider\": \"Launch provider may arrange\"}\n        ],\n        \"contracts\": [\n            {\"document\": \"Launch Services Agreement\", \"parties\": \"Satellite operator & Launch provider\", \"timing\": \"Sign 9 months before launch\"},\n            {\"document\": \"Payload Integration Agreement\", \"parties\": \"Satellite operator & Integration facility\", \"timing\": \"Sign 6 months before launch\"},\n            {\"document\": \"Range Use Agreement\", \"parties\": \"Satellite operator & Range operator\", \"timing\": \"Sign 4 months before launch\"},\n            {\"document\": \"Spectrum License\", \"parties\": \"Satellite operator & FCC/ITU\", \"timing\": \"File 1 year before launch\"}\n        ],\n        \"key_dates\": [\n            {\"milestone\": \"Launch contract signature\", \"months_before_launch\": 9},\n            {\"milestone\": \"Insurance binding for transit\", \"weeks_before_launch\": 2},\n            {\"milestone\": \"Launch insurance binding\", \"days_before_launch\": 30},\n            {\"milestone\": \"Final payment to launch provider\", \"days_before_launch\": 45}\n        ]\n    }\n    \n    # Key action\n    key_action = \"Immediately issue purchase orders for ADCS (14-week lead) and hyperspectral imager (16-week lead) with expedited ITAR clearance requests, as these are the schedule-critical path items. Concurrently, engage a specialized space logistics broker to prepare customs documentation (DSP-5, Carnet ATA) for international component shipments.\"\n    \n    result = {\n        \"logistics_summary\": logistics_summary,\n        \"procurement_and_supply_chain\": procurement_and_supply_chain,\n        \"transport_and_handling_plan\": transport_and_handling_plan,\n        \"launch_site_integration_schedule\": launch_site_integration_schedule,\n        \"personnel_and_training\": personnel_and_training,\n        \"insurance_and_contracts\": insurance_and_contracts,\n        \"key_action\": key_action\n    }\n    \n    return {\"ok\": True, \"status\": 200, \"data\": result, \"error\": None}",
+          "worker_id": "logistics_plan_cubesat",
+          "namespace": "dynamic",
+          "required_secrets": [],
+          "registered": false,
+          "reason": "no_factory"
+        }
+      ]
+    }
+  },
+  "confidence": 0.7,
+  "missing_fields": [
+    "regulatory_section"
+  ],
+  "notes": "Regulatory section incomplete due to worker failure. Consolidated summary includes inferred regulatory requirements based on envelope instructions and standard cubesat regulatory practices."
+}

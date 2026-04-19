@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -81,6 +81,14 @@ class AWPExecutionConfig(BaseModel):
     timeout: TimeoutConfig = Field(default_factory=TimeoutConfig)
     max_parallel_agents: int = 4
     error_handling: ErrorHandling = Field(default_factory=ErrorHandling)
+    scheduler: Literal["levels", "ready_queue"] = Field(
+        default="levels",
+        description=(
+            "DAG execution strategy. 'levels' (default) runs topological levels "
+            "with barrier. 'ready_queue' dispatches nodes as soon as their direct "
+            "dependencies complete."
+        ),
+    )
 
 
 class SubworkflowRef(BaseModel):
@@ -500,6 +508,33 @@ class DelegationLoopConfig(BaseModel):
     # for the response. 150_000 is safe for 200k-window models.
     manager_context_budget_tokens: int = 150_000
     manager_context_compress_threshold: float = 0.8
+    pipeline_critique_planning: bool = Field(
+        default=False,
+        description=(
+            "When true, runs critique/eval concurrently with manager "
+            "planning-prompt assembly. The critique result is still joined "
+            "before the manager LLM call, so the prompt content is identical. "
+            "Default false for byte-identical reproducibility."
+        ),
+    )
+    parallel_gate_chain: bool = Field(
+        default=False,
+        description=(
+            "When true, runs independent gates in the completion chain "
+            "concurrently. Canonical first-failure-wins rejection order is "
+            "preserved for reporting. Default false for byte-identical "
+            "reproducibility."
+        ),
+    )
+    token_budget_reservation: bool = Field(
+        default=False,
+        description=(
+            "When true, LLM calls reserve estimated tokens before the HTTP call "
+            "and commit the actual usage after. Prevents parallel workers from "
+            "overshooting max_total_tokens. Default false for byte-identical "
+            "reproducibility."
+        ),
+    )
 
     model_config = {"extra": "allow"}
 

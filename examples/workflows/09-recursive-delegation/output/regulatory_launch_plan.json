@@ -1,0 +1,214 @@
+{
+  "regulatory_summary": "The WeatherCubeSat-1 6U cubesat requires comprehensive regulatory compliance across national licensing, frequency coordination, export controls, launch safety, and debris mitigation. Primary obligations include obtaining national space operation licenses from USA authorities, coordinating frequencies through ITU filings, complying with export controls (ITAR/EAR for US components), meeting launch provider safety requirements, and demonstrating post-mission disposal capability. Jurisdiction-specific requirements apply: USA licensing governs satellite operations, USA regulations cover launch safety, and international ITU rules manage spectrum use. Lead times vary from 3-12 months for major filings, with national licensing typically being the longest pole. Insurance requirements (minimum $100M third-party liability) must be secured before launch. All regulatory approvals must be complete at least 30 days before launch for integration clearance.",
+  "required_filings": [
+    {
+      "filing": "USA National Space License",
+      "purpose": "Authorization to operate satellite and ground stations",
+      "lead_time": "6-12 months",
+      "deadline_relative": "L-12 months",
+      "jurisdiction": "USA",
+      "notes": "FCC Part 25 for USA, Ofcom for UK, etc."
+    },
+    {
+      "filing": "ITU Frequency Coordination",
+      "purpose": "International notification and coordination of radio frequencies",
+      "lead_time": "9-12 months",
+      "deadline_relative": "L-15 months",
+      "jurisdiction": "International",
+      "notes": "Advance Publication (API) required 6+ months before notification"
+    },
+    {
+      "filing": "USA Export License (if applicable)",
+      "purpose": "Authorization for export-controlled components",
+      "lead_time": "3-6 months",
+      "deadline_relative": "L-9 months",
+      "jurisdiction": "USA",
+      "notes": "ITAR for US defense articles, EAR for dual-use items"
+    },
+    {
+      "filing": "Launch Provider Safety Compliance",
+      "purpose": "Meet launch provider technical and safety requirements",
+      "lead_time": "4-8 months",
+      "deadline_relative": "L-6 months",
+      "jurisdiction": "USA",
+      "notes": "Includes vibration, shock, RF, and safety documentation"
+    },
+    {
+      "filing": "Debris Mitigation Plan",
+      "purpose": "Demonstrate compliance with orbital debris mitigation standards",
+      "lead_time": "2-4 months",
+      "deadline_relative": "L-4 months",
+      "jurisdiction": "International/National",
+      "notes": "25-year post-mission disposal, collision avoidance"
+    },
+    {
+      "filing": "Launch Range Approval",
+      "purpose": "Range safety and operational clearance",
+      "lead_time": "3-6 months",
+      "deadline_relative": "L-3 months",
+      "jurisdiction": "USA",
+      "notes": "Range-specific safety requirements and documentation"
+    },
+    {
+      "filing": "Third-Party Liability Insurance",
+      "purpose": "Minimum $100M liability coverage for launch and operations",
+      "lead_time": "2-3 months",
+      "deadline_relative": "L-2 months",
+      "jurisdiction": "International",
+      "notes": "Required by launch provider and licensing authority"
+    },
+    {
+      "filing": "Data Sharing Agreements (if applicable)",
+      "purpose": "Agreements for weather data distribution",
+      "lead_time": "3-4 months",
+      "deadline_relative": "L-6 months",
+      "jurisdiction": "Bilateral",
+      "notes": "Only if sharing data with government/meteorological agencies"
+    }
+  ],
+  "responsible_parties": [
+    {
+      "role": "Regulatory Lead",
+      "responsibility": "Overall regulatory compliance coordination",
+      "organization": "Satellite Operator/Prime Contractor"
+    },
+    {
+      "role": "Licensing Manager",
+      "responsibility": "USA national license application",
+      "organization": "Legal/Regulatory Team"
+    },
+    {
+      "role": "Frequency Coordinator",
+      "responsibility": "ITU filings and frequency coordination",
+      "organization": "RF Engineering Team or External Consultant"
+    },
+    {
+      "role": "Export Control Officer",
+      "responsibility": "ITAR/EAR compliance and license applications",
+      "organization": "Compliance Office"
+    },
+    {
+      "role": "Launch Integration Manager",
+      "responsibility": "Launch provider and range safety compliance",
+      "organization": "Launch Services Team"
+    },
+    {
+      "role": "Insurance Broker",
+      "responsibility": "Third-party liability insurance procurement",
+      "organization": "External Insurance Broker"
+    }
+  ],
+  "timeline": [
+    {
+      "milestone": "ITU Advance Publication (API)",
+      "deadline_relative": "L-15 months",
+      "deadline_date": "2023-10-01",
+      "duration": "3 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "USA License Application",
+      "deadline_relative": "L-12 months",
+      "deadline_date": "2024-01-01",
+      "duration": "6-12 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Export License Application",
+      "deadline_relative": "L-9 months",
+      "deadline_date": "2024-04-01",
+      "duration": "3-6 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Launch Provider Safety Review",
+      "deadline_relative": "L-6 months",
+      "deadline_date": "2024-07-01",
+      "duration": "4-8 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Debris Mitigation Plan Submission",
+      "deadline_relative": "L-4 months",
+      "deadline_date": "2024-09-01",
+      "duration": "2-4 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Range Safety Approval",
+      "deadline_relative": "L-3 months",
+      "deadline_date": "2024-10-01",
+      "duration": "3-6 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Insurance Binding",
+      "deadline_relative": "L-2 months",
+      "deadline_date": "2024-11-01",
+      "duration": "2-3 months",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Final Regulatory Clearance",
+      "deadline_relative": "L-30 days",
+      "deadline_date": "2024-12-02",
+      "duration": "Ongoing",
+      "status": "Pre-launch"
+    },
+    {
+      "milestone": "Launch",
+      "deadline_relative": "Launch",
+      "deadline_date": "2025-01-01",
+      "duration": "N/A",
+      "status": "Launch"
+    },
+    {
+      "milestone": "Post-Launch License Activation",
+      "deadline_relative": "L+30 days",
+      "deadline_date": "2025-01-31",
+      "duration": "30 days",
+      "status": "Post-launch"
+    }
+  ],
+  "risks_and_mitigations": [
+    {
+      "risk": "National License Delays",
+      "description": "USA licensing authority review exceeds 12 months, delaying launch",
+      "impact": "High",
+      "mitigation": "Engage regulatory consultant early, submit complete application with all required documentation, request pre-application meeting"
+    },
+    {
+      "risk": "ITU Coordination Objections",
+      "description": "Other satellite operators file objections to frequency assignments",
+      "impact": "High",
+      "mitigation": "Conduct thorough interference analysis, engage in bilateral coordination early, consider alternative frequencies"
+    },
+    {
+      "risk": "Export Control Violations",
+      "description": "Unintended ITAR/EAR violations during component procurement or data sharing",
+      "impact": "Critical",
+      "mitigation": "Implement export compliance program, train all staff, conduct component classification review"
+    },
+    {
+      "risk": "Launch Range Slot Loss",
+      "description": "Failure to meet range safety deadlines results in lost launch slot",
+      "impact": "High",
+      "mitigation": "Maintain close coordination with launch provider, submit safety documentation 30 days early"
+    },
+    {
+      "risk": "Insurance Market Tightening",
+      "description": "Space insurance premiums increase or coverage becomes unavailable",
+      "impact": "Medium",
+      "mitigation": "Secure insurance broker early, consider alternative insurance structures, budget contingency"
+    }
+  ],
+  "key_action": "Immediately initiate USA national license application process, as this has the longest lead time (6-12 months). Engage regulatory counsel to prepare submission package including technical specifications, orbital parameters, frequency plan, and debris mitigation strategy.",
+  "metadata": {
+    "satellite_name": "WeatherCubeSat-1",
+    "launch_provider": "Commercial LEO Provider",
+    "launch_country": "USA",
+    "operator_country": "USA",
+    "planned_launch_date": "2025-Q1",
+    "generated_timestamp": "2026-04-18T17:22:13.570493"
+  }
+}

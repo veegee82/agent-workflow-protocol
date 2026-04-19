@@ -1,0 +1,361 @@
+{
+  "technical_summary": "The 6U weather-monitoring cubesat employs a microwave radiometer payload for atmospheric moisture and temperature profiling, complemented by visible/IR imagers for cloud cover analysis. The mission targets a 500 km sun-synchronous orbit with 2-year operational lifetime. The spacecraft uses a 3-axis stabilized ADCS with reaction wheels and magnetorquers, S-band uplink/X-band downlink communications, and deployable solar arrays generating 60W average power. Key technical drivers include thermal management of the radiometer focal plane, RF interference mitigation between payload and bus systems, and strict mass/CG constraints for P-POD compatibility. The design emphasizes protoflight qualification to minimize schedule risk.",
+  "system_specifications": {
+    "mass": {
+      "total": "8.5 kg (max 10 kg for P-POD)",
+      "bus": "4.2 kg",
+      "payload": "3.8 kg",
+      "margin": "0.5 kg (5.9%)"
+    },
+    "volume": {
+      "external": "100 mm \u00d7 200 mm \u00d7 340 mm (6U)",
+      "internal_allocated": "Bus: 3.5U, Payload: 2.5U",
+      "deployables": "2\u00d7 0.5U solar panels (stowed)"
+    },
+    "power": {
+      "generation": "60W average (80W peak), triple-junction GaAs cells",
+      "storage": "40 Wh Li-ion battery",
+      "consumption": {
+        "payload": "25W (operational), 5W (standby)",
+        "bus": "20W (normal), 35W (peak during comms)",
+        "margin": "15%"
+      }
+    },
+    "payload_summary": {
+      "primary": "Multichannel microwave radiometer (23.8, 31.4, 50.3, 52.8, 53.6, 54.4, 54.9, 55.5, 57.3 GHz)",
+      "secondary": "Visible/IR imager (0.4-1.1 \u03bcm, 1.6-2.2 \u03bcm)",
+      "data_rate": "50 Mbps peak (X-band downlink)",
+      "thermal_control": "Passive radiators + thermoelectric cooler for focal plane (< -40\u00b0C)"
+    },
+    "comms": {
+      "uplink": "S-band, 9.6 kbps command rate",
+      "downlink": "X-band, 50 Mbps peak (5 Mbps average)",
+      "antennas": "2\u00d7 deployable patch antennas (S-band), 1\u00d7 horn antenna (X-band)",
+      "modulation": "QPSK with convolutional coding"
+    },
+    "adcs": {
+      "type": "3-axis stabilized, reaction wheels (4\u00d7 10 mNms) + magnetorquers",
+      "sensors": "Star tracker (0.01\u00b0 accuracy), MEMS gyros, magnetometer, sun sensors",
+      "pointing": "\u00b10.1\u00b0 knowledge, \u00b10.5\u00b0 control (payload), \u00b12\u00b0 (bus)",
+      "detumbling": "B-dot controller for initial acquisition"
+    },
+    "propulsion": {
+      "type": "None (passive deorbit via drag sail)",
+      "deorbit": "25 m\u00b2 drag sail (deploys at EOL), <25 year deorbit compliance"
+    },
+    "onboard_computer": {
+      "processor": "Rad-hard LEON3-FT, 100 MHz",
+      "memory": "2 GB flash, 256 MB RAM",
+      "redundancy": "Dual cold-spare OBC"
+    }
+  },
+  "integration_and_test_plan": {
+    "test_articles": {
+      "engineering_model": "1 unit (full functional, non-flight structure)",
+      "qualification_model": "1 unit (flight-like, subjected to qualification levels)",
+      "flight_model": "1 unit (flight hardware)",
+      "spares": "Critical boards (OBC, EPS, COMMS)"
+    },
+    "ground_support_equipment": {
+      "mechanical": "P-POD fit check fixture, mass properties measurement rig",
+      "electrical": "EGSE with simulated power bus, command/telemetry interface",
+      "thermal": "Thermal vacuum chamber with LN2 shroud (-100\u00b0C to +100\u00b0C)",
+      "rf": "RF anechoic chamber, spectrum analyzer, vector network analyzer",
+      "software": "Mission control software simulators, ground station emulator"
+    },
+    "environmental_test_schedule": [
+      {
+        "test": "Mechanical fit check",
+        "purpose": "Verify P-POD compatibility and clearance",
+        "duration": "3 days",
+        "article": "Engineering + Flight models",
+        "criteria": "\u00b11 mm clearance on all sides, smooth rail insertion"
+      },
+      {
+        "test": "Functional verification (ambient)",
+        "purpose": "Baseline performance of all subsystems",
+        "duration": "10 days",
+        "article": "All models",
+        "criteria": "100% command success, telemetry within spec"
+      },
+      {
+        "test": "EMC/EMI",
+        "purpose": "Verify no interference between payload and bus",
+        "duration": "5 days",
+        "article": "Qualification model",
+        "criteria": "Meet MIL-STD-461G RE102/CE102, payload noise < -120 dBm"
+      },
+      {
+        "test": "Random vibration (qualification)",
+        "purpose": "Verify survival at 1.5\u00d7 flight levels",
+        "duration": "3 days",
+        "article": "Qualification model",
+        "levels": "14.1 Grms overall (20-2000 Hz)",
+        "criteria": "No mechanical failure, post-test functional OK"
+      },
+      {
+        "test": "Sine vibration (protoflight)",
+        "purpose": "Verify response at launch vehicle frequencies",
+        "duration": "2 days",
+        "article": "Flight model",
+        "levels": "\u00b15g (5-100 Hz)",
+        "criteria": "No resonance below 100 Hz, Q<10"
+      },
+      {
+        "test": "Shock (pyroshock)",
+        "purpose": "Verify survival of separation shock",
+        "duration": "1 day",
+        "article": "Qualification model",
+        "levels": "2000g peak (0.5 ms duration)",
+        "criteria": "No damage, post-test functional OK"
+      },
+      {
+        "test": "Thermal vacuum (qualification)",
+        "purpose": "Verify operation at temperature extremes",
+        "duration": "14 days",
+        "article": "Qualification model",
+        "range": "-40\u00b0C to +60\u00b0C (operational), -50\u00b0C to +70\u00b0C (survival)",
+        "cycles": "4 thermal cycles (operational), 2 (survival)",
+        "criteria": "All functions nominal, no outgassing contamination"
+      },
+      {
+        "test": "Thermal vacuum (protoflight)",
+        "purpose": "Acceptance testing of flight hardware",
+        "duration": "10 days",
+        "article": "Flight model",
+        "range": "-35\u00b0C to +55\u00b0C (operational)",
+        "cycles": "3 thermal cycles",
+        "criteria": "Performance within spec, mass loss <1% TML, <0.1% CVCM"
+      },
+      {
+        "test": "RF acceptance",
+        "purpose": "Verify antenna patterns and link budget",
+        "duration": "5 days",
+        "article": "Flight model",
+        "criteria": "EIRP > 37 dBm (X-band), G/T > -25 dB/K (S-band)"
+      },
+      {
+        "test": "Deployment mechanism test",
+        "purpose": "Verify solar panel and antenna deployment",
+        "duration": "2 days",
+        "article": "Flight model",
+        "criteria": "Full deployment in <30s, no binding, latch confirmation"
+      }
+    ],
+    "total_i_t_duration": "~60 working days (12 weeks)",
+    "schedule_margin": "20% contingency (adds 2.4 weeks)",
+    "critical_path": "Thermal vacuum \u2192 RF acceptance \u2192 Final functional"
+  },
+  "launch_vehicle_compatibility": {
+    "deployer_type": "P-POD Mk III (6U)",
+    "interface_requirements": {
+      "mechanical": {
+        "rails": "Aluminum 6061-T6, 6.35 mm wide, 11.5 mm height",
+        "clearance": "Minimum 1 mm radial, 2 mm axial",
+        "cg_tolerance": "\u00b15 mm from geometric center",
+        "separation_springs": "4\u00d7 (provided by deployer), 15N each"
+      },
+      "electrical": {
+        "switch": "Remove-before-flight pin, 2.5 k\u03a9 pull-up to 5V",
+        "separation_switch": "Momentary closure indicates deployment",
+        "rf_connectors": "SMA bulkhead (sealed), must survive vibe"
+      },
+      "thermal": {
+        "surface_finish": "Black anodize (\u03b1=0.85, \u03b5=0.85)",
+        "internal_conduction": "Minimum 5 W/\u00b0C path to rails"
+      }
+    },
+    "constraints": {
+      "mass": "\u226410 kg (including margin)",
+      "cg_offset": "\u22645 mm from geometric center",
+      "natural_frequency": ">100 Hz (all axes)",
+      "magnetic_moment": "<0.2 A\u00b7m\u00b2 (to avoid ADCS interference)",
+      "outgassing": "TML <1.0%, CVCM <0.1%",
+      "debris": "No loose parts, all fasteners captured or tethered"
+    },
+    "deployment_sequence": {
+      "trigger": "Deployer door opens after 30 min on orbit",
+      "spring_force": "60N total (0.5-1.0 m/s separation velocity)",
+      "clearance": "Minimum 10 cm from deployer before any activation",
+      "timeline": "Door open (T+0), spring release (T+0.1s), clear (T+0.5s)"
+    },
+    "compatible_launchers": [
+      "Falcon 9 (SpaceX)",
+      "Electron (Rocket Lab)",
+      "Vega-C (Arianespace)",
+      "PSLV (ISRO)",
+      "LauncherOne (Virgin Orbit)"
+    ]
+  },
+  "critical_milestones_and_schedule": {
+    "reference_date": "Launch Date (L)",
+    "milestones": [
+      {
+        "name": "PDR (Preliminary Design Review)",
+        "date": "L-18 months",
+        "duration": "2 weeks",
+        "deliverables": [
+          "System requirements",
+          "Interface control documents",
+          "Preliminary test plan"
+        ]
+      },
+      {
+        "name": "CDR (Critical Design Review)",
+        "date": "L-12 months",
+        "duration": "3 weeks",
+        "deliverables": [
+          "Final design drawings",
+          "Detailed test procedures",
+          "Parts procurement complete"
+        ]
+      },
+      {
+        "name": "Engineering Model integration complete",
+        "date": "L-10 months",
+        "duration": "4 weeks",
+        "deliverables": [
+          "Full functional test",
+          "Software validation",
+          "GSE verification"
+        ]
+      },
+      {
+        "name": "Qualification testing start",
+        "date": "L-8 months",
+        "duration": "8 weeks",
+        "deliverables": [
+          "Vibe/Shock/TVAC complete",
+          "EMC compliance cert",
+          "Materials testing data"
+        ]
+      },
+      {
+        "name": "Flight model integration start",
+        "date": "L-6 months",
+        "duration": "6 weeks",
+        "deliverables": [
+          "Flight hardware assembled",
+          "Initial functional test",
+          "Mass properties measured"
+        ]
+      },
+      {
+        "name": "Protoflight testing start",
+        "date": "L-4.5 months",
+        "duration": "6 weeks",
+        "deliverables": [
+          "Sine vibe complete",
+          "TVAC acceptance",
+          "RF acceptance"
+        ]
+      },
+      {
+        "name": "MRR (Mission Readiness Review)",
+        "date": "L-2 months",
+        "duration": "2 weeks",
+        "deliverables": [
+          "All test reports",
+          "Launch authorization",
+          "Operations plan approved"
+        ]
+      },
+      {
+        "name": "Ship to launch site",
+        "date": "L-1 month",
+        "duration": "1 week",
+        "deliverables": [
+          "Transport container certified",
+          "Final integration with deployer",
+          "Launch site acceptance"
+        ]
+      },
+      {
+        "name": "Launch",
+        "date": "L-0",
+        "duration": "N/A",
+        "deliverables": [
+          "Successful deployment",
+          "First contact",
+          "Commissioning start"
+        ]
+      }
+    ],
+    "total_schedule": "18 months from PDR to launch",
+    "recommended_margin": "3 months contingency (16.7%) distributed across integration and test phases",
+    "critical_path_items": [
+      "Qualification testing",
+      "Protoflight TVAC",
+      "RF acceptance"
+    ]
+  },
+  "key_risks_and_mitigations": [
+    {
+      "risk": "Thermal control of radiometer focal plane",
+      "impact": "High - Payload performance degradation or failure",
+      "probability": "Medium",
+      "mitigation": [
+        "Early thermal vacuum testing of focal plane assembly",
+        "Design margin: TEC capacity 2\u00d7 worst-case heat load",
+        "Redundant temperature sensors with independent control loops",
+        "Ground testing with flight-like vacuum and temperature profiles"
+      ]
+    },
+    {
+      "risk": "RF interference between X-band downlink and radiometer receivers",
+      "impact": "High - Science data corruption",
+      "probability": "Medium",
+      "mitigation": [
+        "Early EMC testing with both systems operating",
+        "Frequency planning: 200 MHz guard band between payload and downlink",
+        "Shielded enclosures for sensitive analog circuits",
+        "Time-domain scheduling: No downlink during critical observation periods"
+      ]
+    },
+    {
+      "risk": "P-POD mechanical compatibility issues",
+      "impact": "High - Launch rejection",
+      "probability": "Low",
+      "mitigation": [
+        "Early fit check with actual P-POD fixture (not just drawings)",
+        "3D scanning of flight structure before final machining",
+        "Design margin: 2 mm clearance minimum (vs 1 mm requirement)",
+        "Vibration testing with P-POD interface simulator"
+      ]
+    },
+    {
+      "risk": "Solar panel deployment failure",
+      "impact": "Medium - Reduced power, mission degradation",
+      "probability": "Low",
+      "mitigation": [
+        "Redundant deployment mechanisms (primary spring + backup actuator)",
+        "Ground testing with thermal vacuum and vibration pre-conditioning",
+        "Design for single-fault tolerance in deployment circuit",
+        "In-orbit contingency: Use body-mounted panels as backup"
+      ]
+    },
+    {
+      "risk": "ADCS pointing accuracy insufficient for radiometer",
+      "impact": "Medium - Reduced data quality",
+      "probability": "Low",
+      "mitigation": [
+        "Early testing with engineering model in 3-axis air bearing",
+        "Design margin: 0.1\u00b0 control (vs 0.5\u00b0 requirement)",
+        "On-orbit calibration using star tracker and ground targets",
+        "Software updates to improve control algorithms post-launch"
+      ]
+    },
+    {
+      "risk": "Schedule slip due to parts procurement delays",
+      "impact": "Medium - Increased cost, missed launch window",
+      "probability": "Medium",
+      "mitigation": [
+        "Dual-source critical components (OBC, radios, reaction wheels)",
+        "Early procurement of long-lead items (12+ month lead time)",
+        "Buffer stock of common components",
+        "Flexible design allowing substitution of equivalent parts"
+      ]
+    }
+  ],
+  "key_action": "Immediately procure P-POD Mk III interface fixture and conduct first mechanical fit check with engineering model structure to validate mechanical design and identify any clearance issues before CDR. This gates all subsequent structural fabrication and is the highest schedule risk item."
+}

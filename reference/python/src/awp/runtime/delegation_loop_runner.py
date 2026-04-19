@@ -150,6 +150,67 @@ def _finalize_terminal_status(reason: str) -> TerminalStatus:
     return "partial"
 
 
+# ---------------------------------------------------------------------------
+# α-fix-2: Soft in-place repair — logical worker-id resolution
+# ---------------------------------------------------------------------------
+#
+# When the critique/gate system rejects a worker's output, the manager LLM
+# typically spawns a *repair* worker with a decorated id (e.g.
+# ``compose_worker_repair`` or ``compose_worker_v2_strict``). Today each such
+# worker pulls a fresh code-execution namespace, so all state built up in the
+# first attempt (imports, dataframes, helper functions) is thrown away and the
+# repair worker must re-hydrate its world from scratch — wasting tokens and
+# breaking causal continuity with the prior attempt.
+#
+# α-fix-2 introduces a **per-logical-worker executor registry** on the
+# DelegationLoopRunner. Every spawned worker is mapped to a *logical worker id*
+# by stripping well-known repair/retry suffixes (``_repair``, ``_retry``,
+# ``_vN``, ``_strict``, ``_final``, ``_runN``, ``_subtask_N``). When the same
+# logical id reappears, the same executor instance is reused — preserving the
+# warm namespace established by α-fix-1.
+#
+# The manager can opt out by setting ``fresh_worker: true`` in the delegation
+# envelope when it really needs a clean slate (e.g. a previous attempt
+# corrupted global state). ``fresh_worker`` is an *envelope* field, not a user
+# config knob — no new hyperparameters are introduced.
+#
+# The suffix-stripping regex is applied to a fixpoint so stacked suffixes
+# (``_v2_repair``, ``_retry_strict``) collapse to the base id in one pass.
+#
+# Examples:
+#   ``compose_awp_concepts_worker``         → ``compose_awp_concepts_worker``
+#   ``compose_awp_concepts_worker_repair``  → ``compose_awp_concepts_worker``
+#   ``compose_awp_concepts_worker_v2_repair`` → ``compose_awp_concepts_worker``
+#   ``foo_retry2_strict``                   → ``foo``
+#   ``plot_runner_run3_subtask_7``          → ``plot_runner``
+
+_REPAIR_SUFFIX_RE = re.compile(
+    r"(_repair|_retry(\d*)?|_v\d+|_strict|_final|_run\d*|_subtask_\d+)+$",
+    re.IGNORECASE,
+)
+
+
+def logical_worker_id(worker_id: str) -> str:
+    """Strip repair/retry suffixes from a worker id to produce its logical id.
+
+    The stripping is applied to a fixpoint: stacked suffixes (e.g.
+    ``_v2_repair``) collapse in a single call. The match is case-insensitive.
+
+    This function is the single source of truth for the logical-id mapping
+    used by the per-worker executor registry; tests pin its behavior.
+    """
+    if not isinstance(worker_id, str) or not worker_id:
+        return worker_id or ""
+    previous = None
+    current = worker_id
+    # Apply to a fixpoint — at most a handful of iterations in practice.
+    while previous != current:
+        previous = current
+        current = _REPAIR_SUFFIX_RE.sub("", current)
+    # Guard: never reduce to empty string.
+    return current or worker_id
+
+
 def _find_truncation_points(text: str) -> list[int]:
     """Return candidate truncation offsets for repairing truncated JSON.
 
@@ -185,6 +246,49 @@ def _find_truncation_points(text: str) -> list[int]:
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
+
+class BudgetExceededError(RuntimeError):
+    """Raised when a pre-LLM token reservation would exceed the run budget.
+
+    Only raised when ``orchestration.delegation_loop.token_budget_reservation``
+    is enabled and the LLMClient is wired to the active budget; the legacy
+    consume-after-call path surfaces budget exhaustion via
+    :meth:`BudgetSnapshot.can_continue` instead.
+    """
+
+
+class TokenReservation:
+    """Handle returned by :meth:`BudgetSnapshot.reserve_tokens`.
+
+    Must be either committed (:meth:`BudgetSnapshot.commit_tokens`) or
+    released (:meth:`BudgetSnapshot.release_reservation`). Stores the
+    reserved amount so commit/release can restore ``pending_reserved``
+    without needing to look up the id twice.
+    """
+
+    __slots__ = ("id", "tokens")
+
+    def __init__(self, id: int, tokens: int) -> None:
+        self.id = id
+        self.tokens = tokens
+
+
+def estimate_llm_tokens(
+    prompt: str, max_output_tokens: int | None = None
+) -> int:
+    """Conservative token-count estimate for a chat completion.
+
+    Uses the 1-token-per-4-chars heuristic (GPT tokenizer ballpark) over the
+    full prompt text and adds a reserved output cap. Intentionally stdlib
+    only — no tiktoken — so the budget path cannot fail on missing deps.
+    Callers in the warm-path should overestimate slightly; any overshoot
+    is released on commit with the real usage figure from the HTTP
+    response.
+    """
+    input_estimate = max(1, len(prompt) // 4)
+    output_estimate = max_output_tokens if max_output_tokens else 4096
+    return input_estimate + int(output_estimate)
 
 
 class BudgetSnapshot:
@@ -230,6 +334,16 @@ class BudgetSnapshot:
         self.spawned_submanagers_total: int = 0
         self.active_submanagers: int = 0
         self.start_time = time.monotonic()
+        # Release D-2: reservation-based token accounting (opt-in via
+        # orchestration.delegation_loop.token_budget_reservation). Pre-LLM
+        # reservations prevent parallel workers from racing past
+        # max_total_tokens; the check is (tokens_consumed + pending_reserved
+        # + estimate > max_total_tokens) under a single lock so N concurrent
+        # reservers see a consistent view. Disabled by default; callers that
+        # opt in use reserve_tokens / commit_tokens / release_reservation.
+        self._pending_reserved: int = 0
+        self._next_reservation_id: int = 0
+        self._active_reservations: dict[int, int] = {}
         # Budget reservation (Manager Intelligence)
         self._reservation = reservation_config
         self._current_phase: str = "core_work"
@@ -247,6 +361,72 @@ class BudgetSnapshot:
     def record_tokens(self, count: int) -> None:
         with self._lock:
             self.tokens_consumed += count
+
+    def reserve_tokens(self, estimate: int) -> "TokenReservation | None":
+        """Atomically reserve tokens against the run budget.
+
+        Returns ``None`` if ``tokens_consumed + pending_reserved + estimate``
+        would exceed ``max_total_tokens`` (caller must treat as a pre-LLM
+        budget rejection). Returns a :class:`TokenReservation` handle
+        otherwise; the handle MUST be either committed via
+        :meth:`commit_tokens` or released via :meth:`release_reservation`.
+        If ``max_total_tokens`` is 0/falsey the budget is unbounded and a
+        zero-cost reservation is still returned so commit/release stay
+        symmetric with the bounded path.
+        """
+        estimate = max(0, int(estimate))
+        with self._lock:
+            if (
+                self.max_total_tokens
+                and self.tokens_consumed + self._pending_reserved + estimate
+                > self.max_total_tokens
+            ):
+                return None
+            rid = self._next_reservation_id
+            self._next_reservation_id += 1
+            self._pending_reserved += estimate
+            self._active_reservations[rid] = estimate
+            return TokenReservation(id=rid, tokens=estimate)
+
+    def commit_tokens(
+        self, reservation: "TokenReservation", actual: int
+    ) -> None:
+        """Convert a live reservation into actual token consumption.
+
+        Releases the reserved amount from ``pending_reserved`` and adds the
+        actual HTTP-reported usage to ``tokens_consumed``. A double-commit
+        (or commit of an unknown id) is tolerated: it falls back to a plain
+        ``tokens_consumed += actual`` so accounting never loses usage, but
+        a warning is emitted to surface the bug.
+        """
+        actual = max(0, int(actual))
+        with self._lock:
+            reserved = self._active_reservations.pop(reservation.id, None)
+            if reserved is None:
+                # Never-reserved or already committed/released. Preserve the
+                # actual usage so the budget is not silently undercounted.
+                logger.warning(
+                    "commit_tokens: reservation id=%s not active (double-commit"
+                    " or never reserved); recording actual=%d without release",
+                    reservation.id,
+                    actual,
+                )
+                self.tokens_consumed += actual
+                return
+            self._pending_reserved -= reserved
+            self.tokens_consumed += actual
+
+    def release_reservation(self, reservation: "TokenReservation") -> None:
+        """Release a reservation without consuming tokens.
+
+        Used when the HTTP call failed before a usage figure was obtained,
+        so pending_reserved returns to its pre-reserve state. Idempotent:
+        a second release of the same handle is a no-op.
+        """
+        with self._lock:
+            reserved = self._active_reservations.pop(reservation.id, None)
+            if reserved is not None:
+                self._pending_reserved -= reserved
 
     def record_loop(self) -> None:
         with self._lock:
@@ -444,7 +624,14 @@ class BudgetSnapshot:
                 return False, "max_total_workers reached"
             if self.wall_time_elapsed >= self.max_wall_time:
                 return False, "max_wall_time exceeded"
-            if self.max_total_tokens and self.tokens_consumed >= self.max_total_tokens:
+            # Pending reservations count against the token cap so that a
+            # budget check observed during an in-flight LLM call does not
+            # race past the effective limit.
+            if (
+                self.max_total_tokens
+                and self.tokens_consumed + self._pending_reserved
+                >= self.max_total_tokens
+            ):
                 return False, "max_total_tokens reached"
             if self.max_tool_calls and self.tool_calls_used >= self.max_tool_calls:
                 return False, "max_tool_calls reached"
@@ -763,7 +950,10 @@ class TaskPlan:
     def set_subtasks(self, subtasks: list[dict[str, Any]]) -> None:
         """Set the plan from the manager's PLAN decision output."""
         self._subtasks = subtasks[: self._max]
-        for st in self._subtasks:
+        for idx, st in enumerate(self._subtasks):
+            # LLM output occasionally omits the id field on submanager plans;
+            # a synthesized index-based default keeps downstream lookups stable.
+            st.setdefault("id", f"subtask_{idx}")
             st.setdefault("status", "pending")
             st.setdefault("result_summary", "")
 
@@ -931,6 +1121,29 @@ class TaskPlan:
         if actionable:
             ids = ", ".join(a["id"] for a in actionable)
             lines.append(f"\n**Next actionable subtasks**: {ids}\n")
+
+        # Framework-Fix gamma: advisory atomicity hints per PENDING subtask.
+        # Pure heuristic, no hard gate — the manager is free to override.
+        # Injected here so the signal rides along with the plan table the
+        # manager already reads every iteration.
+        try:
+            from .atomicity import atomicity_advisory_line
+
+            pending_advisories: list[str] = []
+            for st in self._subtasks:
+                if st.get("status", "pending") != "pending":
+                    continue
+                st_id = st.get("id", "?")
+                advisory = atomicity_advisory_line(st)
+                pending_advisories.append(f"- **{st_id}**: {advisory}")
+            if pending_advisories:
+                lines.append("\n**Atomicity advisories (advisory only — manager decides)**:")
+                lines.extend(pending_advisories)
+                lines.append("")
+        except Exception:
+            # Advisory layer must never break prompt building.
+            pass
+
         stuck = self.get_stuck_subtasks()
         if stuck:
             ids = ", ".join(s["id"] for s in stuck)
@@ -1039,6 +1252,7 @@ class RunLogger:
                 "decisions.log",
                 "gates.log",
                 "tool_calls.jsonl",
+                "metrics.jsonl",
             ):
                 try:
                     self._debug_handles[fname] = open(
@@ -1195,6 +1409,20 @@ class RunLogger:
             line += "  " + " ".join(f"{k}={v}" for k, v in fields.items())
         line += "\n"
         self._debug_write("gates.log", line)
+        # metric.gate — observer event for the UI MetricsPanel.
+        try:
+            iteration = fields.get("iteration")
+            self.write_metric(
+                "metric.gate",
+                {
+                    "iteration": iteration if iteration is not None else -1,
+                    "gate": gate_name,
+                    "verdict": "rejected" if triggered else "passed",
+                    "reason": str(reason)[:500],
+                },
+            )
+        except Exception:
+            pass
 
     def trace_tool_call(
         self,
@@ -1234,6 +1462,60 @@ class RunLogger:
                 "tool_calls.jsonl",
                 json.dumps(entry, default=str, ensure_ascii=False) + "\n",
             )
+        except Exception:
+            pass
+        # metric.tool_call — observer event for the UI MetricsPanel.
+        try:
+            iter_val: Any = iteration
+            if isinstance(iter_val, str):
+                try:
+                    iter_val = int(iter_val)
+                except ValueError:
+                    iter_val = -1
+            self.write_metric(
+                "metric.tool_call",
+                {
+                    "iteration": iter_val if iter_val is not None else -1,
+                    "worker_id": worker_id,
+                    "tool_name": tool,
+                    "latency_ms": float(duration_ms) if duration_ms is not None else 0.0,
+                    "success": bool(ok),
+                },
+            )
+        except Exception:
+            pass
+
+    def write_metric(self, kind: str, payload: dict) -> None:
+        """Append a metric snapshot to ``metrics.jsonl`` for the file watcher.
+
+        ``kind`` must be one of the ``metric.*`` event types. Payload is a
+        JSON-serialisable dict with at minimum an ``iteration`` field.
+        Writes to two locations so both the debug-log tailer and the UI
+        file-watcher (which scans ``run_dir``) observe the stream:
+          - ``<experiment>/logs/<run>/metrics.jsonl`` (debug tree)
+          - ``<run_dir>/metrics.jsonl``               (run tree)
+        This is a pure observer — emission failures are swallowed so they
+        can never break a run.
+        """
+        try:
+            ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+            entry = {"ts": ts, "kind": kind, **(payload or {})}
+            line = json.dumps(entry, default=str, ensure_ascii=False) + "\n"
+        except Exception:
+            return
+        # Debug tree (may be disabled if _debug_dir is None)
+        if self._debug_dir is not None:
+            try:
+                self._debug_write("metrics.jsonl", line)
+            except Exception:
+                pass
+        # Run tree — directly append so the UI file-watcher picks it up
+        # without needing a separate debug-dir scan.
+        try:
+            metrics_path = self.run_dir / "metrics.jsonl"
+            with self._debug_lock:
+                with open(metrics_path, "a", encoding="utf-8") as fh:
+                    fh.write(line)
         except Exception:
             pass
 
@@ -1335,9 +1617,7 @@ class RunLogger:
             base = self.run_dir / "iterations" / f"{iteration:03d}" / "manager_trace"
         base.mkdir(parents=True, exist_ok=True)
         prompt_total = sum(c.get("usage", {}).get("prompt_tokens", 0) for c in calls)
-        completion_total = sum(
-            c.get("usage", {}).get("completion_tokens", 0) for c in calls
-        )
+        completion_total = sum(c.get("usage", {}).get("completion_tokens", 0) for c in calls)
         summary = {
             "total_calls": len(calls),
             "total_tokens": {
@@ -1345,9 +1625,7 @@ class RunLogger:
                 "completion": completion_total,
                 "total": prompt_total + completion_total,
             },
-            "total_latency_ms": round(
-                sum(c.get("latency_ms", 0) for c in calls), 1
-            ),
+            "total_latency_ms": round(sum(c.get("latency_ms", 0) for c in calls), 1),
             "model": calls[0].get("model") if calls else None,
             "tool_rounds": max(len(calls) - 1, 0),
         }
@@ -1700,6 +1978,12 @@ class RunLogger:
                 artifact_calls = self.run_dir / "artifacts" / "tools" / f"{wid}_tool_calls.json"
                 self.write_json(artifact_calls, tool_calls)
 
+                # Framework-Fix β: feed every code.execute call into the
+                # tool inducer. The inducer is attached by the owning
+                # DelegationLoopRunner on this RunLogger via
+                # ``attach_tool_inducer`` — no-op when unset.
+                _inducer = getattr(self, "_tool_inducer", None)
+
                 # Extract and save code.execute calls as .py files
                 code_idx = 0
                 for tc in tool_calls:
@@ -1709,6 +1993,14 @@ class RunLogger:
                     if tool_name in ("code.execute", "code_execute"):
                         args = tc.get("arguments", {})
                         code_text = args.get("code", "")
+                        if code_text and _inducer is not None:
+                            try:
+                                _inducer.observe(wid, code_text)
+                            except Exception:  # noqa: BLE001
+                                logger.debug(
+                                    "tool_inducer.observe raised (non-fatal)",
+                                    exc_info=True,
+                                )
                         if code_text:
                             result_data = tc.get("result", {})
                             stdout = ""
@@ -1792,11 +2084,7 @@ class RunLogger:
         # without parsing free-form text.
         reason = ""
         if isinstance(final_result, dict):
-            reason = str(
-                final_result.get("_terminal_reason")
-                or final_result.get("reason")
-                or ""
-            )
+            reason = str(final_result.get("_terminal_reason") or final_result.get("reason") or "")
         summary = {
             "run_id": run_id,
             "status": status,
@@ -1805,6 +2093,19 @@ class RunLogger:
             "final_budget": budget.to_dict(),
             "completed": datetime.now(timezone.utc).isoformat(),
         }
+        # Framework-Fix β: expose auto-induced tools on the run summary
+        # so downstream consumers (UI, experiment DB, memory) can see
+        # which tools the inducer synthesised from repeated
+        # ``code.execute`` patterns during this run.
+        _inducer = getattr(self, "_tool_inducer", None)
+        if _inducer is not None:
+            try:
+                summary["induced_tools"] = _inducer.induced_tools
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "tool_inducer.induced_tools raised (non-fatal)",
+                    exc_info=True,
+                )
         self.write_json(self.run_dir / "run_completion.json", summary)
         self.trace(
             "completion",
@@ -2018,6 +2319,16 @@ class DelegationLoopRunner:
         else:
             self._budget = BudgetSnapshot(config.budget, reservation_config=reservation_cfg)
 
+        # Release D-2: pre-LLM token reservation flag. When enabled every
+        # LLMClient built via ``_build_llm_client`` is wired to the shared
+        # budget so reserve/commit/release run atomically around each
+        # HTTP call. The runner's own ``record_tokens`` calls are skipped
+        # in that mode to avoid double-counting (commit already booked the
+        # actual usage into ``tokens_consumed``).
+        self._token_reservation_enabled: bool = bool(
+            getattr(config, "token_budget_reservation", False)
+        )
+
         # Max threads per worker dispatch round (I/O-bound LLM calls)
         self._max_parallel_workers: int = getattr(config.budget, "max_parallel_workers", 16)
 
@@ -2026,6 +2337,7 @@ class DelegationLoopRunner:
         if self._manager_model:
             try:
                 self._manager_llm = LLMClient(model=self._manager_model)
+                self._wire_llm_budget(self._manager_llm)
             except Exception:
                 logger.debug("Could not pre-create manager LLM client")
 
@@ -2141,6 +2453,11 @@ class DelegationLoopRunner:
         # tracks real budget consumption.
         self._iter_counter = 0
 
+        # Tracks cumulative tokens_consumed at the start of the previous
+        # iteration so the ``metric.budget`` event can publish a per-iter
+        # token-rate. Reset to 0 on run start.
+        self._prev_tokens_used = 0
+
         # History
         self._history: list[dict[str, Any]] = []
         # P4: track signatures of past delegation dispatches to detect when
@@ -2157,6 +2474,30 @@ class DelegationLoopRunner:
 
         self._run_started_at = _dt.now(_tz.utc)
 
+        # ------------------------------------------------------------------
+        # α-fix-2: Per-logical-worker executor registry
+        # ------------------------------------------------------------------
+        # Maps ``logical_worker_id(worker_id)`` → the executor instance used
+        # when that logical worker first ran. When a repair variant of the
+        # same worker is dispatched (``_repair``, ``_retry``, ``_vN`` etc.),
+        # the runner reuses the same executor so α-fix-1's warm namespace
+        # (variables, imports, helper functions) survives into the repair
+        # attempt. The manager can override this by setting
+        # ``fresh_worker: true`` on the delegation envelope.
+        #
+        # Call-count tracks how many times each logical id has been
+        # dispatched — used to inject a ``REPAIR MODE`` marker into the
+        # worker prompt on re-entry.
+        #
+        # Executors are cleaned up in the ``run()`` finally block. The
+        # initial (shared) executor reference on ``self._tools._code_executor``
+        # is captured once so per-worker swaps can restore it.
+        self._worker_executors: dict[str, Any] = {}
+        self._worker_call_counts: dict[str, int] = {}
+        self._shared_code_executor_original: Any = None
+        if self._tools is not None:
+            self._shared_code_executor_original = getattr(self._tools, "_code_executor", None)
+
         # Critique engine (Reflective Critique Loop)
         self._critique_engine: Optional[CritiqueEngine] = None
         critique_cfg = getattr(config, "critique", None)
@@ -2171,6 +2512,15 @@ class DelegationLoopRunner:
             )
             logger.info("Critique engine active (max_repair=%d)", critique_cfg.max_repair_attempts)
 
+        # Release C — pipelined critique / manager-planning cache. When
+        # ``pipeline_critique_planning`` is enabled, the end-of-iteration
+        # critique stage is fanned-out in parallel with an early prebuild
+        # of the next iteration's manager prompt. The prebuilt prompt is
+        # stashed here keyed by its target iteration; ``_run_inline_manager``
+        # consumes it on match and falls through to the normal synchronous
+        # build on miss. Default path (flag=False) never touches this slot.
+        self._pipelined_next_prompt: Optional[dict[str, Any]] = None
+
         # Evaluation engine (no-op if not configured)
         self._eval_engine: Optional[EvaluationEngine] = None
         if eval_config and getattr(eval_config, "enabled", False):
@@ -2184,6 +2534,27 @@ class DelegationLoopRunner:
                 "Evaluation engine active with %d metrics",
                 len(eval_config.metrics),
             )
+
+        # Framework-Fix β: Tool Inducer. Watches every ``code.execute``
+        # call across workers and auto-synthesises a dynamic tool once
+        # the same AST signature is observed from N distinct workers.
+        # Always on when a DynamicToolFactory is wired (no new config
+        # flag). Observations are still accumulated when no factory is
+        # available, so the N-hit signal is never lost — only synthesis
+        # is skipped.
+        from .tool_inducer import ToolInducer as _ToolInducer
+
+        _factory = None
+        if self._tools is not None:
+            _factory = getattr(self._tools, "_dynamic_tool_factory", None)
+        self._tool_inducer = _ToolInducer(dynamic_tool_factory=_factory)
+        # Expose the inducer on the RunLogger so the per-iteration
+        # artifact writer can feed every code.execute call into it
+        # without reaching back into the runner.
+        try:
+            self._logger._tool_inducer = self._tool_inducer  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            logger.debug("could not attach tool_inducer to RunLogger")
 
     def _load_agent(self, agent_dir: Path, llm: Optional[LLMClient] = None) -> StandaloneAgent:
         """Load the Agent class from ``agent.py``, falling back to
@@ -2217,6 +2588,157 @@ class DelegationLoopRunner:
             llm=llm,
             tool_registry=self._tools,
         )
+
+    # ------------------------------------------------------------------
+    # Framework-Fix δ1: preemptive wall-time watchdog
+    # ------------------------------------------------------------------
+    #
+    # A daemon thread checks absolute wall-time against ``max_wall_time``
+    # every 30 s and, on breach, sends SIGTERM to the process (Fix E's
+    # signal handler catches it and finalizes run_completion.json). After
+    # a further 30 s without exit, it escalates to SIGKILL. Unlike the
+    # cooperative ``BudgetSnapshot.can_continue()`` check — which only
+    # runs between manager iterations — this watchdog fires even when
+    # the main thread is wedged inside a long-running LLM call, a stuck
+    # code.execute, or a futex_wait in the persistent executor. It is
+    # the root-cause cure for Run 4 (9 h 50 min hang with max_wall_time
+    # = 8 h and no self-termination).
+    #
+    # Only the root run (depth == 0) arms the watchdog; submanagers
+    # share the parent's process and are already covered by the parent's
+    # thread. ``kill_fn`` is injected for tests so they can capture the
+    # kill intent without SIGTERMing the pytest process itself.
+    #
+    # Thread-safety notes:
+    # - Uses a threading.Event as stop signal (set by the finally block
+    #   in ``run()``); the watchdog wakes on stop.wait(30) and exits
+    #   promptly on clean termination.
+    # - daemon=True so a crashed main thread never keeps the interpreter
+    #   alive via this thread.
+    # - The SIGTERM path relies on Fix E's already-installed signal
+    #   handler which sets ``signal_state["pending"]`` and closes all
+    #   LLM clients; the main thread's ``finally`` emits the terminal
+    #   event. The escalation SIGKILL is the ultimate backstop for the
+    #   case where the SIGTERM handler itself is blocked (e.g. main
+    #   thread holds the GIL in C code and signals are only delivered
+    #   on GIL release boundaries).
+
+    _WALLTIME_WATCHDOG_POLL_SECONDS = 30
+    _WALLTIME_WATCHDOG_ESCALATE_SECONDS = 30
+
+    def _start_walltime_watchdog(self, kill_fn=None) -> "threading.Thread | None":
+        """Arm the preemptive wall-time watchdog thread.
+
+        Returns the Thread handle (for .join() in tests) or None if the
+        watchdog was not started (non-root depth, or missing budget).
+        Parameter ``kill_fn`` defaults to ``os.kill`` and is accepted as
+        a dependency-injection hook for tests so they can verify the
+        kill intent without actually signaling pytest's process.
+        """
+        if self._depth != 0:
+            return None
+        budget = getattr(self, "_budget", None)
+        if budget is None or not getattr(budget, "max_wall_time", 0):
+            return None
+
+        if kill_fn is None:
+            kill_fn = os.kill
+
+        stop_event = threading.Event()
+        # Store on self so finally-block can signal stop and tests can
+        # reach in to inspect state. A fresh Event is created per run so
+        # re-runs on the same runner instance (rare but allowed) do not
+        # inherit a previously-set flag.
+        self._wall_time_watchdog_stop = stop_event
+
+        pid = os.getpid()
+        budget_ref = budget
+        run_id = self._run_id
+        # Read via the class so attribute lookup does not require ``self``
+        # to be an actual ``DelegationLoopRunner`` — the test stub uses
+        # ``SimpleNamespace`` + bound-method trickery to exercise the
+        # watchdog in isolation and would otherwise trip over the missing
+        # class attribute. Production runs resolve identically because
+        # self.__class__ is DelegationLoopRunner.
+        cls = type(self) if isinstance(self, DelegationLoopRunner) else DelegationLoopRunner
+        poll = cls._WALLTIME_WATCHDOG_POLL_SECONDS
+        escalate_after = cls._WALLTIME_WATCHDOG_ESCALATE_SECONDS
+        log = logger
+
+        def _watchdog_loop() -> None:
+            log.debug(
+                "δ1 watchdog [%s]: armed (max_wall_time=%ds, poll=%ds)",
+                run_id,
+                budget_ref.max_wall_time,
+                poll,
+            )
+            while not stop_event.is_set():
+                # Wake every ``poll`` seconds OR immediately on stop.
+                if stop_event.wait(poll):
+                    return
+                try:
+                    elapsed = budget_ref.wall_time_elapsed
+                    limit = budget_ref.max_wall_time
+                except Exception:  # noqa: BLE001
+                    continue
+                if elapsed < limit:
+                    continue
+                # Breach. Log with exact margin, SIGTERM self, wait, then
+                # SIGKILL if still alive.
+                margin = elapsed - limit
+                log.warning(
+                    "δ1 watchdog [%s]: wall-time breach (elapsed=%.1fs,"
+                    " limit=%ds, margin=%.1fs) — SIGTERM pid=%d",
+                    run_id,
+                    elapsed,
+                    limit,
+                    margin,
+                    pid,
+                )
+                try:
+                    kill_fn(pid, signal.SIGTERM)
+                except Exception:  # noqa: BLE001
+                    log.error(
+                        "δ1 watchdog [%s]: SIGTERM raised — continuing to SIGKILL stage",
+                        run_id,
+                        exc_info=True,
+                    )
+                # Wait for Fix E's handler + finally block to complete.
+                # If the main thread is wedged in C code the SIGTERM may
+                # not be delivered until GIL release; the escalation
+                # SIGKILL is the ultimate backstop.
+                if stop_event.wait(escalate_after):
+                    return
+                log.error(
+                    "δ1 watchdog [%s]: SIGTERM did not terminate process in"
+                    " %ds — escalating to SIGKILL",
+                    run_id,
+                    escalate_after,
+                )
+                try:
+                    kill_fn(pid, signal.SIGKILL)
+                except Exception:  # noqa: BLE001
+                    log.error("δ1 watchdog [%s]: SIGKILL raised", run_id, exc_info=True)
+                return
+
+        thread = threading.Thread(
+            target=_watchdog_loop,
+            name="awp-walltime-watchdog",
+            daemon=True,
+        )
+        thread.start()
+        self._wall_time_watchdog_thread = thread
+        return thread
+
+    def _stop_walltime_watchdog(self) -> None:
+        """Signal the watchdog to exit on its next wake.
+
+        Idempotent. Safe to call from finally blocks even if the watchdog
+        never started (``_start_walltime_watchdog`` returned None).
+        """
+        stop_event = getattr(self, "_wall_time_watchdog_stop", None)
+        if stop_event is not None:
+            stop_event.set()
 
     def run(self, task: str, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute the delegation loop."""
@@ -2288,6 +2810,7 @@ class DelegationLoopRunner:
             # it, and the DB row stays ``running``.
             try:
                 from .llm import LLMClient as _LLMClient
+
                 aborted = _LLMClient.close_all()
                 logger.warning(
                     "DelegationLoop [%s] signal watchdog aborted %d LLM client(s)",
@@ -2308,6 +2831,15 @@ class DelegationLoopRunner:
                 # event; the finalizer below still runs on exception.
                 signal_state["installed"] = False
 
+        # Framework-Fix δ1: start the preemptive wall-time watchdog just
+        # before entering the main loop. This is a daemon thread that
+        # breaches SIGTERM/SIGKILL if ``max_wall_time`` is exceeded — the
+        # structural cure for hangs where the main thread is wedged in
+        # LLM, pipe read, or futex_wait and would never check
+        # ``BudgetSnapshot.can_continue`` on its own. Only the root run
+        # arms it; submanagers share the parent's process.
+        self._start_walltime_watchdog()
+
         try:
             final_result, status = self._loop(task, state)
             terminal_reason = status
@@ -2323,12 +2855,20 @@ class DelegationLoopRunner:
             terminal_status = "aborted"
             status = "aborted"
         except Exception as exc:
-            logger.error("DelegationLoop error: %s", exc)
+            logger.error("DelegationLoop error: %s", exc, exc_info=True)
             final_result = {"error": str(exc), "confidence": 0.0}
             terminal_reason = f"error: {exc}"
             terminal_status = "failed"
             status = "failed"
         finally:
+            # Framework-Fix δ1: signal the wall-time watchdog to exit so
+            # it does not outlive the run. Idempotent; safe regardless of
+            # whether the watchdog was ever started. Done FIRST in the
+            # finally block because if the watchdog just tripped, the
+            # process may be about to receive SIGTERM — releasing it
+            # early avoids a race where the watchdog escalates to
+            # SIGKILL while ``run()`` is still writing run_completion.json.
+            self._stop_walltime_watchdog()
             # Fix E: even if nothing above set a terminal status, emit one.
             if signal_state.get("pending") and terminal_status == "aborted":
                 terminal_reason = signal_state["pending"]
@@ -2350,6 +2890,18 @@ class DelegationLoopRunner:
                 except (ValueError, OSError):
                     pass
 
+            # α-fix-2: clean up every per-worker executor we spawned during
+            # this run. Idempotent and exception-safe so it never masks an
+            # earlier failure. Also restores the ToolRegistry's shared
+            # executor reference to its pre-run value.
+            try:
+                self._cleanup_worker_executors()
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "α-fix-2: _cleanup_worker_executors raised (non-fatal)",
+                    exc_info=True,
+                )
+
         # Surface the final digest sha on the run result so parent
         # runners can fold it into their own digests.
         if self._current_digest_sha and isinstance(final_result, dict):
@@ -2359,6 +2911,15 @@ class DelegationLoopRunner:
         if isinstance(final_result, dict):
             final_result.setdefault("_terminal_status", terminal_status)
             final_result.setdefault("_terminal_reason", terminal_reason)
+            # Framework-Fix β: surface induced tools on the result dict
+            # so programmatic callers (AgentWorkflow) can read them
+            # without re-parsing run_completion.json.
+            try:
+                _induced = self._tool_inducer.induced_tools
+                if _induced:
+                    final_result.setdefault("induced_tools", _induced)
+            except Exception:  # noqa: BLE001
+                logger.debug("induced_tools surfacing failed", exc_info=True)
 
         self._logger.log_completion(
             self._run_id,
@@ -2454,6 +3015,63 @@ class DelegationLoopRunner:
             iteration = self._iter_counter
 
             logger.info("=== Iteration %d ===", iteration)
+
+            # metric.budget + metric.confidence — observer events emitted at
+            # the top of every iteration so the UI MetricsPanel can draw a
+            # live time-series. Pure observers: failures are swallowed.
+            try:
+                bd = self._budget.to_dict()
+                tokens_used = int(bd.get("tokens", {}).get("consumed", 0) or 0)
+                prev_tokens = int(getattr(self, "_prev_tokens_used", 0) or 0)
+                tokens_rate = max(0, tokens_used - prev_tokens)
+                self._prev_tokens_used = tokens_used
+                self._logger.write_metric(
+                    "metric.budget",
+                    {
+                        "iteration": iteration,
+                        "tokens_used": tokens_used,
+                        "tokens_rate_per_iter": tokens_rate,
+                        "loops_used": int(bd.get("loops", {}).get("used", 0) or 0),
+                        "workers_used": int(bd.get("workers", {}).get("spawned", 0) or 0),
+                        "wall_time_s": float(bd.get("wall_time", {}).get("elapsed_s", 0.0) or 0.0),
+                        "budget_remaining_pct": float(bd.get("budget_remaining_pct", 0.0) or 0.0),
+                        "max_loops": int(bd.get("loops", {}).get("max", 0) or 0),
+                        "max_workers": int(bd.get("workers", {}).get("max", 0) or 0),
+                        "max_tokens": int(bd.get("tokens", {}).get("max", 0) or 0),
+                        "max_wall_time_s": float(bd.get("wall_time", {}).get("max_s", 0.0) or 0.0),
+                        "tool_calls_used": int(bd.get("tool_calls", {}).get("used", 0) or 0),
+                        "max_tool_calls": int(bd.get("tool_calls", {}).get("max", 0) or 0),
+                    },
+                )
+            except Exception as _metric_exc:
+                logger.debug("metric.budget emission failed: %s", _metric_exc)
+
+            try:
+                # Aggregate confidence from the just-completed iteration's
+                # workers (available in self._history from the previous
+                # loop pass). On iteration 1 there is no history yet.
+                if self._history:
+                    last = self._history[-1]
+                    mean = float(last.get("confidence", 0.0) or 0.0)
+                    per_worker = []
+                    for v in last.get("validation", []) or []:
+                        if isinstance(v, dict):
+                            per_worker.append(
+                                {
+                                    "name": str(v.get("worker_id", v.get("agent_id", "?"))),
+                                    "confidence": float(v.get("confidence", 0.0) or 0.0),
+                                }
+                            )
+                    self._logger.write_metric(
+                        "metric.confidence",
+                        {
+                            "iteration": iteration,
+                            "mean": round(mean, 4),
+                            "per_worker": per_worker,
+                        },
+                    )
+            except Exception as _metric_exc:
+                logger.debug("metric.confidence emission failed: %s", _metric_exc)
 
             # 1. Ask manager for decision
             self._profiler.start(f"manager.iter_{iteration}")
@@ -2569,11 +3187,21 @@ class DelegationLoopRunner:
                     "strict",
                 )
                 MAX_PRE_PROGRESS_PLANS = 1 if _plan_mode == "strict" else 2
+                # Secondary progress signal: a worker spawn between PLAN
+                # iterations also counts as progress, even if no subtask
+                # status has flipped yet (race between spawn and status
+                # update under parallel fan-out).
+                workers_spawned_now = int(getattr(self._budget, "workers_spawned", 0))
+                workers_spawned_baseline = int(
+                    state.get("_workers_spawned_at_plan_start", workers_spawned_now)
+                )
                 if self._task_plan is not None:
                     has_progress = any(
                         st.get("status") in ("in_progress", "completed", "failed")
                         for st in self._task_plan._subtasks
                     )
+                    if workers_spawned_now > workers_spawned_baseline:
+                        has_progress = True
                     if has_progress:
                         # Reset counter once any worker has made progress —
                         # subsequent PLANs (refinements) are legitimate, not
@@ -2581,6 +3209,7 @@ class DelegationLoopRunner:
                         if pre_progress_plans > 0:
                             state["_pre_progress_plans"] = 0
                             pre_progress_plans = 0
+                        state["_workers_spawned_at_plan_start"] = workers_spawned_now
                     else:
                         pre_progress_plans += 1
                         state["_pre_progress_plans"] = pre_progress_plans
@@ -2618,8 +3247,7 @@ class DelegationLoopRunner:
                                     "plan_loop",
                                     triggered=True,
                                     reason=(
-                                        f"{pre_progress_plans} consecutive "
-                                        f"PLANs with no progress"
+                                        f"{pre_progress_plans} consecutive PLANs with no progress"
                                     ),
                                     transition="forced_delegate",
                                     pre_progress_plans=pre_progress_plans,
@@ -2726,6 +3354,9 @@ class DelegationLoopRunner:
                 subtasks = new_subtasks
                 # First-ever plan also counts toward the pre-progress cap
                 state["_pre_progress_plans"] = pre_progress_plans + 1
+                state.setdefault(
+                    "_workers_spawned_at_plan_start", workers_spawned_now
+                )
                 if subtasks and self._planning_enabled:
                     self._task_plan = TaskPlan(max_subtasks=self._task_plan_max)
                     # Defense-in-depth for A4: smart auto-tagging.
@@ -2752,13 +3383,9 @@ class DelegationLoopRunner:
                     # Budget adequacy warning: if the plan has more subtasks
                     # than the remaining loop budget can handle, warn the
                     # manager so it can prioritise.
-                    _min_per_st = int(
-                        getattr(self._budget, "min_loops_per_subtask", 3)
-                    )
+                    _min_per_st = int(getattr(self._budget, "min_loops_per_subtask", 3))
                     _min_needed = len(subtasks) * _min_per_st + 2
-                    _remaining_loops = (
-                        self._budget.max_loops - self._budget.loops_used
-                    )
+                    _remaining_loops = self._budget.max_loops - self._budget.loops_used
                     if _remaining_loops < _min_needed:
                         state["_budget_adequacy_warning"] = (
                             f"BUDGET WARNING: Plan has {len(subtasks)} subtasks "
@@ -2769,8 +3396,7 @@ class DelegationLoopRunner:
                             f"combine subtasks to fit the budget."
                         )
                         logger.warning(
-                            "Budget adequacy: %d subtasks, %d loops remaining, "
-                            "min needed %d",
+                            "Budget adequacy: %d subtasks, %d loops remaining, min needed %d",
                             len(subtasks),
                             _remaining_loops,
                             _min_needed,
@@ -2986,9 +3612,7 @@ class DelegationLoopRunner:
                             _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                             if _trip and not _rep:
                                 return (
-                                    self._build_partial_result(
-                                        "max_rejected_completions"
-                                    ),
+                                    self._build_partial_result("max_rejected_completions"),
                                     "max_rejected_completions",
                                 )
                             continue  # force another loop iteration
@@ -3043,9 +3667,7 @@ class DelegationLoopRunner:
                     self._record_completion_rejection(
                         state,
                         gate="deliverable_presence",
-                        reason=(
-                            f"{len(_missing)} missing, {len(_empty)} empty"
-                        ),
+                        reason=(f"{len(_missing)} missing, {len(_empty)} empty"),
                         repair_payload={
                             "missing": _missing,
                             "empty": _empty,
@@ -3054,9 +3676,7 @@ class DelegationLoopRunner:
                     _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                     if _trip and not _rep:
                         return (
-                            self._build_partial_result(
-                                "max_rejected_completions"
-                            ),
+                            self._build_partial_result("max_rejected_completions"),
                             "max_rejected_completions",
                         )
                     continue
@@ -3099,9 +3719,7 @@ class DelegationLoopRunner:
                     _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                     if _trip and not _rep:
                         return (
-                            self._build_partial_result(
-                                "max_rejected_completions"
-                            ),
+                            self._build_partial_result("max_rejected_completions"),
                             "max_rejected_completions",
                         )
                     continue  # force another loop iteration
@@ -3145,9 +3763,7 @@ class DelegationLoopRunner:
                         _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                         if _trip and not _rep:
                             return (
-                                self._build_partial_result(
-                                    "max_rejected_completions"
-                                ),
+                                self._build_partial_result("max_rejected_completions"),
                                 "max_rejected_completions",
                             )
                         continue  # force another loop iteration
@@ -3184,9 +3800,7 @@ class DelegationLoopRunner:
                     _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                     if _trip and not _rep:
                         return (
-                            self._build_partial_result(
-                                "max_rejected_completions"
-                            ),
+                            self._build_partial_result("max_rejected_completions"),
                             "max_rejected_completions",
                         )
                     continue
@@ -3203,7 +3817,8 @@ class DelegationLoopRunner:
                     findings = new_rej.get("findings", [])
                     logger.warning(
                         "Manager tried to COMPLETE but %s gate rejected: %s",
-                        gate_name, reason,
+                        gate_name,
+                        reason,
                     )
                     self._logger.trace_gate(
                         gate_name,
@@ -3214,8 +3829,7 @@ class DelegationLoopRunner:
                     )
                     state[f"_{gate_name}_repair_required"] = findings
                     diag_lines = [
-                        f"- {f.get('file', '?')}: {f.get('detail', '')}"
-                        for f in findings[:12]
+                        f"- {f.get('file', '?')}: {f.get('detail', '')}" for f in findings[:12]
                     ]
                     state["_last_manager_feedback"] = (
                         f"COMPLETION REJECTED by {gate_name} gate: {reason}. "
@@ -3230,8 +3844,10 @@ class DelegationLoopRunner:
                     )
                     # Phase B/C: persist gate result
                     self._persist_gate_result(
-                        iteration, gate_name,
-                        passed=False, detail={"reason": reason, "findings": findings},
+                        iteration,
+                        gate_name,
+                        passed=False,
+                        detail={"reason": reason, "findings": findings},
                     )
                     _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                     if _trip and not _rep:
@@ -3239,9 +3855,7 @@ class DelegationLoopRunner:
                         # with quality_gate_failed so the UI can distinguish
                         # a capped-retry exit from a simple budget exit.
                         return (
-                            self._build_partial_result(
-                                "quality_gate_failed"
-                            ),
+                            self._build_partial_result("quality_gate_failed"),
                             "quality_gate_failed",
                         )
                     continue
@@ -3255,18 +3869,14 @@ class DelegationLoopRunner:
                 structural_failures = self._check_structural_integrity()
                 if structural_failures and self._budget.can_continue()[0]:
                     logger.warning(
-                        "Manager tried to COMPLETE but %d structural "
-                        "integrity check(s) failed: %s",
+                        "Manager tried to COMPLETE but %d structural integrity check(s) failed: %s",
                         len(structural_failures),
                         structural_failures[:3],
                     )
                     self._logger.trace_gate(
                         "structural_integrity",
                         triggered=True,
-                        reason=(
-                            f"{len(structural_failures)} structural "
-                            f"check(s) failed"
-                        ),
+                        reason=(f"{len(structural_failures)} structural check(s) failed"),
                         iteration=iteration,
                         sample=structural_failures[:3],
                     )
@@ -3289,9 +3899,7 @@ class DelegationLoopRunner:
                     _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                     if _trip and not _rep:
                         return (
-                            self._build_partial_result(
-                                "max_rejected_completions"
-                            ),
+                            self._build_partial_result("max_rejected_completions"),
                             "max_rejected_completions",
                         )
                     continue  # force another loop iteration
@@ -3342,9 +3950,7 @@ class DelegationLoopRunner:
                             _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
                             if _trip and not _rep:
                                 return (
-                                    self._build_partial_result(
-                                        "max_rejected_completions"
-                                    ),
+                                    self._build_partial_result("max_rejected_completions"),
                                     "max_rejected_completions",
                                 )
                             continue  # force another loop iteration
@@ -3473,15 +4079,9 @@ class DelegationLoopRunner:
             # is failing.  Unlike the P1 gate (which only blocks identical
             # re-delegations), this gate blocks *any* new subtask_ids when
             # the previous iteration's mean critique score is below threshold.
-            _min_delegate = float(
-                getattr(self._config.critique, "min_score_to_delegate", 0.0)
-            )
-            _max_deleg_blocks = int(
-                getattr(self._config.critique, "max_delegation_blocks", 2)
-            )
-            _deleg_block_count = int(
-                state.get("_critique_delegation_blocks", 0)
-            )
+            _min_delegate = float(getattr(self._config.critique, "min_score_to_delegate", 0.0))
+            _max_deleg_blocks = int(getattr(self._config.critique, "max_delegation_blocks", 2))
+            _deleg_block_count = int(state.get("_critique_delegation_blocks", 0))
             if (
                 _min_delegate > 0
                 and _deleg_block_count < _max_deleg_blocks
@@ -3505,14 +4105,13 @@ class DelegationLoopRunner:
                             _sid = _env.get("subtask_id", "")
                             if _sid:
                                 _prev_ids.add(_sid)
-                        _new_work = [
-                            e for e in envelopes
-                            if e.get("subtask_id", "") not in _prev_ids
-                        ] if _prev_ids else []
+                        _new_work = (
+                            [e for e in envelopes if e.get("subtask_id", "") not in _prev_ids]
+                            if _prev_ids
+                            else []
+                        )
                         if _new_work:
-                            state["_critique_delegation_blocks"] = (
-                                _deleg_block_count + 1
-                            )
+                            state["_critique_delegation_blocks"] = _deleg_block_count + 1
                             state["_critique_blocking_new_work"] = (
                                 f"DELEGATION BLOCKED: mean critique "
                                 f"{_mean_crit:.2f} < {_min_delegate:.2f}. "
@@ -3522,10 +4121,7 @@ class DelegationLoopRunner:
                             self._logger.trace_gate(
                                 "critique_delegate",
                                 triggered=True,
-                                reason=(
-                                    f"mean_critique={_mean_crit:.2f} "
-                                    f"< {_min_delegate}"
-                                ),
+                                reason=(f"mean_critique={_mean_crit:.2f} < {_min_delegate}"),
                             )
                             logger.warning(
                                 "P0: blocking new delegation — mean critique "
@@ -3688,11 +4284,17 @@ class DelegationLoopRunner:
             except Exception as _exc:  # noqa: BLE001
                 logger.debug("failed-signature tracking skipped: %s", _exc)
 
-            # 4. Critique phase (Reflective Critique Loop)
+            # 4. Critique phase (Reflective Critique Loop).
+            # When ``pipeline_critique_planning`` is enabled, critique runs
+            # concurrently with a prebuild of the NEXT iteration's manager
+            # prompt (Release C). The prebuilt prompt is consumed in
+            # ``_run_inline_manager`` at iteration ``iteration+1``; budget
+            # and state mutations happen exactly once on the critique path,
+            # so the budget envelope is invariant to the toggle.
             critique_envelopes = []
             if self._critique_engine and self._critique_engine.enabled:
                 self._profiler.start(f"critique.iter_{iteration}")
-                critique_envelopes = self._critique_and_repair(
+                critique_envelopes = self._run_critique_stage_maybe_pipelined(
                     delegation_results, task, state, iteration
                 )
                 self._profiler.stop(
@@ -3742,9 +4344,7 @@ class DelegationLoopRunner:
                 # Don't let it contribute to defect_category_hard_cap —
                 # otherwise the very gate that exists to force repairs
                 # becomes the trigger for force-completing the run.
-                _in_structural_repair = bool(
-                    state.get("_structural_repair_required")
-                )
+                _in_structural_repair = bool(state.get("_structural_repair_required"))
                 for ce in critique_envelopes:
                     for d in getattr(ce, "defects", []):
                         sev = getattr(d, "severity", "")
@@ -3785,7 +4385,9 @@ class DelegationLoopRunner:
                                     "Resetting defect counter for '%s' "
                                     "(%d → 0) after successful critique "
                                     "(score=%.2f) for %s",
-                                    cat, tracker[cat], score,
+                                    cat,
+                                    tracker[cat],
+                                    score,
                                     getattr(ce, "worker_id", "?"),
                                 )
                                 tracker[cat] = 0
@@ -3794,9 +4396,7 @@ class DelegationLoopRunner:
                 # only a fraction of the plan has been attempted.  Scale the
                 # effective count by completion_ratio so the gate only fires
                 # when incomplete defects persist *after* most work is done.
-                _phase_aware = bool(
-                    getattr(self._config.critique, "phase_aware_incomplete", True)
-                )
+                _phase_aware = bool(getattr(self._config.critique, "phase_aware_incomplete", True))
                 completion_ratio = 1.0
                 if _phase_aware and self._task_plan is not None:
                     _total_st = len(self._task_plan._subtasks)
@@ -3812,19 +4412,13 @@ class DelegationLoopRunner:
                 # a partial complete with the best result so far.
                 capped_cats = []
                 for c, n in tracker.items():
-                    effective_n = (
-                        n if c != "incomplete"
-                        else max(1, int(n * completion_ratio))
-                    )
+                    effective_n = n if c != "incomplete" else max(1, int(n * completion_ratio))
                     if effective_n >= _DEFECT_CAT_HARD_CAP:
                         capped_cats.append((c, n))
                 if capped_cats:
-                    cat_summary = ", ".join(
-                        f"{c} ({n}x)" for c, n in capped_cats
-                    )
+                    cat_summary = ", ".join(f"{c} ({n}x)" for c, n in capped_cats)
                     logger.warning(
-                        "Defect-category hard cap reached: %s. "
-                        "Forcing partial completion.",
+                        "Defect-category hard cap reached: %s. Forcing partial completion.",
                         cat_summary,
                     )
                     self._logger.trace_gate(
@@ -3832,9 +4426,7 @@ class DelegationLoopRunner:
                         triggered=True,
                         reason=f"Categories at hard cap: {cat_summary}",
                     )
-                    partial = self._build_partial_result(
-                        "defect_category_cap"
-                    )
+                    partial = self._build_partial_result("defect_category_cap")
                     partial["partial"] = True
                     partial["reason"] = (
                         f"Defect categories exceeded hard cap "
@@ -3846,16 +4438,11 @@ class DelegationLoopRunner:
                 # Warn the manager if any category hit the diagnose threshold
                 diag_cats = []
                 for c, n in tracker.items():
-                    eff = (
-                        n if c != "incomplete"
-                        else max(1, int(n * completion_ratio))
-                    )
+                    eff = n if c != "incomplete" else max(1, int(n * completion_ratio))
                     if eff >= _DEFECT_CAT_DIAGNOSE_THRESHOLD and eff < _DEFECT_CAT_HARD_CAP:
                         diag_cats.append((c, n))
                 if diag_cats:
-                    cat_summary = ", ".join(
-                        f"{c} ({n}x)" for c, n in diag_cats
-                    )
+                    cat_summary = ", ".join(f"{c} ({n}x)" for c, n in diag_cats)
                     state["_defect_category_warning"] = (
                         f"RECURRING DEFECT PATTERNS detected: {cat_summary}. "
                         f"These defect categories have appeared {_DEFECT_CAT_DIAGNOSE_THRESHOLD}+ "
@@ -3893,6 +4480,32 @@ class DelegationLoopRunner:
                     [c.to_dict() for c in critique_envelopes],
                     self._critique_engine.get_summary() if self._critique_engine else {},
                 )
+                # metric.critique — observer event for the UI MetricsPanel.
+                try:
+                    scores = [float(getattr(c, "score", 0.0) or 0.0) for c in critique_envelopes]
+                    mean_score = sum(scores) / len(scores) if scores else 0.0
+                    defect_count = 0
+                    defects_by_category: dict[str, int] = {}
+                    for c in critique_envelopes:
+                        for d in getattr(c, "defects", []) or []:
+                            defect_count += 1
+                            cat = str(getattr(d, "category", "unknown"))
+                            defects_by_category[cat] = defects_by_category.get(cat, 0) + 1
+                    summary = self._critique_engine.get_summary() if self._critique_engine else {}
+                    pattern_count = len(summary.get("patterns", {}) or {})
+                    self._logger.write_metric(
+                        "metric.critique",
+                        {
+                            "iteration": iteration,
+                            "score": round(mean_score, 4),
+                            "defect_count": defect_count,
+                            "pattern_count": pattern_count,
+                            "defects_by_category": defects_by_category,
+                            "worker_count": len(critique_envelopes),
+                        },
+                    )
+                except Exception as _metric_exc:
+                    logger.debug("metric.critique emission failed: %s", _metric_exc)
 
             # 7. Aggregate into history
             agg_confidence = self._aggregate_confidence(delegation_results)
@@ -4134,13 +4747,23 @@ class DelegationLoopRunner:
         # Use agent.py (or StandaloneAgent fallback) for the manager
         try:
             llm = self._manager_llm or LLMClient(model=self._manager_model)
+            if llm is not self._manager_llm:
+                self._wire_llm_budget(llm)
             tokens_before = llm.total_tokens_used
             agent = self._load_agent(manager_dir, llm=llm)
 
-            # Build enhanced task with context
-            enhanced_task = self._build_manager_task(task, state, iteration)
+            # Release C: reuse the prompt text that was prebuilt alongside
+            # the previous iteration's critique when pipelining is enabled.
+            # Only the user-message portion is meaningful for the agent
+            # path; the agent supplies its own system prompt.
+            cached = self._consume_pipelined_prompt(iteration)
+            if cached is not None:
+                _, enhanced_task = cached
+            else:
+                # Build enhanced task with context
+                enhanced_task = self._build_manager_task(task, state, iteration)
             result = agent.run(enhanced_task, state)
-            self._budget.record_tokens(llm.total_tokens_used - tokens_before)
+            self._record_llm_tokens_since(llm, tokens_before)
 
             # Extract the manager's output
             manager_output = result.get(agent.name, {})
@@ -4185,6 +4808,8 @@ class DelegationLoopRunner:
         produce a parseable decision (truncated JSON is the #1 cause).
         """
         llm = self._manager_llm or LLMClient(model=self._manager_model)
+        if llm is not self._manager_llm:
+            self._wire_llm_budget(llm)
         tokens_before = llm.total_tokens_used
 
         # LLM call tracing for manager
@@ -4192,6 +4817,7 @@ class DelegationLoopRunner:
         _mgr_trace_seq = [0]
 
         if self._trace_enabled:
+
             def _mgr_trace_cb(data: dict) -> None:
                 _mgr_trace_seq[0] += 1
                 data["seq"] = _mgr_trace_seq[0]
@@ -4203,15 +4829,22 @@ class DelegationLoopRunner:
 
             llm.set_trace_callback(_mgr_trace_cb)
 
-        system_prompt = self._build_manager_system_prompt()
-        user_message = self._build_manager_task(task, state, iteration)
+        # Release C: prefer a prompt that was prebuilt in parallel with the
+        # previous iteration's critique stage when ``pipeline_critique_planning``
+        # is enabled. On cache miss (flag off, stale iteration, prebuild
+        # failure) fall through to the normal synchronous build. Behavior
+        # with the flag off is byte-identical to the pre-Release-C path.
+        cached = self._consume_pipelined_prompt(iteration)
+        if cached is not None:
+            system_prompt, user_message = cached
+        else:
+            system_prompt = self._build_manager_system_prompt()
+            user_message = self._build_manager_task(task, state, iteration)
 
         # Context-window guard: compress oversized user messages before
         # they reach the LLM. Protects against silent head-truncation
         # of the system prompt when state grows beyond the model window.
-        user_message = self._guard_manager_context(
-            system_prompt, user_message, iteration
-        )
+        user_message = self._guard_manager_context(system_prompt, user_message, iteration)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -4229,7 +4862,7 @@ class DelegationLoopRunner:
                         result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
                 else:
                     result = llm.chat_json(messages, temperature=0.2, max_tokens=16384)
-                self._budget.record_tokens(llm.total_tokens_used - tokens_before)
+                self._record_llm_tokens_since(llm, tokens_before)
                 tokens_before = llm.total_tokens_used
                 parsed = self._parse_manager_output(result)
 
@@ -4268,7 +4901,7 @@ class DelegationLoopRunner:
                 return parsed
 
             except Exception as exc:
-                self._budget.record_tokens(llm.total_tokens_used - tokens_before)
+                self._record_llm_tokens_since(llm, tokens_before)
                 tokens_before = llm.total_tokens_used
                 if attempt == 0:
                     logger.warning("Inline manager attempt 1 failed: %s, retrying", exc)
@@ -4431,8 +5064,7 @@ targeted workers to test the most likely hypotheses before doing a full retry.
         # how many subtasks remain so it can pace itself.
         if self._task_plan:
             pending_st = sum(
-                1 for st in self._task_plan._subtasks
-                if st.get("status", "pending") == "pending"
+                1 for st in self._task_plan._subtasks if st.get("status", "pending") == "pending"
             )
             total_st = len(self._task_plan._subtasks)
             completed_st = total_st - pending_st
@@ -4594,12 +5226,13 @@ targeted workers to test the most likely hypotheses before doing a full retry.
         if not dynamic:
             return ""
 
+        # Framing paragraph served by the outer-loop artifact registry so it
+        # can be A/B-tested without editing runtime code. Default v0 is the
+        # original hardcoded string.
+        from awp.data.prompts import _artifact as _artifact_resolver
+
         lines = ["\n## Available Dynamic Tools (from previous runs)\n"]
-        lines.append(
-            "These tools are already registered and can be added to any worker's "
-            '`tools_allowed` list. Use `"dynamic.*"` to give a worker ALL dynamic tools, '
-            'or list specific ones like `"dynamic.my_tool"`.\n'
-        )
+        lines.append(_artifact_resolver("tool_description_templates"))
         for fqn in sorted(dynamic.keys()):
             defn = self._tools._definitions.get(fqn)
             desc = ""
@@ -5148,16 +5781,12 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # Critique delegation block warning
         critique_block_warn = state.pop("_critique_blocking_new_work", None)
         if critique_block_warn:
-            parts.append(
-                f"## CRITIQUE DELEGATION BLOCK\n{critique_block_warn}\n"
-            )
+            parts.append(f"## CRITIQUE DELEGATION BLOCK\n{critique_block_warn}\n")
 
         # Recurring defect category warning
         defect_cat_warn = state.pop("_defect_category_warning", None)
         if defect_cat_warn:
-            parts.append(
-                f"## 🚨 RECURRING DEFECT CATEGORIES\n{defect_cat_warn}\n"
-            )
+            parts.append(f"## 🚨 RECURRING DEFECT CATEGORIES\n{defect_cat_warn}\n")
 
         # Diagnose findings enforcement
         active_hypotheses = state.get("_active_hypotheses")
@@ -5252,9 +5881,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         for line in lines:
             if line.startswith("## "):
-                collapsible_section = any(
-                    line.startswith(h) for h in COLLAPSIBLE_HEADERS
-                )
+                collapsible_section = any(line.startswith(h) for h in COLLAPSIBLE_HEADERS)
                 section_placeholder_emitted = False
                 compressed.append(line)
                 if collapsible_section:
@@ -5294,20 +5921,14 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             + result[-tail_chars:]
         )
 
-    def _guard_manager_context(
-        self, system_prompt: str, user_message: str, iteration: int
-    ) -> str:
+    def _guard_manager_context(self, system_prompt: str, user_message: str, iteration: int) -> str:
         """Compress the manager user message if the prompt would exceed
         the configured context budget. Returns the (possibly unchanged)
         user message."""
-        budget = int(
-            getattr(self._config, "manager_context_budget_tokens", 150_000) or 0
-        )
+        budget = int(getattr(self._config, "manager_context_budget_tokens", 150_000) or 0)
         if budget <= 0:
             return user_message
-        threshold = float(
-            getattr(self._config, "manager_context_compress_threshold", 0.8) or 0.8
-        )
+        threshold = float(getattr(self._config, "manager_context_compress_threshold", 0.8) or 0.8)
         original_est = self._estimate_prompt_tokens(system_prompt, user_message)
         if original_est <= int(budget * threshold):
             return user_message
@@ -5317,9 +5938,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         target_user_tokens = max(
             1_000, int(budget * 0.6) - self._estimate_prompt_tokens(system_prompt)
         )
-        compressed = self._compress_manager_user_message(
-            user_message, target_user_tokens
-        )
+        compressed = self._compress_manager_user_message(user_message, target_user_tokens)
         new_est = self._estimate_prompt_tokens(system_prompt, compressed)
         logger.warning(
             "Manager context guard fired (iter=%d): %d → %d est. tokens "
@@ -5767,6 +6386,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             # shim so the deterministic check can surface unused-required-tool
             # defects. Build empty envelopes and let the gate populate them.
             from awp.runtime.critique.models import CritiqueEnvelope
+
             critiques = [
                 CritiqueEnvelope(worker_id=dr.get("worker_id", "unknown"), score=1.0)
                 for dr in delegation_results
@@ -5849,6 +6469,144 @@ Do NOT accept "complete" if there are unresolved critical file errors.
 
         return critiques
 
+    # -- Release C: pipelined critique + next-iteration planning prebuild --
+
+    # Default hard ceilings for the pipelined path. The critique budget is a
+    # generous fallback — production runs should set
+    # ``critique.max_repair_wall_time`` or the wall-time watchdog (δ-1) which
+    # covers the whole iteration. The prebuild is pure string assembly so a
+    # short timeout is sufficient; if it trips we fall back to a normal
+    # synchronous build on the next iteration.
+    _PIPELINED_CRITIQUE_TIMEOUT_S: float = 120.0
+    _PIPELINED_PREBUILD_TIMEOUT_S: float = 30.0
+
+    def _run_critique_stage_maybe_pipelined(
+        self,
+        delegation_results: list[dict],
+        task: str,
+        state: dict,
+        iteration: int,
+    ) -> list:
+        """Critique stage dispatcher honoring ``pipeline_critique_planning``.
+
+        When the flag is ``False`` (default) this is a thin passthrough to
+        :meth:`_critique_and_repair` — byte-identical to the pre-Release-C
+        code path. When ``True`` the critique runs in one thread while a
+        preliminary manager prompt for the NEXT iteration is assembled in
+        another. Budget/state mutations still happen exactly once (on the
+        critique thread), so the token envelope is invariant to the toggle;
+        only wall-clock latency changes.
+
+        The prebuilt prompt is stored in ``self._pipelined_next_prompt`` and
+        consumed by :meth:`_run_inline_manager` at iteration ``iteration+1``.
+        Exceptions in either leg degrade to the sequential path — critique
+        errors propagate (they always did), prebuild errors are swallowed
+        with a debug log because a missing prebuild just means the next
+        iteration does a normal synchronous build.
+        """
+        import concurrent.futures
+
+        pipelined = bool(getattr(self._config, "pipeline_critique_planning", False))
+        if not pipelined:
+            return self._critique_and_repair(delegation_results, task, state, iteration)
+
+        critique_timeout = float(self._PIPELINED_CRITIQUE_TIMEOUT_S)
+        prebuild_timeout = float(self._PIPELINED_PREBUILD_TIMEOUT_S)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            critique_future = pool.submit(
+                self._critique_and_repair,
+                delegation_results,
+                task,
+                state,
+                iteration,
+            )
+            prebuild_future = pool.submit(
+                self._prebuild_next_manager_prompt,
+                task,
+                state,
+                iteration + 1,
+            )
+
+            # Critique is authoritative — propagate whatever it raises. No
+            # timeout here: the sequential path has none either, so bounding
+            # critique in the pipelined path would introduce a failure mode
+            # (spurious TimeoutError) that the toggle is supposed to be
+            # semantic-neutral against. The prebuild is best-effort.
+            critique_result = critique_future.result()
+
+            try:
+                prebuilt = prebuild_future.result(timeout=prebuild_timeout)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Pipelined prompt prebuild for iter %d failed: %s",
+                    iteration + 1,
+                    exc,
+                )
+                prebuilt = None
+
+        if prebuilt is not None:
+            self._pipelined_next_prompt = prebuilt
+        else:
+            self._pipelined_next_prompt = None
+
+        return critique_result
+
+    def _prebuild_next_manager_prompt(
+        self,
+        task: str,
+        state: dict,
+        target_iteration: int,
+    ) -> dict[str, Any]:
+        """Assemble the manager prompt for ``target_iteration`` ahead of time.
+
+        Runs in parallel with the critique stage. The prompt content is the
+        same text :meth:`_build_manager_task` would produce when called
+        synchronously at the start of ``target_iteration``. Because the
+        critique-summary / pattern-pitfalls sections depend on data that
+        critique is still computing, those sections may be absent or stale
+        here; the consumer (``_run_inline_manager``) treats this as a cache
+        miss on mismatch and does a fresh synchronous build.
+
+        The prebuild is pure string assembly — no LLM calls, no budget
+        mutation — so running it in parallel is safe with respect to the
+        budget invariant required by Release C.
+        """
+        try:
+            system_prompt = self._build_manager_system_prompt()
+            user_message = self._build_manager_task(task, state, target_iteration)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Prebuild of manager prompt failed: %s", exc)
+            raise
+
+        return {
+            "iteration": int(target_iteration),
+            "system_prompt": system_prompt,
+            "user_message": user_message,
+        }
+
+    def _consume_pipelined_prompt(
+        self, iteration: int
+    ) -> Optional[tuple[str, str]]:
+        """Return (system_prompt, user_message) if a matching prebuild exists.
+
+        Clears ``self._pipelined_next_prompt`` regardless of match so stale
+        entries never leak into a later iteration. Returns ``None`` when the
+        pipelined path is disabled, no prebuild was produced, or the cached
+        iteration does not match the request.
+        """
+        cached = self._pipelined_next_prompt
+        self._pipelined_next_prompt = None
+        if not cached:
+            return None
+        if int(cached.get("iteration", -1)) != int(iteration):
+            return None
+        system_prompt = cached.get("system_prompt")
+        user_message = cached.get("user_message")
+        if not isinstance(system_prompt, str) or not isinstance(user_message, str):
+            return None
+        return system_prompt, user_message
+
     # -- Worker execution -------------------------------------------------
 
     def _execute_delegations(
@@ -5882,8 +6640,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     "max_workers_per_iteration",
                     triggered=True,
                     reason=(
-                        f"manager requested "
-                        f"{len(envelopes) + len(deferred)} workers, cap={cap}"
+                        f"manager requested {len(envelopes) + len(deferred)} workers, cap={cap}"
                     ),
                     dispatched=len(envelopes),
                     deferred=len(deferred),
@@ -5964,7 +6721,9 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     }
 
             try:
-                result = self._run_ephemeral_worker(worker_id, envelope, task, state, iteration=iteration)
+                result = self._run_ephemeral_worker(
+                    worker_id, envelope, task, state, iteration=iteration
+                )
                 # Persist any skills the worker created to the skill registry
                 self._persist_worker_result_skills(result, worker_id)
                 # Run step evaluation BEFORE writing result (so file watcher gets scores)
@@ -5983,6 +6742,23 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                             {"name": ms.name, "score": round(ms.score, 4), "weight": ms.weight}
                             for ms in step_eval.metric_scores
                         ]
+                        # metric.eval — observer event for the UI MetricsPanel.
+                        try:
+                            self._logger.write_metric(
+                                "metric.eval",
+                                {
+                                    "iteration": iteration,
+                                    "worker_id": worker_id,
+                                    "score": round(step_eval.score, 4),
+                                    "action": step_eval.action,
+                                    "metric_scores": {
+                                        ms.name: round(ms.score, 4)
+                                        for ms in step_eval.metric_scores
+                                    },
+                                },
+                            )
+                        except Exception as _metric_exc:
+                            logger.debug("metric.eval emission failed: %s", _metric_exc)
                 # Write result to disk immediately (for file watchers)
                 self._logger.log_worker_result(iteration, worker_id, result)
                 # Auto-post to blackboard for sibling coordination
@@ -5995,13 +6771,11 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                         auto_payload = {
                             "status": "ok",
                             "confidence": result.get("confidence", 0.0),
-                            "summary": str(
-                                result.get("summary", result.get("key_finding", ""))
-                            )[:500],
-                            "subtask_id": envelope.get("subtask_id", ""),
-                            "files_created": [
-                                str(p) for p in result.get("files_created", [])
+                            "summary": str(result.get("summary", result.get("key_finding", "")))[
+                                :500
                             ],
+                            "subtask_id": envelope.get("subtask_id", ""),
+                            "files_created": [str(p) for p in result.get("files_created", [])],
                         }
                         self._blackboard.post(
                             topic=f"auto:worker_result:{worker_id}",
@@ -6011,7 +6785,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     except Exception as _bb_exc:
                         logger.debug(
                             "Auto blackboard post failed for %s: %s",
-                            worker_id, _bb_exc,
+                            worker_id,
+                            _bb_exc,
                         )
                 return {
                     "worker_id": worker_id,
@@ -6023,9 +6798,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                 logger.error("  Worker %s failed: %s", worker_id, exc)
                 error_result = {"error": str(exc), "confidence": 0.0}
                 self._logger.log_worker_result(iteration, worker_id, error_result)
-                if (
-                    self._blackboard is not None
-                    and getattr(self._config, "blackboard_auto_post", True)
+                if self._blackboard is not None and getattr(
+                    self._config, "blackboard_auto_post", True
                 ):
                     try:
                         self._blackboard.post(
@@ -6039,7 +6813,8 @@ Do NOT accept "complete" if there are unresolved critical file errors.
                     except Exception as _bb_exc:
                         logger.debug(
                             "Auto blackboard error-post failed for %s: %s",
-                            worker_id, _bb_exc,
+                            worker_id,
+                            _bb_exc,
                         )
                 return {
                     "worker_id": worker_id,
@@ -6207,8 +6982,16 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # "prepare workspace" are single code.execute calls — promoting them
         # to submanager wastes an entire delegation loop on trivial I/O.
         _PREREQ_KEYWORDS = (
-            "fetch", "clone", "download", "prepare", "setup", "create dir",
-            "mkdir", "copy", "ingest", "install",
+            "fetch",
+            "clone",
+            "download",
+            "prepare",
+            "setup",
+            "create dir",
+            "mkdir",
+            "copy",
+            "ingest",
+            "install",
         )
         if any(kw in combined for kw in _PREREQ_KEYWORDS):
             # Check there are no complexity signals that outweigh the prereq
@@ -6350,9 +7133,7 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         pending = 0
         if self._task_plan is not None:
             pending = sum(
-                1
-                for st in self._task_plan._subtasks
-                if st.get("status") in (None, "pending")
+                1 for st in self._task_plan._subtasks if st.get("status") in (None, "pending")
             )
         min_iter = max(5, pending + 3)
         if iteration < min_iter or len(self._history) < 2:
@@ -6733,8 +7514,225 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             "status": "ok",
         }
 
-    def _run_ephemeral_worker(self, worker_id: str, envelope: dict, task: str, state: dict, iteration: int = 0) -> dict:
+    # ------------------------------------------------------------------
+    # α-fix-2: Per-worker executor registry helpers
+    # ------------------------------------------------------------------
+
+    def _spawn_new_executor(self) -> Any:
+        """Spawn a fresh executor for a new logical worker id.
+
+        Uses the type and runtime parameters of the currently-shared
+        ``ToolRegistry._code_executor`` as a template so the new executor
+        inherits the same sandbox class (PersistentExecutor, DockerExecutor,
+        VenvExecutor, CodeExecutor) and timeout / output / cwd / packages
+        configuration. Falls back to a default PersistentExecutor if
+        introspection fails — this preserves availability at the cost of
+        potentially different package-install behaviour.
+        """
+        template = self._shared_code_executor_original
+        try:
+            cls = type(template) if template is not None else None
+            if cls is None:
+                raise RuntimeError("No template executor available")
+
+            kwargs: dict[str, Any] = {}
+            # All AWP executors accept these common kwargs (see BaseExecutor
+            # subclasses). Use getattr with defaults so a missing attribute
+            # on an exotic subclass doesn't break the spawn.
+            if hasattr(template, "_max_timeout"):
+                kwargs["max_timeout"] = getattr(template, "_max_timeout")
+            if hasattr(template, "_max_output"):
+                kwargs["max_output_bytes"] = getattr(template, "_max_output")
+            if hasattr(template, "_cwd"):
+                kwargs["working_dir"] = getattr(template, "_cwd")
+
+            return cls(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "α-fix-2: could not clone shared executor (%s); "
+                "falling back to default PersistentExecutor",
+                exc,
+            )
+            from .persistent_executor import PersistentExecutor
+
+            return PersistentExecutor(working_dir=self._dir)
+
+    def _get_executor_for_worker(
+        self,
+        logical_id: str,
+        fresh_worker: bool,
+    ) -> tuple[Any, int, bool]:
+        """Resolve the executor for ``logical_id``.
+
+        Returns ``(executor, call_count, is_reentry)``.
+
+        * If ``fresh_worker`` is True and an executor is registered for
+          ``logical_id``, the old one is cleaned up and replaced.
+        * If no executor is registered and the shared (runner-provided)
+          executor is still unclaimed, the first logical id claims it.
+        * Otherwise a fresh executor is spawned via ``_spawn_new_executor``.
+        * On plain reuse, ``call_count`` is the number of prior dispatches
+          of this logical id and ``is_reentry`` is True.
+        """
+        existing = self._worker_executors.get(logical_id)
+
+        if fresh_worker and existing is not None:
+            # Manager explicitly asked for a clean slate. Retire the old one.
+            try:
+                if hasattr(existing, "cleanup"):
+                    existing.cleanup()
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "α-fix-2: cleanup of retired executor for %s failed",
+                    logical_id,
+                    exc_info=True,
+                )
+            new_ex = self._spawn_new_executor()
+            self._worker_executors[logical_id] = new_ex
+            self._worker_call_counts[logical_id] = 1
+            logger.info(
+                "α-fix-2: fresh_worker=true — retired prior executor for "
+                "logical id '%s' and spawned a new one",
+                logical_id,
+            )
+            return new_ex, 1, False
+
+        if existing is not None:
+            # Re-entry: reuse same executor, bump counter.
+            self._worker_call_counts[logical_id] = self._worker_call_counts.get(logical_id, 0) + 1
+            count = self._worker_call_counts[logical_id]
+            logger.info(
+                "α-fix-2: re-entered executor for logical id '%s' after %d "
+                "prior call(s) — namespace preserved",
+                logical_id,
+                count - 1,
+            )
+            return existing, count, True
+
+        # First time we see this logical id.
+        if self._worker_executors:
+            # At least one other logical id already claimed the shared
+            # executor (or spawned its own) — this is a brand-new worker.
+            new_ex = self._spawn_new_executor()
+            self._worker_executors[logical_id] = new_ex
+            self._worker_call_counts[logical_id] = 1
+            logger.info(
+                "α-fix-2: new logical worker '%s' — spawned dedicated "
+                "executor (isolated from %d existing worker namespace(s))",
+                logical_id,
+                len(self._worker_executors) - 1,
+            )
+            return new_ex, 1, False
+
+        # Very first worker in this run: adopt the shared executor so its
+        # already-warmed namespace is carried in instead of thrown away.
+        claimed = self._shared_code_executor_original
+        if claimed is None:
+            claimed = self._spawn_new_executor()
+        self._worker_executors[logical_id] = claimed
+        self._worker_call_counts[logical_id] = 1
+        logger.info(
+            "α-fix-2: first worker of this run — logical id '%s' claimed the shared executor",
+            logical_id,
+        )
+        return claimed, 1, False
+
+    def _cleanup_worker_executors(self) -> None:
+        """Shut down every executor registered for this run.
+
+        Idempotent: subsequent calls are no-ops. Errors during cleanup are
+        logged but never propagated — finalizer safety.
+        """
+        if not self._worker_executors:
+            return
+        for logical_id, ex in list(self._worker_executors.items()):
+            try:
+                if hasattr(ex, "cleanup"):
+                    ex.cleanup()
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "α-fix-2: cleanup of executor for '%s' raised",
+                    logical_id,
+                    exc_info=True,
+                )
+        self._worker_executors.clear()
+        self._worker_call_counts.clear()
+        # Restore the shared executor reference so any code path that
+        # reaches through ``self._tools._code_executor`` after the run
+        # sees a consistent handle.
+        if self._tools is not None and self._shared_code_executor_original is not None:
+            try:
+                self._tools._code_executor = self._shared_code_executor_original
+            except Exception:  # noqa: BLE001
+                logger.debug("α-fix-2: restoring shared executor failed", exc_info=True)
+
+    def _run_ephemeral_worker(
+        self, worker_id: str, envelope: dict, task: str, state: dict, iteration: int = 0
+    ) -> dict:
         """Run an ephemeral worker configured entirely by the delegation envelope."""
+        # α-fix-2: resolve per-logical-worker executor (soft in-place repair).
+        # The logical id strips repair/retry suffixes so the same compose
+        # worker revisited as ``..._repair`` reuses its own warm namespace.
+        # The manager can force a clean slate via ``fresh_worker: true``.
+        _logical_id = logical_worker_id(worker_id)
+        _fresh_worker_flag = bool(envelope.get("fresh_worker", False))
+        _worker_executor, _worker_call_count, _is_reentry = self._get_executor_for_worker(
+            _logical_id, _fresh_worker_flag
+        )
+        # Swap the shared code_executor on the ToolRegistry for the duration
+        # of this worker so ``code.execute`` calls target *this* worker's
+        # namespace. Restored in the finally block below.
+        _prior_registry_executor: Any = None
+        _registry_swapped = False
+        if self._tools is not None and hasattr(self._tools, "_code_executor"):
+            _prior_registry_executor = self._tools._code_executor
+            if _worker_executor is not _prior_registry_executor:
+                self._tools._code_executor = _worker_executor
+                _registry_swapped = True
+
+        try:
+            return self._run_ephemeral_worker_impl(
+                worker_id,
+                envelope,
+                task,
+                state,
+                iteration,
+                is_reentry=_is_reentry,
+                reentry_call_count=_worker_call_count,
+                logical_id=_logical_id,
+            )
+        finally:
+            # Restore the prior registry executor so anything outside this
+            # worker (e.g. a parallel sibling, a post-result hook) sees the
+            # unchanged shared handle.
+            if _registry_swapped and self._tools is not None:
+                try:
+                    self._tools._code_executor = _prior_registry_executor
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "α-fix-2: restore of shared _code_executor failed",
+                        exc_info=True,
+                    )
+
+    def _run_ephemeral_worker_impl(
+        self,
+        worker_id: str,
+        envelope: dict,
+        task: str,
+        state: dict,
+        iteration: int = 0,
+        *,
+        is_reentry: bool = False,
+        reentry_call_count: int = 1,
+        logical_id: str = "",
+    ) -> dict:
+        """Body of :meth:`_run_ephemeral_worker` — extracted so the parent can
+        wrap the per-worker executor swap in a try/finally.
+
+        Extra kwargs are α-fix-2 signals used to inject a REPAIR MODE marker
+        into the worker's system prompt when this is a re-entry for the same
+        logical worker id.
+        """
         instructions = envelope.get("instructions", "")
         raw_skills = envelope.get("skills", [])
         # Resolve skill names to full content (lazy loading from skill registry)
@@ -6757,12 +7755,25 @@ Do NOT accept "complete" if there are unresolved critical file errors.
         # a sane default so the worker isn't silently rendered tool-less.
         if tools_allowed and self._tools is not None:
             known = set(self._tools.tool_names)
+            # tool.create / tool.list are pseudo-names: no real ToolRegistry
+            # entry exists for them. They act as signals to the worker prompt
+            # that tool creation is available, and the actual tool-synthesis
+            # flow goes through the worker's JSON `tools_created` field,
+            # which _process_tool_creation later persists to
+            # shared/dynamic_tools/. Auto-add at line ~6840 re-injects them
+            # when codemode.tool_creation is active, so dropping them here
+            # only produces log noise and a semantic contradiction. Keep
+            # them whenever tool_creation is enabled.
+            tool_creation_active = isinstance(codemode, dict) and codemode.get(
+                "tool_creation", False
+            )
+            pseudo_tools = {"tool.create", "tool.list"} if tool_creation_active else set()
             sanitized: list[str] = []
             dropped: list[str] = []
             for t in tools_allowed:
                 if not isinstance(t, str):
                     continue
-                if "*" in t or t in known:
+                if "*" in t or t in known or t in pseudo_tools:
                     sanitized.append(t)
                 else:
                     dropped.append(t)
@@ -6890,6 +7901,31 @@ Do NOT accept "complete" if there are unresolved critical file errors.
             WORKER_PITFALLS,
             f"## Instructions\n{instructions}\n",
         ]
+
+        # α-fix-2: REPAIR MODE marker. When this worker re-enters the same
+        # logical id (e.g. a ``_repair`` or ``_v2`` variant of a previously
+        # dispatched worker), the code-execution namespace, imports, and
+        # helper functions from the prior attempt are still live. Surface
+        # that to the LLM so it can pick up where it left off rather than
+        # re-hydrating the world from scratch.
+        if is_reentry:
+            system_parts.append(
+                "## REPAIR MODE (Continuing Prior Work)\n\n"
+                f"You are re-entering the same logical worker namespace as "
+                f"a previous attempt (logical id: `{logical_id}`, "
+                f"attempt #{reentry_call_count}). Variables, imports, and "
+                f"helper functions defined by the prior attempt are STILL "
+                f"LIVE in your `code.execute` namespace — you do NOT need "
+                f"to re-import libraries or re-load data that the prior "
+                f"attempt already produced.\n\n"
+                f"- Treat this as an incremental fix, not a fresh start.\n"
+                f"- Inspect existing state first (e.g. `print(dir())`, "
+                f"`print(list(locals().keys()))`).\n"
+                f"- Re-run only the specific steps the repair instructions "
+                f"call out.\n"
+                f"- Do NOT repeat expensive work already completed "
+                f"(data loading, model fits, large computations).\n"
+            )
 
         # Required-tool-invocation guard — the manager declared that certain
         # dynamic tools MUST be called via the tool protocol. Reimplementing
@@ -7127,12 +8163,14 @@ print("Chart saved")
 
         # Execute via LLM
         llm = LLMClient(model=self._worker_model)
+        self._wire_llm_budget(llm)
 
         # LLM call tracing — collect every API call for later persistence
         _llm_trace_log: list[dict] = []
         _trace_seq_counter = [0]  # mutable counter for closure
 
         if self._trace_enabled:
+
             def _worker_trace_cb(data: dict) -> None:
                 _trace_seq_counter[0] += 1
                 data["seq"] = _trace_seq_counter[0]
@@ -7257,7 +8295,7 @@ print("Chart saved")
                         worker_id,
                         json.dumps(result.get("tools_registered", []), indent=2, default=str),
                     )
-                self._budget.record_tokens(llm.total_tokens_used)
+                self._record_llm_tokens_since(llm, 0)
                 if self._trace_enabled and _llm_trace_log:
                     self._logger.write_llm_trace_summary(iteration, worker_id, _llm_trace_log)
                     llm.set_trace_callback(None)
@@ -7302,7 +8340,7 @@ print("Chart saved")
                 json.dumps(result.get("tools_registered", []), indent=2, default=str),
             )
 
-        self._budget.record_tokens(llm.total_tokens_used)
+        self._record_llm_tokens_since(llm, 0)
         if self._trace_enabled and _llm_trace_log:
             self._logger.write_llm_trace_summary(iteration, worker_id, _llm_trace_log)
             llm.set_trace_callback(None)
@@ -7723,7 +8761,10 @@ Rules:
         n_fail = n_attempted - n_ok
         logger.info(
             "Worker %s tool-creation summary: %d attempted, %d registered, %d failed",
-            worker_id, n_attempted, n_ok, n_fail,
+            worker_id,
+            n_attempted,
+            n_ok,
+            n_fail,
         )
         try:
             if hasattr(self, "_logger") and self._logger is not None:
@@ -7738,7 +8779,8 @@ Rules:
                     fqns=[r.get("name") for r in registered if r.get("registered")],
                     failures=[
                         {"name": r.get("name"), "error": (r.get("error") or "")[:200]}
-                        for r in registered if not r.get("registered")
+                        for r in registered
+                        if not r.get("registered")
                     ],
                 )
         except Exception:
@@ -7901,9 +8943,7 @@ Rules:
     _CODE_COMMENT_EXEMPT_PATTERNS: frozenset[str] = frozenset(
         {r"\bTODO\b", r"\bFIXME\b", r"\bTBD\b"}
     )
-    _CODE_COMMENT_LINE_RE = re.compile(
-        r"^\s*(?://|/\*|\*|#|<!--|--)"
-    )
+    _CODE_COMMENT_LINE_RE = re.compile(r"^\s*(?://|/\*|\*|#|<!--|--)")
 
     # Keys that, when present at any depth in `final_result`, are
     # unambiguous evidence the manager copied the prompt template stub
@@ -7980,7 +9020,8 @@ Rules:
             logger.info(
                 "Completion rejection signature changed (%s → %s) — "
                 "circuit breaker does not advance (progress detected)",
-                prev_sig[0], new_sig[0],
+                prev_sig[0],
+                new_sig[0],
             )
         else:
             count = prior_count + 1
@@ -8006,9 +9047,7 @@ Rules:
             state["_rejected_completions"] = 0
             state.pop("_last_completion_rejection", None)
 
-    def _maybe_trip_completion_circuit_breaker(
-        self, state: dict
-    ) -> tuple[bool, bool]:
+    def _maybe_trip_completion_circuit_breaker(self, state: dict) -> tuple[bool, bool]:
         """Consult the counter after a completion rejection.
 
         Returns a ``(tripped, repair_synthesized)`` tuple:
@@ -8068,9 +9107,7 @@ Rules:
         )
         return (True, False)
 
-    def _synthesize_repair_subtask(
-        self, payload: dict
-    ) -> dict[str, Any] | None:
+    def _synthesize_repair_subtask(self, payload: dict) -> dict[str, Any] | None:
         """Build a concrete repair subtask from the last rejection's
         ``repair`` payload. Returns ``None`` when the payload does not
         describe an actionable defect.
@@ -8164,10 +9201,7 @@ Rules:
             )
         substantial = []
         for d in search_dirs:
-            substantial += [
-                p for p in d.rglob("*")
-                if p.is_file() and p.stat().st_size >= 512
-            ]
+            substantial += [p for p in d.rglob("*") if p.is_file() and p.stat().st_size >= 512]
         if not substantial:
             return (
                 f"Task implies {matched[0]}, but `_output_dir` is empty "
@@ -8198,9 +9232,7 @@ Rules:
         re.VERBOSE,
     )
 
-    def _derive_required_deliverables(
-        self, task: str
-    ) -> tuple[list[Path], str]:
+    def _derive_required_deliverables(self, task: str) -> tuple[list[Path], str]:
         """Derive the concrete output file paths a successful run must
         materialize, in priority order:
 
@@ -8237,10 +9269,7 @@ Rules:
             # newest hit so re-generated files supersede stale ones.
             if output_root.is_dir():
                 base_name = Path(rel).name
-                candidates = [
-                    p for p in output_root.rglob(base_name)
-                    if p.is_file()
-                ]
+                candidates = [p for p in output_root.rglob(base_name) if p.is_file()]
                 if candidates:
                     return max(candidates, key=lambda p: p.stat().st_mtime)
             return primary  # return expected path so gate reports it missing
@@ -8281,9 +9310,7 @@ Rules:
 
         return [], ""
 
-    def _deliverable_presence_gate(
-        self, task: str
-    ) -> dict[str, Any] | None:
+    def _deliverable_presence_gate(self, task: str) -> dict[str, Any] | None:
         """Verify every manager-declared deliverable exists and is
         non-empty before a COMPLETE decision is accepted.
 
@@ -8379,7 +9406,10 @@ Rules:
         pass is persisted to ``<run_dir>/gates/<iter>/<gate>.json`` for
         observability and the final scorecard (Phase D).
         """
-        from .completion_gates import NEW_GATE_PIPELINE
+        from .completion_gates import (
+            NEW_GATE_PIPELINE,
+            run_new_completion_gates_parallel,
+        )
 
         paths, source = self._derive_required_deliverables(task)
         ctx: dict[str, Any] = {
@@ -8389,28 +9419,76 @@ Rules:
             "strict_criteria": bool(getattr(self._config, "strict_criteria", False)),
             "source": source,
         }
+
+        parallel = bool(getattr(self._config, "parallel_gate_chain", False))
+        if parallel:
+            def _sink(
+                gate_name: str,
+                rej: dict[str, Any] | None,
+                exc: BaseException | None,
+            ) -> None:
+                # Persistence mirrors the sequential path: raising gates
+                # record as pass with a "gate raised, skipped" note,
+                # passing gates record with empty detail, failing gates
+                # record reason + findings.
+                if exc is not None:
+                    self._persist_gate_result(
+                        self._iter_counter,
+                        gate_name,
+                        passed=True,
+                        detail={"note": "gate raised, skipped"},
+                    )
+                elif rej is None:
+                    self._persist_gate_result(
+                        self._iter_counter,
+                        gate_name,
+                        passed=True,
+                        detail={},
+                    )
+                else:
+                    self._persist_gate_result(
+                        self._iter_counter,
+                        gate_name,
+                        passed=False,
+                        detail={
+                            "reason": rej.get("reason", ""),
+                            "findings": rej.get("findings", []),
+                        },
+                    )
+
+            return run_new_completion_gates_parallel(
+                paths, ctx, per_gate_sink=_sink
+            )
+
         for name, fn in NEW_GATE_PIPELINE:
             try:
                 rej = fn(paths, ctx)
             except Exception:
                 logger.warning(
-                    "%s gate raised — treating as pass", name, exc_info=True,
+                    "%s gate raised — treating as pass",
+                    name,
+                    exc_info=True,
                 )
                 self._persist_gate_result(
-                    self._iter_counter, name,
-                    passed=True, detail={"note": "gate raised, skipped"},
+                    self._iter_counter,
+                    name,
+                    passed=True,
+                    detail={"note": "gate raised, skipped"},
                 )
                 continue
             if rej is None:
                 self._persist_gate_result(
-                    self._iter_counter, name,
-                    passed=True, detail={},
+                    self._iter_counter,
+                    name,
+                    passed=True,
+                    detail={},
                 )
                 continue
             # Failure — persist and return
             rej.setdefault("gate", name)
             self._persist_gate_result(
-                self._iter_counter, name,
+                self._iter_counter,
+                name,
                 passed=False,
                 detail={
                     "reason": rej.get("reason", ""),
@@ -8449,6 +9527,7 @@ Rules:
                 encoding="utf-8",
             )
             import os as _os
+
             _os.replace(tmp, target)
         except Exception:
             logger.debug("_persist_gate_result failed", exc_info=True)
@@ -8485,6 +9564,7 @@ Rules:
             # Final per-deliverable state: rerun the Phase-A gates once
             # more to capture final status (no persistence this time).
             from .completion_gates import NEW_GATE_PIPELINE
+
             ctx: dict[str, Any] = {
                 "task_text": task or "",
                 "plan": self._task_plan,
@@ -8510,10 +9590,9 @@ Rules:
                         item["gates_failed"].append(g_name)
                 deliverable_status.append(item)
 
-            all_passed = (
-                all(d["exists"] and not d["gates_failed"] for d in deliverable_status)
-                and bool(deliverable_status)
-            )
+            all_passed = all(
+                d["exists"] and not d["gates_failed"] for d in deliverable_status
+            ) and bool(deliverable_status)
             scorecard = {
                 "run_id": self._run_id,
                 "status": status,
@@ -8521,8 +9600,7 @@ Rules:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "deliverables_total": len(deliverable_status),
                 "deliverables_verified": sum(
-                    1 for d in deliverable_status
-                    if d["exists"] and not d["gates_failed"]
+                    1 for d in deliverable_status if d["exists"] and not d["gates_failed"]
                 ),
                 "paths_source": source,
                 "gate_stats": gate_stats,
@@ -8535,6 +9613,7 @@ Rules:
                 encoding="utf-8",
             )
             import os as _os
+
             _os.replace(tmp, target)
         except Exception:
             logger.warning("scorecard emission failed", exc_info=True)
@@ -8859,10 +9938,7 @@ Rules:
             return failures
         md_files = sorted(run_output.rglob("*.md"))
         # Skip internal bookkeeping files (RUN_SUMMARY etc. at run root).
-        md_files = [
-            f for f in md_files
-            if not f.name.startswith(("RUN_SUMMARY", "CRITIQUE"))
-        ]
+        md_files = [f for f in md_files if not f.name.startswith(("RUN_SUMMARY", "CRITIQUE"))]
         for md in md_files:
             try:
                 text = md.read_text(encoding="utf-8", errors="replace")
@@ -8874,18 +9950,14 @@ Rules:
 
             # --- Check 1: anchor adjacency ---
             # Collect anchor positions and heading positions.
-            anchor_hits = list(re.finditer(
-                r'<a id="([a-zA-Z0-9_\-]+)"\s*>\s*</a>', text
-            ))
-            heading_positions = [
-                m.start() for m in re.finditer(r'(?m)^#{1,6}\s+\S', text)
-            ]
+            anchor_hits = list(re.finditer(r'<a id="([a-zA-Z0-9_\-]+)"\s*>\s*</a>', text))
+            heading_positions = [m.start() for m in re.finditer(r"(?m)^#{1,6}\s+\S", text)]
             orphan_anchors = []
             for am in anchor_hits:
                 # Find the next heading after this anchor; accept if it
                 # starts within 80 chars (a short blank-line gap is OK).
-                after = text[am.end(): am.end() + 80]
-                if not re.match(r'\s*#{1,6}\s+\S', after):
+                after = text[am.end() : am.end() + 80]
+                if not re.match(r"\s*#{1,6}\s+\S", after):
                     orphan_anchors.append(am.group(1))
             if len(orphan_anchors) >= 3:
                 failures.append(
@@ -8896,10 +9968,8 @@ Rules:
                 )
 
             # --- Check 2: reference-format consistency ---
-            numbered_refs = re.findall(
-                r'(?m)^\s*\[(\d+)\]\s+\S', text
-            )
-            legacy_refs = re.findall(r'\[(ref_[A-Za-z0-9_\-]+)\]', text)
+            numbered_refs = re.findall(r"(?m)^\s*\[(\d+)\]\s+\S", text)
+            legacy_refs = re.findall(r"\[(ref_[A-Za-z0-9_\-]+)\]", text)
             if numbered_refs and legacy_refs:
                 failures.append(
                     f"{rel}: mixed reference format detected — "
@@ -8912,10 +9982,7 @@ Rules:
                 )
 
             # --- Check 3: paragraph duplication ratio ---
-            paragraphs = [
-                p.strip() for p in re.split(r'\n{2,}', text)
-                if len(p.strip()) > 120
-            ]
+            paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if len(p.strip()) > 120]
             if len(paragraphs) >= 5:
                 seen: set[str] = set()
                 dup = 0
@@ -8942,20 +10009,18 @@ Rules:
             # cross-check that a caption without any textual call-out
             # is never accepted.
             labels: list[tuple[str, int]] = []
-            for m in re.finditer(
-                r'\*\*(Abbildung|Figure)\s*(\d+)[:\.]', text
-            ):
+            for m in re.finditer(r"\*\*(Abbildung|Figure)\s*(\d+)[:\.]", text):
                 labels.append((m.group(1), int(m.group(2))))
             missing_refs: list[str] = []
             for kind, n in set(labels):
                 if kind == "Abbildung":
                     pat = re.compile(
-                        rf'\b(siehe|vgl\.|s\.)\s+Abbildung\s*{n}\b',
+                        rf"\b(siehe|vgl\.|s\.)\s+Abbildung\s*{n}\b",
                         re.IGNORECASE,
                     )
                 else:
                     pat = re.compile(
-                        rf'\b(see|cf\.|c\.f\.)\s+Figure\s*{n}\b',
+                        rf"\b(see|cf\.|c\.f\.)\s+Figure\s*{n}\b",
                         re.IGNORECASE,
                     )
                 if not pat.search(text):
@@ -9000,6 +10065,7 @@ Rules:
         """Tier 2: LLM-based semantic validation."""
         try:
             llm = LLMClient(model=self._worker_model)
+            self._wire_llm_budget(llm)
 
             messages = [
                 {
@@ -9025,12 +10091,49 @@ Rules:
             ]
 
             v_result = llm.chat_json(messages, temperature=0.1, max_tokens=1024)
-            self._budget.record_tokens(llm.total_tokens_used)
+            self._record_llm_tokens_since(llm, 0)
             return v_result
 
         except Exception as exc:
             logger.warning("LLM validation failed: %s", exc)
             return {"valid": True, "feedback": f"LLM validation error: {exc}"}
+
+    # -- Release D-2: LLM budget wiring -----------------------------------
+
+    def _wire_llm_budget(self, llm: LLMClient | None) -> None:
+        """Attach the run budget to an LLMClient when reservation is on.
+
+        No-op when the client is ``None`` or when
+        ``token_budget_reservation`` is disabled in the orchestration config.
+        Keeps the legacy consume-after-call behaviour byte-identical when
+        off.
+        """
+        if llm is None or not self._token_reservation_enabled:
+            return
+        try:
+            llm.set_budget(
+                self._budget,
+                reservation_enabled=True,
+                default_max_output_tokens=4096,
+            )
+        except Exception:
+            logger.debug("set_budget failed on LLMClient", exc_info=True)
+
+    def _record_llm_tokens_since(
+        self, llm: LLMClient, tokens_before: int
+    ) -> None:
+        """Legacy consume-after-call token accounting helper.
+
+        When the reservation flag is on the LLMClient already committed
+        usage into the budget, so this path is a no-op to avoid double
+        counting. When off, book the delta into the run budget.
+        """
+        if self._token_reservation_enabled:
+            return
+        try:
+            self._budget.record_tokens(llm.total_tokens_used - tokens_before)
+        except Exception:
+            logger.debug("record_tokens failed", exc_info=True)
 
     # -- Helpers ----------------------------------------------------------
 

@@ -1,0 +1,12 @@
+{
+  "agent_id": "greeter",
+  "timestamp": "2026-04-18T15:25:37.619286+00:00",
+  "state": {
+    "task": "Write a three-line haiku about a lost robot that finds a hidden garden.",
+    "greeter": {
+      "greeting": "Lost robot finds its way,\nThrough rust and wires, blooms appear,\nGarden in the steel.",
+      "tone": "casual",
+      "confidence": 0.9
+    }
+  }
+}

@@ -56,7 +56,14 @@ export type RunEventType =
   | 'graph.update'
   | 'llm.call'
   | 'llm.trace_summary'
-  | 'log';
+  | 'log'
+  // Metric events — live observability snapshots for the MetricsPanel.
+  | 'metric.confidence'
+  | 'metric.critique'
+  | 'metric.eval'
+  | 'metric.budget'
+  | 'metric.gate'
+  | 'metric.tool_call';
 
 export interface RunEvent {
   run_id?: string;
@@ -197,7 +204,7 @@ export interface BudgetState {
 }
 
 /** Active panel in the main content area. */
-export type ActivePanel = 'protocol' | 'results' | 'workspace' | 'output' | 'graph' | 'graphvis' | 'memory' | 'history' | 'settings';
+export type ActivePanel = 'protocol' | 'results' | 'workspace' | 'output' | 'graph' | 'graphvis' | 'memory' | 'history' | 'settings' | 'optimizer';
 
 /** WebSocket connection handle. */
 export interface WebSocketConnection {
@@ -207,7 +214,7 @@ export interface WebSocketConnection {
 }
 
 /** Experiment status lifecycle. */
-export type ExperimentStatus = 'draft' | 'running' | 'complete' | 'failed' | 'archived';
+export type ExperimentStatus = 'draft' | 'running' | 'complete' | 'partial' | 'failed' | 'archived';
 
 /** A workflow experiment (formerly session). */
 export interface Session {
@@ -264,7 +271,7 @@ export interface SecretEntry {
 export interface CachedSessionState {
   sessionId: string;
   currentRunId: string | null;
-  runStatus: 'idle' | 'running' | 'complete' | 'error';
+  runStatus: 'idle' | 'running' | 'complete' | 'partial' | 'error';
   events: RunEvent[];
   graphNodes: import('reactflow').Node[];
   graphEdges: import('reactflow').Edge[];

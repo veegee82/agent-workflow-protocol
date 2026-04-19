@@ -1,0 +1,62 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0f172a",
+    "primaryColor": "#1e3a8a",
+    "primaryBorderColor": "#60a5fa",
+    "primaryTextColor": "#f1f5f9",
+    "secondaryColor": "#4c1d95",
+    "tertiaryColor": "#0ea5e9",
+    "lineColor": "#cbd5e1",
+    "fontFamily": "Inter, system-ui, sans-serif",
+    "fontSize": "14px",
+    "clusterBkg": "#1e293b",
+    "clusterBorder": "#475569",
+    "edgeLabelBackground": "#1e293b",
+    "titleColor": "#f1f5f9",
+    "mainBkg": "#1e3a8a",
+    "labelTextColor": "#f1f5f9"
+  },
+  "flowchart": {"htmlLabels": true, "curve": "basis", "padding": 25}
+}}%%
+flowchart LR
+    subgraph E1["<b>Epoch 1</b><br/>mean_loss = 0.41"]
+        direction TB
+        A1["worker_pitfalls : v0"]
+        B1["manager_planning_preamble : v0"]
+        C1["experiment_context_hint_template : v0"]
+        D1["pattern_library : v0"]
+        E1t["tool_description_templates : v0"]
+        F1["critique_rubric : v0"]
+    end
+
+    subgraph E2["<b>Epoch 2</b><br/>mean_loss = 0.34 (DOWN)"]
+        direction TB
+        A2["worker_pitfalls : v0"]
+        B2["<b>manager_planning_preamble : v1</b>"]
+        C2["experiment_context_hint_template : v0"]
+        D2["pattern_library : v0"]
+        E2t["tool_description_templates : v0"]
+        F2["critique_rubric : v0"]
+    end
+
+    subgraph E3["<b>Epoch 3</b><br/>mean_loss = 0.38 (UP - rollback)"]
+        direction TB
+        A3["worker_pitfalls : v0"]
+        B3["<b>manager_planning_preamble : v1 → v0</b>"]
+        C3["experiment_context_hint_template : v0"]
+        D3["pattern_library : v0"]
+        E3t["tool_description_templates : v0"]
+        F3["critique_rubric : v0"]
+    end
+
+    E1 -- "<b>TextGrad update</b><br/>planning_preamble v0 → v1<br/>expected_delta = 0.32" --> E2
+    E2 -- "<b>regression detected</b><br/>rollback + eta /= 2" --> E3
+
+    classDef unchanged fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#cbd5e1;
+    classDef updated fill:#064e3b,stroke:#34d399,stroke-width:2.5px,color:#d1fae5;
+    classDef rolledback fill:#7f1d1d,stroke:#f87171,stroke-width:2.5px,color:#fee2e2;
+
+    class A1,B1,C1,D1,E1t,F1,A2,C2,D2,E2t,F2,A3,C3,D3,E3t,F3 unchanged
+    class B2 updated
+    class B3 rolledback

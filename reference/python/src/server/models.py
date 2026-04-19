@@ -47,6 +47,16 @@ class EventType(str, Enum):
     RUN_START = "run.start"
     RUN_COMPLETE = "run.complete"
     GRAPH_UPDATE = "graph.update"
+    # Metric events — lightweight observability snapshots emitted at natural
+    # points in the delegation loop. Pure observers: no runtime control flow
+    # depends on them. Consumers render these as live-updating charts in the
+    # UI MetricsPanel. See docs/observability.md (Metric events section).
+    METRIC_CONFIDENCE = "metric.confidence"
+    METRIC_CRITIQUE = "metric.critique"
+    METRIC_EVAL = "metric.eval"
+    METRIC_BUDGET = "metric.budget"
+    METRIC_GATE = "metric.gate"
+    METRIC_TOOL_CALL = "metric.tool_call"
 
 
 # ---------------------------------------------------------------------------

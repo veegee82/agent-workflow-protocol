@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -39,6 +40,7 @@ class Tracer:
         self._spans: dict[str, dict[str, Any]] = {}
         self._completed: list[dict[str, Any]] = []
         self._config = config
+        self._lock = threading.Lock()
 
     def start_span(
         self,
@@ -48,7 +50,7 @@ class Tracer:
     ) -> str:
         """Start a new span and return its ID."""
         span_id = uuid.uuid4().hex[:16]
-        self._spans[span_id] = {
+        span = {
             "span_id": span_id,
             "parent_id": parent_id,
             "name": name,
@@ -56,6 +58,8 @@ class Tracer:
             "start_ts": time.monotonic(),
             "attributes": attributes or {},
         }
+        with self._lock:
+            self._spans[span_id] = span
         return span_id
 
     def end_span(
@@ -65,30 +69,32 @@ class Tracer:
         attributes: Optional[dict[str, Any]] = None,
     ) -> None:
         """End a span and record its duration."""
-        span = self._spans.pop(span_id, None)
-        if span is None:
-            return
-        end_ts = time.monotonic()
-        duration_ms = round((end_ts - span.pop("start_ts")) * 1000, 2)
-        if attributes:
-            span["attributes"].update(attributes)
-        span["end_time"] = datetime.now(timezone.utc).isoformat()
-        span["duration_ms"] = duration_ms
-        span["status"] = status
-        self._completed.append(span)
+        with self._lock:
+            span = self._spans.pop(span_id, None)
+            if span is None:
+                return
+            end_ts = time.monotonic()
+            duration_ms = round((end_ts - span.pop("start_ts")) * 1000, 2)
+            if attributes:
+                span["attributes"].update(attributes)
+            span["end_time"] = datetime.now(timezone.utc).isoformat()
+            span["duration_ms"] = duration_ms
+            span["status"] = status
+            self._completed.append(span)
 
     def flush(self) -> Optional[Path]:
         """Write completed spans to JSONL file."""
-        if not self._completed:
-            return None
+        with self._lock:
+            if not self._completed:
+                return None
+            pending = list(self._completed)
+            self._completed.clear()
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._dir / f"{self._run_id}.jsonl"
         with path.open("a", encoding="utf-8") as f:
-            for span in self._completed:
+            for span in pending:
                 f.write(json.dumps(span, default=str) + "\n")
-        count = len(self._completed)
-        self._completed.clear()
-        logger.info("Flushed %d trace spans to %s", count, path)
+        logger.info("Flushed %d trace spans to %s", len(pending), path)
         return path
 
 
@@ -111,6 +117,7 @@ class MetricsCollector:
         self._counters: dict[str, float] = {}
         self._histograms: dict[str, list[float]] = {}
         self._config = config
+        self._lock = threading.Lock()
 
     def increment(
         self,
@@ -120,7 +127,8 @@ class MetricsCollector:
     ) -> None:
         """Increment a counter metric."""
         key = self._key(name, labels)
-        self._counters[key] = self._counters.get(key, 0.0) + value
+        with self._lock:
+            self._counters[key] = self._counters.get(key, 0.0) + value
 
     def histogram(
         self,
@@ -130,19 +138,23 @@ class MetricsCollector:
     ) -> None:
         """Record a histogram observation."""
         key = self._key(name, labels)
-        self._histograms.setdefault(key, []).append(value)
+        with self._lock:
+            self._histograms.setdefault(key, []).append(value)
 
     def flush(self) -> Optional[Path]:
         """Write all metrics to a JSON file."""
-        if not self._counters and not self._histograms:
-            return None
+        with self._lock:
+            if not self._counters and not self._histograms:
+                return None
+            counters_snapshot = dict(self._counters)
+            histograms_snapshot = {k: list(v) for k, v in self._histograms.items()}
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._dir / f"{self._run_id}.json"
 
         data = {
             "run_id": self._run_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "counters": dict(self._counters),
+            "counters": counters_snapshot,
             "histograms": {
                 k: {
                     "count": len(v),
@@ -151,7 +163,7 @@ class MetricsCollector:
                     "max": max(v) if v else 0,
                     "values": v,
                 }
-                for k, v in self._histograms.items()
+                for k, v in histograms_snapshot.items()
             },
         }
         path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
@@ -190,6 +202,7 @@ class AuditTrail:
         self._entries: list[dict[str, Any]] = []
         self._seq = 0
         self._config = config
+        self._lock = threading.Lock()
 
     def record(
         self,
@@ -198,34 +211,35 @@ class AuditTrail:
         details: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Record an audit event with hash chain integrity."""
-        self._seq += 1
-        event = {
-            "seq": self._seq,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event_type": event_type,
-            "agent_id": agent_id,
-            "details": details or {},
-            "prev_hash": self._prev_hash,
-        }
-        # Compute hash
-        canonical = json.dumps(event, sort_keys=True, default=str)
-        event["hash"] = hashlib.sha256(canonical.encode()).hexdigest()
-        self._prev_hash = event["hash"]
-        self._entries.append(event)
-        return event
+        with self._lock:
+            self._seq += 1
+            event = {
+                "seq": self._seq,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "details": details or {},
+                "prev_hash": self._prev_hash,
+            }
+            canonical = json.dumps(event, sort_keys=True, default=str)
+            event["hash"] = hashlib.sha256(canonical.encode()).hexdigest()
+            self._prev_hash = event["hash"]
+            self._entries.append(event)
+            return event
 
     def flush(self) -> Optional[Path]:
         """Write audit entries to JSONL file."""
-        if not self._entries:
-            return None
+        with self._lock:
+            if not self._entries:
+                return None
+            pending = list(self._entries)
+            self._entries.clear()
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._dir / f"{self._run_id}.jsonl"
         with path.open("a", encoding="utf-8") as f:
-            for entry in self._entries:
+            for entry in pending:
                 f.write(json.dumps(entry, default=str) + "\n")
-        count = len(self._entries)
-        self._entries.clear()
-        logger.info("Flushed %d audit entries to %s", count, path)
+        logger.info("Flushed %d audit entries to %s", len(pending), path)
         return path
 
     @staticmethod

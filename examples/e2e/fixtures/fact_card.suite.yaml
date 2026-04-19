@@ -1,0 +1,58 @@
+name: fact_card_generator
+description: "E2E suite for outer-loop full coverage - 3 fact-card tasks x 2 epochs"
+baseline_artifacts:
+  worker_pitfalls: 0
+  manager_planning_preamble: 0
+  experiment_context_hint_template: 0
+  pattern_library: 0
+  tool_description_templates: 0
+  critique_rubric: 0
+tasks:
+  - name: octopi
+    task: |
+      Build a fact-card JSON about octopi. Use code.execute to:
+      1. Compute 3 numeric 'fun facts' (hearts=3, arms=8, approximate
+         chromatophore count per arm ~ 200000). Derive at least one
+         combined statistic (e.g. total chromatophores = arms * per_arm).
+      2. Write the final JSON to workspace/output/octopi_fact_card.json
+         with fields:
+           - title (str)
+           - facts (list of exactly 3 strings)
+           - computed_stats (dict of 3 numbers, including the combined stat)
+           - sources (list of 2+ strings, short bibliographic or URL-style)
+           - confidence (float 0-1, must be >= 0.7)
+      Your result must pass critique + evaluation before completion.
+      Include confidence in the top-level agent output.
+  - name: neutron_stars
+    task: |
+      Build a fact-card JSON about neutron stars. Use code.execute to:
+      1. Compute 3 numeric 'fun facts' (solar mass ~ 1.4, radius km ~ 10,
+         typical rotation frequency Hz ~ 700). Derive at least one
+         combined statistic (e.g. surface gravity proxy =
+         mass_kg / radius_m^2 in arbitrary units).
+      2. Write the final JSON to
+         workspace/output/neutron_stars_fact_card.json with fields:
+           - title (str)
+           - facts (list of exactly 3 strings)
+           - computed_stats (dict of 3 numbers, including the combined stat)
+           - sources (list of 2+ strings)
+           - confidence (float 0-1, must be >= 0.7)
+      Your result must pass critique + evaluation before completion.
+      Include confidence in the top-level agent output.
+  - name: silk_road
+    task: |
+      Build a fact-card JSON about the historical Silk Road. Use
+      code.execute to:
+      1. Compute 3 numeric 'fun facts' (approximate length km ~ 6400,
+         active duration centuries ~ 15, peak annual trade volume proxy
+         in tonnes ~ 10000). Derive at least one combined statistic
+         (e.g. cumulative trade volume over active duration).
+      2. Write the final JSON to workspace/output/silk_road_fact_card.json
+         with fields:
+           - title (str)
+           - facts (list of exactly 3 strings)
+           - computed_stats (dict of 3 numbers, including the combined stat)
+           - sources (list of 2+ strings)
+           - confidence (float 0-1, must be >= 0.7)
+      Your result must pass critique + evaluation before completion.
+      Include confidence in the top-level agent output.

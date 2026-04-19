@@ -1,0 +1,59 @@
+# Example task suite for the outer loop (Phase A2).
+#
+# Run with:
+#   awp optimize examples/outer_loop/research_writeup.suite.yaml
+#
+# A2 scope: the suite runs once per epoch, each task is dispatched through
+# AgentWorkflow, per-run losses are computed and stored, and the epoch's
+# mean loss is reported. No artifact updates happen yet — that arrives in
+# Phase A3 with TextGrad.
+#
+# Both tasks intentionally use small budgets so this example is cheap to
+# exercise. Tighten or relax as needed for real regression suites.
+
+name: research_writeup_v1
+description: |
+  Two-task baseline suite. Both tasks ask the manager to produce a short
+  research-style write-up and stress slightly different parts of the
+  prompt artifacts (planning preamble + worker pitfalls).
+
+# Pin every artifact to v0 so this suite is reproducible across machines
+# even if some artifacts have been updated locally. Omit this map to use
+# the currently-active version of each artifact.
+baseline_artifacts:
+  worker_pitfalls: 0
+  manager_planning_preamble: 0
+  experiment_context_hint_template: 0
+  pattern_library: 0
+  tool_description_templates: 0
+  critique_rubric: 0
+
+tasks:
+  - name: summarise_paper
+    task: |
+      Write a 200-word plain-text summary of how SGD differs from Adam,
+      saved as ``output/summary.txt``. Cite at least two concrete
+      properties (e.g. memory cost, convergence behaviour) for each.
+    budget:
+      max_loops: 6
+      max_total_workers: 4
+      max_total_tokens: 400000
+      max_wall_time: 600
+
+  - name: outline_report
+    task: |
+      Produce a markdown outline (``output/outline.md``) for a 5-page
+      report on prompt-artifact optimisation. Include section titles,
+      one-sentence descriptions per section, and a list of the inputs
+      each section requires.
+    budget:
+      max_loops: 8
+      max_total_workers: 4
+      max_total_tokens: 500000
+      max_wall_time: 900
+    weights:
+      eval: 0.45
+      critique: 0.3
+      gate_rejections: 0.1
+      budget: 0.05
+      status: 0.1

@@ -1,0 +1,11 @@
+{
+  "agent_id": "greeter",
+  "timestamp": "2026-04-18T15:02:29.191446+00:00",
+  "state": {
+    "task": "Write a three-line haiku about a lost robot that finds a hidden garden.",
+    "greeter": {
+      "error": "No model configured. Set LLM_MODEL env var or pass model=.",
+      "confidence": 0.0
+    }
+  }
+}

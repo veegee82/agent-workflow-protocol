@@ -311,3 +311,56 @@ green** with these changes — no regressions.
 - `packages/awp-runtime/src/awp/runtime/tool_repair.py`
 - `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py` (`_build_tool_creation_prompt`, `_process_tool_creation`)
 - `packages/awp-runtime/tests/test_dynamic_tool_robustness.py`
+
+---
+
+## 12. Programmatic Emergence Path (Tool Induction)
+
+LLM-authored tool creation through `tool.create` / `_process_tool_creation`
+is the **explicit** path: a worker decides to synthesize a reusable tool
+and emits a JSON spec. There is also a **programmatic** path that requires
+no worker intent.
+
+The `ToolInducer` observes every `code.execute` call in a run and computes
+an AST-skeleton signature with every `ast.Constant` normalized to
+`<const>` and every `ast.Name` renamed to `<vK>` by first-occurrence
+index. Two snippets that differ only in literal values or identifier
+choice collapse to the same hash; differences in control flow, call
+graph, or import set yield different hashes.
+
+The inducer counts **distinct `worker_id` values** per signature (three
+calls from the same worker do NOT trigger induction — that would only
+lift the worker's own loop body). When the same signature has been
+observed from `N=3` different workers, the runtime:
+
+1. Lifts the varying literal slots to parameters.
+2. Emits a generalized Python tool and registers it via
+   `DynamicToolFactory` (reusing the cache, sandbox, and repair pipeline
+   of the explicit path).
+3. Persists it at
+   `shared/dynamic_tools/dynamic.induced_<hash6>.json`.
+4. Surfaces it to subsequent workers through `tool.list`.
+
+Properties:
+
+- **Pure addition.** Observation is post-hoc; `code.execute` calls are
+  never rejected, rewritten, or delayed. A failed induction attempt logs
+  an INFO line and leaves the run untouched.
+- **No new user-facing config.** Induction is on whenever a
+  `DynamicToolFactory` is wired in. `N=3` is a hardcoded constant
+  (`N_DISTINCT_WORKERS`), not a tunable.
+- **Deterministic naming.** `dynamic.induced_<first6chars_of_hash>` — the
+  same pattern across runs produces the same name, which is idempotent
+  against the factory's content-addressable cache.
+- **Run-level visibility.** Every induction is recorded in
+  `run_completion.json.induced_tools`.
+
+Authoritative code: `packages/awp-runtime/src/awp/runtime/tool_inducer.py`.
+
+Note that `capabilities.codemode.tool_creation` therefore has two
+emergence paths: an LLM-authored path through the worker's `tools_created`
+JSON field, and an observational path through the inducer. Both feed the
+same `DynamicToolFactory`, so tool names, persistence location, sandbox
+semantics, and lifecycle are identical. Workflows that enable tool
+creation should not assume all surfaced dynamic tools were synthesized by
+the LLM — they may have been induced.

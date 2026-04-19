@@ -485,6 +485,144 @@ export async function refactorTask(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Outer-loop / Optimizer (A5)
+// ---------------------------------------------------------------------------
+
+/** Per-run optimizer-epoch context returned by GET /api/runs/{run_id}/epoch. */
+export interface RunEpochContext {
+  epoch_id: string;
+  suite_id: string;
+  epoch_num: number;
+  parent_artifacts: Record<string, number>;
+  child_artifacts: Record<string, number>;
+  mean_loss: number | null;
+}
+
+/** Fetch optimizer-epoch context for a run; returns null if the run is not
+ *  part of any suite/epoch. */
+export async function fetchRunEpoch(
+  runId: string,
+): Promise<RunEpochContext | null> {
+  try {
+    return await request<RunEpochContext | null>(`/api/runs/${runId}/epoch`);
+  } catch {
+    return null;
+  }
+}
+
+/** Summary of a task suite (listed on the Optimizer tab). */
+export interface SuiteSummary {
+  id: string;
+  name: string;
+  epoch_count: number;
+  latest_epoch: number | null;
+  latest_mean_loss: number | null;
+  created_at: string;
+}
+
+/** List every task suite tracked by the outer-loop DB. */
+export async function listSuites(): Promise<SuiteSummary[]> {
+  try {
+    const data = await request<{ suites: SuiteSummary[] }>('/api/suites');
+    return data.suites;
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch the chained graph for every run across every epoch of a suite. */
+export async function fetchSuiteGraph(
+  suiteId: string,
+): Promise<{
+  nodes: AgentNode[];
+  edges: AgentEdge[];
+  stats?: Record<string, unknown>;
+}> {
+  return request<{
+    nodes: AgentNode[];
+    edges: AgentEdge[];
+    stats?: Record<string, unknown>;
+  }>(`/api/suites/${suiteId}/graph`);
+}
+
+/** Artifact update/rollback event persisted in ``epochs.child_artifacts_json``. */
+export interface ArtifactEvent {
+  type: 'update' | 'rollback';
+  artifact: string;
+  from_version: number;
+  to_version: number;
+  rationale?: string;
+  reason?: string;
+  expected_loss_reduction?: number;
+  confidence?: number;
+  learning_rate?: number;
+  new_learning_rate?: number;
+  mean_loss_prev?: number;
+  mean_loss_current?: number;
+}
+
+/** Per-task loss row inside an epoch. */
+export interface EpochTaskLoss {
+  run_id: string;
+  task_name: string;
+  loss: number | null;
+  scores: Record<string, number>;
+}
+
+/** Detailed epoch record used by OptimizerPanel charts. */
+export interface EpochDetail {
+  epoch_id: string;
+  epoch_num: number;
+  started_at: string;
+  completed_at: string | null;
+  mean_loss: number | null;
+  parent_artifacts: Record<string, number>;
+  child_artifacts: Record<string, number>;
+  events: ArtifactEvent[];
+  per_task_losses: EpochTaskLoss[];
+}
+
+/** Fetch every epoch of a suite with per-task losses and artifact events.
+ *
+ * Returns an empty array on 404 so the OptimizerPanel can show its empty
+ * state without an error banner — the only recoverable 404 here is "the
+ * suite id is stale / the DB was wiped". Other errors bubble up. */
+export async function fetchSuiteEpochs(
+  suiteId: string,
+): Promise<EpochDetail[]> {
+  try {
+    const data = await request<{ epochs: EpochDetail[] }>(
+      `/api/suites/${suiteId}/epochs`,
+    );
+    return data.epochs;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('404')) {
+      return [];
+    }
+    throw err;
+  }
+}
+
+/** One version of a named artifact, returned by the versions endpoint. */
+export interface ArtifactVersion {
+  version: number;
+  content: string;
+  parent_version: number | null;
+  created_at: string;
+  is_active: boolean;
+}
+
+/** Fetch every version (including synthetic v0) of ``name``. */
+export async function fetchArtifactVersions(
+  name: string,
+): Promise<ArtifactVersion[]> {
+  const data = await request<{ versions: ArtifactVersion[] }>(
+    `/api/artifacts/${encodeURIComponent(name)}/versions`,
+  );
+  return data.versions;
+}
+
 /** Get server version from health endpoint. */
 export async function getVersion(): Promise<string> {
   try {

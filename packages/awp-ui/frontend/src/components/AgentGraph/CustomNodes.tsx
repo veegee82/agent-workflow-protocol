@@ -9,9 +9,30 @@ import {
   Wrench,
   Layers,
   Settings,
+  Sparkles,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useWorkflowStore } from '@/stores/workflowStore';
+
+// ---------------------------------------------------------------------------
+// Confidence-badge colour mapping.
+// Used for the top-right dot on WorkerNode. The colour scale matches the
+// textual confidence % so a glance at the dot is consistent with the digits.
+// ---------------------------------------------------------------------------
+
+const CONFIDENCE_DOT_COLORS = {
+  green: '#00E676',
+  amber: '#FFD600',
+  red: '#FF5252',
+  grey: '#30363d',
+} as const;
+
+function confidenceDotColor(c: number | undefined): string {
+  if (c === undefined) return CONFIDENCE_DOT_COLORS.grey;
+  if (c >= 0.8) return CONFIDENCE_DOT_COLORS.green;
+  if (c >= 0.5) return CONFIDENCE_DOT_COLORS.amber;
+  return CONFIDENCE_DOT_COLORS.red;
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -50,6 +71,38 @@ function statusDot(status: string) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Live-progress visuals
+// ---------------------------------------------------------------------------
+// `runningOuterClasses` and `activePathOuterClasses` are applied to every
+// node's outer wrapper so the user can tell at a glance:
+//   - which node is *actively executing right now* (bright pulsing blue glow)
+//   - which branch leads down to that execution point (softer blue tint)
+//   - which nodes are finished (plain look, no extra highlight)
+//
+// The effect is additive: a running node gets both the ancestor tint AND the
+// pulse. Finished-and-off-path nodes get nothing extra. Topology is not
+// touched — only styling.
+
+function runningOuterClasses(status: string | undefined): string {
+  if (status !== 'running') return '';
+  return 'animate-pulse [filter:drop-shadow(0_0_12px_rgba(64,196,255,0.55))]';
+}
+
+function activePathOuterClasses(
+  onActivePath: boolean | undefined,
+  status: string | undefined,
+): string {
+  if (!onActivePath || status === 'running') return '';
+  return '[filter:drop-shadow(0_0_6px_rgba(64,196,255,0.25))]';
+}
+
+function runningBorderRing(status: string | undefined): string {
+  return status === 'running'
+    ? 'ring-2 ring-awp-blue/60 shadow-lg shadow-awp-blue/30'
+    : '';
+}
+
 interface NodeData {
   label: string;
   nodeType: string;
@@ -79,6 +132,7 @@ function useSelectNode() {
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<NodeData>) {
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
+  const onActivePath = Boolean(data.onActivePath);
 
   return (
     <div
@@ -86,6 +140,8 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<NodeData>
       className={clsx(
         'group relative cursor-pointer transition-all duration-200 hover:scale-105',
         selected && 'scale-105',
+        runningOuterClasses(data.status),
+        activePathOuterClasses(onActivePath, data.status),
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-awp-blue !border-awp-panel !w-2 !h-2" />
@@ -97,6 +153,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<NodeData>
           selected
             ? 'border-awp-blue ring-2 ring-awp-blue/30 shadow-lg shadow-awp-blue/20'
             : 'border-awp-blue/60 hover:border-awp-blue hover:shadow-md hover:shadow-awp-blue/10',
+          runningBorderRing(data.status),
           'transition-all duration-200',
         )}
       >
@@ -121,6 +178,13 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<NodeData>
 export const ManagerNode = memo(function ManagerNode({ id, data }: NodeProps<NodeData>) {
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
+  const onActivePath = Boolean(data.onActivePath);
+
+  // Read the optimizer-epoch context for the current run. If the run is not
+  // part of any optimizer epoch, outerLoopContext is null and the pill is
+  // omitted entirely — this is the normal case for ad-hoc runs.
+  const outerLoopContext = useWorkflowStore((s) => s.outerLoopContext);
+  const pillEntries = artifactPillEntries(outerLoopContext?.child_artifacts);
 
   return (
     <div
@@ -128,6 +192,8 @@ export const ManagerNode = memo(function ManagerNode({ id, data }: NodeProps<Nod
       className={clsx(
         'group relative cursor-pointer transition-all duration-200 hover:scale-105',
         selected && 'scale-105',
+        runningOuterClasses(data.status),
+        activePathOuterClasses(onActivePath, data.status),
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-awp-purple !border-awp-panel !w-2 !h-2" />
@@ -138,6 +204,7 @@ export const ManagerNode = memo(function ManagerNode({ id, data }: NodeProps<Nod
           selected
             ? 'border-awp-purple ring-2 ring-awp-purple/30 shadow-lg shadow-awp-purple/20'
             : 'border-awp-purple/60 hover:border-awp-purple hover:shadow-md hover:shadow-awp-purple/10',
+          runningBorderRing(data.status),
           'transition-all duration-200',
         )}
       >
@@ -151,12 +218,51 @@ export const ManagerNode = memo(function ManagerNode({ id, data }: NodeProps<Nod
             {String(data.model)}
           </span>
         )}
+        {pillEntries && (
+          <button
+            type="button"
+            onClick={(e) => {
+              // Stop the parent's onClick from firing first — the pill should
+              // route to the inspector without also toggling node selection.
+              e.stopPropagation();
+              selectNode(id);
+            }}
+            className="mt-1 flex items-center gap-1 rounded-full border border-awp-purple/40 bg-awp-purple/10 px-2 py-0.5 text-[10px] text-awp-purple hover:bg-awp-purple/20 hover:border-awp-purple/70 transition-colors"
+            title="Open optimizer context in inspector"
+            data-testid="manager-artifact-pill"
+          >
+            <Sparkles className="h-2.5 w-2.5" />
+            <span className="font-mono">{pillEntries}</span>
+          </button>
+        )}
       </div>
 
       <Handle type="source" position={Position.Bottom} className="!bg-awp-purple !border-awp-panel !w-2 !h-2" />
     </div>
   );
 });
+
+/** Build the artifact-version pill label.
+ *
+ * Rules (per Phase B3 spec):
+ * - Only list artifacts whose version is greater than 0 (v0 is the default,
+ *   suppressed).
+ * - Max 3 artifacts listed; surplus collapses to "+N more".
+ * - Returns null if no artifact qualifies — the pill is omitted entirely.
+ */
+export function artifactPillEntries(
+  artifacts: Record<string, number> | undefined,
+): string | null {
+  if (!artifacts) return null;
+  const entries = Object.entries(artifacts).filter(([, v]) => v > 0);
+  if (entries.length === 0) return null;
+  const shortName = (name: string) => name.split('.').pop()?.replace(/_/g, ' ') ?? name;
+  const visible = entries.slice(0, 3).map(([n, v]) => `${shortName(n)} v${v}`);
+  const remainder = entries.length - visible.length;
+  return remainder > 0
+    ? `${visible.join(' \u00b7 ')} +${remainder} more`
+    : visible.join(' \u00b7 ');
+}
 
 // ---------------------------------------------------------------------------
 // IterationNode -- Rounded box, color by decision
@@ -204,6 +310,7 @@ export const IterationNode = memo(function IterationNode({ id, data }: NodeProps
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
   const colors = iterationColor(data.decision);
+  const onActivePath = Boolean(data.onActivePath);
 
   return (
     <div
@@ -211,6 +318,8 @@ export const IterationNode = memo(function IterationNode({ id, data }: NodeProps
       className={clsx(
         'group relative cursor-pointer transition-all duration-200 hover:scale-105',
         selected && 'scale-105',
+        runningOuterClasses(data.status),
+        activePathOuterClasses(onActivePath, data.status),
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-awp-yellow !border-awp-panel !w-2 !h-2" />
@@ -221,6 +330,7 @@ export const IterationNode = memo(function IterationNode({ id, data }: NodeProps
           colors.border,
           selected && `ring-2 ${colors.ring} shadow-lg ${colors.shadow}`,
           !selected && 'hover:shadow-md',
+          runningBorderRing(data.status),
           'transition-all duration-200',
         )}
       >
@@ -262,7 +372,13 @@ export const IterationNode = memo(function IterationNode({ id, data }: NodeProps
 export const WorkerNode = memo(function WorkerNode({ id, data }: NodeProps<NodeData>) {
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
-  const borderColor = confidenceBorderColor(data.confidence);
+  // For a running worker, confidence is not yet meaningful — override the
+  // border color to the live-blue so the circle reads as "in flight" rather
+  // than "unknown confidence" (which would render grey and look abandoned).
+  const borderColor = data.status === 'running'
+    ? 'border-awp-blue'
+    : confidenceBorderColor(data.confidence);
+  const onActivePath = Boolean(data.onActivePath);
 
   return (
     <div
@@ -270,19 +386,34 @@ export const WorkerNode = memo(function WorkerNode({ id, data }: NodeProps<NodeD
       className={clsx(
         'group relative cursor-pointer transition-all duration-200 hover:scale-105',
         selected && 'scale-105',
+        runningOuterClasses(data.status),
+        activePathOuterClasses(onActivePath, data.status),
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-awp-cyan !border-awp-panel !w-2 !h-2" />
 
       <div
         className={clsx(
-          'flex flex-col items-center justify-center rounded-full border-2 bg-awp-panel min-w-[100px] min-h-[100px] p-4',
+          'relative flex flex-col items-center justify-center rounded-full border-2 bg-awp-panel min-w-[100px] min-h-[100px] p-4',
           borderColor,
           selected && 'ring-2 ring-awp-cyan/30 shadow-lg shadow-awp-cyan/20',
           !selected && 'hover:shadow-md',
+          runningBorderRing(data.status),
           'transition-all duration-200',
         )}
       >
+        {/* Confidence badge: glance-level dot in top-right corner. Supplements
+            (does not replace) the textual percentage below. */}
+        <span
+          className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full border border-awp-panel shadow-sm"
+          style={{ backgroundColor: confidenceDotColor(data.confidence) }}
+          title={
+            data.confidence === undefined
+              ? 'confidence unknown'
+              : `confidence ${(data.confidence * 100).toFixed(0)}%`
+          }
+          data-testid="worker-confidence-dot"
+        />
         <div className="flex items-center gap-1.5 mb-1">
           <Circle className={clsx('h-3 w-3 fill-current', confidenceColor(data.confidence))} />
           {statusDot(data.status)}
@@ -290,7 +421,15 @@ export const WorkerNode = memo(function WorkerNode({ id, data }: NodeProps<NodeD
         <span className="text-[11px] font-medium text-awp-text text-center max-w-[80px] truncate">
           {data.label}
         </span>
-        {data.confidence !== undefined && (
+        {/* A running worker shows a bold LIVE pill instead of a premature
+            confidence percentage (its result.json hasn't landed yet). Once
+            complete, confidence replaces the pill so the final quality signal
+            is always visible. */}
+        {data.status === 'running' ? (
+          <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-wider px-1.5 rounded-full bg-awp-blue/20 text-awp-blue animate-pulse">
+            live
+          </span>
+        ) : data.confidence !== undefined && (
           <span className={clsx('text-[10px] font-mono', confidenceColor(data.confidence))}>
             {(data.confidence * 100).toFixed(0)}%
           </span>
@@ -342,6 +481,7 @@ export const ToolCallNode = memo(function ToolCallNode({ id, data }: NodeProps<N
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
   const isError = data.status === 'error';
+  const onActivePath = Boolean(data.onActivePath);
 
   return (
     <div
@@ -349,6 +489,8 @@ export const ToolCallNode = memo(function ToolCallNode({ id, data }: NodeProps<N
       className={clsx(
         'group relative cursor-pointer transition-all duration-200 hover:scale-110',
         selected && 'scale-110',
+        runningOuterClasses(data.status),
+        activePathOuterClasses(onActivePath, data.status),
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-awp-green !border-awp-panel !w-1.5 !h-1.5" />
@@ -393,10 +535,13 @@ export const ToolCallNode = memo(function ToolCallNode({ id, data }: NodeProps<N
 export const SubmanagerNode = memo(function SubmanagerNode({ id, data }: NodeProps<NodeData>) {
   const selected = useIsSelected(id);
   const selectNode = useSelectNode();
-  const borderColor = confidenceBorderColor(data.confidence);
+  const borderColor = data.status === 'running'
+    ? 'border-awp-blue'
+    : confidenceBorderColor(data.confidence);
   const dataAny = data as Record<string, unknown>;
   const depth: string = String(dataAny.submanagerDepth ?? '?');
   const failed: boolean = Boolean(dataAny.submanager_failed) || Boolean(data.hasError);
+  const onActivePath = Boolean(data.onActivePath);
 
   return (
     <div
@@ -404,6 +549,8 @@ export const SubmanagerNode = memo(function SubmanagerNode({ id, data }: NodePro
       className={clsx(
         'group relative cursor-pointer transition-all duration-200 hover:scale-105',
         selected && 'scale-105',
+        runningOuterClasses(data.status),
+        activePathOuterClasses(onActivePath, data.status),
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-awp-purple !border-awp-panel !w-2 !h-2" />
@@ -421,6 +568,7 @@ export const SubmanagerNode = memo(function SubmanagerNode({ id, data }: NodePro
             borderColor,
             selected && 'ring-2 ring-awp-purple/40 shadow-lg shadow-awp-purple/20',
             !selected && 'hover:shadow-md',
+            runningBorderRing(data.status),
             'transition-all duration-200',
           )}
         >
@@ -501,6 +649,54 @@ export const ToolDefNode = memo(function ToolDefNode({ id, data }: NodeProps<Nod
   );
 });
 
+// ---------------------------------------------------------------------------
+// EpochMarkerNode -- decorative full-width banner inserted between epoch
+// blocks on the /suites/{id}/graph view. Non-interactive: it carries
+// metadata (epoch_num, mean_loss, artifact delta) but has no click handler
+// and no handles, so React Flow treats it as pure chrome.
+// ---------------------------------------------------------------------------
+
+export const EpochMarkerNode = memo(function EpochMarkerNode(
+  { data }: NodeProps<NodeData>,
+) {
+  const epochNum = (data as Record<string, unknown>).epoch_num;
+  const suiteName = (data as Record<string, unknown>).suite_name as
+    | string
+    | undefined;
+  const meanLoss = (data as Record<string, unknown>).mean_loss as
+    | number
+    | null
+    | undefined;
+  const delta = (data as Record<string, unknown>).delta as string | undefined;
+
+  const meanLossLabel =
+    meanLoss === null || meanLoss === undefined
+      ? 'pending'
+      : meanLoss.toFixed(3);
+
+  return (
+    <div
+      className="flex h-full w-full items-center gap-3 rounded-md border border-dashed border-awp-muted/40 bg-awp-muted/5 px-4"
+      data-testid="epoch-marker"
+    >
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-awp-muted">
+        Epoch {String(epochNum ?? '?')}
+      </span>
+      {suiteName && (
+        <span className="text-[11px] text-awp-muted/80">{suiteName}</span>
+      )}
+      <span className="text-[11px] text-awp-muted/80">
+        mean_loss={meanLossLabel}
+      </span>
+      {delta && (
+        <span className="text-[11px] font-mono text-awp-muted/70">
+          &Delta; {delta}
+        </span>
+      )}
+    </div>
+  );
+});
+
 export const customNodeTypes = {
   task: TaskNode,
   manager: ManagerNode,
@@ -509,4 +705,5 @@ export const customNodeTypes = {
   submanager: SubmanagerNode,
   toolCall: ToolCallNode,
   toolDef: ToolDefNode,
+  epochMarker: EpochMarkerNode,
 };

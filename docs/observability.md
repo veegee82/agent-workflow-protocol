@@ -87,6 +87,32 @@ observability:
 | `labels` | list | No | Label keys for the metric. |
 | `buckets` | list | No | Histogram bucket boundaries (for `"histogram"` type only). |
 
+### Metric events
+
+The delegation-loop runtime emits six live observability events at natural
+points inside the A2+ loop. They are **pure observers** — the runtime MUST
+NOT use a metric event to influence control flow. The AWP UI MetricsPanel
+consumes them via the run WebSocket and also reconstructs them from
+persisted events when the user opens a past run.
+
+All six events share the same transport (the `events` table / run
+WebSocket / `metrics.jsonl` append-only stream under the run directory) and
+a common `iteration` field so charts can align them on a shared X-axis.
+
+| Event type | Emitted when | Payload fields |
+|---|---|---|
+| `metric.confidence` | Top of each iteration, summarising the previous iteration's worker confidence | `iteration`, `mean`, `per_worker: [{name, confidence}]` |
+| `metric.critique` | After the critique phase completes | `iteration`, `score`, `defect_count`, `pattern_count`, `defects_by_category: {category: count}`, `worker_count` |
+| `metric.eval` | After each worker's step evaluation | `iteration`, `worker_id`, `score`, `action`, `metric_scores: {name: score}` |
+| `metric.budget` | Top of each iteration | `iteration`, `tokens_used`, `tokens_rate_per_iter`, `loops_used`, `workers_used`, `wall_time_s`, `budget_remaining_pct`, `max_loops`, `max_workers`, `max_tokens`, `max_wall_time_s`, `tool_calls_used`, `max_tool_calls` |
+| `metric.gate` | Every completion-gate verdict (passed or rejected) | `iteration`, `gate`, `verdict` (`passed` / `rejected`), `reason` |
+| `metric.tool_call` | Every tool call completion | `iteration`, `worker_id`, `tool_name`, `latency_ms`, `success` |
+
+The runtime writes each event as one JSON line to `metrics.jsonl` in the
+run directory. The UI file-watcher tails that file incrementally (tracked
+by byte offset) and republishes each line as a WebSocket event. Emission
+failures are always swallowed — a metric write can never break a run.
+
 ## Tracing
 
 ### Configuration
@@ -294,6 +320,32 @@ The runtime must record these events:
 | `state.change` | State modified | `run_id`, `agent_id`, `fields_changed`, `timestamp` |
 | `memory.write` | Memory modified | `run_id`, `agent_id`, `tier`, `timestamp` |
 | `security.event` | Security event | `run_id`, `event_type`, `details`, `timestamp` |
+
+### Thread Safety
+
+The reference writers in `packages/awp-runtime/src/awp/runtime/observability.py`
+(`Tracer`, `MetricsCollector`, `AuditTrail`) are safe to call from
+multiple threads concurrently. Each holds an internal `threading.Lock`
+that covers the compound mutations the callers rely on:
+
+- `AuditTrail.record` performs `_seq += 1`, reads `_prev_hash`, computes
+  the new hash, writes `_prev_hash`, and appends to `_entries` as one
+  atomic transaction. Without that lock the hash chain would break under
+  parallel writers. `AuditTrail.verify_chain` remains the authoritative
+  integrity check and is expected to return `True` on the full entry
+  list even after many concurrent `record()` calls.
+- `Tracer.start_span` / `end_span` / `flush` synchronize the `_spans`
+  and `_completed` collections so a span that is completed by one
+  thread cannot be lost when another thread flushes.
+- `MetricsCollector.increment` / `histogram` / `flush` guard compound
+  read-modify-write paths (`_histograms.setdefault(...).append(...)`,
+  counter updates, snapshot-before-flush).
+
+The locks are deliberately coarse: they serialize each writer per
+process but do not coordinate across processes. Log files (`*.jsonl`)
+are append-only and written under the same lock during `flush`, so a
+concurrent flush from a single process produces a well-formed JSONL
+stream.
 
 ## Health Checks
 

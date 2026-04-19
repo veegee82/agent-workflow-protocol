@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -20,117 +21,81 @@ ALLOWED_WORKER_TOOLS: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Outer-loop artifact registry (lazy singleton)
+#
+# Phase A1 of the outer-loop optimizer (A5) routes prompt strings through a
+# versioned registry. This module provides a process-wide lazy singleton. It
+# is deliberately minimal:
+#   * No filesystem I/O at import time — the DB is opened on first
+#     ``get_active`` call.
+#   * Behavior-preserving: when no DB is present the registry returns the
+#     hardcoded v0 defaults, which are byte-identical to the previous in-line
+#     strings. Prompts MUST NOT change as a consequence of this refactor.
+#   * Resolver wrapped in a broad ``except`` so that a future registry bug
+#     can never crash prompt-building — callers simply get the v0 default.
+# ---------------------------------------------------------------------------
+
+_ARTIFACT_REGISTRY = None  # type: ignore[var-annotated]
+
+
+def _get_artifact_registry():
+    """Return (and lazily construct) the process-wide registry singleton."""
+    global _ARTIFACT_REGISTRY
+    if _ARTIFACT_REGISTRY is None:
+        from awp.outer_loop import ArtifactRegistry
+
+        db_path = os.environ.get("AWP_OUTER_LOOP_DB")
+        if not db_path:
+            default_path = os.path.expanduser("~/.awp/outer_loop.db")
+            # Stay in read-only fallback mode when the default directory is
+            # not usable; the ArtifactRegistry itself tolerates missing DBs.
+            db_path = default_path
+        _ARTIFACT_REGISTRY = ArtifactRegistry(db_path=db_path)
+    return _ARTIFACT_REGISTRY
+
+
+def _artifact(name: str) -> str:
+    """Resolve an artifact's active content, with a hardcoded-default fallback."""
+    try:
+        return _get_artifact_registry().get_active(name).content
+    except Exception:
+        # Final safety net: import the v0 default directly.
+        from awp.outer_loop.defaults import DEFAULTS
+
+        return DEFAULTS[name]
+
+
 # Hard-won pitfalls injected into EVERY worker system prompt (not only the
 # manager's). Earlier runs showed that pitfalls placed only in the manager
 # prompt never reach workers — the manager paraphrases them away or omits
 # them entirely. Workers therefore re-hit the same bugs (NameError due to
 # stateless code.execute, .loc int slice on DatetimeIndex, yfinance
 # MultiIndex columns, hallucinated domain APIs, stringified ndarray cells).
-WORKER_PITFALLS = """## Critical Pitfalls (Read Before Writing Code)
+#
+# The actual text is served by the outer-loop artifact registry so it can be
+# versioned / A/B-tested without touching this module. Module-level
+# ``__getattr__`` (PEP 562) preserves the legacy ``from awp.data.prompts
+# import WORKER_PITFALLS`` access pattern.
 
-### `code.execute` is STATELESS between calls
-Each `code.execute` invocation runs in a **fresh subprocess**. Variables,
-imports, and helper functions defined in one call DO NOT exist in the next
-call. If you see `NameError: name 'foo' is not defined`, the cause is almost
-certainly that `foo` was defined in an earlier `code.execute` call.
 
-Rules:
-- Every `code.execute` call must be **fully self-contained**: re-import
-  modules, re-load files, re-define helpers.
-- Persist intermediate data via `_workspace_dir` files (CSV / Parquet /
-  JSON / .npy) and reload from disk in the next call.
-- If an earlier worker already produced a data file under `_workspace_dir`,
-  **load it from disk** instead of re-fetching it from the network.
+def _module_getattr(name: str):
+    # Only the legacy pitfalls alias is routed through the registry; anything
+    # else falls through to the normal AttributeError so ordinary module
+    # attribute access is not disturbed.
+    if name == "WORKER_PITFALLS":
+        return _artifact("worker_pitfalls")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-### Pandas / data common bugs
-- `df.loc[int_slice, col]` on a `DatetimeIndex` raises
-  `cannot do slice indexing on DatetimeIndex`. Use `df.iloc[start:stop]`
-  for positional access, or pass actual `Timestamp` values to `.loc`.
-- `yfinance.download(...)` may return columns as a **MultiIndex**. Always
-  flatten before selecting:
-  `df.columns = df.columns.get_level_values(0)`
-  Then `df.reset_index()` so the `Date`/`Datetime` column is preserved
-  when you write to CSV.
-- Never write a numpy array into a single CSV cell. Convert to a scalar
-  (`arr.max()`, `arr.mean()`) or expand to multiple columns.
-- Validate every CSV before declaring it a deliverable: no NaN in
-  mandatory metric columns, no stringified arrays, expected row counts.
 
-### Domain code (cBot, SQL, Solidity, etc.)
-- Do **not** invent APIs. If you don't know the exact method signature,
-  state that explicitly in your result rather than producing hallucinated
-  code that won't compile.
-
-### Python syntax: common LLM-emitted breaks to AVOID
-Before running any Python via `code.execute`, the runtime deterministically
-parses your source with `ast.parse`. A broken source is rejected with a
-structured `syntax_error` block (line, column, offending line) — no cycles are
-wasted. To avoid the most common rejections:
-
-- **No `return` outside a function.** A top-level `return` is a hard syntax
-  error. Use a plain expression, assign to a variable, or wrap your code in a
-  `def main(): ...` and call it.
-- **Regex patterns: use raw strings.** Write `re.compile(r"\\s+")`, NOT
-  `re.compile("\\s+")`. Non-raw `\\s`, `\\d`, `\\w`, `\\b` inside a string
-  literal is a warning at best and a silent bug at worst.
-- **Do not embed literal `\\n` characters inside regex patterns.** Use a raw
-  string: `re.compile(r"a\\nb")`. A literal newline in a non-raw string is
-  almost never what you want.
-- **Never put escaped quotes inside regex patterns without a raw string.**
-  Prefer `r'"[^"]*"'` over `"\\"[^\\"]*\\""`.
-- **Close every string literal.** Unterminated triple-quoted blocks are the
-  second-most-common syntax break; keep triple-quoted strings on a single
-  line (`\"\"\"text\"\"\"`) or place the closing triple-quote on its own
-  line.
-
-### Diagnose stderr; do not resubmit identical broken code
-If a previous `code.execute` call failed, READ the stderr / traceback
-in the tool result before issuing the next call. Change the specific
-line(s) the traceback points at. Re-running the same code is wasted
-budget.
-"""
+__getattr__ = _module_getattr
 
 
 def _build_experiment_context_hint(has_context: bool) -> str:
     """Return a prompt section about experiment context files, or empty string."""
     if not has_context:
         return ""
-    return (
-        "\n## Experiment History (Previous Runs)\n\n"
-        "This run is part of an ongoing experiment. Previous run results and output "
-        "files are available for you to build upon.\n\n"
-        "### Accessing Prior Results\n\n"
-        "**Structured data** — the `_experiment_context/` directory in the workspace contains:\n"
-        "- `experiment_brief.md` — complete human-readable summary of all previous work\n"
-        "- `run_NNN_summary.json` — per-run task, full result, model, status, and output file listings\n"
-        "- `memory.json` — accumulated findings, observations, and decisions\n"
-        "- `experiment.json` — experiment metadata (title, hypothesis, description)\n\n"
-        "**Output files from prior runs** — previous runs may have produced CSV tables, "
-        "images, code files, and other artifacts. Their absolute paths are listed in the "
-        "experiment context below and in each `run_NNN_summary.json` under `output_files`. "
-        "Workers can read these files directly via `code.execute` (e.g. `pd.read_csv(path)`) "
-        "or `file.read`.\n\n"
-        "### Reusing Dynamic Tools from Prior Runs\n\n"
-        "Dynamic tools created by workers in previous runs are **automatically persisted** "
-        "in `workspace/dynamic_tools/` and loaded for the current run. Workers can call them "
-        "directly — there is no need to recreate tools that already exist. The experiment "
-        "context below lists all available dynamic tools with their descriptions.\n\n"
-        "### Reusing Skills from Prior Runs\n\n"
-        "Skills generated in prior runs are persisted in `workspace/skills/` and listed "
-        "in the manager prompt. Reference them by name in a worker's `skills` array — the "
-        "runtime loads the full content automatically. To update a skill, provide new "
-        "markdown with the same `# Skill: Name` heading.\n\n"
-        "### How to Use Prior Results\n\n"
-        "- **Reuse tools**: Dynamic tools from previous runs are already registered — "
-        "just use them, don't recreate\n"
-        "- **Reuse data**: If a previous run produced a CSV, dataframe, or analysis result, "
-        "load it directly instead of recomputing\n"
-        "- **Reuse skills**: Provide relevant prior skills to workers for continuity\n"
-        "- **Iterate**: Refine, extend, or correct prior outputs — each run should advance "
-        "the experiment\n"
-        "- **Avoid repetition**: Check what has already been done before spawning workers\n"
-        "- **Reference**: When building on prior work, note which run you are extending\n"
-    )
+    return _artifact("experiment_context_hint_template")
 
 
 def build_manager_system_prompt(
@@ -198,11 +163,7 @@ def build_manager_system_prompt(
         # Add metadata for images
         img_meta = entry.get("image_metadata")
         if img_meta:
-            dims = (
-                f"{img_meta['width']}x{img_meta['height']}"
-                if "width" in img_meta
-                else "unknown"
-            )
+            dims = f"{img_meta['width']}x{img_meta['height']}" if "width" in img_meta else "unknown"
             line += f"\n  Dimensions: {dims}"
             if "mode" in img_meta:
                 line += f", mode: {img_meta['mode']}"
@@ -311,6 +272,12 @@ def build_manager_system_prompt(
             "_(pattern/archetype registry unavailable — use 'generate' with "
             "an explicit `assumptions` list.)_\n"
         )
+
+    # Registry-backed artifacts (outer-loop A5, Phase A1). These route through
+    # ArtifactRegistry so later epochs can A/B-test new versions; v0 defaults
+    # are byte-identical to the previous hardcoded strings.
+    manager_planning_preamble = _artifact("manager_planning_preamble")
+    pattern_library_header = _artifact("pattern_library")
 
     return f"""You are a Universal Data Agent Manager in an AWP Delegation Loop.
 
@@ -517,11 +484,7 @@ Respond with a JSON object containing ONE of these decisions:
   ]
 }}
 ```
-Use PLAN **once** on the first iteration to decompose the problem before delegating.
-You can only PLAN once — after that, use DELEGATE to execute the plan.
-After planning, you will see a Task Plan Progress section tracking subtask status.
-Map your DELEGATE worker_ids to subtask IDs to enable automatic progress tracking.
-**IMPORTANT: Do NOT issue PLAN again after the first iteration. Use DELEGATE instead.**
+{manager_planning_preamble}
 
 #### R31 — Plan-Tool-Closure (HARD RULE)
 Every subtask MUST include a non-empty `tool_manifest` array. Each entry
@@ -567,7 +530,7 @@ you chose, and tell the worker to pass them as `meta.archetype_id` and
 `meta.recipe_params` when it calls `dynamic.create_tool`. This makes
 the worker's tool creation deterministic and triggers recipe capture.
 
-#### Pattern + Archetype Library
+{pattern_library_header}
 {available_patterns}
 
 #### Valid `pattern_id` / `archetype_id` cheat-sheet (HARD)

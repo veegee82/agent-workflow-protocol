@@ -282,10 +282,21 @@ class _E2ERunDirWatcher:
     ``GET /api/runs/{run_id}/events`` endpoint.
     """
 
+    # kind strings inside metrics.jsonl → event_type strings written to DB
+    _METRIC_KIND_TO_EVENT = {
+        "metric.confidence": "metric.confidence",
+        "metric.critique": "metric.critique",
+        "metric.eval": "metric.eval",
+        "metric.budget": "metric.budget",
+        "metric.gate": "metric.gate",
+        "metric.tool_call": "metric.tool_call",
+    }
+
     def __init__(self, run_id: str, workspace_dir: Path) -> None:
         self._run_id = run_id
         self._workspace_dir = workspace_dir
         self._seen_files: set[str] = set()
+        self._jsonl_offsets: dict[str, int] = {}
         self._stop = threading.Event()
         self._pinned_run_dir: Path | None = None
         # Snapshot existing run dirs so _find_run_dir can pin to the
@@ -644,8 +655,58 @@ class _E2ERunDirWatcher:
             all_paths.sort(key=_sort_key)
             for rel, path in all_paths:
                 self._process_file(path, rel)
+            # Append-only metric streams: tail every metrics.jsonl under the
+            # run tree and persist each new line as an event.
+            for path in run_dir.rglob("metrics.jsonl"):
+                try:
+                    rel = str(path.relative_to(run_dir))
+                except ValueError:
+                    continue
+                self._process_metrics_jsonl_tail(path, rel)
         except OSError:
             pass
+
+    def _process_metrics_jsonl_tail(self, path: Path, rel: str) -> None:
+        """Tail new lines of a metrics.jsonl file and persist each as an event.
+
+        Byte offsets are tracked per file so each line is emitted exactly
+        once across repeated scans. Half-written trailing lines are
+        deferred until the next pass.
+        """
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return
+        prev = self._jsonl_offsets.get(rel, 0)
+        if size <= prev:
+            return
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(prev)
+                chunk = fh.read(size - prev)
+        except OSError:
+            return
+        last_nl = chunk.rfind(b"\n")
+        if last_nl < 0:
+            return
+        self._jsonl_offsets[rel] = prev + last_nl + 1
+        lines = chunk[: last_nl + 1].decode("utf-8", errors="replace").splitlines()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            kind = entry.get("kind")
+            event_type = self._METRIC_KIND_TO_EVENT.get(str(kind))
+            if event_type is None:
+                continue
+            data = {k: v for k, v in entry.items() if k != "kind"}
+            self._persist_event(event_type, data)
 
 
 # ---------------------------------------------------------------------------

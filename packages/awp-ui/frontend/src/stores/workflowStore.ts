@@ -236,6 +236,75 @@ const DEFAULT_BUDGET: BudgetState = {
 // Store interface
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Metric event payloads — live-updating observability snapshots consumed by
+// the MetricsPanel. Events arrive on the WebSocket as metric.* types and are
+// appended to fixed arrays (never mutated) so React memoised selectors can
+// detect changes via reference equality.
+// ---------------------------------------------------------------------------
+
+export interface ConfidenceMetric {
+  iteration: number;
+  mean: number;
+  per_worker?: { name: string; confidence: number }[];
+}
+
+export interface CritiqueMetric {
+  iteration: number;
+  score: number;
+  defect_count: number;
+  pattern_count: number;
+  defects_by_category?: Record<string, number>;
+}
+
+export interface EvalMetric {
+  iteration: number;
+  score: number;
+  metric_scores: Record<string, number>;
+  action: string;
+}
+
+export interface BudgetMetric {
+  iteration: number;
+  tokens_used: number;
+  tokens_rate: number;
+  loops_used: number;
+  workers_used: number;
+  wall_time_s: number;
+  remaining_pct: number;
+  max_loops?: number;
+  max_workers?: number;
+  max_tokens?: number;
+  max_wall_time_s?: number;
+  tool_calls_used?: number;
+  max_tool_calls?: number;
+}
+
+export interface GateMetric {
+  iteration: number;
+  gate: string;
+  verdict: string;
+  reason: string;
+  timestamp: string;
+}
+
+export interface ToolCallMetric {
+  iteration: number;
+  tool_name: string;
+  latency_ms: number;
+  success: boolean;
+  timestamp: string;
+}
+
+export interface MetricsState {
+  confidence: ConfidenceMetric[];
+  critique: CritiqueMetric[];
+  eval: EvalMetric[];
+  budget: BudgetMetric[];
+  gate_events: GateMetric[];
+  tool_calls: ToolCallMetric[];
+}
+
 export interface WorkflowStore {
   // Config
   config: WorkflowConfig;
@@ -243,7 +312,7 @@ export interface WorkflowStore {
 
   // Run state
   currentRunId: string | null;
-  runStatus: 'idle' | 'running' | 'complete' | 'error';
+  runStatus: 'idle' | 'running' | 'complete' | 'partial' | 'error';
   events: RunEvent[];
   addEvent: (event: RunEvent) => void;
 
@@ -264,6 +333,39 @@ export interface WorkflowStore {
   selectNode: (id: string | null) => void;
   loadRunGraph: (runId?: string) => Promise<void>;
 
+  // Outer-loop / optimizer context for the current run. Populated lazily by
+  // loadOuterLoopContext() and cleared when the run changes. null ⇒ the
+  // current run is not part of any optimizer epoch (normal ad-hoc case).
+  outerLoopContext: {
+    epoch_id: string;
+    suite_id: string;
+    epoch_num: number;
+    parent_artifacts: Record<string, number>;
+    child_artifacts: Record<string, number>;
+    mean_loss: number | null;
+  } | null;
+  loadOuterLoopContext: (runId?: string) => Promise<void>;
+
+  // Optimizer tab state (B3) — drives the OptimizerPanel charts.
+  //
+  // The slice lives separately from `outerLoopContext` because the two
+  // consumers have different lifetimes: the per-run context is cleared
+  // with the run, while the optimizer view survives across run switches
+  // (the user may keep the Optimizer tab open while a new run starts).
+  optimizerState: {
+    suites: import('@/api/client').SuiteSummary[] | null;
+    selectedSuiteId: string | null;
+    epochs: import('@/api/client').EpochDetail[] | null;
+    artifactVersions: Record<string, import('@/api/client').ArtifactVersion[]> | null;
+    loading: boolean;
+    error: string | null;
+  };
+  loadSuites: () => Promise<void>;
+  selectSuite: (suiteId: string) => Promise<void>;
+  loadSuiteEpochs: (suiteId: string) => Promise<void>;
+  loadArtifactVersions: (name: string) => Promise<void>;
+  clearSuiteSelection: () => void;
+
   // Output
   outputBlocks: OutputBlock[];
   addOutputBlock: (block: OutputBlock) => void;
@@ -282,6 +384,13 @@ export interface WorkflowStore {
   // Budget
   budget: BudgetState;
   updateBudget: (budget: Partial<BudgetState>) => void;
+
+  // Metrics — live-updating observability snapshots for the MetricsPanel.
+  // Populated by metric.* events (confidence, critique, eval, budget, gate,
+  // tool_call). Each array grows append-only; selectors rely on reference
+  // equality so we never mutate in place.
+  metrics: MetricsState;
+  resetMetrics: () => void;
 
   // UI state
   activePanel: ActivePanel;
@@ -1060,7 +1169,8 @@ function processEvent(
     // ----- Run complete -----
     case 'run.complete': {
       const status = (evt.data.status as string) ?? 'complete';
-      const isError = status === 'error' || status === 'failed';
+      const isError = status === 'error' || status === 'failed' || status === 'aborted';
+      const isPartial = status === 'partial';
       const resultObj = evt.data.result as Record<string, unknown> | undefined;
 
       // Detect if this is the file-watcher completion (has total_iterations)
@@ -1071,15 +1181,22 @@ function processEvent(
       updateNode('manager', { status: isError ? 'error' : 'complete' });
       updateNode('task_root', { status: isError ? 'error' : 'complete' });
 
-      // Update run status and session status in sidebar
+      // Update run status and session status in sidebar. Preserve the
+      // distinction between `complete` (all gates green) and `partial`
+      // (terminated by a budget / gate-retry cap) — see Fix H in
+      // docs/runtime.md. Collapsing the two hides the loss signal.
+      const uiRunStatus: 'error' | 'partial' | 'complete' =
+        isError ? 'error' : isPartial ? 'partial' : 'complete';
+      const sessionStatus: Session['status'] =
+        isError ? 'failed' : isPartial ? 'partial' : 'complete';
       const completedSessionId = get().currentSessionId;
       set((prev) => ({
-        runStatus: isError ? 'error' : 'complete',
+        runStatus: uiRunStatus,
         activePanel: 'output',
         sessions: completedSessionId
           ? prev.sessions.map((sess) =>
               sess.id === completedSessionId
-                ? { ...sess, status: (isError ? 'failed' : 'complete') as Session['status'], last_run_status: isError ? 'failed' : 'complete' }
+                ? { ...sess, status: sessionStatus, last_run_status: isError ? 'failed' : isPartial ? 'partial' : 'complete' }
                 : sess,
             )
           : prev.sessions,
@@ -1146,6 +1263,101 @@ function processEvent(
       });
       break;
     }
+
+    // ----- Metric events — live observability for the MetricsPanel -----
+    // Pure observers: each case appends to a fixed metric array using a
+    // new-array assignment (never mutating in place) so components can
+    // detect changes via reference equality.
+    case 'metric.confidence': {
+      const entry: ConfidenceMetric = {
+        iteration: Number(evt.data.iteration ?? 0),
+        mean: Number(evt.data.mean ?? 0),
+        per_worker: Array.isArray(evt.data.per_worker)
+          ? (evt.data.per_worker as ConfidenceMetric['per_worker'])
+          : [],
+      };
+      set((s) => ({
+        metrics: { ...s.metrics, confidence: [...s.metrics.confidence, entry] },
+      }));
+      break;
+    }
+
+    case 'metric.critique': {
+      const entry: CritiqueMetric = {
+        iteration: Number(evt.data.iteration ?? 0),
+        score: Number(evt.data.score ?? 0),
+        defect_count: Number(evt.data.defect_count ?? 0),
+        pattern_count: Number(evt.data.pattern_count ?? 0),
+        defects_by_category: (evt.data.defects_by_category as Record<string, number>) ?? {},
+      };
+      set((s) => ({
+        metrics: { ...s.metrics, critique: [...s.metrics.critique, entry] },
+      }));
+      break;
+    }
+
+    case 'metric.eval': {
+      const entry: EvalMetric = {
+        iteration: Number(evt.data.iteration ?? 0),
+        score: Number(evt.data.score ?? 0),
+        metric_scores: (evt.data.metric_scores as Record<string, number>) ?? {},
+        action: String(evt.data.action ?? ''),
+      };
+      set((s) => ({
+        metrics: { ...s.metrics, eval: [...s.metrics.eval, entry] },
+      }));
+      break;
+    }
+
+    case 'metric.budget': {
+      const entry: BudgetMetric = {
+        iteration: Number(evt.data.iteration ?? 0),
+        tokens_used: Number(evt.data.tokens_used ?? 0),
+        tokens_rate: Number(evt.data.tokens_rate_per_iter ?? evt.data.tokens_rate ?? 0),
+        loops_used: Number(evt.data.loops_used ?? 0),
+        workers_used: Number(evt.data.workers_used ?? 0),
+        wall_time_s: Number(evt.data.wall_time_s ?? 0),
+        remaining_pct: Number(evt.data.budget_remaining_pct ?? evt.data.remaining_pct ?? 0),
+        max_loops: Number(evt.data.max_loops ?? 0),
+        max_workers: Number(evt.data.max_workers ?? 0),
+        max_tokens: Number(evt.data.max_tokens ?? 0),
+        max_wall_time_s: Number(evt.data.max_wall_time_s ?? 0),
+        tool_calls_used: Number(evt.data.tool_calls_used ?? 0),
+        max_tool_calls: Number(evt.data.max_tool_calls ?? 0),
+      };
+      set((s) => ({
+        metrics: { ...s.metrics, budget: [...s.metrics.budget, entry] },
+      }));
+      break;
+    }
+
+    case 'metric.gate': {
+      const entry: GateMetric = {
+        iteration: Number(evt.data.iteration ?? -1),
+        gate: String(evt.data.gate ?? ''),
+        verdict: String(evt.data.verdict ?? ''),
+        reason: String(evt.data.reason ?? ''),
+        timestamp: String(evt.data.ts ?? evt.timestamp ?? ''),
+      };
+      set((s) => ({
+        metrics: { ...s.metrics, gate_events: [...s.metrics.gate_events, entry] },
+      }));
+      break;
+    }
+
+    case 'metric.tool_call': {
+      const entry: ToolCallMetric = {
+        iteration: Number(evt.data.iteration ?? -1),
+        tool_name: String(evt.data.tool_name ?? ''),
+        latency_ms: Number(evt.data.latency_ms ?? 0),
+        success: Boolean(evt.data.success ?? true),
+        timestamp: String(evt.data.ts ?? evt.timestamp ?? ''),
+      };
+      set((s) => ({
+        metrics: { ...s.metrics, tool_calls: [...s.metrics.tool_calls, entry] },
+      }));
+      break;
+    }
   }
 
   // Flush all collected graph mutations in a single store write.
@@ -1207,6 +1419,94 @@ function snapshotSession(s: WorkflowStore): CachedSessionState | null {
   };
 }
 
+/**
+ * Reduce a flat event list into a populated MetricsState. Used by the
+ * session-switcher and past-run loader so the MetricsPanel reflects
+ * historical runs identically to live ones. Pure — no side effects.
+ */
+function reduceEventsToMetrics(
+  events: Array<{ type: string; data: Record<string, unknown>; timestamp?: string | Date }>,
+): MetricsState {
+  const out: MetricsState = {
+    confidence: [],
+    critique: [],
+    eval: [],
+    budget: [],
+    gate_events: [],
+    tool_calls: [],
+  };
+  for (const evt of events) {
+    const d = evt.data ?? {};
+    const ts = typeof evt.timestamp === 'string'
+      ? evt.timestamp
+      : (evt.timestamp instanceof Date ? evt.timestamp.toISOString() : '');
+    switch (evt.type) {
+      case 'metric.confidence':
+        out.confidence.push({
+          iteration: Number(d.iteration ?? 0),
+          mean: Number(d.mean ?? 0),
+          per_worker: Array.isArray(d.per_worker)
+            ? (d.per_worker as ConfidenceMetric['per_worker'])
+            : [],
+        });
+        break;
+      case 'metric.critique':
+        out.critique.push({
+          iteration: Number(d.iteration ?? 0),
+          score: Number(d.score ?? 0),
+          defect_count: Number(d.defect_count ?? 0),
+          pattern_count: Number(d.pattern_count ?? 0),
+          defects_by_category: (d.defects_by_category as Record<string, number>) ?? {},
+        });
+        break;
+      case 'metric.eval':
+        out.eval.push({
+          iteration: Number(d.iteration ?? 0),
+          score: Number(d.score ?? 0),
+          metric_scores: (d.metric_scores as Record<string, number>) ?? {},
+          action: String(d.action ?? ''),
+        });
+        break;
+      case 'metric.budget':
+        out.budget.push({
+          iteration: Number(d.iteration ?? 0),
+          tokens_used: Number(d.tokens_used ?? 0),
+          tokens_rate: Number(d.tokens_rate_per_iter ?? d.tokens_rate ?? 0),
+          loops_used: Number(d.loops_used ?? 0),
+          workers_used: Number(d.workers_used ?? 0),
+          wall_time_s: Number(d.wall_time_s ?? 0),
+          remaining_pct: Number(d.budget_remaining_pct ?? d.remaining_pct ?? 0),
+          max_loops: Number(d.max_loops ?? 0),
+          max_workers: Number(d.max_workers ?? 0),
+          max_tokens: Number(d.max_tokens ?? 0),
+          max_wall_time_s: Number(d.max_wall_time_s ?? 0),
+          tool_calls_used: Number(d.tool_calls_used ?? 0),
+          max_tool_calls: Number(d.max_tool_calls ?? 0),
+        });
+        break;
+      case 'metric.gate':
+        out.gate_events.push({
+          iteration: Number(d.iteration ?? -1),
+          gate: String(d.gate ?? ''),
+          verdict: String(d.verdict ?? ''),
+          reason: String(d.reason ?? ''),
+          timestamp: String(d.ts ?? ts ?? ''),
+        });
+        break;
+      case 'metric.tool_call':
+        out.tool_calls.push({
+          iteration: Number(d.iteration ?? -1),
+          tool_name: String(d.tool_name ?? ''),
+          latency_ms: Number(d.latency_ms ?? 0),
+          success: Boolean(d.success ?? true),
+          timestamp: String(d.ts ?? ts ?? ''),
+        });
+        break;
+    }
+  }
+  return out;
+}
+
 /** Restore cached session state into a partial store update. */
 function restoreFromCache(cached: CachedSessionState): Partial<WorkflowStore> {
   return {
@@ -1263,9 +1563,12 @@ function reconcileRunStatusFromBackend(
       const backendStatus = String(run.status || '').toLowerCase();
       const terminal = ['complete', 'partial', 'failed', 'error', 'aborted', 'stopped'];
       if (terminal.includes(backendStatus)) {
-        const uiStatus = (backendStatus === 'failed' || backendStatus === 'error')
-          ? 'error'
-          : 'complete';
+        const uiStatus: 'error' | 'partial' | 'complete' =
+          (backendStatus === 'failed' || backendStatus === 'error' || backendStatus === 'aborted')
+            ? 'error'
+            : backendStatus === 'partial'
+              ? 'partial'
+              : 'complete';
         set({ runStatus: uiStatus, _wsStatus: 'closed' });
       }
     }).catch(() => {
@@ -1295,7 +1598,11 @@ function routeBackgroundEvent(
     cached.runStatus = 'running';
   } else if (event.type === 'run.complete') {
     const status = (event.data.status as string) ?? 'complete';
-    cached.runStatus = (status === 'error' || status === 'failed') ? 'error' : 'complete';
+    cached.runStatus = (status === 'error' || status === 'failed' || status === 'aborted')
+      ? 'error'
+      : status === 'partial'
+        ? 'partial'
+        : 'complete';
   } else if (event.type === 'error') {
     cached.runStatus = 'error';
   }
@@ -1311,10 +1618,16 @@ function routeBackgroundEvent(
   // Update session list status on completion
   if (event.type === 'run.complete' || event.type === 'error') {
     const runStatus = event.type === 'error' ? 'failed' : ((event.data.status as string) ?? 'complete');
+    const sessionStatus: Session['status'] =
+      (runStatus === 'error' || runStatus === 'failed' || runStatus === 'aborted')
+        ? 'failed'
+        : runStatus === 'partial'
+          ? 'partial'
+          : 'complete';
     set((prev) => ({
       sessions: prev.sessions.map((sess) =>
         sess.id === sessionId
-          ? { ...sess, status: (runStatus === 'error' || runStatus === 'failed') ? 'failed' as const : 'complete' as const, last_run_status: runStatus }
+          ? { ...sess, status: sessionStatus, last_run_status: runStatus }
           : sess,
       ),
     }));
@@ -1461,6 +1774,119 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
   },
 
+  // -- Outer-loop / optimizer context --------------------------------------
+  outerLoopContext: null,
+  loadOuterLoopContext: async (runId) => {
+    const rid = runId ?? get().currentRunId;
+    if (!rid) {
+      set({ outerLoopContext: null });
+      return;
+    }
+    try {
+      const ctx = await api.fetchRunEpoch(rid);
+      set({ outerLoopContext: ctx });
+    } catch {
+      set({ outerLoopContext: null });
+    }
+  },
+
+  // -- Optimizer tab (B3) --------------------------------------------------
+  optimizerState: {
+    suites: null,
+    selectedSuiteId: null,
+    epochs: null,
+    artifactVersions: null,
+    loading: false,
+    error: null,
+  },
+  loadSuites: async () => {
+    set((s) => ({
+      optimizerState: { ...s.optimizerState, loading: true, error: null },
+    }));
+    try {
+      const suites = await api.listSuites();
+      set((s) => ({
+        optimizerState: { ...s.optimizerState, suites, loading: false },
+      }));
+    } catch (e) {
+      set((s) => ({
+        optimizerState: {
+          ...s.optimizerState,
+          loading: false,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }));
+    }
+  },
+  selectSuite: async (suiteId: string) => {
+    set((s) => ({
+      optimizerState: {
+        ...s.optimizerState,
+        selectedSuiteId: suiteId,
+        // Invalidate per-suite caches so the panel shows a fresh loader
+        // instead of stale charts from a previously-selected suite.
+        epochs: null,
+        artifactVersions: null,
+        error: null,
+      },
+    }));
+    await get().loadSuiteEpochs(suiteId);
+  },
+  loadSuiteEpochs: async (suiteId: string) => {
+    set((s) => ({
+      optimizerState: { ...s.optimizerState, loading: true, error: null },
+    }));
+    try {
+      const epochs = await api.fetchSuiteEpochs(suiteId);
+      set((s) => {
+        // Race guard: if the user has switched suites mid-flight, drop
+        // this result so the active suite's data is not overwritten.
+        if (s.optimizerState.selectedSuiteId !== suiteId) return s;
+        return {
+          optimizerState: { ...s.optimizerState, epochs, loading: false },
+        };
+      });
+    } catch (e) {
+      set((s) => ({
+        optimizerState: {
+          ...s.optimizerState,
+          loading: false,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }));
+    }
+  },
+  loadArtifactVersions: async (name: string) => {
+    try {
+      const versions = await api.fetchArtifactVersions(name);
+      set((s) => {
+        const next = { ...(s.optimizerState.artifactVersions ?? {}) };
+        next[name] = versions;
+        return {
+          optimizerState: { ...s.optimizerState, artifactVersions: next },
+        };
+      });
+    } catch (e) {
+      set((s) => ({
+        optimizerState: {
+          ...s.optimizerState,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }));
+    }
+  },
+  clearSuiteSelection: () => {
+    set((s) => ({
+      optimizerState: {
+        ...s.optimizerState,
+        selectedSuiteId: null,
+        epochs: null,
+        artifactVersions: null,
+        error: null,
+      },
+    }));
+  },
+
   // -- Output ---------------------------------------------------------------
   outputBlocks: [],
   addOutputBlock: (block) =>
@@ -1482,6 +1908,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       // Load graph + output blocks for the selected past run
       get().loadRunGraph(effective);
       get().loadRunBlocks(effective);
+      // Refresh optimizer-epoch context for the selected run so the
+      // manager-node pill reflects the suite/epoch the viewed run
+      // belongs to (or null if it was ad-hoc).
+      get().loadOuterLoopContext(effective).catch(() => {});
+    } else if (s.currentRunId) {
+      get().loadOuterLoopContext(s.currentRunId).catch(() => {});
     }
   },
   loadRunBlocks: async (runId: string) => {
@@ -1629,6 +2061,29 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   updateBudget: (partial) =>
     set((s) => ({ budget: { ...s.budget, ...partial } })),
 
+  // -- Metrics --------------------------------------------------------------
+  // Separate slice so the four chart components can subscribe to only their
+  // respective array and skip re-renders when other slices update.
+  metrics: {
+    confidence: [],
+    critique: [],
+    eval: [],
+    budget: [],
+    gate_events: [],
+    tool_calls: [],
+  },
+  resetMetrics: () =>
+    set({
+      metrics: {
+        confidence: [],
+        critique: [],
+        eval: [],
+        budget: [],
+        gate_events: [],
+        tool_calls: [],
+      },
+    }),
+
   // -- UI state -------------------------------------------------------------
   activePanel: 'protocol',
   setActivePanel: (panel) => set({ activePanel: panel }),
@@ -1684,6 +2139,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         workers_max: state.config.max_total_workers,
         wall_time_max_ms: state.config.max_wall_time * 1000,
         tool_calls_max: state.config.max_tool_calls,
+      },
+      metrics: {
+        confidence: [],
+        critique: [],
+        eval: [],
+        budget: [],
+        gate_events: [],
+        tool_calls: [],
       },
       selectedNodeId: null,
       activePanel: 'protocol',
@@ -1750,6 +2213,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         run_id = result.run_id;
       }
       set({ currentRunId: run_id });
+      // Refresh optimizer-epoch context for the new run (null when the
+      // run is not part of any suite — the pill is then omitted entirely).
+      get().loadOuterLoopContext(run_id).catch(() => {});
 
       // Update session status to 'running' in sidebar
       if (sessionId) {
@@ -1876,6 +2342,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         skillRegistry: [],
       outputBlocks: [],
       budget: { ...DEFAULT_BUDGET },
+      metrics: {
+        confidence: [],
+        critique: [],
+        eval: [],
+        budget: [],
+        gate_events: [],
+        tool_calls: [],
+      },
       selectedNodeId: null,
       _wsConnection: null,
       _wsStatus: 'closed',
@@ -1929,6 +2403,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         toolRegistry: [],
         skillRegistry: [],
         experimentMemory: [],
+        // Clear the optimizer-epoch context — it is per-run and will be
+        // re-fetched when a run is started/loaded in the new session.
+        outerLoopContext: null,
         // Reset run state so the UI is fully clean
         currentRunId: null,
         runStatus: 'idle',
@@ -2054,8 +2531,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const lastRun = full.runs.length > 0 ? full.runs[full.runs.length - 1] : null;
       const lastRunId = lastRun?.run_id ?? null;
       const runStatus = lastRun
-        ? (lastRun.status === 'error' || lastRun.status === 'failed' ? 'error' as const
+        ? (lastRun.status === 'error' || lastRun.status === 'failed' || lastRun.status === 'aborted' ? 'error' as const
           : lastRun.status === 'running' ? 'running' as const
+          : lastRun.status === 'partial' ? 'partial' as const
           : 'complete' as const)
         : 'idle' as const;
 
@@ -2395,6 +2873,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         }
       }
 
+      // Reduce metric.* events into the MetricsPanel state so a selected
+      // past run shows its charts identically to a live run.
+      const replayedMetrics = reduceEventsToMetrics(
+        allEvents as unknown as Array<{
+          type: string;
+          data: Record<string, unknown>;
+          timestamp?: string | Date;
+        }>,
+      );
+
       set((prev) => ({
         currentSessionId: sessionId,
         currentRunId: lastRunId,
@@ -2408,6 +2896,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         activePanel: lastRun ? 'protocol' : 'protocol',
         config: { ...prev.config, ...configUpdate },
         budget: { ...DEFAULT_BUDGET },
+        metrics: replayedMetrics,
         experimentMemory: full.memory ?? [],
         _wsConnection: wsConn,
         _wsStatus: wsStatus,

@@ -437,6 +437,143 @@ orchestration:
       persist_artifacts: true
 ```
 
+### Per-worker Executor Lifecycle
+
+Within a delegation-loop run, every `code.execute` call inside a single worker
+targets the same **warm Python subprocess** — a long-running child managed by
+`PersistentExecutor`. Variables, imports, and helper functions defined in one
+call remain live in the next; heavy imports (numpy, pandas, matplotlib) are
+paid once per worker, not once per call. Implementation details that matter
+for reasoning about run behavior:
+
+- **Merged stderr/stdout.** The warm child merges `stderr` into `stdout` on
+  the pipe level, so a chatty child process cannot deadlock on a full stderr
+  buffer. Real tracebacks are still returned inside the JSON result envelope.
+- **Deadline-accurate reads.** Reads happen on the raw file descriptor with
+  `select()` and a private byte buffer; the configured per-call timeout is
+  honored even if the child produces no output.
+- **Auto-restart with history replay.** If the warm subprocess dies between
+  calls, a fresh one is spawned and the recorded history (up to 100 entries
+  / 1 MB of code text) is silently replayed so the caller sees a warm
+  namespace again. Timeouts (status 408) are NOT recorded — replaying a
+  hang would deadlock the restart. If warm execution fails at the protocol
+  level, the call falls back to a one-shot `subprocess.run` (cold-start)
+  and the loop continues.
+
+Across workers, the runner maintains a **per-logical-worker executor
+registry**. A *logical id* is derived by stripping repair / retry suffixes
+(`_repair`, `_retry`, `_vN`, `_strict`, `_final`, `_runN`, `_subtask_N`) to
+a fixpoint, case-insensitively. The first worker of a run claims the shared
+executor; brand-new logical ids spawn their own executors. When a repair
+variant of the same worker is dispatched (`compose_worker_repair`,
+`plot_runner_v2`, etc.), the runtime **re-enters** the prior worker's
+executor — the namespace, imports, and partial state from the first
+attempt are still live — and prepends a `## REPAIR MODE (Continuing Prior
+Work)` block to the worker system prompt so the LLM treats the attempt as
+an incremental fix rather than a cold start.
+
+The manager can opt out and force a clean slate via the delegation-envelope
+field `fresh_worker: true`. This field is part of the envelope schema, not
+a user-facing config flag. All per-worker executors are cleaned up in the
+run finalizer; cleanup errors are logged but never propagate.
+
+Authoritative code:
+`packages/awp-runtime/src/awp/runtime/persistent_executor.py`,
+`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`
+(`logical_worker_id`, `_get_executor_for_worker`, REPAIR MODE marker).
+
+### Auto-Emergent Tools
+
+Managers and workers rarely call `tool.create` voluntarily, even when they
+repeatedly ask `code.execute` to run the same *shape* of code with
+different literal values. The delegation-loop runtime closes that gap with
+a deterministic **tool inducer** that watches every `code.execute` call
+and computes an AST-skeleton signature with literals normalized to
+`<const>` and identifiers renamed to `<vK>` by first-occurrence index.
+Structurally identical snippets share the same signature regardless of
+paths, filenames, or variable names they plug in.
+
+The inducer counts **distinct worker ids** per signature. When `N=3`
+different workers have executed the same shape, the runtime:
+
+1. Lifts the varying literal slots to parameters.
+2. Emits a generalized Python tool and registers it through
+   `DynamicToolFactory`.
+3. Persists it at `shared/dynamic_tools/dynamic.induced_<hash6>.json` so
+   later workers discover it via `tool.list`.
+
+`N=3` is a hardcoded constant — no new user-facing config flag was
+introduced. If the varying slots cannot be cleanly parameterized (nested
+expressions rather than plain constants), the inducer logs an INFO line
+and skips synthesis rather than emit a broken tool. Induction never
+rewrites or delays the observed `code.execute` call; it is pure addition.
+Every emission is listed in `run_completion.json.induced_tools`.
+
+Authoritative code:
+`packages/awp-runtime/src/awp/runtime/tool_inducer.py`.
+
+### Atomicity Advisory
+
+Before the manager plans the next iteration, each pending subtask is scored
+on a deterministic 0.0-1.0 axis:
+
+- `1.0` → atomic; prefer a single flat ephemeral worker.
+- `0.0` → composite; a sub-manager with further decomposition is likely
+  warranted.
+
+The score is computed from description features only — atomic-keyword
+count (read, compute, verify, ...), composition-keyword count (plan,
+coordinate, orchestrate, synthesize, ...), declared required-outputs
+count, numbered-step count in the description, and log of word count.
+The exact formula and weights live in
+`packages/awp-runtime/src/awp/runtime/atomicity.py`.
+
+The score is **advisory only**. It is injected into the manager planning
+prompt as a hint the LLM may weigh alongside its own reasoning. The
+runtime MUST NOT use the score to block, override, or auto-promote a
+manager delegation decision — that would violate AWP's A3/A4 autonomy
+semantics (the manager is the authority on delegation shape). The value
+is surfaced for observability and tuning, not for control flow.
+
+### Preemptive Wall-Time Watchdog (Framework-Fix δ-1)
+
+The cooperative budget check at the top of each manager iteration is
+insufficient when a single iteration blocks indefinitely — e.g. when a
+`code.execute` call deadlocks or an LLM client stalls. A daemon thread
+named `awp-walltime-watchdog` is started in
+`DelegationLoopRunner.run()` (only at `depth == 0`) and polls absolute
+wall-time every 30 s. On breach of `max_wall_time`, it sends `SIGTERM`
+to its own process, which the existing signal handler converts into a
+clean `status=partial` exit with `reason=max_wall_time` and a written
+`run_completion.json`. If the process is still alive 30 s after
+`SIGTERM`, the watchdog escalates to `SIGKILL`. The watchdog is
+unaffected by main-thread deadlocks — it is the structural guarantee
+that `max_wall_time` is honored under every failure mode.
+
+### Hard Per-Call Executor Timeout Killer (Framework-Fix δ-2)
+
+Inside `PersistentExecutor.execute()` a `threading.Timer` is armed for
+`effective_timeout + 5 s` before the call enters the warm-subprocess
+read path. When the timer fires, a separate thread forcibly kills the
+subprocess and sets `_needs_replay=True` + `_hard_killed=True`. This is
+the second defense line behind α-1's select-based deadline. If the main
+read thread somehow never wakes (stuck `os.read`, kernel-level pipe
+issue), the timer still kills the child. The caller then gets a
+structured cold-fallback response rather than an indefinite wait.
+
+### Pipe-Output Cap in Worker Script (Framework-Fix δ-3)
+
+The warm subprocess is driven by `_WORKER_SCRIPT` which captures
+`stdout` and `stderr` into `io.StringIO` buffers during `exec(code,
+_ns)`. Before serialising the per-call JSON result, both buffers are
+now capped at **2 MB** UTF-8 bytes. Oversized output is truncated and a
+`...[truncated: original N bytes]` marker is appended. Prior to this
+cap, a `print()` of a multi-megabyte blob inside the worker could
+overflow the 64 KB Linux pipe buffer while the parent was momentarily
+busy — classic producer-consumer deadlock. The cap eliminates that
+class of hang at the source, in the child, before the byte ever
+touches the pipe.
+
 ---
 
 ## Composing Engines: DAG + Delegation Loop

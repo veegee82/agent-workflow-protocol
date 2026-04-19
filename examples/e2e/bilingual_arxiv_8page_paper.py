@@ -40,92 +40,121 @@ TASK = """\
 Produce a **complete, arXiv-style, two-column, 8-page scientific paper** on
 the topic **"Autonomy extension through tool- and skill-generation and
 comparison to other agent frameworks"**. Deliver **two language versions**
-(German + English), both compiled to PDF from a real LaTeX source using
+(German + English), both compiled to PDF from real LaTeX source using
 `tectonic` (available on PATH), and both accompanied by full Markdown
 versions.
 
-## Workspace layout (READ FIRST)
+## Workspace layout (READ FIRST, DO NOT RE-ENUMERATE)
 - `_workspace_dir/inputs/agent-workflow-protocol/` — the complete AWP
-  repository (source of truth for methodology). Read its README, CLAUDE.md,
-  spec/, docs/, and `packages/awp-runtime/src/awp/runtime/` to ground the
-  paper in real code. **All code references in the paper MUST come from
-  this repository — no hallucinated APIs.**
+  repository. Key files (read these directly; do NOT re-list the whole
+  tree): `README.md`, `CLAUDE.md`, `spec/spec.md`, `docs/*.md`,
+  `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`,
+  `packages/awp-runtime/src/awp/runtime/dynamic_tool_factory.py`,
+  `packages/awp-core/src/awp/validator/rules.py`,
+  `examples/` (for autonomy-level examples A0–A4).
+  **Every code reference in the paper MUST be verbatim from this repo.**
 - `_workspace_dir/inputs/arxiv_two_column/` — LaTeX two-column template
-  (`main.tex`, `references.bib`, `README.md`). Use this as the layout
-  baseline. Copy it per language and adapt.
+  (`main.tex`, `references.bib`, `README.md`). Copy per language, adapt.
 
 ## Required deliverables (ALL on disk under `_output_dir/`, non-empty)
 1. `paper_de.pdf` — German PDF, arxiv two-column, **exactly 8 pages**.
 2. `paper_en.pdf` — English PDF, arxiv two-column, **exactly 8 pages**.
-3. `paper_de.md` — German Markdown, full prose matching the PDF.
-4. `paper_en.md` — English Markdown, full prose matching the PDF.
-5. `figures/` — at least one **self-generated SGD diagram** as PNG,
-   clean typography, non-overlapping arrows, consistent style. Generate
-   programmatically with matplotlib or graphviz.
-6. `latex_de/` — complete LaTeX source bundle for DE (`main.tex`,
-   `references.bib`, figures). Must compile with `tectonic main.tex`.
-7. `latex_en/` — complete LaTeX source bundle for EN. Must compile.
-8. `references.bib` — full BibTeX with **every citation used in the text**.
-   Citations appear as `\\cite{key}` in LaTeX and render as `[1]`, `[2]`,
-   ... in the PDF. **Every `[N]` in the PDF MUST correspond to an entry
-   in the bib file — no dangling or fictitious numbers.**
+3. `paper_de.md` — German Markdown, full prose (same content as PDF).
+4. `paper_en.md` — English Markdown, full prose (same content as PDF).
+5. `figures/*.png` — at least ONE self-generated diagram of the AWP
+   delegation loop / tool-generation pipeline (matplotlib; clean
+   typography; no overlapping arrows; dpi=200).
+6. `latex_de/` — LaTeX bundle (main.tex, references.bib, figures).
+7. `latex_en/` — LaTeX bundle.
+8. `references.bib` — full BibTeX. Every `\\cite{key}` used in text
+   MUST resolve to a real paper with DOI or URL. Renders as `[N]` in PDF.
 
 ## Section word targets (verified per language)
-- Abstract: **≈ 500 words**
-- Introduction: **> 2500 words** — include state of the art and placement
-  on autonomy scales (A0-A4).
-- Methodology: **> 5000 words** — detailed description of AWP, tool- and
-  skill-generation, delegation loop, validation rules.
-- Results: **> 1000 words** — evaluation and comparison to existing
-  frameworks (LangChain, AutoGen, CrewAI, MetaGPT, OpenAI Assistants, etc.).
-- Discussion / Conclusion: reasonable length.
-- References: complete list, every `[N]` used in-text.
+- Abstract: ≈ 500 words
+- Introduction: > 2500 words (state of the art + autonomy scales A0–A4)
+- Methodology: > 5000 words (AWP layers, delegation loop, tool- and
+  skill-generation, validation rules R1–R32)
+- Results: > 1000 words (evaluation + comparison to LangChain, AutoGen,
+  CrewAI, MetaGPT, OpenAI Assistants)
+- Discussion / Conclusion: reasonable length
+- References: every `[N]` used in-text
 
 ## Page count enforcement (HARD)
-Each PDF MUST be **exactly 8 pages**. This is verified with PyPDF2. If the
+Each PDF MUST be **exactly 8 pages** (verified with PyPDF2). If the
 compile yields 7 or 9 pages, tune `\\vspace{...}`, figure sizes, or
-paragraph density and recompile. Do not cheat the page count by shipping
-blank pages.
-
-## Process (recommended)
-1. **Analyze the AWP repo** — extract methodology concepts (autonomy
-   spectrum, layers, delegation loop, tool factory, critique engine, R1-R32
-   rules).
-2. **Research comparable frameworks** — citations with DOI/URL.
-3. **Write master content in English** — all sections at target word count.
-4. **Translate** to German — preserve technical terms, keep section
-   structure identical.
-5. **Generate SGD diagrams** as PNGs.
-6. **Render LaTeX** per language, compile with tectonic.
-7. **Verify** — PyPDF2 page count, bib citation match, word count per
-   section, file presence. Iterate until all checks green.
+paragraph density. Do NOT pad with blank pages.
 
 ## Constraints
-- `tectonic` is available on PATH — prefer it over programmatic PDF libs.
-- NO hallucinated citations — every `\\cite{key}` resolves to a real
-  paper with a DOI or stable URL.
-- NO placeholders (`TODO`, `XXX`, `???`, `Lorem ipsum`) in final deliverables.
-- Markdown files must contain the SAME prose as the PDFs (not shortened).
+- `tectonic` is on PATH — use it for compilation.
+- NO hallucinated citations. NO placeholders (`TODO`, `XXX`, `???`,
+  `Lorem ipsum`, "to be filled").
+- Markdown files contain the SAME prose as the PDFs (not shortened).
 
-## Tool-Registry discipline (REQUIRED — not optional)
-Whenever a worker performs a **repeatable** operation — compiling LaTeX,
-counting PDF pages, extracting sections from Markdown, rendering a figure —
-it MUST register that operation as a persistent dynamic tool via the
-`tool.create` tool (instead of / in addition to `code.execute`). These
-tools persist in `shared/dynamic_tools/` and become available to every
-subsequent worker in the same experiment.
+## Five-Phase Pipeline (execute LINEARLY, do NOT skip ahead)
 
-Mandatory tools to create (at minimum):
-- `dynamic.latex_compile` — wrap `tectonic main.tex` with timeout + error capture.
-- `dynamic.pdf_pages` — return page count via PyPDF2.
-- `dynamic.word_count_section` — count words in a specific `#` section of
-  a Markdown file.
-- `dynamic.render_sgd_diagram` — generate a consistent-style SGD PNG via
-  matplotlib given a node/edge spec.
-- `dynamic.verify_citations` — cross-check `\\cite{key}` occurrences
-  against `references.bib` entries.
+### Phase 1 — Repo Analysis (EXIT when all exit-criteria met, then MOVE ON)
+Goal: extract concrete methodology material from the AWP repo.
+Produce:
+- `_output_dir/phase1/awp_concepts.md` — bullet list of 7 layers, autonomy
+  spectrum A0–A4 with code examples, delegation loop mechanics,
+  critique/repair, budget system, validation rules. ≥ 2000 words.
+- `_output_dir/phase1/code_snippets.md` — 10+ verbatim code fragments
+  from the real files above with path:line references.
+Exit criteria (deterministic — a verifier in the manager MUST confirm):
+- Both files exist, non-empty, ≥ 2000 and ≥ 500 words respectively.
+- `code_snippets.md` contains at least 10 lines matching `path:line` regex.
+Once met → **Phase 2. Do not keep refining Phase 1.**
 
-Skills (`.md` documentation of procedures) are NOT a substitute for tools.
+### Phase 2 — Literature (EXIT when ≥ 12 real references)
+Goal: build BibTeX with ≥ 12 real citations covering: agent frameworks
+(LangChain, AutoGen, CrewAI, MetaGPT, OpenAI Assistants), dynamic tool
+creation, program synthesis, autonomy in multi-agent systems.
+Produce:
+- `_output_dir/phase2/references.bib` — ≥ 12 entries, each with DOI
+  or stable URL.
+- `_output_dir/phase2/citation_plan.md` — maps each section (Intro /
+  Methodology / Results) to which `[N]` it will cite.
+Exit: bib has ≥ 12 entries, each with `doi` OR `url`.
+
+### Phase 3 — English Master Draft (EXIT at word targets, then compile)
+Produce:
+- `_output_dir/phase3/paper_en.md` — full prose, word targets met per
+  section. Include `![figure](figures/delegation_loop.png)` references.
+- `_output_dir/figures/delegation_loop.png` — matplotlib diagram of
+  manager→workers→tools flow, clean arrows, 200dpi.
+- `_output_dir/figures/autonomy_spectrum.png` — second diagram A0→A4.
+Exit: paper_en.md passes word counts; both PNGs ≥ 30 KB each.
+
+### Phase 4 — German Translation (EXIT at structural parity)
+Produce `_output_dir/phase4/paper_de.md` — same sections, same figure
+refs, same citation keys. Word counts apply per language.
+Exit: same section headers as EN, word counts met.
+
+### Phase 5 — LaTeX Compile (EXIT when 8 pages × 2 languages)
+For each language L in {de, en}:
+1. Create `_output_dir/latex_L/main.tex` from the template, injecting
+   the full prose of `paper_L.md`, figure includes, and `\\cite{...}`.
+2. Copy `phase2/references.bib` → `latex_L/references.bib`.
+3. Copy `figures/*.png` → `latex_L/figures/`.
+4. Compile: `tectonic main.tex` in `latex_L/`.
+5. Move output PDF to `_output_dir/paper_L.pdf`.
+6. **Verify page count == 8**. If not, adjust density and recompile.
+   Tools to nudge pages: figure size, `\\vspace{}`, paragraph merging,
+   `columnsep`. Loop up to 4 times per language before giving up.
+7. Also copy `paper_L.md` → `_output_dir/paper_L.md` (final).
+
+Final exit (run COMPLETE): every item in "Required deliverables"
+exists, page counts are 8, no placeholders, bib entries resolve.
+
+## Tool-Registry discipline (STRONG preference, not blocker)
+You SHOULD register reusable operations as persistent dynamic tools via
+`tool.create` so they persist in `shared/dynamic_tools/` and are
+available to subsequent workers. Good candidates: `latex_compile`,
+`pdf_pages`, `word_count_section`, `render_sgd_diagram`,
+`verify_citations`. Using `code.execute` inline is allowed, but if you
+repeat the same Python boilerplate more than once, create a tool.
+Skills (.md docs) are NOT a substitute for tools — skills describe,
+tools execute.
 Tools are executable; skills are documentation. Both are welcome, but the
 registry MUST contain real dynamic tools when you reach the compile /
 verify phase.
@@ -320,13 +349,13 @@ if __name__ == "__main__":
         title=title,
         task=TASK,
         model="openai/gpt-5-mini",
-        worker_model="openai/gpt-5-mini",
-        max_loops=200,
-        max_total_tokens=80_000_000,
-        max_wall_time=54_000,       # 15 hours
-        max_total_workers=300,
-        max_depth=4,
-        max_tool_calls=10_000,
+        worker_model="deepseek/deepseek-chat-v3.1",
+        max_loops=120,
+        max_total_tokens=50_000_000,
+        max_wall_time=28_800,       # 8 hours
+        max_total_workers=200,
+        max_depth=2,
+        max_tool_calls=8_000,
         workflow_dir=workflow_dir,
         extra_config={
             "critique": {

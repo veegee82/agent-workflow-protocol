@@ -40,6 +40,7 @@ import json
 import logging
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -602,6 +603,57 @@ NEW_GATE_PIPELINE: list[tuple[str, Callable[[list[Path], dict[str, Any]], dict[s
     ("smoke_test", smoke_test_gate),
 ]
 
+# Canonical first-failure-wins order for rejection reporting. Identical to
+# the sequential pipeline order so telemetry and gate-repair loops observe
+# the same reason regardless of the ``parallel_gate_chain`` toggle.
+CANONICAL_GATE_ORDER: list[str] = [name for name, _ in NEW_GATE_PIPELINE]
+
+# Parallel groups for the Phase-A gates.
+#
+# Dependency analysis (all gates take ``(paths, ctx)`` and return a verdict
+# or None; none mutate ``ctx``; none read a prior gate's result):
+#
+#   * ``syntax_compile``   — reads ``paths`` + ``ctx['workflow_dir']``.
+#   * ``schema``           — reads ``paths`` + ``ctx['plan']._subtasks``.
+#   * ``cross_reference``  — reads ``paths`` only.
+#   * ``success_criteria`` — reads ``paths`` + ``ctx['task_text']``.
+#   * ``smoke_test``       — reads ``paths`` + ``ctx['plan']._subtasks`` AND
+#                            executes subprocesses; must only run after the
+#                            file-parse gates have had a chance to reject
+#                            syntactically broken code, so non-parseable
+#                            scripts never reach execution.
+#
+# Group 0 holds the four pure, file-local gates; Group 1 holds smoke_test.
+# Within a group all gates share the same immutable ``ctx`` snapshot and
+# never write to it, so parallel execution is race-free.
+GATE_GROUPS: list[list[str]] = [
+    ["syntax_compile", "schema", "cross_reference", "success_criteria"],
+    ["smoke_test"],
+]
+
+
+def _gate_fn(name: str) -> Callable[[list[Path], dict[str, Any]], dict[str, Any] | None]:
+    for gate_name, fn in NEW_GATE_PIPELINE:
+        if gate_name == name:
+            return fn
+    raise KeyError(f"Unknown gate: {name}")
+
+
+def _safe_run_gate(
+    name: str, paths: list[Path], ctx: dict[str, Any]
+) -> tuple[str, dict[str, Any] | None, BaseException | None]:
+    """Invoke a single gate and capture any exception. Exceptions are
+    treated as ``pass`` at the call-site — matching the sequential
+    pipeline's fail-open behaviour for raising gates.
+    """
+    try:
+        rej = _gate_fn(name)(paths, ctx)
+    except BaseException as exc:  # noqa: BLE001 — re-raise is caller's choice
+        return name, None, exc
+    if rej is not None:
+        rej.setdefault("gate", name)
+    return name, rej, None
+
 
 def run_new_completion_gates(
     paths: list[Path], ctx: dict[str, Any]
@@ -618,4 +670,94 @@ def run_new_completion_gates(
         if rej is not None:
             rej.setdefault("gate", name)
             return rej
+    return None
+
+
+def run_new_completion_gates_parallel(
+    paths: list[Path],
+    ctx: dict[str, Any],
+    *,
+    per_gate_sink: Callable[[str, dict[str, Any] | None, BaseException | None], None] | None = None,
+) -> dict[str, Any] | None:
+    """Parallel variant of :func:`run_new_completion_gates`.
+
+    Execution model:
+      * Each :data:`GATE_GROUPS` entry runs concurrently on a bounded
+        ``ThreadPoolExecutor``.
+      * Groups are processed in order: a later group only starts when the
+        previous group has fully joined AND has no rejections in canonical
+        order.
+      * First-failure-wins reporting uses :data:`CANONICAL_GATE_ORDER` so
+        rejection reasons are independent of completion order.
+
+    Side-effect contract:
+      * Gates in :mod:`completion_gates` are pure wrt ``ctx``; the ctx
+        object is the same reference for every gate but nothing in this
+        module writes to it. This keeps the parallel group race-free even
+        though the snapshot is not defensively copied.
+      * ``smoke_test`` runs subprocesses which write to the filesystem;
+        keeping it in its own group avoids accidental parallel launches
+        under a future edit.
+
+    ``per_gate_sink`` is an optional callback invoked after each gate
+    returns (``(name, rejection_or_none, exception_or_none)``). The caller
+    uses it to persist gate records — the callback always fires in the
+    order gates *finish*, not canonical order, because persistence should
+    reflect real timing.
+    """
+    # Pool size: cap at max-group-size, never exceed 8. Groups with a
+    # single gate fall through to an inline call (no pool overhead).
+    max_group = max(len(g) for g in GATE_GROUPS) if GATE_GROUPS else 1
+    pool_size = max(1, min(max_group, 8))
+
+    with ThreadPoolExecutor(
+        max_workers=pool_size, thread_name_prefix="awp-gate-chain"
+    ) as pool:
+        for group in GATE_GROUPS:
+            if not group:
+                continue
+            verdicts: dict[str, dict[str, Any] | None] = {}
+            exceptions: dict[str, BaseException] = {}
+
+            if len(group) == 1:
+                name, rej, exc = _safe_run_gate(group[0], paths, ctx)
+                if exc is not None:
+                    logger.warning(
+                        "%s gate raised — treating as pass", name, exc_info=exc
+                    )
+                    exceptions[name] = exc
+                    verdicts[name] = None
+                else:
+                    verdicts[name] = rej
+                if per_gate_sink is not None:
+                    per_gate_sink(name, verdicts[name], exceptions.get(name))
+            else:
+                # map() would preserve submission order but we want the
+                # sink to reflect true finish order, so iterate as_completed
+                # via manual future tracking.
+                futures = {
+                    pool.submit(_safe_run_gate, name, paths, ctx): name
+                    for name in group
+                }
+                from concurrent.futures import as_completed
+
+                for fut in as_completed(futures):
+                    name, rej, exc = fut.result()
+                    if exc is not None:
+                        logger.warning(
+                            "%s gate raised — treating as pass",
+                            name,
+                            exc_info=exc,
+                        )
+                        exceptions[name] = exc
+                    verdicts[name] = rej
+                    if per_gate_sink is not None:
+                        per_gate_sink(name, rej, exc)
+
+            # First-failure-wins in canonical order.
+            for canonical in CANONICAL_GATE_ORDER:
+                if canonical in verdicts and verdicts[canonical] is not None:
+                    return verdicts[canonical]
+            # Group clean — advance to next group.
+
     return None

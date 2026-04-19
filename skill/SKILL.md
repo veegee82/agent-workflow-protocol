@@ -4,7 +4,10 @@ description: >
   Generate complete Agent Workflow Protocol (AWP) compliant multi-agent
   workflows from natural language descriptions. Produces workflow.awp.yaml,
   agent configs, prompts, schemas, and optionally custom tools and skills.
-version: "1.0.0"
+  Tracks AWP spec v1.0 validation rules R1–R32 and runtime contracts of
+  awp-agents >= 1.0.52 (completion-gate chain, blackboard, hierarchical
+  context digest, auto-curation, archetype-based dynamic tools).
+version: "1.0.52"
 user-invocable: true
 allowed-tools: Read Write Edit Bash Glob Grep
 ---
@@ -406,7 +409,11 @@ The runtime also auto-injects a small standard preamble into every `code.execute
 - Pre-injected helpers: `_workspace_dir`, `_output_dir`, `_secrets`, `_ensure_dir()`, `_output_file()`, `_input_file()`, `_list_files()`, `_verify_png()`
 - Text-mode `open(path, "w")` is auto-upgraded to binary mode if the caller writes `bytes` (prevents `TypeError: write() argument must be str, not bytes` from LLM-written snippets).
 
-Note: each `code.execute` call is a **fresh subprocess** (unless a persistent executor is configured), so Python-level state (variables, DataFrames) does NOT persist across calls. Pass state via files under `_workspace_dir`.
+Note: within a single worker, `code.execute` calls now share a **warm, persistent Python subprocess** by default — variables, imports, and helper functions defined in one call ARE still live in the next. Heavy imports (numpy, pandas, matplotlib) are paid once per worker, not once per call. Passing state via files under `_workspace_dir` is still correct (and required for state shared BETWEEN workers), but generated workflows no longer need to reload DataFrames or re-import modules inside every snippet. Each worker has its own namespace; a crash inside the warm subprocess triggers an automatic restart with a silent history replay so the namespace feels preserved.
+
+**Repair workers continue the prior worker's context.** When the runtime dispatches a worker whose id ends in `_repair`, `_retry`, `_vN`, `_strict`, `_final`, `_runN`, or `_subtask_N`, it re-enters the original worker's warm namespace and prepends a `REPAIR MODE` block to the worker's system prompt. Generated workflows MUST NOT assume a repair worker starts from a blank state; reload or re-import only when strictly necessary. The manager can force a clean slate per-dispatch via envelope field `fresh_worker: true` — do not add this flag by default, it defeats the α-fix and wastes tokens.
+
+**Auto-emergent tools.** When `N=3` distinct workers execute the same shape of `code.execute` snippet (same AST skeleton, differing only in literals / identifier names), the runtime auto-synthesizes a generalized tool via `DynamicToolFactory`, persists it at `shared/dynamic_tools/dynamic.induced_<hash6>.json`, and exposes it through `tool.list` for later workers. `N=3` is a hardcoded constant — no config knob. Generated workflows should NOT fight induction: do not suppress `code.execute` recording, do not normalize worker ids to reduce diversity, and do not assume `tool.list` returns only LLM-authored tools. Induced tools satisfy rules DT1-DT8 exactly like explicit `tool.create` output.
 
 ### Dynamic Skill Generation
 
@@ -691,7 +698,7 @@ never sees them.
 
 #### 10. Autonomy Level
 
-**9.1 Which AWP Autonomy Level?**
+**10.1 Which AWP Autonomy Level?**
 > a) **A0 Prescribed** — static DAG, fixed agents and tools ← recommended for getting started
 > b) **A1 Adaptive** — conditions, loops, fan-out ← recommended for most workflows
 > c) **A2 Delegating** — manager spawns workers dynamically (budget required)
@@ -705,7 +712,7 @@ never sees them.
 
 #### 11. Other
 
-**10.1 Are there any additional requirements, constraints, or requests?**
+**11.1 Are there any additional requirements, constraints, or requests?**
 > e.g., timeouts, error handling, security requirements, special data sources,
 > target audience for output, ...
 > ___
@@ -1702,7 +1709,7 @@ List all generated files with count:
 #### 5f. Autonomy Badge & Validation
 
 ```
-  ✅ Validation: All {count}/30 applicable rules passed
+  ✅ Validation: All {count}/32 applicable rules passed
   🏷️  AWP A{N} {Level Name}
 ```
 
