@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -122,120 +123,165 @@ class RefinementLoop:
         wall_cap = seed_wall_time * _WALL_TIME_FACTOR if seed_wall_time else float("inf")
         parent_run_id = _safe_run_id(self._seed)
         stop_reason = "max_iterations"
+        loop_error: str | None = None
 
-        for k in range(1, iterations + 1):
-            prior_final = self._seed / "FINAL" if k == 1 else outcomes[-1].run_dir / "FINAL"
+        # try/finally guarantees the session sidecar is written on every
+        # exit path (normal completion, mid-iter exception, budget abort).
+        # An iteration that crashes during workspace prep or mid-workflow
+        # would otherwise leave the session invisible to downstream
+        # consumers (UI, CLI, E2E assertions).
+        try:
+            for k in range(1, iterations + 1):
+                if k == 1:
+                    prior_run_dir = self._seed
+                    prior_final = self._seed / "FINAL"
+                else:
+                    prior_run_dir = outcomes[-1].run_dir
+                    # Ensure the prior iteration has a FINAL/ to seed from.
+                    # The runtime's _write_canonical_final_output only fires
+                    # when declared deliverables exist; refinement needs a
+                    # starting deliverable unconditionally, so promote
+                    # output/<run_id>/ into FINAL/ as a fallback.
+                    _ensure_final_dir(prior_run_dir)
+                    prior_final = prior_run_dir / "FINAL"
 
-            workspace = self._iterations_root / f"iter_{k}"
-            prepare_iteration_workspace(workspace_dir=workspace, prior_final_dir=prior_final)
+                if not prior_final.exists() or not any(prior_final.iterdir()):
+                    # Cannot seed this iteration — stop gracefully instead
+                    # of raising. The sidecar still records what we got.
+                    stop_reason = "no_prior_deliverable"
+                    break
 
-            # Regenerate gradient from the prior iteration for k>1.
-            current_gradient = gradient if k == 1 else extract_gradient(outcomes[-1].run_dir)
-            # R36 re-check on each iteration — if an iteration somehow
-            # produced a "perfect" run, stop here rather than burn budget.
-            if not current_gradient.is_non_empty() and k > 1:
-                stop_reason = "empty_gradient_midloop"
-                break
+                workspace = self._iterations_root / f"iter_{k}"
+                prepare_iteration_workspace(workspace_dir=workspace, prior_final_dir=prior_final)
 
-            (workspace / "gradient_input.json").write_text(
-                json.dumps(current_gradient.model_dump(), indent=2),
-                encoding="utf-8",
-            )
+                # Regenerate gradient from the prior iteration for k>1.
+                current_gradient = gradient if k == 1 else extract_gradient(prior_run_dir)
+                # R36 re-check on each iteration — if an iteration somehow
+                # produced a "perfect" run, stop here rather than burn budget.
+                if not current_gradient.is_non_empty() and k > 1:
+                    stop_reason = "empty_gradient_midloop"
+                    break
 
-            prefix = render_refinement_prefix(current_gradient)
-
-            iter_budget = budget_for_iteration(
-                seed_budget=seed_budget, observed_wall_time=seed_wall_time
-            )
-
-            tags = ["refinement", f"refine-iter-{k}"]
-            t0 = time.time()
-            run_id, run_dir = self._factory(
-                task=seed_task,
-                inputs={"prior_deliverable_path": "input/"},
-                initial_state={
-                    "refinement_gradient": current_gradient.model_dump(),
-                    "refinement_iteration": k,
-                    "seed_run_id": _safe_run_id(self._seed),
-                },
-                output_dir=workspace,
-                parent_run_id=parent_run_id,
-                tags=tags,
-                manager_prompt_prefix=prefix,
-                budget=iter_budget,
-                model=self._model,
-                worker_model=self._worker_model,
-            )
-            cumulative_wall += time.time() - t0
-
-            loss = float(compute_run_loss(run_dir).total)
-            status = _read_status(run_dir)
-
-            outcomes.append(
-                IterationOutcome(
-                    k=k,
-                    run_id=run_id,
-                    run_dir=run_dir,
-                    loss=loss,
-                    status=status,
-                    parent_run_id=parent_run_id,
+                (workspace / "gradient_input.json").write_text(
+                    json.dumps(current_gradient.model_dump(), indent=2),
+                    encoding="utf-8",
                 )
-            )
 
-            if loss < best_loss:
-                best_loss = loss
-                best_iter = k
+                prefix = render_refinement_prefix(current_gradient)
 
-            if last_loss is None:
-                regression_streak = 0
-                plateau_streak = 0
-            else:
-                if loss >= last_loss:
-                    regression_streak += 1
-                else:
+                iter_budget = budget_for_iteration(
+                    seed_budget=seed_budget, observed_wall_time=seed_wall_time
+                )
+
+                tags = ["refinement", f"refine-iter-{k}"]
+                t0 = time.time()
+                run_id, run_dir = self._factory(
+                    task=seed_task,
+                    inputs={"prior_deliverable_path": "input/"},
+                    initial_state={
+                        "refinement_gradient": current_gradient.model_dump(),
+                        "refinement_iteration": k,
+                        "seed_run_id": _safe_run_id(self._seed),
+                    },
+                    output_dir=workspace,
+                    parent_run_id=parent_run_id,
+                    tags=tags,
+                    manager_prompt_prefix=prefix,
+                    budget=iter_budget,
+                    model=self._model,
+                    worker_model=self._worker_model,
+                )
+                cumulative_wall += time.time() - t0
+
+                loss = float(compute_run_loss(run_dir).total)
+                status = _read_status(run_dir)
+
+                outcomes.append(
+                    IterationOutcome(
+                        k=k,
+                        run_id=run_id,
+                        run_dir=run_dir,
+                        loss=loss,
+                        status=status,
+                        parent_run_id=parent_run_id,
+                    )
+                )
+
+                if loss < best_loss:
+                    best_loss = loss
+                    best_iter = k
+
+                if last_loss is None:
                     regression_streak = 0
-                if abs(loss - last_loss) < _PLATEAU_EPS:
-                    plateau_streak += 1
-                else:
                     plateau_streak = 0
+                else:
+                    if loss >= last_loss:
+                        regression_streak += 1
+                    else:
+                        regression_streak = 0
+                    if abs(loss - last_loss) < _PLATEAU_EPS:
+                        plateau_streak += 1
+                    else:
+                        plateau_streak = 0
 
-            last_loss = loss
-            parent_run_id = run_id
+                last_loss = loss
+                parent_run_id = run_id
 
-            if regression_streak >= _REGRESSION_REQUIRED:
-                stop_reason = "regression"
-                break
-            if plateau_streak >= _PLATEAU_REQUIRED:
-                stop_reason = "plateau"
-                break
-            if cumulative_wall >= wall_cap and k < iterations:
-                stop_reason = "wall_time_exhausted"
-                break
-
-        completed_at = _utcnow()
-        session = RefinementSession(
-            session_id=session_id,
-            seed_run_id=_safe_run_id(self._seed),
-            started_at=started_at,
-            completed_at=completed_at,
-            stop_reason=stop_reason,
-            best_iter=best_iter,
-            iterations=[
-                RefinementIteration(k=o.k, run_id=o.run_id, loss=o.loss, status=o.status)
-                for o in outcomes
-            ],
-        )
-        write_session_sidecar(seed_run_dir=self._seed, session=session)
-
-        if best_iter > 0:
-            winning = outcomes[best_iter - 1].run_dir
-            write_best_pointer(
-                seed_run_dir=self._seed,
-                winning_run_dir=winning,
+                if regression_streak >= _REGRESSION_REQUIRED:
+                    stop_reason = "regression"
+                    break
+                if plateau_streak >= _PLATEAU_REQUIRED:
+                    stop_reason = "plateau"
+                    break
+                if cumulative_wall >= wall_cap and k < iterations:
+                    stop_reason = "wall_time_exhausted"
+                    break
+        except Exception as exc:  # noqa: BLE001
+            # Capture the error on the session so the sidecar records
+            # why the loop terminated abnormally. The exception is
+            # re-raised AFTER the finalize block below.
+            loop_error = f"{type(exc).__name__}: {exc}"
+            stop_reason = f"error:{type(exc).__name__}"
+            logger.exception("refinement loop aborted by exception")
+            raise
+        finally:
+            completed_at = _utcnow()
+            session = RefinementSession(
                 session_id=session_id,
-                best_loss=best_loss,
-                seed_loss=seed_loss,
+                seed_run_id=_safe_run_id(self._seed),
+                started_at=started_at,
+                completed_at=completed_at,
+                stop_reason=stop_reason,
+                best_iter=best_iter,
+                iterations=[
+                    RefinementIteration(k=o.k, run_id=o.run_id, loss=o.loss, status=o.status)
+                    for o in outcomes
+                ],
             )
+            try:
+                write_session_sidecar(seed_run_dir=self._seed, session=session)
+            except Exception as sidecar_exc:  # noqa: BLE001
+                logger.warning(
+                    "refinement.sidecar.write_failed seed=%s error=%s",
+                    self._seed,
+                    sidecar_exc,
+                )
+
+            if best_iter > 0:
+                try:
+                    write_best_pointer(
+                        seed_run_dir=self._seed,
+                        winning_run_dir=outcomes[best_iter - 1].run_dir,
+                        session_id=session_id,
+                        best_loss=best_loss,
+                        seed_loss=seed_loss,
+                    )
+                except Exception as best_exc:  # noqa: BLE001
+                    logger.warning(
+                        "refinement.best.write_failed seed=%s error=%s",
+                        self._seed,
+                        best_exc,
+                    )
 
         return RefinementResult(
             session_id=session_id,
@@ -329,6 +375,62 @@ class RefinementLoop:
         }
         seed_loss = float(compute_run_loss(self._seed).total)
         return budget, observed_wall, seed_task, seed_loss
+
+
+def _ensure_final_dir(run_dir: Path) -> None:
+    """Guarantee ``<run_dir>/FINAL/`` exists and is non-empty.
+
+    The runtime's ``_write_canonical_final_output`` only populates FINAL
+    when declared deliverables exist. For a refinement iteration that
+    produced *some* output (even imperfectly), we still need a starting
+    deliverable for the next iteration to seed from. This helper walks
+    up to the workflow workspace, finds ``output/<run_id>/``, and hard-
+    links (copy fallback) its contents into ``<run_dir>/FINAL/``.
+
+    No-op if FINAL already exists and is non-empty, or if no output is
+    found. Never raises — errors are logged and swallowed so the caller
+    can fall back to the explicit "no_prior_deliverable" stop reason.
+    """
+    final_dir = run_dir / "FINAL"
+    if final_dir.exists() and any(final_dir.iterdir()):
+        return
+
+    # Walk up the parent chain looking for ``<workspace>/output/``.
+    workspace = run_dir.parent
+    for _ in range(6):  # generous upward probe; the path is at most 4-5 deep
+        if (workspace / "output").exists():
+            break
+        if workspace == workspace.parent:
+            return
+        workspace = workspace.parent
+    output_root = workspace / "output"
+    if not output_root.exists():
+        return
+
+    candidates = [p for p in output_root.iterdir() if p.is_dir()]
+    if not candidates:
+        return
+    # Prefer a subdir matching the run_dir name (run_id); else first.
+    source = next((c for c in candidates if c.name == run_dir.name), candidates[0])
+
+    import os
+
+    try:
+        final_dir.mkdir(parents=True, exist_ok=True)
+        for item in source.rglob("*"):
+            if item.is_dir():
+                continue
+            rel = item.relative_to(source)
+            dst = final_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(item, dst)
+            except OSError:
+                shutil.copy2(item, dst)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "refinement.ensure_final.failed run_dir=%s error=%s", run_dir, exc
+        )
 
 
 def default_workflow_factory(
