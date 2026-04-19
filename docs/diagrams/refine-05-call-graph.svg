@@ -1,0 +1,84 @@
+<svg viewBox="0 0 880 560" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="880" height="560">
+  <defs>
+    <marker id="arr5" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#60a5fa"/></marker>
+    <marker id="arr5b" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#3b82f6"/></marker>
+    <marker id="arr5loop" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#93c5fd"/></marker>
+  </defs>
+
+  <rect width="880" height="560" rx="14" fill="#0b1e3a"/>
+  <text x="440" y="32" text-anchor="middle" fill="#93c5fd" font-size="15" font-weight="700" letter-spacing="2">REFINEMENTLOOP.RUN · CALL GRAPH</text>
+  <text x="440" y="50" text-anchor="middle" fill="#64748b" font-size="11" font-style="italic">try/finally guarantees the session sidecar on every exit path</text>
+
+  <!-- CLI entry -->
+  <rect x="300" y="70" width="280" height="54" rx="10" fill="#1e3a5f" stroke="#60a5fa" stroke-width="1.8"/>
+  <text x="440" y="92" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="700">awp refine &lt;seed&gt; --iterations N</text>
+  <text x="440" y="110" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">awp.cli.cmd_refine</text>
+
+  <line x1="440" y1="124" x2="440" y2="144" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr5)"/>
+
+  <!-- RefinementLoop.run -->
+  <rect x="250" y="146" width="380" height="36" rx="8" fill="#11294a" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="440" y="169" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="700" font-family="monospace">RefinementLoop(seed_run_dir=…).run(iterations=N)</text>
+
+  <line x1="440" y1="182" x2="440" y2="200" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr5)"/>
+
+  <!-- extract_gradient + R36 -->
+  <rect x="250" y="204" width="380" height="44" rx="8" fill="#0f2644" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="440" y="225" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600" font-family="monospace">extract_gradient(&lt;seed&gt;)  +  R36 check</text>
+  <text x="440" y="241" text-anchor="middle" fill="#fbbf24" font-size="10">if empty → raise NothingToRefine (exit 0, "nothing to refine")</text>
+
+  <line x1="440" y1="248" x2="440" y2="266" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr5)"/>
+
+  <!-- _read_seed_context -->
+  <rect x="250" y="270" width="380" height="34" rx="8" fill="#0f2644" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="440" y="291" text-anchor="middle" fill="#93c5fd" font-size="11" font-family="monospace">_read_seed_context()  →  budget · wall · task · seed_loss</text>
+
+  <line x1="440" y1="304" x2="440" y2="322" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr5)"/>
+
+  <!-- try block header -->
+  <rect x="130" y="326" width="620" height="190" rx="12" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="150" y="346" fill="#fbbf24" font-size="11" font-weight="700" font-family="monospace">try:</text>
+
+  <!-- Iter loop box -->
+  <rect x="160" y="356" width="560" height="104" rx="10" fill="#11294a" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="440" y="378" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="700" font-family="monospace">for k in 1..N:</text>
+  <!-- loop body bullets -->
+  <text x="180" y="398" fill="#94a3b8" font-size="10" font-family="monospace">1.  _ensure_final_dir(prior_run)                      ← promote output/ → FINAL/ fallback</text>
+  <text x="180" y="414" fill="#94a3b8" font-size="10" font-family="monospace">2.  prepare_iteration_workspace(workspace_k, prior_final)</text>
+  <text x="180" y="430" fill="#94a3b8" font-size="10" font-family="monospace">3.  gradient = extract_gradient(prior_run)   +   write gradient_input.json</text>
+  <text x="180" y="446" fill="#94a3b8" font-size="10" font-family="monospace">4.  run_id, run_dir = factory(task, budget_halved, manager_prompt_prefix=render(…))</text>
+  <text x="180" y="462" fill="#94a3b8" font-size="10" font-family="monospace">5.  loss = compute_run_loss(run_dir)   →   best-so-far   →   stop checks</text>
+
+  <!-- loop-back arrow -->
+  <path d="M 720 408 C 760 408, 760 388, 720 388" fill="none" stroke="#93c5fd" stroke-width="1.8" marker-end="url(#arr5loop)"/>
+  <text x="768" y="402" fill="#93c5fd" font-size="10" font-weight="600">next k</text>
+
+  <!-- Exception note -->
+  <rect x="160" y="470" width="560" height="36" rx="8" fill="#1a0f2a" stroke="#f59e0b" stroke-width="1"/>
+  <text x="440" y="492" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">on any exception:  stop_reason = "error:&lt;ExcName&gt;"  ·  re-raised AFTER finally block runs</text>
+
+  <line x1="440" y1="516" x2="440" y2="528" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr5)"/>
+
+  <!-- finally block -->
+  <rect x="130" y="528" width="620" height="24" rx="8" fill="#2a1f0a" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="440" y="545" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="700" font-family="monospace">finally:  write_session_sidecar(…)  ·  if best_iter &gt; 0: write_best_pointer(…)</text>
+
+  <!-- Side panel left: signals -->
+  <rect x="16" y="146" width="106" height="200" rx="10" fill="#0f2644" stroke="#3b82f6" stroke-width="1"/>
+  <text x="69" y="166" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="700">inputs</text>
+  <line x1="28" y1="172" x2="110" y2="172" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="69" y="190" text-anchor="middle" fill="#94a3b8" font-size="9">seed</text>
+  <text x="69" y="204" text-anchor="middle" fill="#94a3b8" font-size="9">iterations</text>
+  <text x="69" y="218" text-anchor="middle" fill="#94a3b8" font-size="9">model (opt)</text>
+  <text x="69" y="232" text-anchor="middle" fill="#94a3b8" font-size="9">worker (opt)</text>
+
+  <!-- Side panel right: outputs -->
+  <rect x="758" y="146" width="106" height="200" rx="10" fill="#0f2644" stroke="#3b82f6" stroke-width="1"/>
+  <text x="811" y="166" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="700">outputs</text>
+  <line x1="770" y1="172" x2="852" y2="172" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="811" y="190" text-anchor="middle" fill="#94a3b8" font-size="9">RefinementResult</text>
+  <text x="811" y="204" text-anchor="middle" fill="#94a3b8" font-size="9">session sidecar</text>
+  <text x="811" y="218" text-anchor="middle" fill="#94a3b8" font-size="9">BEST/manifest</text>
+  <text x="811" y="232" text-anchor="middle" fill="#94a3b8" font-size="9">iter run_dirs</text>
+  <text x="811" y="246" text-anchor="middle" fill="#94a3b8" font-size="9">exit code</text>
+</svg>

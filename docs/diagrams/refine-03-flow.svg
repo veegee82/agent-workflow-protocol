@@ -1,0 +1,68 @@
+<svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="900" height="420">
+  <defs>
+    <marker id="arr3" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8" fill="#60a5fa"/></marker>
+    <marker id="arr3best" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8" fill="#fbbf24"/></marker>
+  </defs>
+
+  <rect width="900" height="420" rx="14" fill="#0b1e3a"/>
+  <text x="450" y="32" text-anchor="middle" fill="#93c5fd" font-size="15" font-weight="700" letter-spacing="2">SEED → ITERATION CHAIN → BEST</text>
+  <text x="450" y="50" text-anchor="middle" fill="#64748b" font-size="11" font-style="italic">each iteration is a first-class experiment linked by parent_run_id</text>
+
+  <!-- Seed -->
+  <rect x="40" y="160" width="180" height="130" rx="10" fill="#11294a" stroke="#60a5fa" stroke-width="2"/>
+  <text x="130" y="184" text-anchor="middle" fill="#dbeafe" font-size="13" font-weight="700">SEED</text>
+  <text x="130" y="204" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">&lt;seed_run_dir&gt;</text>
+  <line x1="60" y1="214" x2="200" y2="214" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="130" y="232" text-anchor="middle" fill="#94a3b8" font-size="10">status: partial</text>
+  <text x="130" y="246" text-anchor="middle" fill="#94a3b8" font-size="10">critique: 9 defects</text>
+  <text x="130" y="265" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="700">loss = 0.5043</text>
+  <text x="130" y="282" text-anchor="middle" fill="#64748b" font-size="9" font-style="italic">parent_run_id: null</text>
+
+  <!-- Iter 1 -->
+  <rect x="260" y="160" width="180" height="130" rx="10" fill="#11294a" stroke="#93c5fd" stroke-width="2"/>
+  <text x="350" y="184" text-anchor="middle" fill="#dbeafe" font-size="13" font-weight="700">ITER 1</text>
+  <text x="350" y="204" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">refine_&lt;ts&gt;/iter_1/</text>
+  <line x1="280" y1="214" x2="420" y2="214" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="350" y="232" text-anchor="middle" fill="#94a3b8" font-size="10">budget halved</text>
+  <text x="350" y="246" text-anchor="middle" fill="#94a3b8" font-size="10">input/ ← seed/FINAL/</text>
+  <text x="350" y="265" text-anchor="middle" fill="#86efac" font-size="11" font-weight="700">loss = 0.3500  ✓ best</text>
+  <text x="350" y="282" text-anchor="middle" fill="#64748b" font-size="9" font-style="italic">parent_run_id: seed</text>
+
+  <!-- Iter 2 -->
+  <rect x="480" y="160" width="180" height="130" rx="10" fill="#11294a" stroke="#93c5fd" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="570" y="184" text-anchor="middle" fill="#dbeafe" font-size="13" font-weight="700">ITER 2</text>
+  <text x="570" y="204" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">refine_&lt;ts&gt;/iter_2/</text>
+  <line x1="500" y1="214" x2="640" y2="214" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="570" y="232" text-anchor="middle" fill="#94a3b8" font-size="10">input/ ← iter_1/FINAL/</text>
+  <text x="570" y="251" text-anchor="middle" fill="#94a3b8" font-size="10">(or promoted output/)</text>
+  <text x="570" y="275" text-anchor="middle" fill="#64748b" font-size="10" font-style="italic">…may stop early on</text>
+  <text x="570" y="282" text-anchor="middle" fill="#64748b" font-size="9" font-style="italic">regression / plateau</text>
+
+  <!-- Arrows seed -> iter1 -> iter2 -->
+  <line x1="220" y1="225" x2="258" y2="225" stroke="#60a5fa" stroke-width="2.2" marker-end="url(#arr3)"/>
+  <text x="239" y="218" text-anchor="middle" fill="#60a5fa" font-size="9">iter 1</text>
+  <line x1="440" y1="225" x2="478" y2="225" stroke="#60a5fa" stroke-width="2.2" marker-end="url(#arr3)"/>
+  <text x="459" y="218" text-anchor="middle" fill="#60a5fa" font-size="9">iter 2</text>
+
+  <!-- BEST pointer -->
+  <rect x="700" y="160" width="170" height="130" rx="10" fill="#2a1f0a" stroke="#fbbf24" stroke-width="2"/>
+  <text x="785" y="184" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="700">BEST</text>
+  <text x="785" y="204" text-anchor="middle" fill="#fde68a" font-size="10" font-family="monospace">&lt;seed&gt;/BEST/</text>
+  <line x1="715" y1="214" x2="855" y2="214" stroke="#78350f" stroke-width="1"/>
+  <text x="785" y="232" text-anchor="middle" fill="#fde68a" font-size="10">manifest.json</text>
+  <text x="785" y="248" text-anchor="middle" fill="#fde68a" font-size="10">+ hard-linked files</text>
+  <text x="785" y="268" text-anchor="middle" fill="#86efac" font-size="11" font-weight="700">Δ = −0.1543</text>
+  <text x="785" y="282" text-anchor="middle" fill="#92400e" font-size="9" font-style="italic">overwrites only on improvement</text>
+
+  <!-- BEST diagonal arrow from iter 1 -->
+  <line x1="440" y1="200" x2="700" y2="190" stroke="#fbbf24" stroke-width="2" stroke-dasharray="3 3" marker-end="url(#arr3best)"/>
+  <text x="570" y="175" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">promote winning iter → BEST</text>
+
+  <!-- Sidecar note -->
+  <rect x="40" y="320" width="820" height="46" rx="10" fill="#0f2644" stroke="#3b82f6" stroke-width="1"/>
+  <text x="450" y="342" text-anchor="middle" fill="#93c5fd" font-size="12" font-weight="600">&lt;seed&gt;/refinement_sessions/&lt;session_id&gt;.json  —  sidecar written on EVERY exit (try/finally)</text>
+  <text x="450" y="358" text-anchor="middle" fill="#64748b" font-size="10" font-style="italic">records iterations, best_iter, stop_reason · survives mid-loop exceptions</text>
+
+  <!-- Legend -->
+  <text x="40" y="396" fill="#64748b" font-size="10">solid box = iteration actually ran   ·   dashed box = iteration may stop early   ·   dashed arrow = only on improvement</text>
+</svg>

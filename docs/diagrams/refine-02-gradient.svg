@@ -1,0 +1,74 @@
+<svg viewBox="0 0 820 440" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif" width="820" height="440">
+  <defs>
+    <marker id="arr2a" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8" fill="#60a5fa"/></marker>
+    <marker id="arr2b" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8" fill="#3b82f6"/></marker>
+  </defs>
+
+  <rect width="820" height="440" rx="14" fill="#0b1e3a"/>
+  <text x="410" y="32" text-anchor="middle" fill="#93c5fd" font-size="15" font-weight="700" letter-spacing="2">THE REFINEMENT GRADIENT</text>
+  <text x="410" y="50" text-anchor="middle" fill="#64748b" font-size="11" font-style="italic">deterministic · no LLM call · three signal sources merge into one structured object</text>
+
+  <!-- Three source boxes -->
+  <g>
+    <rect x="40" y="90" width="220" height="110" rx="10" fill="#11294a" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="150" y="114" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="700">critique defects</text>
+    <text x="150" y="132" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">iterations/&lt;k&gt;/critique.json</text>
+    <line x1="60" y1="142" x2="240" y2="142" stroke="#1e3a5f" stroke-width="1"/>
+    <text x="150" y="158" text-anchor="middle" fill="#94a3b8" font-size="10">{category, location,</text>
+    <text x="150" y="172" text-anchor="middle" fill="#94a3b8" font-size="10">description, severity}</text>
+    <text x="150" y="192" text-anchor="middle" fill="#64748b" font-size="9" font-style="italic">per-worker · de-duplicated</text>
+  </g>
+
+  <g>
+    <rect x="300" y="90" width="220" height="110" rx="10" fill="#11294a" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="410" y="114" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="700">gate rejections</text>
+    <text x="410" y="132" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">logs/&lt;run_id&gt;/events.jsonl</text>
+    <line x1="320" y1="142" x2="500" y2="142" stroke="#1e3a5f" stroke-width="1"/>
+    <text x="410" y="158" text-anchor="middle" fill="#94a3b8" font-size="10">category == "gate" ∧</text>
+    <text x="410" y="172" text-anchor="middle" fill="#94a3b8" font-size="10">fields.triggered == true</text>
+    <text x="410" y="192" text-anchor="middle" fill="#64748b" font-size="9" font-style="italic">last 3, most recent first</text>
+  </g>
+
+  <g>
+    <rect x="560" y="90" width="220" height="110" rx="10" fill="#11294a" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="670" y="114" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="700">eval deltas</text>
+    <text x="670" y="132" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">run_completion.evaluation</text>
+    <line x1="580" y1="142" x2="780" y2="142" stroke="#1e3a5f" stroke-width="1"/>
+    <text x="670" y="158" text-anchor="middle" fill="#94a3b8" font-size="10">threshold − observed</text>
+    <text x="670" y="172" text-anchor="middle" fill="#94a3b8" font-size="10">for metrics below bar</text>
+    <text x="670" y="192" text-anchor="middle" fill="#64748b" font-size="9" font-style="italic">positive gaps only</text>
+  </g>
+
+  <!-- Arrows converging -->
+  <line x1="150" y1="205" x2="330" y2="250" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr2a)"/>
+  <line x1="410" y1="205" x2="410" y2="250" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr2a)"/>
+  <line x1="670" y1="205" x2="490" y2="250" stroke="#60a5fa" stroke-width="2" marker-end="url(#arr2a)"/>
+
+  <!-- RefinementGradient box -->
+  <rect x="280" y="255" width="260" height="76" rx="10" fill="#1e3a5f" stroke="#93c5fd" stroke-width="2"/>
+  <text x="410" y="278" text-anchor="middle" fill="#dbeafe" font-size="13" font-weight="700">RefinementGradient</text>
+  <text x="410" y="297" text-anchor="middle" fill="#93c5fd" font-size="10" font-family="monospace">pydantic model</text>
+  <text x="410" y="318" text-anchor="middle" fill="#94a3b8" font-size="10">defects[] · rejected_gates[] · eval_deltas</text>
+
+  <!-- Serialized gradient_input.json -->
+  <line x1="410" y1="333" x2="410" y2="355" stroke="#3b82f6" stroke-width="2" marker-end="url(#arr2b)"/>
+  <rect x="260" y="360" width="300" height="34" rx="6" fill="#0f2644" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="410" y="382" text-anchor="middle" fill="#93c5fd" font-size="11" font-family="monospace">workspace_k/gradient_input.json</text>
+
+  <!-- Render prefix + inject -->
+  <line x1="410" y1="395" x2="410" y2="415" stroke="#3b82f6" stroke-width="2" marker-end="url(#arr2b)"/>
+  <text x="410" y="428" text-anchor="middle" fill="#60a5fa" font-size="11" font-weight="600">rendered as deterministic prefix · prepended to manager's first PLAN user message</text>
+
+  <!-- R36 note -->
+  <rect x="40" y="255" width="220" height="76" rx="8" fill="#1a0f2a" stroke="#f59e0b" stroke-width="1.2"/>
+  <text x="150" y="278" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="700">R36 (normative)</text>
+  <text x="150" y="298" text-anchor="middle" fill="#fbbf24" font-size="9">If all three sources are empty:</text>
+  <text x="150" y="313" text-anchor="middle" fill="#fbbf24" font-size="9" font-family="monospace">raise NothingToRefine</text>
+  <text x="150" y="326" text-anchor="middle" fill="#92400e" font-size="9" font-style="italic">no iteration dispatched</text>
+
+  <rect x="560" y="255" width="220" height="76" rx="8" fill="#0f2644" stroke="#3b82f6" stroke-width="1"/>
+  <text x="670" y="278" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="600">schema-defensive</text>
+  <text x="670" y="296" text-anchor="middle" fill="#94a3b8" font-size="9">reads BOTH the real runtime</text>
+  <text x="670" y="310" text-anchor="middle" fill="#94a3b8" font-size="9">format AND synthetic</text>
+  <text x="670" y="324" text-anchor="middle" fill="#94a3b8" font-size="9">unit-test fixtures</text>
+</svg>

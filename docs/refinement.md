@@ -37,28 +37,7 @@ against.
 
 That framing has two natural axes:
 
-```
-                            ┌──────────────────┐
-                            │ forward pass:    │
-                            │ run → deliverable│
-                            │ → loss           │
-                            └────────┬─────────┘
-                                     │
-                    ┌────────────────┴────────────────┐
-                    │                                 │
-             θ-axis │                                 │ y-axis
-     (policy / prompts)                    (this run's deliverable)
-                    │                                 │
-              ┌─────▼─────┐                      ┌────▼────┐
-              │ optimize  │                      │  refine │
-              │  (A5)     │                      │         │
-              └─────┬─────┘                      └────┬────┘
-                    │                                 │
-          SGD over 6 versioned              test-time inference-compute
-          prompt artifacts                  scaling on a fixed task
-          across a task suite               (Self-Refine / Reflexion
-                                            family)
-```
+![Two axes of SGD in AWP](./diagrams/refine-01-two-axis.svg)
 
 ### 1.1 Why two axes
 
@@ -90,6 +69,8 @@ manager.
 The refinement gradient is **not** a numerical vector. It is a
 structured, deterministic summary of what the prior run got wrong,
 extracted from on-disk artifacts without any LLM call:
+
+![The refinement gradient — three signal sources merge](./diagrams/refine-02-gradient.svg)
 
 | Source | Signal | Produced by |
 |---|---|---|
@@ -148,6 +129,8 @@ pointer.
 
 The loop is a best-so-far tracker with four short-circuits:
 
+![Loss trajectory and convergence guards](./diagrams/refine-04-loss-curve.svg)
+
 | Stop | Why |
 |---|---|
 | `max_iterations` | `k == N` (`--iterations`, clamped `[1, 10]`, default 3). |
@@ -165,6 +148,10 @@ what happened.
 ---
 
 ## 2. Architecture: the seed → BEST flow
+
+![Seed → iteration chain → BEST pointer](./diagrams/refine-03-flow.svg)
+
+Full on-disk tree:
 
 ```
 <seed_run_dir>/                          <-- completed AWP run, returned by awp run / UI
@@ -208,7 +195,9 @@ for the panel that surfaces it next to a seed run's history entry.
 
 ## 3. Mechanism in code
 
-One page of call-graph:
+![RefinementLoop.run call graph](./diagrams/refine-05-call-graph.svg)
+
+One page of call-graph (text form):
 
 ```
 awp refine <seed> --iterations N
