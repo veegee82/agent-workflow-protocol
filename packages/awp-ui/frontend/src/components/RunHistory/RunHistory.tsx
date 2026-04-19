@@ -9,10 +9,15 @@ import {
   Loader2,
   Circle,
   Play,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import type { RunHistoryEntry } from '@/types';
 import clsx from 'clsx';
+import { RefineModal } from '@/components/Refinement/RefineModal';
+import { RefinementSessionsList } from '@/components/Refinement/RefinementSessionsList';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,6 +77,10 @@ const statusConfig: Record<
 // Run entry card
 // ---------------------------------------------------------------------------
 
+/** Runs with these statuses are eligible for `awp refine` — matches
+ *  backend guard in `start_refinement` (accepts complete/partial). */
+const REFINABLE_STATUSES = new Set(['complete', 'partial', 'completed']);
+
 function RunEntry({
   entry,
   onLoad,
@@ -82,7 +91,18 @@ function RunEntry({
   onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const cfg = statusConfig[entry.status] ?? statusConfig.idle;
+  const refinable = REFINABLE_STATUSES.has(entry.status);
+
+  // Clear any transient toast after a few seconds so it doesn't linger.
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   return (
     <div className="group rounded-lg border border-awp-border bg-awp-bg hover:border-awp-blue/30 transition-colors">
@@ -125,6 +145,30 @@ function RunEntry({
           <Play className="h-2.5 w-2.5" />
           Load
         </button>
+        {refinable && (
+          <>
+            <button
+              onClick={() => setHistoryOpen((v) => !v)}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] text-awp-muted hover:text-awp-blue hover:bg-awp-blue/10 transition-colors"
+              aria-expanded={historyOpen}
+              aria-label={historyOpen ? 'Hide refinement history' : 'Show refinement history'}
+            >
+              {historyOpen ? (
+                <ChevronDown className="h-2.5 w-2.5" />
+              ) : (
+                <ChevronRight className="h-2.5 w-2.5" />
+              )}
+              Refinements
+            </button>
+            <button
+              onClick={() => setRefineOpen(true)}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] text-awp-muted hover:text-awp-blue hover:bg-awp-blue/10 transition-colors"
+            >
+              <Sparkles className="h-2.5 w-2.5" />
+              Refine
+            </button>
+          </>
+        )}
         {confirmDelete ? (
           <div className="flex items-center gap-1">
             <span className="text-[10px] text-awp-red">Delete?</span>
@@ -154,6 +198,31 @@ function RunEntry({
           </button>
         )}
       </div>
+
+      {/* Refinement history panel (expandable) */}
+      {refinable && historyOpen && (
+        <div className="border-t border-awp-border/30 px-3 py-3">
+          <RefinementSessionsList runId={entry.run_id} />
+        </div>
+      )}
+
+      {toast && (
+        <div className="border-t border-awp-blue/30 bg-awp-blue/10 px-3 py-1.5 text-[10px] text-awp-blue">
+          {toast}
+        </div>
+      )}
+
+      {refineOpen && (
+        <RefineModal
+          runId={entry.run_id}
+          seedModel={entry.model}
+          onClose={() => setRefineOpen(false)}
+          onStarted={(sessionId) => {
+            setToast(`Refinement ${sessionId} started — expand "Refinements" to track progress.`);
+            setHistoryOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 }

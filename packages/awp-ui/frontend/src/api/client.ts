@@ -13,6 +13,9 @@ import type {
   SessionHistoryItem,
   SecretEntry,
   MemoryEntry,
+  RefinementSessionsResponse,
+  RefinementStartRequest,
+  RefinementStartResponse,
 } from '@/types';
 
 /**
@@ -621,6 +624,44 @@ export async function fetchArtifactVersions(
     `/api/artifacts/${encodeURIComponent(name)}/versions`,
   );
   return data.versions;
+}
+
+// ---------------------------------------------------------------------------
+// Refinement Mode (y-axis optimization) — see docs/refinement.md
+// ---------------------------------------------------------------------------
+
+/**
+ * Kick off a refinement session against a completed run.
+ *
+ * Backend enforces:
+ *   - iterations ∈ [1, 10]                (422 on violation)
+ *   - run_id exists in the experiment DB  (404 on miss)
+ *   - seed has FINAL/ and refinable status (409 otherwise)
+ */
+export async function startRefinement(
+  runId: string,
+  body: RefinementStartRequest,
+): Promise<RefinementStartResponse> {
+  return request<RefinementStartResponse>(
+    `/api/experiments/${encodeURIComponent(runId)}/refine`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        iterations: body.iterations,
+        model: body.model ?? null,
+        worker_model: body.worker_model ?? null,
+      }),
+    },
+  );
+}
+
+/** Fetch all refinement sessions and the current BEST manifest for a seed run. */
+export async function getRefinementSessions(
+  runId: string,
+): Promise<RefinementSessionsResponse> {
+  return request<RefinementSessionsResponse>(
+    `/api/experiments/${encodeURIComponent(runId)}/refinement_sessions`,
+  );
 }
 
 /** Get server version from health endpoint. */

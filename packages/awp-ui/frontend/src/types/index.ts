@@ -267,6 +267,53 @@ export interface SecretEntry {
   updated_at: string;
 }
 
+/** One iteration inside a refinement session — mirrors `RefinementIteration` from awp.refinement.session. */
+export interface RefinementIteration {
+  k: number;
+  run_id: string;
+  loss: number;
+  status: string;
+}
+
+/** Session sidecar (`<seed>/refinement_sessions/<session_id>.json`). */
+export interface RefinementSession {
+  session_id: string;
+  seed_run_id: string;
+  started_at: string;
+  completed_at: string;
+  stop_reason: string;
+  best_iter: number;
+  iterations: RefinementIteration[];
+}
+
+/** BEST pointer manifest (`<seed>/BEST/manifest.json`). */
+export interface RefinementBestManifest {
+  best_run_id: string;
+  best_loss: number;
+  seed_loss: number;
+  session_id: string;
+  winning_run_dir?: string;
+}
+
+/** Response payload from `GET /api/experiments/{run_id}/refinement_sessions`. */
+export interface RefinementSessionsResponse {
+  sessions: RefinementSession[];
+  best: RefinementBestManifest | null;
+}
+
+/** Response payload from `POST /api/experiments/{run_id}/refine`. */
+export interface RefinementStartResponse {
+  session_id: string;
+  status: string;
+}
+
+/** Request body for `POST /api/experiments/{run_id}/refine`. */
+export interface RefinementStartRequest {
+  iterations: number;
+  model?: string | null;
+  worker_model?: string | null;
+}
+
 /** Snapshot of per-session state for the in-memory session cache. */
 export interface CachedSessionState {
   sessionId: string;
