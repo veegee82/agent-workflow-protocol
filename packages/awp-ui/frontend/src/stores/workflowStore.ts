@@ -217,6 +217,13 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   budget_reservation_enabled: true,
   decision_journal_enabled: true,
   decision_journal_max_entries: 20,
+  // Optimizer defaults
+  outer_loop_enabled: false,
+  outer_loop_default_epochs: 3,
+  outer_loop_default_learning_rate: 0.5,
+  outer_loop_with_textgrad: true,
+  refinement_enabled: true,
+  refinement_default_iterations: 3,
 };
 
 const DEFAULT_BUDGET: BudgetState = {

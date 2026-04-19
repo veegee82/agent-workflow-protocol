@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { X, Sparkles, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import { startRefinement } from '@/api/client';
+import { useWorkflowStore } from '@/stores/workflowStore';
 
 /**
  * RefineModal — form for starting a refinement session.
@@ -22,7 +23,6 @@ export interface RefineModalProps {
 
 const MIN_ITERATIONS = 1;
 const MAX_ITERATIONS = 10;
-const DEFAULT_ITERATIONS = 3;
 
 export function RefineModal({
   runId,
@@ -31,7 +31,11 @@ export function RefineModal({
   onClose,
   onStarted,
 }: RefineModalProps) {
-  const [iterations, setIterations] = useState<number>(DEFAULT_ITERATIONS);
+  // Pre-fill iterations from Settings → Optimizers → Refinement default.
+  const defaultIterations = useWorkflowStore(
+    (s) => s.config.refinement_default_iterations,
+  );
+  const [iterations, setIterations] = useState<number>(defaultIterations);
   const [model, setModel] = useState<string>('');
   const [workerModel, setWorkerModel] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);

@@ -223,6 +223,12 @@ function TopBar() {
   const toggleInspector = useWorkflowStore((s) => s.toggleInspector);
   const currentSessionId = useWorkflowStore((s) => s.currentSessionId);
   const sessions = useWorkflowStore((s) => s.sessions);
+  // Gate on Settings → Optimizers → Outer Loop. When disabled, the
+  // Optimizer tab is hidden from the nav; `awp optimize` is still
+  // invokable from the CLI.
+  const outerLoopEnabled = useWorkflowStore(
+    (s) => s.config.outer_loop_enabled,
+  );
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -237,7 +243,9 @@ function TopBar() {
     { id: 'graphvis' as const, label: 'Graph Vis', icon: <Network className="h-4 w-4" /> },
     { id: 'memory' as const, label: 'Memory', icon: <BookOpen className="h-4 w-4" /> },
     { id: 'history' as const, label: 'History', icon: <History className="h-4 w-4" /> },
-    { id: 'optimizer' as const, label: 'Optimizer', icon: <FlaskConical className="h-4 w-4" /> },
+    ...(outerLoopEnabled
+      ? [{ id: 'optimizer' as const, label: 'Optimizer', icon: <FlaskConical className="h-4 w-4" /> }]
+      : []),
   ];
 
   const tokensPercent = budget.tokens_max > 0 ? budget.tokens_used / budget.tokens_max : 0;

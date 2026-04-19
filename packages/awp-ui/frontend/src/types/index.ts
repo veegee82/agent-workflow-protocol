@@ -34,6 +34,18 @@ export interface WorkflowConfig {
   budget_reservation_enabled: boolean;
   decision_journal_enabled: boolean;
   decision_journal_max_entries: number;
+  // Optimizers — pre-run defaults for the two SGD modes exposed by
+  // awp (outer loop over θ, refinement over y). See docs/outer-loop.md
+  // and docs/refinement.md. These are NOT invoked inline by
+  // `awp run` — they are separate commands/workflows. The config
+  // carries the user's preferred defaults so the Optimizer panel
+  // and the RefineModal do not need to hard-code them.
+  outer_loop_enabled: boolean;
+  outer_loop_default_epochs: number;
+  outer_loop_default_learning_rate: number;
+  outer_loop_with_textgrad: boolean;
+  refinement_enabled: boolean;
+  refinement_default_iterations: number;
 }
 
 /** WebSocket event types pushed from the backend during a run. */

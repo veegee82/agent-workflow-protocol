@@ -95,7 +95,14 @@ function RunEntry({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const cfg = statusConfig[entry.status] ?? statusConfig.idle;
-  const refinable = REFINABLE_STATUSES.has(entry.status);
+  // Gate on both run status AND the user's Settings → Optimizers →
+  // Refinement toggle. Users who don't want the button visible opt
+  // out there.
+  const refinementEnabled = useWorkflowStore(
+    (s) => s.config.refinement_enabled,
+  );
+  const refinable =
+    refinementEnabled && REFINABLE_STATUSES.has(entry.status);
 
   // Clear any transient toast after a few seconds so it doesn't linger.
   useEffect(() => {

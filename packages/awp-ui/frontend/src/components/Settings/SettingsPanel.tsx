@@ -22,6 +22,8 @@ import {
   AlertCircle,
   Check,
   Brain,
+  Sparkles,
+  Dna,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Panel } from '@/components/Layout';
@@ -1091,6 +1093,146 @@ export function SettingsPanel() {
               onChange={(v) => updateConfig({ decision_journal_max_entries: v })}
             />
           )}
+        </div>
+      </Panel>
+
+      {/* Optimizers — two SGD modes exposed by awp: θ-axis (outer loop)
+          and y-axis (refinement). Not invoked inline by a single run;
+          these are defaults for the separate awp optimize / awp refine
+          workflows. */}
+      <Panel
+        title="Optimizers"
+        icon={<Dna className="h-3.5 w-3.5 text-awp-blue" />}
+        defaultOpen={false}
+      >
+        <div className="space-y-5">
+          <p className="text-[11px] text-awp-muted leading-relaxed">
+            Two SGD modes run outside a normal{' '}
+            <code className="rounded bg-awp-border/40 px-1 font-mono text-[10px]">
+              awp run
+            </code>
+            . Both reduce the same scalar loss but move different
+            parameters: the outer loop trains the policy (θ — prompt
+            artifacts); refinement polishes a single run's deliverable
+            (y). Disjoint state · compose cleanly.
+          </p>
+
+          {/* Outer Loop — θ-axis */}
+          <div className="rounded-lg border border-awp-border/60 bg-awp-bg/40 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Dna className="h-3.5 w-3.5 text-awp-blue" />
+              <h4 className="text-xs font-semibold text-awp-text">
+                Outer Loop — θ-axis SGD{' '}
+                <span className="text-[10px] font-normal text-awp-muted">
+                  (A5, experimental)
+                </span>
+              </h4>
+            </div>
+            <p className="text-[10px] text-awp-muted leading-relaxed">
+              LLM-as-optimizer (TextGrad) updates six versioned prompt
+              artifacts across a task suite; rollback halves the
+              learning rate on mean-loss regression. Launch via{' '}
+              <code className="rounded bg-awp-border/40 px-1 font-mono">
+                awp optimize
+              </code>{' '}
+              or the Optimizer tab.{' '}
+              <a
+                href="https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/outer-loop.md"
+                target="_blank"
+                rel="noreferrer"
+                className="text-awp-blue hover:underline"
+              >
+                Learn more →
+              </a>
+            </p>
+            <ToggleSwitch
+              label="Surface in UI"
+              description="Show the Optimizer tab and expose the suite/epoch charts"
+              checked={config.outer_loop_enabled}
+              onChange={(v) => updateConfig({ outer_loop_enabled: v })}
+            />
+            {config.outer_loop_enabled && (
+              <>
+                <SliderInput
+                  label="Default Epochs"
+                  description="Suite runs per optimize invocation"
+                  value={config.outer_loop_default_epochs}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onChange={(v) =>
+                    updateConfig({ outer_loop_default_epochs: v })
+                  }
+                />
+                <SliderInput
+                  label="Default Learning Rate"
+                  description="Halved on each mean-loss regression"
+                  value={config.outer_loop_default_learning_rate * 100}
+                  min={5}
+                  max={100}
+                  step={5}
+                  onChange={(v) =>
+                    updateConfig({
+                      outer_loop_default_learning_rate: v / 100,
+                    })
+                  }
+                  format={(v) => `${(v / 100).toFixed(2)}`}
+                />
+                <ToggleSwitch
+                  label="Use TextGrad (LLM-as-optimizer)"
+                  description="Without this, epochs still run but no artifact is touched"
+                  checked={config.outer_loop_with_textgrad}
+                  onChange={(v) =>
+                    updateConfig({ outer_loop_with_textgrad: v })
+                  }
+                />
+              </>
+            )}
+          </div>
+
+          {/* Refinement — y-axis */}
+          <div className="rounded-lg border border-awp-border/60 bg-awp-bg/40 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-awp-blue" />
+              <h4 className="text-xs font-semibold text-awp-text">
+                Refinement — y-axis SGD
+              </h4>
+            </div>
+            <p className="text-[10px] text-awp-muted leading-relaxed">
+              Task-local inference-compute scaling: iteratively refines
+              a completed run's deliverable using critique + gate +
+              eval signals as a deterministic gradient (R36 aborts on
+              empty). Triggered from any complete/partial run's{' '}
+              <strong>Refine</strong> button in the Run History.{' '}
+              <a
+                href="https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/refinement.md"
+                target="_blank"
+                rel="noreferrer"
+                className="text-awp-blue hover:underline"
+              >
+                Learn more →
+              </a>
+            </p>
+            <ToggleSwitch
+              label="Enable Refine button"
+              description="Show 'Refine' + 'Refinements' controls on run-history entries"
+              checked={config.refinement_enabled}
+              onChange={(v) => updateConfig({ refinement_enabled: v })}
+            />
+            {config.refinement_enabled && (
+              <SliderInput
+                label="Default Iterations"
+                description="Pre-filled in the Refine modal (1–10; budget halves per iter)"
+                value={config.refinement_default_iterations}
+                min={1}
+                max={10}
+                step={1}
+                onChange={(v) =>
+                  updateConfig({ refinement_default_iterations: v })
+                }
+              />
+            )}
+          </div>
         </div>
       </Panel>
 
