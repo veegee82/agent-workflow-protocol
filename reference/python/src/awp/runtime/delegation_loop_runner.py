@@ -2512,6 +2512,50 @@ class DelegationLoopRunner:
             )
             logger.info("Critique engine active (max_repair=%d)", critique_cfg.max_repair_attempts)
 
+        # Layer-0 Output Contract validator (R34). Defaults to all 6
+        # bundled checks (``no_placeholder``, ``no_text_loop``,
+        # ``file_size_delta``, ``no_duplicate_headings``,
+        # ``balanced_delimiters``, ``json_valid_if_claimed``) unless an
+        # ``observability.output_contract`` block was supplied via
+        # ``extra_config`` (read through ``getattr`` to avoid coupling
+        # runner imports to the core ``ObservabilityConfig`` schema).
+        # Registered here so every completion attempt short-circuits on
+        # bit-level defects before burning LLM tokens on critique.
+        from .critique.l0_validator import L0Validator as _L0Validator
+        from .critique.contracts import OutputContract as _OutputContract
+        _l0_cfg = getattr(config, "output_contract", None)
+        if _l0_cfg is None:
+            self._l0_validator: Optional[_L0Validator] = _L0Validator(
+                _OutputContract()
+            )
+        else:
+            try:
+                contract = _OutputContract(
+                    checks=list(getattr(_l0_cfg, "checks", None) or ["default"]),
+                    extra=[
+                        (
+                            dict(ex.model_dump()) if hasattr(ex, "model_dump")
+                            else dict(ex) if isinstance(ex, dict)
+                            else {}
+                        )
+                        for ex in (getattr(_l0_cfg, "extra", None) or [])
+                    ],
+                    enabled=bool(getattr(_l0_cfg, "enabled", True)),
+                )
+                self._l0_validator = (
+                    _L0Validator(contract) if contract.enabled else None
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to parse output_contract config; using defaults",
+                    exc_info=True,
+                )
+                self._l0_validator = _L0Validator(_OutputContract())
+        # Per-artifact byte-size memory used by the ``file_size_delta``
+        # check to detect append-leaks across repair attempts. Keyed on
+        # absolute path string → last observed byte size.
+        self._l0_previous_sizes: dict[str, int] = {}
+
         # Release C — pipelined critique / manager-planning cache. When
         # ``pipeline_critique_planning`` is enabled, the end-of-iteration
         # critique stage is fanned-out in parallel with an early prebuild
@@ -3503,6 +3547,73 @@ class DelegationLoopRunner:
                             result[key] = manager_decision[key]
                 if "confidence" not in result:
                     result["confidence"] = manager_decision.get("confidence", 0.8)
+
+                # --- Layer-0 Output Contract gate (R34). Runs FIRST in
+                # the completion-gate chain — before the LLM critique
+                # gate — because its checks are bit-level, domain-
+                # agnostic, and linear-time: placeholder tokens, text
+                # loops, append leaks, duplicate headings, unbalanced
+                # delimiters, malformed JSON. A rejection here burns no
+                # LLM tokens. Respects ``parallel_gate_chain`` by
+                # remaining sequential (O(n) work, short-circuits on
+                # first failure).
+                l0_rej = self._run_l0_gate(task)
+                if l0_rej is not None:
+                    l0_check = l0_rej.get("l0_check", "")
+                    l0_reason = l0_rej.get("l0_reason", "")
+                    violating_path = l0_rej.get("violating_path", "")
+                    logger.warning(
+                        "Manager tried to COMPLETE but L0 contract "
+                        "rejected: %s on %s — %s",
+                        l0_check,
+                        violating_path,
+                        l0_reason,
+                    )
+                    self._logger.trace_gate(
+                        "l0",
+                        triggered=True,
+                        reason=f"{l0_check}: {l0_reason}",
+                        iteration=iteration,
+                        l0_check=l0_check,
+                        l0_reason=l0_reason[:200],
+                        violating_path=violating_path,
+                    )
+                    state["_l0_repair_required"] = l0_rej.get("findings", [])
+                    state["_last_manager_feedback"] = (
+                        f"COMPLETION REJECTED by L0 output-contract gate: "
+                        f"{l0_check} failed on {violating_path} — {l0_reason}. "
+                        f"Fix this specific defect (do NOT re-declare "
+                        f"COMPLETE without repairing the artifact)."
+                    )
+                    self._record_completion_rejection(
+                        state,
+                        gate="l0",
+                        reason=f"{l0_check}: {l0_reason}",
+                        repair_payload={
+                            "l0_check": l0_check,
+                            "l0_reason": l0_reason,
+                            "violating_path": violating_path,
+                            "findings": l0_rej.get("findings", []),
+                        },
+                    )
+                    self._persist_gate_result(
+                        iteration,
+                        "l0",
+                        passed=False,
+                        detail={
+                            "reason": f"{l0_check}: {l0_reason}",
+                            "l0_check": l0_check,
+                            "violating_path": violating_path,
+                            "findings": l0_rej.get("findings", []),
+                        },
+                    )
+                    _trip, _rep = self._maybe_trip_completion_circuit_breaker(state)
+                    if _trip and not _rep:
+                        return (
+                            self._build_partial_result("max_rejected_completions"),
+                            "max_rejected_completions",
+                        )
+                    continue  # force another loop iteration
 
                 # --- Critique gate: reject completion if the latest
                 # iteration's mean critique score is below the configured
@@ -9497,6 +9608,105 @@ Rules:
             )
             return rej
         return None
+
+    def _run_l0_gate(self, task: str) -> dict[str, Any] | None:
+        """Run the Layer-0 Output Contract chain over every required
+        deliverable (R34).
+
+        Returns ``None`` when every artifact passes (or the gate is
+        disabled / has no paths to inspect). Returns a rejection record
+        ``{"gate": "l0", "l0_check": ..., "l0_reason": ..., "violating_path": ...,
+        "findings": [...]}`` on the first hard failure — the caller
+        short-circuits the rest of the completion-gate chain.
+
+        The L0 gate runs **first** in the chain (before ``critique``)
+        because its checks are cheap (< 100 ms per MB) and detect
+        defects that the LLM critic would also reject — paying no
+        tokens.
+
+        Respects ``parallel_gate_chain: true`` by remaining sequential:
+        L0 is already O(n) and short-circuits on first failure, so
+        parallelism would only burden the CPU without shortening wall
+        time.
+        """
+        if self._l0_validator is None:
+            return None
+
+        paths, _src = self._derive_required_deliverables(task)
+        if not paths:
+            return None
+
+        findings: list[dict[str, Any]] = []
+        first_error: dict[str, Any] | None = None
+        for p in paths:
+            try:
+                if not p.is_file():
+                    continue
+                content = p.read_bytes()
+            except OSError:
+                continue
+            previous = self._l0_previous_sizes.get(str(p))
+            ctx = {
+                "previous_size": previous,
+                "attempt": int(
+                    self._iter_counter if hasattr(self, "_iter_counter") else 1
+                ),
+            }
+            try:
+                result = self._l0_validator.run(str(p), content, ctx)
+            except Exception:
+                logger.warning(
+                    "L0 validator raised on %s — skipping this artifact",
+                    p,
+                    exc_info=True,
+                )
+                continue
+            # Record the current size for the next repair-attempt's
+            # ``file_size_delta`` check.
+            self._l0_previous_sizes[str(p)] = len(content)
+            # short_circuit=True returns a single CheckResult
+            if getattr(result, "ok", True):
+                continue
+            finding = {
+                "file": self._relpath_for_display(p),
+                "detail": getattr(result, "reason", ""),
+                "check": getattr(result, "check", ""),
+                "severity": getattr(result, "severity", "error"),
+            }
+            findings.append(finding)
+            if first_error is None and getattr(result, "severity", "error") == "error":
+                first_error = {
+                    "gate": "l0",
+                    "l0_check": getattr(result, "check", ""),
+                    "l0_reason": getattr(result, "reason", ""),
+                    "violating_path": self._relpath_for_display(p),
+                    "reason": (
+                        f"{getattr(result, 'check', '')}: "
+                        f"{getattr(result, 'reason', '')}"
+                    ),
+                    "findings": findings,
+                }
+                # Emit the R34 metric.gate event with the normative
+                # field set (``l0_check``, ``l0_reason``,
+                # ``violating_path``) so downstream observers can route
+                # repair nudges deterministically.
+                try:
+                    self._logger.write_metric(
+                        "metric.gate",
+                        {
+                            "iteration": getattr(self, "_iter_counter", -1),
+                            "gate": "l0",
+                            "verdict": "rejected",
+                            "l0_check": first_error["l0_check"],
+                            "l0_reason": first_error["l0_reason"][:500],
+                            "violating_path": first_error["violating_path"],
+                            "reason": first_error["reason"][:500],
+                        },
+                    )
+                except Exception:
+                    pass
+                break
+        return first_error
 
     def _persist_gate_result(
         self,

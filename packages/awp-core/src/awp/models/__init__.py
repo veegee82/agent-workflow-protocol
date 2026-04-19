@@ -16,7 +16,11 @@ from .evaluation import (
 )
 from .manifest import AWPManifest, DynamicToolsConfig, NamespaceCapability
 from .memory import MemoryConfig
-from .observability import ObservabilityConfig
+from .observability import (
+    ObservabilityConfig,
+    OutputContractConfig,
+    OutputContractExtra,
+)
 from .orchestration import (
     AWPExecutionConfig,
     AWPOrchestrationConfig,
@@ -59,6 +63,8 @@ __all__ = [
     "HistoryConfig",
     "DelegationLoopModels",
     "ObservabilityConfig",
+    "OutputContractConfig",
+    "OutputContractExtra",
     "CustomToolsConfig",
     "CustomToolDeclaration",
     "SecurityConfig",

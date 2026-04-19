@@ -134,6 +134,51 @@ class HealthCheckConfig(BaseModel):
     liveness: LivenessConfig = Field(default_factory=lambda: LivenessConfig())
 
 
+class OutputContractExtra(BaseModel):
+    """One workflow-specific Layer-0 output-contract check.
+
+    Loaded by :class:`awp.runtime.critique.l0_validator.L0Validator`
+    via ``importlib``. ``implementation`` is ``module.path:AttrName``
+    where ``AttrName`` is either a class (instantiated without args)
+    or a pre-built callable conforming to
+    :class:`awp.runtime.critique.contracts.OutputContractCheck`.
+    """
+
+    name: str
+    implementation: str  # "module.path:ClassOrCallable"
+
+    model_config = {"extra": "allow"}
+
+
+class OutputContractConfig(BaseModel):
+    """Layer-0 output-contract chain (R34).
+
+    Runs a chain of fast, bit-level checks over every worker output
+    BEFORE the LLM critique gate fires. Defined in
+    :mod:`awp.runtime.critique.l0_validator`.
+
+    ``checks`` accepts the special token ``"default"`` which expands to
+    the 6 bundled checks (``no_placeholder``, ``no_text_loop``,
+    ``file_size_delta``, ``no_duplicate_headings``,
+    ``balanced_delimiters``, ``json_valid_if_claimed``). Individual
+    check names may also be listed to filter down the set.
+
+    ``extra`` lets workflow authors add their own checks without
+    modifying AWP core. Each entry MUST point at a callable implementing
+    the :class:`OutputContractCheck` protocol.
+
+    ``enabled: false`` disables the L0 gate entirely — the gate chain
+    falls through to the existing critique / placeholder / file / eval
+    chain unchanged.
+    """
+
+    enabled: bool = True
+    checks: list[str] = Field(default_factory=lambda: ["default"])
+    extra: list[OutputContractExtra] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
+
+
 class ObservabilityConfig(BaseModel):
     """Complete observability configuration (Layer 6)."""
 
@@ -143,5 +188,6 @@ class ObservabilityConfig(BaseModel):
     audit: AuditConfig = Field(default_factory=AuditConfig)
     health: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     evaluation: Optional[EvaluationConfig] = None
+    output_contract: OutputContractConfig = Field(default_factory=OutputContractConfig)
 
     model_config = {"extra": "allow"}

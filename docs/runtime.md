@@ -534,6 +534,50 @@ is reached verbatim (byte-identical path); the dispatcher
 `_run_critique_stage_maybe_pipelined` is a passthrough. Unit coverage:
 `packages/awp-runtime/tests/test_pipelined_critique_planning.py`.
 
+## Layer-0 Output Contract gate (R34)
+
+Before any LLM-based completion gate runs, the delegation-loop runner
+executes a chain of bit-level, domain-agnostic checks against every
+required deliverable. This is the **L0 gate**: linear-time,
+token-free, and short-circuits on the first error-severity failure.
+
+The gate runs at the top of the completion-gate chain, immediately
+after the manager declares `COMPLETE` — strictly before the `critique`
+gate, the `deliverable_presence` gate, and the Phase-A gates
+(`syntax_compile`, `schema`, etc.). On rejection it emits a
+`metric.gate` event with `gate="l0"` plus the normative fields
+`l0_check`, `l0_reason`, `violating_path`, and feeds a deterministic
+repair-nudge into the next iteration's manager prompt.
+
+Default checks (bundled, in canonical order):
+
+| Check | Rejects |
+|-------|---------|
+| `no_placeholder` | `TODO`, `XXX`, `???`, `Lorem ipsum`, `TBD`, `FIXME`, `TITLE GOES HERE`, `Author Name`, `to be filled` |
+| `no_text_loop` | ≥ 20-word paragraphs whose pairwise 64-bit simhash distance ≤ 6 bits (similarity ≥ ~0.91) |
+| `file_size_delta` | Repair outputs where `current_size / previous_size > 2.5` |
+| `no_duplicate_headings` | Repeated Markdown `#`-headers or LaTeX `\section{…}` titles (case-insensitive) |
+| `balanced_delimiters` | Unbalanced `{}` / `[]` / `()` counts (warning-severity on prose, error on code) |
+| `json_valid_if_claimed` | `.json` suffix or `claimed_format="json"` but `json.loads` fails |
+
+Workflow authors add workflow-specific checks via
+`observability.output_contract.extra` (each entry points at a callable
+conforming to
+`packages/awp-runtime/src/awp/runtime/critique/contracts.py::OutputContractCheck`).
+
+The gate stays **sequential** even when `parallel_gate_chain: true` is
+set — L0 is O(n) and short-circuits on first failure, so parallelism
+adds CPU load without shortening wall time.
+
+Authoritative code paths:
+`packages/awp-runtime/src/awp/runtime/critique/l0_validator.py`,
+`packages/awp-runtime/src/awp/runtime/critique/contracts.py`,
+`DelegationLoopRunner._run_l0_gate` in
+`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`. See
+also [critique.md § Layer 0 Output Contract](critique.md#layer-0-output-contract-r34)
+for the normative semantics and
+[validation-rules.md § 10](../spec/versions/1.0/validation-rules.md#10-layer-0-output-contract-r34).
+
 ## Parallel completion gate chain (opt-in)
 
 The Phase-A deliverable gates — `syntax_compile`, `schema`,
