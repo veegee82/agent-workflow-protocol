@@ -7,11 +7,13 @@ from awp.refinement.gradient import (
     extract_gradient,
     render_refinement_prefix,
 )
+from awp.refinement.seed import prepare_iteration_workspace
 
 __all__ = [
     "Defect",
     "RefinementGradient",
     "RejectedGate",
     "extract_gradient",
+    "prepare_iteration_workspace",
     "render_refinement_prefix",
 ]
