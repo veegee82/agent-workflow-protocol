@@ -1670,3 +1670,173 @@ async def delete_secret(key: str) -> dict[str, str]:
     if not deleted:
         raise HTTPException(status_code=404, detail="Secret not found")
     return {"status": "deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Refinement Mode (y-axis optimization) — see docs/refinement.md
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_seed_run_dir(store: Any, run_id: str) -> Path | None:
+    """Locate the seed run's directory (containing run_completion.json + FINAL/)
+    from a DB run_id. Mirrors the lookup strategy used by ``get_run_graph``.
+
+    Returns None if no usable directory can be found. The caller is responsible
+    for surfacing a 404.
+    """
+    from server.services.graph_builder import find_run_dir
+
+    row = await store.get_run(run_id)
+    if row is None:
+        return None
+
+    result = row.get("result") or {}
+    metadata = result.get("metadata", {}) if isinstance(result, dict) else {}
+    explicit_run_dir = metadata.get("run_dir")
+    workspace = metadata.get("workspace")
+    loop_run_id = metadata.get("run_id")
+
+    candidates: list[Path] = []
+    if explicit_run_dir:
+        candidates.append(Path(explicit_run_dir))
+    if workspace and loop_run_id:
+        candidates.append(Path(workspace) / "workspace" / "runs" / loop_run_id)
+    if workspace:
+        rd = find_run_dir(Path(workspace))
+        if rd:
+            candidates.append(rd)
+
+    config = row.get("config") or {}
+    cfg_output = config.get("output_dir")
+    if cfg_output:
+        cfg_path = Path(cfg_output)
+        if cfg_path.exists():
+            rd = find_run_dir(cfg_path)
+            if rd:
+                candidates.append(rd)
+
+    for c in candidates:
+        if c.exists() and (c / "run_completion.json").exists():
+            return c
+    return None
+
+
+@router.post("/experiments/{run_id}/refine", status_code=202)
+async def start_refinement(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Kick off a refinement session against a completed run.
+
+    Request body::
+
+        {"iterations": int [1..10], "model": str | null, "worker_model": str | null}
+
+    Response (202)::
+
+        {"session_id": "refine_<ts>", "status": "running"}
+
+    Errors:
+      * 404 — run_id not found in the experiment DB.
+      * 409 — seed run has no FINAL/ or status not in {"complete", "partial"}.
+      * 422 — ``iterations`` out of [1, 10].
+    """
+    from server.app import store
+
+    iterations = int(body.get("iterations", 3))
+    if iterations < 1 or iterations > 10:
+        raise HTTPException(
+            status_code=422,
+            detail=f"iterations must be in [1, 10] (got {iterations})",
+        )
+
+    seed_dir = await _resolve_seed_run_dir(store, run_id)
+    if seed_dir is None:
+        raise HTTPException(
+            status_code=404, detail=f"seed run not found: {run_id}"
+        )
+    if not (seed_dir / "FINAL").exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"seed run has no FINAL/ deliverable: {seed_dir}",
+        )
+
+    row = await store.get_run(run_id)
+    if row and row.get("status") not in {"complete", "partial", "completed"}:
+        # Allow `partial` runs (the primary refinement target) and
+        # `complete` runs (where the user explicitly wants more
+        # inference compute); reject running/failed/aborted.
+        raise HTTPException(
+            status_code=409,
+            detail=f"seed run status {row.get('status')!r} is not refinable",
+        )
+
+    # Import the loop lazily — keeps startup cheap and avoids pulling
+    # the runtime into every UI server import.
+    from awp.refinement.loop import RefinementLoop
+
+    model = body.get("model") or None
+    worker_model = body.get("worker_model") or None
+    loop = RefinementLoop(
+        seed_run_dir=seed_dir,
+        model=model,
+        worker_model=worker_model,
+    )
+    # Generate a session_id up-front so the client can correlate the
+    # background run with its sidecar once it lands.
+    from awp.refinement.loop import _new_session_id
+
+    session_id = _new_session_id()
+
+    import threading
+
+    def _worker() -> None:
+        try:
+            loop.run(iterations=iterations)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("refinement session %s failed: %s", session_id, exc)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    return {"session_id": session_id, "status": "running"}
+
+
+@router.get("/experiments/{run_id}/refinement_sessions")
+async def get_refinement_sessions(run_id: str) -> dict[str, Any]:
+    """Return all refinement sessions and the current BEST pointer for a seed run.
+
+    Response::
+
+        {
+          "sessions": [<session JSON from refinement_sessions/*.json>, ...],
+          "best":     <BEST/manifest.json> | null
+        }
+
+    Errors:
+      * 404 — run_id not found.
+    """
+    from server.app import store
+
+    seed_dir = await _resolve_seed_run_dir(store, run_id)
+    if seed_dir is None:
+        raise HTTPException(
+            status_code=404, detail=f"seed run not found: {run_id}"
+        )
+
+    import json as _json
+
+    sessions_dir = seed_dir / "refinement_sessions"
+    sessions: list[dict[str, Any]] = []
+    if sessions_dir.exists():
+        for path in sorted(sessions_dir.glob("*.json")):
+            try:
+                sessions.append(_json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, _json.JSONDecodeError) as exc:
+                logger.warning("skipping unreadable session sidecar %s: %s", path, exc)
+
+    best: dict[str, Any] | None = None
+    best_manifest = seed_dir / "BEST" / "manifest.json"
+    if best_manifest.exists():
+        try:
+            best = _json.loads(best_manifest.read_text(encoding="utf-8"))
+        except (OSError, _json.JSONDecodeError) as exc:
+            logger.warning("unreadable BEST manifest %s: %s", best_manifest, exc)
+
+    return {"sessions": sessions, "best": best}
