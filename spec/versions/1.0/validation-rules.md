@@ -818,3 +818,16 @@ An extra check MUST implement the `OutputContractCheck` protocol (in `packages/a
 - **Requirement:** When a repair worker produces an output `O_n` whose `simhash` similarity to the previous repair output `O_{n-1}` is `>= 0.95`, the runtime MUST treat the subtask as a repair fixpoint and abort further repair attempts. The subtask MUST transition to `status: failed` with reason `repair_fixpoint_detected`, and the parent loop MUST either synthesise a new differently-scoped subtask or contribute the failure to the run's terminal status aggregation.
 - **Event fields:** `sim: float`, `attempt: int`, `previous_output_path: str`.
 - **Rationale:** A worker that returns a near-identical output across repairs is not making progress; continuing the loop burns budget without information gain. The threshold `0.95` is chosen empirically to tolerate normal LLM paraphrase while still detecting the pathological "produce the same wrong file again" pattern.
+
+## 12. Refinement Mode (R36)
+
+### R36: Refinement Gradient Required
+
+- **Category:** Orchestration (refinement)
+- **Requirement:** A refinement iteration SHALL have a non-empty `gradient_input.json` present in its workspace directory before the first manager call. The gradient is non-empty when at least one of the following is true:
+  1. `defects` is a non-empty list,
+  2. `rejected_gates` is a non-empty list,
+  3. `eval_deltas` has at least one entry with a positive gap.
+  If the gradient is empty, the refinement loop SHALL abort with a `"nothing to refine"` signal and SHALL NOT dispatch the iteration's agent workflow.
+- **Rationale:** Prevents zero-signal reruns — a refinement call against an already-perfect run wastes budget and confuses loss attribution between policy (θ) and output (y) axes.
+- **Enforcement:** Runtime: `awp.refinement.loop.RefinementLoop.run` raises `NothingToRefine` before constructing `AgentWorkflow`. `awp refine` CLI prints `"nothing to refine: <reason>"` and exits 0. R36 is a runtime rule; `awp validate` does not evaluate it.
