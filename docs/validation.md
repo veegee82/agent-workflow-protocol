@@ -1,5 +1,7 @@
 # Validation Rules R1-R32
 
+> **See also** — **Parent**: [docs/README.md](README.md#concept-map), [overview.md](overview.md) · **Where rules land by layer**: [manifest.md](manifest.md), [agent.md](agent.md), [tools.md](tools.md), [communication.md](communication.md), [memory.md](memory.md), [orchestration.md](orchestration.md), [observability.md](observability.md), [security.md](security.md) · **Autonomy levels that select required rules**: [compliance.md](compliance.md) · **Runtime gates that apply these rules live**: [runtime.md](runtime.md) (completion gate chain, L0/R34, R35 repair fixpoint), [critique.md](critique.md), [evaluation.md](evaluation.md) · **Deterministic purity (R33)**: [orchestration.md](orchestration.md) · **Refinement guard (R36)**: [refinement.md](refinement.md) · **Normative spec**: [spec/versions/1.0/validation-rules.md](../spec/versions/1.0/validation-rules.md)
+
 ## Mental Model: Four Tiers of Validation
 
 AWP uses **four complementary tiers** of validation, each operating at a different point in the workflow lifecycle and answering a different question. They are not redundant — they catch different classes of problems and you almost always want all four enabled in production.

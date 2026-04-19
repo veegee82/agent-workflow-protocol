@@ -1,5 +1,7 @@
 # Tools & Capabilities Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 2 — Capabilities), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [agent.md](agent.md) (which agents may use which tools), [security.md](security.md) (tool permissions & forbidden tools), [memory.md](memory.md) (tools that mutate state), [communication.md](communication.md) · **Deeper**: [runtime-tool-generation.md](runtime-tool-generation.md) (B1-B6 dynamic tool factory at A3+, β auto-emergent induction — see [runtime.md](runtime.md) §Framework-Fixes), [skill-system.md](skill-system.md) · **Spec**: [spec/versions/1.0/layers/02-capabilities.md](../spec/versions/1.0/layers/02-capabilities.md) · **Validation**: tool namespace rules in [validation.md](validation.md)
+
 ## Mental Model
 
 **Layer 2** of AWP — *Capabilities* — defines everything an agent can *do* beyond reasoning over text: which tools it may invoke, which skills are injected into its prompt, which data sources it may read, and which sandbox it may execute code in. Capabilities are the bridge between an LLM's pure-text world and the messy real world of APIs, files, and computation.

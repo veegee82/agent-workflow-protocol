@@ -5,6 +5,8 @@
 **Date:** 2026-03-23
 **License:** MIT
 
+> **See also** — **Non-normative companion docs**: [docs/README.md](../../../docs/README.md) (concept map), [docs/overview.md](../../../docs/overview.md), [docs/architecture.md](../../../docs/architecture.md), [docs/layer-model.md](../../../docs/layer-model.md) · **Per-layer normative references**: [00-manifest.md](layers/00-manifest.md), [01-agent-identity.md](layers/01-agent-identity.md), [02-capabilities.md](layers/02-capabilities.md), [03-communication.md](layers/03-communication.md), [04-memory-state.md](layers/04-memory-state.md), [05-orchestration.md](layers/05-orchestration.md), [06-observability.md](layers/06-observability.md), [security.md](layers/security.md) · **Cross-cutting normative artifacts**: [validation-rules.md](validation-rules.md) (R1–R36), [compliance.md](compliance.md) (A0–A4), [packaging.md](packaging.md), [file-structure.md](file-structure.md) · **Sync contract with non-normative docs**: [CLAUDE.md](../../../CLAUDE.md) §2
+
 ---
 
 ## Abstract

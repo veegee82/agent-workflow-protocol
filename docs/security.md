@@ -1,5 +1,7 @@
 # Security Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (cross-cutting, not a numbered layer — wraps every layer), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [tools.md](tools.md) (tool permissions & forbidden tools), [agent.md](agent.md) (per-agent allowlist), [communication.md](communication.md) (channel ACLs), [memory.md](memory.md) (scoped access) · **Runtime enforcement**: [runtime.md](runtime.md) (budget envelope as safety boundary, gate chain as terminal guard), [orchestration.md](orchestration.md) (circuit breaker, rate limiting) · **Audit & traces**: [observability.md](observability.md) · **Spec**: [spec/versions/1.0/layers/security.md](../spec/versions/1.0/layers/security.md)
+
 ## Mental Model
 
 Security in AWP is built around one central idea: the **safety envelope**. As workflows climb the autonomy spectrum (A0 → A4), the runtime gives away increasing amounts of control to the manager — what to spawn, what tools to use, even what new tools to *create*. The safety envelope is the set of constraints the manager **cannot override**, no matter how clever its planning becomes. Everything in this layer ultimately reinforces that envelope.

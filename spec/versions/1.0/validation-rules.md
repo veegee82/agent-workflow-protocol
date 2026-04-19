@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Validation Rules R1–R35**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](spec.md), [docs/README.md](../../../docs/README.md#concept-map) · **Non-normative explainer**: [docs/validation.md](../../../docs/validation.md) · **Where each rule lands**: per-layer specs in [layers/](layers/) — [manifest](layers/00-manifest.md), [agent-identity](layers/01-agent-identity.md), [capabilities](layers/02-capabilities.md), [communication](layers/03-communication.md), [memory-state](layers/04-memory-state.md), [orchestration](layers/05-orchestration.md), [observability](layers/06-observability.md), [security](layers/security.md) · **Autonomy levels that select rules**: [compliance.md](compliance.md), [docs/compliance.md](../../../docs/compliance.md) · **Runtime-side enforcement**: [docs/runtime.md](../../../docs/runtime.md) (completion gate chain — L0/R34, R35 repair fixpoint), [docs/critique.md](../../../docs/critique.md), [docs/refinement.md](../../../docs/refinement.md) (R36)
+
 ---
 
 ## 1. Overview

@@ -1,5 +1,7 @@
 # Orchestration Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 5 — Orchestration, the layer that ties every other layer into an executable graph), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [agent.md](agent.md) (nodes of the graph), [memory.md](memory.md) (`share_output` contract), [observability.md](observability.md) (events emitted during orchestration) · **Engines**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) — choose between the `dag` engine (A0–A1) and the `delegation_loop` engine (A2–A4) · **Cross-cutting mechanisms hosted here**: [critique.md](critique.md), [manager-intelligence.md](manager-intelligence.md), [runtime.md](runtime.md) (budget envelope, completion gate chain, R35 repair fixpoint) · **Spec**: [spec/versions/1.0/layers/05-orchestration.md](../spec/versions/1.0/layers/05-orchestration.md) · **Validation**: graph/cycle/output-contract rules in [validation.md](validation.md)
+
 ## Mental Model
 
 Orchestration is **Layer 5** of AWP and answers a single question: *In what order, under which conditions, and inside which envelope do agents run?* It is the connective tissue between static agent definitions and a working workflow.

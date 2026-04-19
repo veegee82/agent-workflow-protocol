@@ -2,6 +2,8 @@
 
 > **OpenClaw is the best-connected AI gateway in open source. AWP gives it a brain — declarative orchestration, runtime tool creation, and budget-bounded multi-agent workflows.**
 
+> **See also** — **Parent**: [docs/README.md](README.md), [architecture.md](architecture.md) · **Underlying AWP concepts wired into OpenClaw**: [orchestration.md](orchestration.md), [tools.md](tools.md), [runtime-tool-generation.md](runtime-tool-generation.md), [runtime.md](runtime.md) (budget envelope) · **Security envelope**: [security.md](security.md) · **Distribution**: [packaging.md](packaging.md), [skill-system.md](skill-system.md) (ClawHub)
+
 ## Mental Model
 
 OpenClaw is the *body*: 25+ messaging channels, 25+ LLM providers, voice, camera, screen, location. AWP is the *brain*: declarative workflows, two orchestration engines, the [B1-B6 runtime tool generation pipeline](runtime-tool-generation.md), [manager intelligence](manager-intelligence.md) (planning, diagnosis, strategy switching, budget reservation, decision journal), and the [reservation model](manager-intelligence.md#budget-reservation-model-and-termination-guarantees) that gives recursive delegation a hard termination guarantee. The integration is deliberately lopsided — OpenClaw owns everything user-facing, AWP owns everything orchestration-shaped, and the boundary between them is a single dispatch decision: *is this message simple enough for one agent, or does it need a workflow?*

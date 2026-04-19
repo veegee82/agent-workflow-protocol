@@ -4,6 +4,8 @@
 > **Source**: `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`,
 > `packages/awp-runtime/src/awp/runtime/dynamic_tool_factory.py`
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime), [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) · **Inner-loop mechanisms**: [manager-intelligence.md](manager-intelligence.md) (strategy + decision journal), [critique.md](critique.md) (per-worker repair inside the loop), [runtime-tool-generation.md](runtime-tool-generation.md) (capability accumulation) · **Bounded by**: [runtime.md](runtime.md) (budget envelope, completion gate chain) · **Contrast with outer axes**: [outer-loop.md](outer-loop.md) (moves θ — prompt artifacts), [refinement.md](refinement.md) (moves y — a seed run's deliverable) — iterative optimization here is the **inside-one-run** feedback loop · **Autonomy mapping**: [compliance.md](compliance.md)
+
 ## Mental Model
 
 Most multi-agent workflows run once: define a pipeline, feed in data, get a result. This works for well-understood problems where you know the steps in advance. But for complex, open-ended problems — research synthesis, multi-constraint optimization, deep data analysis — a single pass is rarely sufficient. The right approach depends on what you learn along the way.

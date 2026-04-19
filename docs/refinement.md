@@ -3,6 +3,8 @@
 > Task-local iterative refinement of a completed run's deliverable.
 > SGD on **y** (the output), not **θ** (the policy).
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime) · **Orthogonal axis**: [outer-loop.md](outer-loop.md) moves θ (prompt artifacts) — refinement moves y (the seed run's deliverable); both reuse the same loss function · **Gradient sources**: [critique.md](critique.md) (defects, R35 fixpoint guard), [runtime.md](runtime.md) (last 3 gate rejections from the completion gate chain), [evaluation.md](evaluation.md) (score deltas) · **Never active inside `awp run`**: entered only via `awp refine` · **Guard rule**: **R36 (empty gradient)** — authoritative in [spec/versions/1.0/validation-rules.md](../spec/versions/1.0/validation-rules.md) §12, catalogued in [validation.md](validation.md) · **Autonomy mapping**: [compliance.md](compliance.md) — refinement sits outside the 7 layers of [layer-model.md](layer-model.md) · **Engine context**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) — each iteration is a standalone delegation-loop run with budget halved vs. the seed
+
 `awp refine <seed_run_dir>` reads a completed run, extracts a
 deterministic "gradient" from its [critique](../CLAUDE.md#key-protocols)
 defects, [gate-chain](../CLAUDE.md#key-protocols) rejections, and

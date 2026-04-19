@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Autonomy Levels**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](spec.md), [docs/README.md](../../../docs/README.md#concept-map) · **Non-normative explainer**: [docs/compliance.md](../../../docs/compliance.md) · **Required layers per level**: [docs/layer-model.md](../../../docs/layer-model.md) and [layers/](layers/) · **Runtime enforcement**: [docs/runtime.md](../../../docs/runtime.md) (budget envelope, completion gate chain), [docs/ORCHESTRATION_ENGINES.md](../../../docs/ORCHESTRATION_ENGINES.md) (A0–A1 → DAG engine; A2–A4 → delegation loop) · **Validation rules that scale with autonomy**: [validation-rules.md](validation-rules.md), [docs/validation.md](../../../docs/validation.md)
+
 ---
 
 ## 1. Overview

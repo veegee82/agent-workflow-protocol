@@ -1,5 +1,7 @@
 # Autonomy Levels
 
+> **See also** — **Parent**: [overview.md](overview.md), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [layer-model.md](layer-model.md) (which layers each level requires), [validation.md](validation.md) (rules that scale with autonomy), [architecture.md](architecture.md) (why the spectrum exists) · **Per-level runtime**: A0–A1 → `dag` engine in [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md); A2–A4 → `delegation_loop` engine + [manager-intelligence.md](manager-intelligence.md) + [critique.md](critique.md); A3+ → [runtime-tool-generation.md](runtime-tool-generation.md); A5 (experimental, outside the 7 layers) → [outer-loop.md](outer-loop.md), [refinement.md](refinement.md) · **Budget envelope** (mandatory from A2 onward): [runtime.md](runtime.md), [orchestration.md](orchestration.md) · **Spec**: [spec/versions/1.0/compliance.md](../spec/versions/1.0/compliance.md)
+
 ## Mental Model: The Autonomy Spectrum
 
 AWP's autonomy levels (A0–A4) form a **spectrum of control transfer from human to system**. At A0 a human spells out every step; at A4 the workflow recursively decomposes itself, spawns its own sub-workflows, and even creates the tools it needs along the way. Each level adds *one* fundamental capability and, in exchange, requires *one* additional safety mechanism. The deal is non-negotiable: you cannot adopt the capability without adopting its safety counterpart.

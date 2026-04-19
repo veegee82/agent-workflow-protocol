@@ -1,5 +1,7 @@
 # Memory & State Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 4 — Memory & State), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [communication.md](communication.md) (Layer 3 — contrast: push vs. shared state), [orchestration.md](orchestration.md) (Layer 5 — `share_output` contract that propagates state between nodes), [agent.md](agent.md) (agent-level memory configuration) · **Contract**: the agent output contract **R17** requires `share_output` fields to match declared schemas — see [runtime.md](runtime.md), [validation.md](validation.md) · **Spec**: [spec/versions/1.0/layers/04-memory-state.md](../spec/versions/1.0/layers/04-memory-state.md)
+
 ## Mental Model
 
 Layer 4 answers two distinct but related questions: **"What does this run know right now?"** (state) and **"What does this workflow remember from past runs?"** (memory). Keeping the two separate is essential — conflating them is the most common modeling mistake in multi-agent systems.

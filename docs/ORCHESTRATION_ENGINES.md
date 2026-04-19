@@ -1,5 +1,7 @@
 # AWP Orchestration Engines
 
+> **See also** — **Parent**: [docs/README.md](README.md#concept-map), [orchestration.md](orchestration.md) (Layer 5) · **Autonomy mapping**: [compliance.md](compliance.md) — `dag` engine covers A0–A1; `delegation_loop` engine covers A2–A4 · **Delegation-loop concepts**: [manager-intelligence.md](manager-intelligence.md) (PLAN/DELEGATE/COMPLETE decisions), [critique.md](critique.md) (per-worker repair), [runtime.md](runtime.md) (budget envelope, completion gate chain, R35 repair fixpoint) · **DAG-engine concepts**: [memory.md](memory.md) (`share_output`), [validation.md](validation.md) (graph/cycle rules) · **Observability**: [observability.md](observability.md) · **Spec**: [spec/versions/1.0/layers/05-orchestration.md](../spec/versions/1.0/layers/05-orchestration.md)
+
 ## Mental Model
 
 AWP ships **two orchestration engines** because predictable pipelines and open-ended exploration have fundamentally different control structures, and forcing both into a single abstraction makes both worse.

@@ -1,5 +1,7 @@
 # Reflective Critique Loop
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime), [layer-model.md](layer-model.md) (cross-cutting mechanism hosted in Layer 5 + Layer 6, not a new layer) · **Engine context**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) (A2+ delegation loop only), [orchestration.md](orchestration.md) · **Complementary quality mechanisms**: [validation.md](validation.md) (static R1–R32), [evaluation.md](evaluation.md) (workflow-level score) · **Completion gate chain placement**: [runtime.md](runtime.md) · **Feeds**: [manager-intelligence.md](manager-intelligence.md) (decision journal via pattern memory), [refinement.md](refinement.md) (critique defects are a gradient source) · **Fixpoint guard (R35)**: this doc
+
 ## Mental Model
 
 The critique loop is the delegation loop's **inner self-correction reflex**. Where the manager decides *what* to do next, the critic asks — for every worker output, before the manager ever sees it — *"is this output actually any good, and if not, can we fix it right here?"* This turns each worker call into a small, reviewable artifact instead of a blind hand-off, and lets later workers in the same run learn from earlier failures via accumulated *patterns*.

@@ -1,5 +1,7 @@
 # Communication Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 3 — Communication), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [memory.md](memory.md) (Layer 4 — state shared through `share_output`, the primary alternative to the message bus), [orchestration.md](orchestration.md) (Layer 5 — how communication ties into the graph), [agent.md](agent.md) (which agent subscribes to which channel) · **Deeper**: [observability.md](observability.md) (tracing messages), [security.md](security.md) (access control on channels) · **Spec**: [spec/versions/1.0/layers/03-communication.md](../spec/versions/1.0/layers/03-communication.md)
+
 ## Mental Model
 
 Layer 3 is the **out-of-band nervous system** of an AWP workflow. Where the [orchestration](orchestration.md) graph defines *predictable* data flow ("agent A's output reaches agent B because B `depends_on` A"), communication exists for the cases the DAG cannot express: real-time notifications, dynamic peer-to-peer routing, request/response patterns between unrelated agents, and broadcast events that any subscriber may pick up.

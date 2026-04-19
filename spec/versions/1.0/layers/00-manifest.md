@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Layer 0**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) · **Non-normative explainer**: [docs/manifest.md](../../../../docs/manifest.md) · **Sibling layers**: [01-agent-identity.md](01-agent-identity.md), [02-capabilities.md](02-capabilities.md), [03-communication.md](03-communication.md), [04-memory-state.md](04-memory-state.md), [05-orchestration.md](05-orchestration.md), [06-observability.md](06-observability.md), [security.md](security.md) · **Validation rules for this layer**: [../validation-rules.md](../validation-rules.md)
+
 ---
 
 ## 1. Overview

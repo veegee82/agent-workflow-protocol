@@ -1,5 +1,7 @@
 # Observability Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 6 — Observability, the only purely additive layer), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [orchestration.md](orchestration.md) (Layer 5 — source of events observed here), [security.md](security.md) (audit trails), [communication.md](communication.md) (messages traced through the bus) · **Cross-cutting mechanisms surfaced here**: [evaluation.md](evaluation.md) (final score), [critique.md](critique.md) (per-worker defect diagnosis), [manager-intelligence.md](manager-intelligence.md) (decision journal) · **Related**: [ui.md](ui.md) (Workflow Studio renders these events live) · **Spec**: [spec/versions/1.0/layers/06-observability.md](../spec/versions/1.0/layers/06-observability.md)
+
 ## Mental Model
 
 Observability in AWP is not an afterthought bolted onto a black box — it is the **price of admission** for autonomous behavior. The higher up the autonomy spectrum a workflow climbs (A0 → A4), the less a human can predict what will happen at runtime, and the more the system must explain itself after the fact. At A4, observability is **mandatory** ([compliance.md](compliance.md)) because the only thing standing between a recursive delegation tree and an opaque runaway is a complete trace of every decision, span, and budget reservation.

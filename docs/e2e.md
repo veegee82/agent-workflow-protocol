@@ -2,6 +2,8 @@
 
 Authoritative E2E runbook. Referenced from `CLAUDE.md` §"E2E Tests"; read this when writing, running, or debugging an E2E. `CLAUDE.md` keeps the non-negotiable rules (definition, rubric, storage/DB registration, LLM-trace mandate); this file carries the operational detail.
 
+> **See also** — **Parent**: [CLAUDE.md](../CLAUDE.md) §E2E Tests, [docs/README.md](README.md) · **What an E2E exercises end-to-end**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [manager-intelligence.md](manager-intelligence.md), [runtime-tool-generation.md](runtime-tool-generation.md), [critique.md](critique.md), [evaluation.md](evaluation.md) · **Gates a passing E2E must clear**: [runtime.md](runtime.md) (completion gate chain, budget envelope), [validation.md](validation.md) · **Debugging discipline (5-Why-by-Layer)**: [CLAUDE.md](../CLAUDE.md) §3 · **Observability surfaces**: [observability.md](observability.md), [ui.md](ui.md)
+
 ## Pass Rubric (not a string match)
 
 LLM outputs are variable by nature. A binary "output equals expected string" check turns every release into a flake hunt. Instead, an E2E run passes iff **all** of the following hold:

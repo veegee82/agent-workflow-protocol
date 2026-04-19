@@ -1,5 +1,7 @@
 # Protocol Overview
 
+> **See also** — **Parent**: [docs/README.md](README.md) (concept map) · **Sibling concepts**: [layer-model.md](layer-model.md) (7 layers), [compliance.md](compliance.md) (autonomy A0–A4), [architecture.md](architecture.md) (design decisions) · **Deeper**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [validation.md](validation.md) (R1–R32), [runtime.md](runtime.md)
+
 ## The Big Picture
 
 AWP is a **declarative contract for multi-agent AI systems**. Instead of writing Python code that wires agents, tools, memory and orchestration together, you write a small set of YAML documents that *describe* the workflow. A runtime — any runtime — reads those documents and executes them. The workflow file is the source of truth; the runtime is interchangeable.
@@ -109,22 +111,24 @@ Agents operate under the principle of least privilege. Tools must be explicitly 
 
 ## Beyond Static Workflows: What 1.0 Adds
 
-AWP started as a way to declare DAGs of agents. The current protocol goes considerably further:
+AWP started as a way to declare DAGs of agents. The current protocol goes considerably further — each feature below is hosted inside an existing [layer](layer-model.md) and bound to the [validation](validation.md) and [autonomy](compliance.md) contracts, not bolted on as a new layer:
 
-- **Two engines, one protocol.** A `dag` engine for prescribed topologies (A0-A1) and a `delegation_loop` engine for adaptive manager/worker execution (A2-A4). Switching is a single YAML field.
-- **Complexity-scored auto-promotion.** In the delegation loop the manager scores each subtask's complexity and *autonomously* promotes complex worker tasks into sub-manager tasks. The decision to recurse is no longer a manual flag — it falls out of the manager's planning loop.
-- **A4 sub-run clusters.** Recursive delegation produces a tree of sub-runs on disk, and the Workflow Studio renders each sub-run as a nested graph cluster (color-coded by depth) so a 4-level recursion is legible at a glance.
-- **Reservation-based budgets.** Budgets at A2+ are not advisory. Each child loop pre-charges its allocation against the parent and refunds the unused remainder on completion. This eliminates over-commitment and provides hard termination guarantees.
-- **Robust tool generation (B1-B6) with auto-repair.** When agents create tools at runtime (A3+), the runtime runs a six-phase pipeline — schema check, AST validation, sandboxed import, smoke test, registry binding, integration — and an auto-repair loop feeds errors back to the LLM to fix its own tool until it passes or the budget is exhausted.
-- **Critique loop and Evaluation layer.** Two complementary quality mechanisms: the *critique loop* diagnoses defects inside the worker iteration and triggers targeted repair, while the *evaluation layer* scores final workflow output against weighted metrics with threshold-based retry policy. Critique repairs *runs*; evaluation scores *outcomes*.
-- **Manager intelligence.** The manager has explicit planning, hypothesis-diagnosis, strategy switching, budget reservation and a decision journal — features the runtime supports rather than the manager LLM having to invent them each time.
-- **Per-role model routing.** Manager and worker LLMs are configured separately and provider is auto-detected from the model string (`provider/model` → OpenRouter, `gpt-*`/`o3*` → OpenAI direct, `claude-*` → Anthropic direct, `ollama/*` → local). A weak local model can drive workers while a strong frontier model plans.
-- **Experiment paradigm in Workflow Studio.** What used to be "sessions" are now Experiments with Protocol/Memory tabs, metadata, and scoped history.
-
-These features are detailed in `architecture.md`, `orchestration.md`, `tools.md`, `critique.md`, `evaluation.md` and `ui.md`.
+- **Two engines, one protocol.** A `dag` engine for prescribed topologies (A0-A1) and a `delegation_loop` engine for adaptive manager/worker execution (A2-A4). Switching is a single YAML field under [orchestration](orchestration.md) (Layer 5). Full comparison in [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md).
+- **Complexity-scored auto-promotion.** In the [delegation loop](ORCHESTRATION_ENGINES.md) the manager scores each subtask's complexity and *autonomously* promotes complex worker tasks into sub-manager tasks — see [manager-intelligence.md](manager-intelligence.md). The decision to recurse is no longer a manual flag; it falls out of the manager's planning loop.
+- **A4 sub-run clusters.** Recursive delegation produces a tree of sub-runs on disk; Workflow Studio ([ui.md](ui.md)) renders each sub-run as a nested cluster color-coded by depth.
+- **Reservation-based budgets.** Budgets at A2+ are not advisory. Each child loop pre-charges its allocation against the parent and refunds the unused remainder on completion. Enforced by the [budget envelope](orchestration.md) in the delegation-loop runner; see [runtime.md](runtime.md) for the reservation algorithm.
+- **Robust tool generation (B1-B6) with auto-repair.** When agents create [tools](tools.md) at runtime (A3+), the runtime runs a six-phase pipeline detailed in [runtime-tool-generation.md](runtime-tool-generation.md) — schema check, AST validation, sandboxed import, smoke test, registry binding, integration — with an auto-repair loop.
+- **Critique loop and Evaluation layer.** Two complementary quality mechanisms — [critique](critique.md) repairs per-worker defects inside the loop, [evaluation](evaluation.md) scores final workflow output. Both plug into the [completion gate chain](README.md#dynamic-concepts-what-happens-at-runtime).
+- **Manager intelligence.** Explicit planning, hypothesis-diagnosis, strategy switching, budget reservation and a decision journal — see [manager-intelligence.md](manager-intelligence.md).
+- **Per-role model routing.** Manager and worker LLMs configured separately; provider auto-detected from the model string (`provider/model` → OpenRouter, `gpt-*`/`o3*` → OpenAI direct, `claude-*` → Anthropic direct, `ollama/*` → local). Details in [agent.md](agent.md).
+- **Outer loop (A5) & Refinement mode.** Two orthogonal optimization axes: [outer-loop.md](outer-loop.md) moves prompt artifacts (θ-axis) via TextGrad SGD; [refinement.md](refinement.md) iterates a seed run's deliverable (y-axis) with a deterministic gradient. Both sit outside `awp run` and are opt-in via their own CLIs.
+- **Experiment paradigm in Workflow Studio.** Sessions are now Experiments with Protocol/Memory tabs, metadata, and scoped history — see [ui.md](ui.md).
 
 ## Next Steps
 
-- [Layer Model](layer-model.md) -- Understand the 7-layer architecture
-- [Manifest Reference](manifest.md) -- Start building a workflow
-- [Autonomy Levels](compliance.md) -- Choose your autonomy level
+- [Layer Model](layer-model.md) — Understand the 7-layer architecture
+- [Manifest Reference](manifest.md) — Start building a workflow (Layer 0)
+- [Autonomy Levels](compliance.md) — Choose your autonomy level (A0–A4)
+- [Architecture](architecture.md) — Design decisions and framework comparison
+- [Validation Rules](validation.md) — R1–R32 that gate every workflow before it runs
+- [docs/README.md § Concept Map](README.md#concept-map) — Which concept lives in which layer/contract/gate

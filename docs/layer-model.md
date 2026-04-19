@@ -1,5 +1,7 @@
 # The 7-Layer Architecture
 
+> **See also** — **Parent**: [overview.md](overview.md), [docs/README.md](README.md#structural-concepts-where-things-live) (concept map) · **Sibling concepts**: [compliance.md](compliance.md) (A0–A4 to layers), [architecture.md](architecture.md) (design rationale), [validation.md](validation.md) (R-rules per layer) · **Deeper** (per-layer references): [manifest.md](manifest.md) · [agent.md](agent.md) · [tools.md](tools.md) · [communication.md](communication.md) · [memory.md](memory.md) · [orchestration.md](orchestration.md) · [observability.md](observability.md) · [security.md](security.md)
+
 ## Why Layers At All?
 
 A multi-agent workflow has many independent concerns: who the agents are, what they can do, how they talk, what they remember, how they are wired together, and how you observe them. Most frameworks mix these concerns in code — agent identity, tool registration and orchestration end up tangled in the same Python class. AWP refuses that mix. It assigns each concern to its own **layer**, with its own YAML section and its own validation rules, and lets you opt into layers as your workflow grows.
@@ -54,17 +56,19 @@ Communication (Layer 3), Memory (Layer 4), Observability (Layer 6), and Security
 
 Several powerful features are *not* layers of their own — they extend existing layers without breaking the seven-layer model:
 
-| Mechanism | Hosted in | What it adds |
-|-----------|-----------|--------------|
-| **Delegation loop** (A2-A4) | Layer 5 | Manager/worker engine with complexity-scored auto-promotion, reservation-based budgets, recursive sub-runs |
-| **Dynamic tool factory** (A3+) | Layer 2 | Six-phase B1-B6 pipeline (schema → AST → sandbox import → smoke test → registry binding → integration) with auto-repair loop |
-| **Critique loop** | Layer 5 + Layer 6 | Per-iteration defect diagnosis and targeted repair inside the worker loop |
-| **Evaluation layer** | Layer 6 | Workflow-level quality scoring with weighted metrics, thresholds, and retry policy |
-| **Manager intelligence** | Layer 5 | Planning, hypothesis-diagnosis, strategy switching, decision journal |
-| **Per-role model routing** | Layer 1 | Manager and worker LLMs configured separately; provider auto-detected from model string |
-| **Experiment paradigm** | UI (Workflow Studio) | Sessions are now Experiments with Protocol/Memory tabs and scoped metadata |
+| Mechanism | Hosted in | What it adds | Authoritative doc |
+|-----------|-----------|--------------|-------------------|
+| **Delegation loop** (A2-A4) | Layer 5 | Manager/worker engine with complexity-scored auto-promotion, reservation-based budgets, recursive sub-runs | [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [orchestration.md](orchestration.md) |
+| **Dynamic tool factory** (A3+) | Layer 2 | Six-phase B1-B6 pipeline (schema → AST → sandbox import → smoke test → registry binding → integration) with auto-repair loop | [runtime-tool-generation.md](runtime-tool-generation.md), [tools.md](tools.md) |
+| **Critique loop** | Layer 5 + Layer 6 | Per-iteration defect diagnosis and targeted repair inside the worker loop | [critique.md](critique.md) |
+| **Evaluation layer** | Layer 6 | Workflow-level quality scoring with weighted metrics, thresholds, and retry policy | [evaluation.md](evaluation.md) |
+| **Manager intelligence** | Layer 5 | Planning, hypothesis-diagnosis, strategy switching, decision journal | [manager-intelligence.md](manager-intelligence.md) |
+| **Per-role model routing** | Layer 1 | Manager and worker LLMs configured separately; provider auto-detected from model string | [agent.md](agent.md) |
+| **Outer loop (A5)** | Outside the 7 layers — SGD over prompt artifacts via `awp optimize` | Iterative improvement of the prompt-side θ | [outer-loop.md](outer-loop.md) |
+| **Refinement mode** | Outside the 7 layers — y-axis iteration via `awp refine` | Iterative improvement of a seed run's deliverable | [refinement.md](refinement.md) |
+| **Experiment paradigm** | UI (Workflow Studio) | Sessions are now Experiments with Protocol/Memory tabs and scoped metadata | [ui.md](ui.md) |
 
-These mechanisms are documented separately (`orchestration.md`, `tools.md`, `critique.md`, `evaluation.md`, `ui.md`) but they all *plug into* the layer model rather than expanding it.
+These mechanisms *plug into* the layer model rather than expanding it — so a validation rule, gate, or budget added here is always located "in Layer N" for exactly one N, and the [validation doc](validation.md) can cite it unambiguously.
 
 ## How Layers Map to YAML Sections
 

@@ -1,5 +1,7 @@
 # workflow.awp.yaml Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 0), [docs/README.md](README.md#concept-map) · **Sibling concepts (other layers)**: [agent.md](agent.md) (Layer 1), [tools.md](tools.md) (Layer 2), [communication.md](communication.md) (Layer 3), [memory.md](memory.md) (Layer 4), [orchestration.md](orchestration.md) (Layer 5), [observability.md](observability.md) (Layer 6), [security.md](security.md) · **Deeper**: [file-structure.md](file-structure.md), [packaging.md](packaging.md), [validation.md](validation.md) (R-rules that gate this file) · **Spec**: [spec/versions/1.0/layers/00-manifest.md](../spec/versions/1.0/layers/00-manifest.md)
+
 ## Mental Model
 
 `workflow.awp.yaml` is the **root document** of every AWP workflow — the single anchor file that ties together identity, dependencies, the orchestration graph, security, memory, and observability. If you only read one file to understand a workflow, read this one. Everything else (`agent.awp.yaml`, custom MCP tools, skills) is referenced from here.

@@ -1,5 +1,7 @@
 # Evaluation Layer
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime), [layer-model.md](layer-model.md) (cross-cutting mechanism hosted in Layer 6 — [observability.md](observability.md)) · **Complementary mechanisms**: [critique.md](critique.md) (per-worker repair — runs *before* evaluation), [validation.md](validation.md) (static R1–R32 — runs *before* execution) · **Completion gate chain placement**: [runtime.md](runtime.md) (evaluation is the last gate before a run transitions to `complete`) · **Engine applicability**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [orchestration.md](orchestration.md) · **Loss function for the outer loop**: [outer-loop.md](outer-loop.md), [refinement.md](refinement.md)
+
 ## Mental Model
 
 Evaluation is AWP's answer to a deceptively simple question: *"after a workflow has finished, was the result actually good?"* Validation tells you whether a workflow is well-formed and safe to run; evaluation tells you whether the run produced something worth keeping. It is the only AWP subsystem that emits a single, comparable **0.0–1.0 score** for an entire run, which makes it the natural home for retry policies, regression dashboards, and A/B comparisons between workflow versions.

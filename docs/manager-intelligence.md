@@ -1,5 +1,7 @@
 # Manager Intelligence
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime), [layer-model.md](layer-model.md) (cross-cutting mechanism hosted in Layer 5 — [orchestration.md](orchestration.md)) · **Engine context**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) — delegation loop only (A2–A4) · **Bound by**: [runtime.md](runtime.md) (budget envelope, completion gate chain, plan-loop transition, manager context guard) · **Feeds / is fed by**: [critique.md](critique.md) (pattern memory → decision journal), [evaluation.md](evaluation.md) (final score) · **Tool creation**: [runtime-tool-generation.md](runtime-tool-generation.md) (A3+) · **Autonomy mapping**: [compliance.md](compliance.md)
+
 ## Mental Model
 
 A naive delegation loop manager just dispatches workers, reads results, and re-dispatches until something looks good. That works for simple tasks and falls apart for hard ones — the manager exhausts its budget on dead ends, retries blindly when a worker fails, and has no memory of what it has already tried. **Manager Intelligence** is a small, composable set of cognitive subsystems that turn the manager from a reactive dispatcher into a *deliberate problem solver*: it can plan before acting, diagnose before retrying, switch strategies when stuck, reserve budget for the phases it knows are coming, and keep a journal of its own decisions.

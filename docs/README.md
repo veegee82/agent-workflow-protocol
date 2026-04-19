@@ -45,15 +45,46 @@ New since 1.0: **complexity-scored auto-promotion** of workers to sub-managers, 
 | 23 | [ui.md](ui.md) | Workflow Studio (browser UI) |
 | 24 | [openclaw_integration.md](openclaw_integration.md) | OpenClaw integration guide |
 
+## Concept Map
+
+AWP has a small vocabulary of concepts that reference each other. Use this as a "where does concept X live?" lookup — every architectural document should be one hop away from its neighbors via this map.
+
+### Structural concepts (where things live)
+
+| Concept | Lives in | Authoritative doc | Referenced by |
+|---|---|---|---|
+| **7 semantic layers** (Manifest → Identity → Capabilities → Communication → Memory → Orchestration → Observability) | The stack itself | [layer-model.md](layer-model.md) | Every per-layer doc below; `spec/versions/1.0/layers/` |
+| **Autonomy spectrum** (A0 prescribed → A4 self-organizing) | Cross-cutting classification | [compliance.md](compliance.md) | [overview.md](overview.md), [layer-model.md](layer-model.md), [architecture.md](architecture.md) |
+| **Two engines** (DAG, delegation loop) | Layer 5 (Orchestration) | [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) | [orchestration.md](orchestration.md), [runtime.md](runtime.md) |
+| **Agent contract (R17)** | Layer 1 ↔ Layer 5 boundary | [runtime.md](runtime.md), [validation.md](validation.md) | [agent.md](agent.md), every delegation-loop concept |
+| **Cross-cutting mechanisms** (critique, evaluation, manager intelligence, dynamic tools) | Plug into existing layers, **not new layers** | [layer-model.md](layer-model.md#cross-cutting-mechanisms-not-new-layers) | [critique.md](critique.md), [evaluation.md](evaluation.md), [manager-intelligence.md](manager-intelligence.md), [runtime-tool-generation.md](runtime-tool-generation.md) |
+
+### Dynamic concepts (what happens at runtime)
+
+| Concept | Enforced by | Authoritative doc | Related |
+|---|---|---|---|
+| **Budget envelope** (max_loops, tokens, workers, wall-time, depth) | Deterministic check in delegation loop engine | [orchestration.md](orchestration.md), [runtime.md](runtime.md) | [compliance.md](compliance.md), [manager-intelligence.md](manager-intelligence.md) |
+| **Completion gate chain** (L0 → critique → deliverable_presence → placeholder → file → deliverable → structural_integrity → eval) | Runtime between manager COMPLETE and run end | [critique.md](critique.md), [runtime.md](runtime.md) | [validation.md](validation.md), [evaluation.md](evaluation.md) |
+| **Validation rules R1-R32** (+R33 deterministic purity, R34 L0 output contract, R35 repair fixpoint, R36 empty-gradient guard) | `awp validate` + parse-time + runtime gates | [validation.md](validation.md) | Every layer doc; [compliance.md](compliance.md), [refinement.md](refinement.md) |
+| **Delegation loop** (manager ↔ ephemeral workers, PLAN/DELEGATE/COMPLETE) | Delegation-loop engine at A2+ | [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [manager-intelligence.md](manager-intelligence.md) | [critique.md](critique.md), [runtime.md](runtime.md) |
+| **Dynamic tool factory** (B1-B6 pipeline + β auto-emergent induction) | Runtime at A3+ | [runtime-tool-generation.md](runtime-tool-generation.md), [tools.md](tools.md) | [runtime.md](runtime.md) §Framework-Fixes |
+| **Outer loop (A5)** — SGD over prompt artifacts with TextGrad | `awp optimize`, never `awp run` | [outer-loop.md](outer-loop.md), [iterative-optimization.md](iterative-optimization.md) | [refinement.md](refinement.md) contrasts y-axis |
+| **Refinement mode** — y-axis iteration over a seed deliverable | `awp refine`, never inside `awp run` | [refinement.md](refinement.md) | [outer-loop.md](outer-loop.md) (θ-axis), [critique.md](critique.md) (gradient source) |
+
+### Reading a concept off this map
+
+If a doc names concept X, you should be able to (a) find X's authoritative doc in one of the tables above, (b) name the layer/contract/gate/engine/rule X belongs to, and (c) reach X's neighbors in one click. If any of those fails, the doc carries a linked-mental-model gap — see `CLAUDE.md` §2.
+
 ## Quick Start
 
 If you are new to AWP, start with [overview.md](overview.md) to understand the motivation, then read [layer-model.md](layer-model.md) to see how the protocol is structured.
 
 To build a workflow, you need at minimum:
-- A [manifest](manifest.md) (`workflow.awp.yaml`)
-- One or more [agent configs](agent.md) (`agent.awp.yaml`)
-- An [orchestration graph](orchestration.md)
+- A [manifest](manifest.md) (`workflow.awp.yaml`) — Layer 0
+- One or more [agent configs](agent.md) (`agent.awp.yaml`) — Layer 1
+- An [orchestration graph](orchestration.md) — Layer 5
+- Optionally: [tools](tools.md) (Layer 2), [memory](memory.md) (Layer 4), [observability](observability.md) (Layer 6), [security](security.md) (cross-cutting)
 
-For the normative specification with RFC 2119 language, see `spec/versions/1.0/`.
+For the normative specification with RFC 2119 language, see [`spec/versions/1.0/`](../spec/versions/1.0/spec.md) — the [validation rules](validation.md) cross-reference `spec/versions/1.0/validation-rules.md` field-by-field.
 
-For runnable examples, see `examples/`.
+For runnable examples, see [`examples/`](../examples/README.md). For the governance/sync contract that keeps all of this coherent with the code, see `CLAUDE.md` §2.

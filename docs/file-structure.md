@@ -1,5 +1,7 @@
 # Directory Layout
 
+> **See also** — **Parent**: [docs/README.md](README.md), [manifest.md](manifest.md) (the root document that references everything else described here) · **Sibling concepts**: [packaging.md](packaging.md) (how this layout zips into `.awp.zip`), [agent.md](agent.md) (agent-folder shape), [tools.md](tools.md) (custom tool locations) · **Runtime consumers**: [runtime.md](runtime.md), [observability.md](observability.md) (where logs, traces, and run summaries land) · **Spec**: [spec/versions/1.0/file-structure.md](../spec/versions/1.0/file-structure.md)
+
 ## Mental Model
 
 An AWP workflow is a **directory**, not a single file. The directory is the unit of portability: it can be zipped into a `.awp.zip`, published to ClawHub, mounted into a container, or executed in place by `awp run .`. Everything the runtime needs to start the workflow lives inside it; everything the runtime *produces* (memory, run history, output artifacts) is written into well-known subdirectories so it can be inspected, replayed, or excluded from packaging.

@@ -1,5 +1,7 @@
 # Packaging & Distribution
 
+> **See also** — **Parent**: [docs/README.md](README.md), [architecture.md](architecture.md) (portability as a design decision) · **Sibling concepts**: [file-structure.md](file-structure.md) (layout that gets packaged), [manifest.md](manifest.md) (root document inside the package), [validation.md](validation.md) (rules a package must satisfy) · **Runtime consumers**: [runtime.md](runtime.md), [skill-system.md](skill-system.md) (ClawHub registry distribution) · **Release runbook**: [pypi-release.md](pypi-release.md) · **Spec**: [spec/versions/1.0/packaging.md](../spec/versions/1.0/packaging.md)
+
 ## Why a Package Format At All?
 
 A workflow is only useful if you can hand it to someone else and have it run identically on their machine. For that you need three things: a stable file layout (covered in `file-structure.md`), a deterministic way to verify the contents have not been tampered with, and a registry to share packages through. The `.awp.zip` format provides the first two; ClawHub provides the third.

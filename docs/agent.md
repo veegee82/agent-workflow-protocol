@@ -1,5 +1,7 @@
 # agent.awp.yaml Reference
 
+> **See also** — **Parent**: [layer-model.md](layer-model.md) (this is Layer 1 — Agent Identity), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [manifest.md](manifest.md) (Layer 0), [tools.md](tools.md) (Layer 2 — capabilities an agent may use), [orchestration.md](orchestration.md) (Layer 5 — how agents are wired into a graph) · **Contract**: the agent output contract **R17** lives in [runtime.md](runtime.md) and is validated per [validation.md](validation.md) · **Deeper**: [runtime-tool-generation.md](runtime-tool-generation.md) (A3+ tool factory an agent can invoke) · **Spec**: [spec/versions/1.0/layers/01-agent-identity.md](../spec/versions/1.0/layers/01-agent-identity.md)
+
 ## Mental Model
 
 An **agent** in AWP is the smallest unit of reasoning: an identity, a model, a system prompt, and a strict output contract. Every agent lives in `agents/{agent_id}/agent.awp.yaml` and is referenced from the workflow manifest. Agents are intentionally small and self-describing — the goal is that you can read a single `agent.awp.yaml` and know exactly *who* this agent is, *which model* it runs on, *what* it must produce, and *which tools* it may touch.

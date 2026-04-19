@@ -5,6 +5,8 @@
 > `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`,
 > `packages/awp-runtime/src/awp/runtime/tool_repair.py`
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime), [tools.md](tools.md) (static tool reference that the generated tools slot into) · **Hosted in**: [layer-model.md](layer-model.md) Layer 2 (Capabilities) — a cross-cutting mechanism, not a new layer · **Autonomy gate**: A3+ only — see [compliance.md](compliance.md) · **Engine context**: delegation loop only — see [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [manager-intelligence.md](manager-intelligence.md) (who decides to enter tool creation mode) · **Safety envelope**: [security.md](security.md) (sandbox, forbidden imports), [validation.md](validation.md) (tool namespace rules) · **β auto-emergent induction**: [runtime.md](runtime.md) §Framework-Fixes · **Feeds**: [skill-system.md](skill-system.md) (persisted tools surface as reusable skills)
+
 ## Mental Model
 
 Most agent frameworks ship with a fixed tool catalogue and hope it covers every task. AWP takes the opposite bet: at autonomy level A3 and above, **workers write the tools they need, the moment they need them**. The manager flips a worker into *tool creation mode*, the worker returns a JSON spec containing Python source, and the runtime turns that source into a registered, sandboxed, schema-validated tool that any subsequent worker in the same run can call by name. Tool creation is the mechanism that turns a static workflow into an *adaptive* one.

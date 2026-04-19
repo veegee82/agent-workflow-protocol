@@ -1,5 +1,7 @@
 # AWP Workflow Studio
 
+> **See also** — **Parent**: [docs/README.md](README.md) · **Underlying runtime**: [runtime.md](runtime.md), [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md), [orchestration.md](orchestration.md) · **Surfaces / renders**: [observability.md](observability.md) (events, traces), [evaluation.md](evaluation.md) (score), [critique.md](critique.md) (defects), [manager-intelligence.md](manager-intelligence.md) (decision journal), [runtime-tool-generation.md](runtime-tool-generation.md) (dynamic tool registry) · **Refinement UX**: [refinement.md](refinement.md) (Refine button + session history panel) · **Data surfaces**: [data-importer.md](data-importer.md), [memory.md](memory.md)
+
 ## Mental Model
 
 Workflow Studio is the human window into a running AWP workflow. CLI runs are great for automation but terrible for *understanding* what a delegation loop is actually doing — which manager decision led to which worker, which worker created which tool, where the budget went, why a sub-tree terminated. Studio is built around a single idea: **make every step of an autonomous agent run visible, replayable, and reproducible**, without forcing the user to read JSON logs.

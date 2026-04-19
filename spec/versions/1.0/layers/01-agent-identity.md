@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Layer 1**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) · **Non-normative explainer**: [docs/agent.md](../../../../docs/agent.md) · **Agent contract R17 (normative)**: [../validation-rules.md](../validation-rules.md); runtime-side in [docs/runtime.md](../../../../docs/runtime.md) · **Sibling layers**: [00-manifest.md](00-manifest.md), [02-capabilities.md](02-capabilities.md), [03-communication.md](03-communication.md), [04-memory-state.md](04-memory-state.md), [05-orchestration.md](05-orchestration.md), [06-observability.md](06-observability.md), [security.md](security.md)
+
 ---
 
 ## 1. Overview

@@ -1,5 +1,7 @@
 # Outer Loop Optimizer (A5, experimental)
 
+> **See also** — **Parent**: [docs/README.md](README.md#dynamic-concepts-what-happens-at-runtime), [architecture.md](architecture.md) · **Axis**: the outer loop moves **θ** (prompt artifacts) — its y-axis counterpart that refines a single run's deliverable is [refinement.md](refinement.md) · **Loss function**: [evaluation.md](evaluation.md) + [critique.md](critique.md) + gate rejections from [runtime.md](runtime.md) — weighted per `LossBreakdown` in this doc · **Never active inside `awp run`**: entered only via `awp optimize` / `awp optimize-rollback` / `awp optimize-inspect` · **Autonomy mapping**: [compliance.md](compliance.md) — A5 sits outside the 7 layers of [layer-model.md](layer-model.md) · **Related**: [iterative-optimization.md](iterative-optimization.md) (inner-run feedback loop — orthogonal axis again)
+
 **The outer loop treats AWP runs as a training problem.** Prompt artifacts are
 the model parameters, a completed run is one forward pass, a deterministic
 scalar loss quantifies how well the run went, and an LLM-as-optimizer acts as

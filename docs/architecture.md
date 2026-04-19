@@ -2,6 +2,8 @@
 
 **How AWP differs from every other agent framework — and why it matters.**
 
+> **See also** — **Parent**: [overview.md](overview.md), [docs/README.md](README.md#concept-map) · **Sibling concepts**: [layer-model.md](layer-model.md) (the 7 layers this architecture produces), [compliance.md](compliance.md) (A0–A4 spectrum), [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) (the two engines backing A0–A1 vs A2–A4) · **Deeper**: [runtime.md](runtime.md) (how the runtime enforces structure), [validation.md](validation.md) (R1–R32 that make the separation checkable), [outer-loop.md](outer-loop.md) (A5 optimization layer above the protocol)
+
 ---
 
 ## The Core Insight

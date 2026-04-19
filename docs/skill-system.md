@@ -1,5 +1,7 @@
 # Skill System
 
+> **See also** — **Parent**: [docs/README.md](README.md), [tools.md](tools.md) (skills wrap tools + prompts into reusable units), [runtime-tool-generation.md](runtime-tool-generation.md) (dynamic tool factory that produces new skills) · **Governance**: [CLAUDE.md](../CLAUDE.md) §Skill Synchronization · **Authoritative skill source**: [skill/SKILL.md](../skill/SKILL.md) · **Skill references**: [skill/references/](../skill/references/) — architecture, compliance-levels, spec-summary, validation-rules, tools-reference · **Distribution**: [packaging.md](packaging.md) (ClawHub) · **Related runtime concepts**: [memory.md](memory.md) (skills may carry memory), [security.md](security.md) (sandbox envelope)
+
 ## Mental Model
 
 The skill system is AWP's answer to *"how does a human (or a Claude assistant) actually produce a valid workflow without memorising the entire spec?"*. Instead of asking the user to learn 7 layers, 30 validation rules, and an autonomy ladder, the skill system gives an AI assistant a structured generation procedure: read the user's natural-language description, ask a few targeted questions, then emit a complete, validated workflow project — manifest, agent configs, prompts, schemas, and adapter code — in one go.

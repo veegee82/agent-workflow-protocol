@@ -1,5 +1,7 @@
 # Runtime & Platform Integration
 
+> **See also** — **Parent**: [docs/README.md](README.md#concept-map), [architecture.md](architecture.md) · **Contracts this runtime enforces**: agent output contract **R17** (this doc) — validated by [validation.md](validation.md); budget envelope — see [orchestration.md](orchestration.md); completion gate chain (L0/R34 → critique → deliverable_presence → placeholder → file → deliverable → structural_integrity → eval) — see [critique.md](critique.md), [evaluation.md](evaluation.md); R35 repair fixpoint — see [critique.md](critique.md) · **Engines**: [ORCHESTRATION_ENGINES.md](ORCHESTRATION_ENGINES.md) · **Related cross-cutting mechanisms**: [manager-intelligence.md](manager-intelligence.md), [runtime-tool-generation.md](runtime-tool-generation.md), [outer-loop.md](outer-loop.md), [refinement.md](refinement.md) · **Observability**: [observability.md](observability.md)
+
 ## Mental Model
 
 AWP is intentionally **runtime-agnostic**. The protocol (YAML manifests, agent contracts, validation rules) is normative; the runtime that *executes* a workflow is pluggable. This separation is what lets the same `workflow.awp.yaml` run unchanged on the standalone Python runtime, on Cloudflare Workers, inside Jupyter, or on a custom adapter for LangGraph / CrewAI.

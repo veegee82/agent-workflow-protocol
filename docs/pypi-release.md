@@ -2,6 +2,8 @@
 
 Authoritative build-and-publish procedure for the `awp-agents` PyPI package. Referenced from `CLAUDE.md` §"PyPI Build Rules"; read this before every release.
 
+> **See also** — **Parent**: [CLAUDE.md](../CLAUDE.md) §PyPI Build Rules, [docs/README.md](README.md) · **Package architecture**: [architecture.md](architecture.md), [packaging.md](packaging.md) · **Pre-release gates**: [validation.md](validation.md) (R1-R32), [e2e.md](e2e.md) (mandatory E2E before push) · **Version-sync contract**: [CLAUDE.md](../CLAUDE.md) §PyPI Build Rules table · **Mirror invariant**: `packages/` ↔ `reference/python/src/` — enforced by `scripts/check_mirror_drift.py`
+
 ## Architecture: What Gets Published
 
 Only **one package** is published to PyPI: **`awp-agents`** (built from `reference/python/`). It is a meta-package that bundles everything — core models, runtime, UI server, and the **pre-built frontend assets**. The `awp-core` and `awp-runtime` packages are NOT published separately — their code is vendored into `reference/python/src/`.
