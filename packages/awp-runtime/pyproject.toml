@@ -50,4 +50,4 @@ Changelog = "https://github.com/veegee82/agent-workflow-protocol/blob/main/CHANG
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["awp.runtime", "awp.runtime.*", "awp.data", "awp.data.*", "awp.data.resolvers", "awp.data.resolvers.*", "awp.patterns", "awp.patterns.*", "awp.outer_loop", "awp.outer_loop.*"]
+include = ["awp.runtime", "awp.runtime.*", "awp.data", "awp.data.*", "awp.data.resolvers", "awp.data.resolvers.*", "awp.patterns", "awp.patterns.*", "awp.outer_loop", "awp.outer_loop.*", "awp.refinement", "awp.refinement.*"]
