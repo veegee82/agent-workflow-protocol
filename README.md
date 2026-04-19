@@ -942,6 +942,7 @@ awp optimize <suite.yaml> --with-textgrad --epochs 5  # Outer loop A3: TextGrad 
 awp optimize-inspect <suite-name>                 # Outer loop: list past epochs
 awp optimize-inspect --artifact worker_pitfalls   # Outer loop A3: artifact version history
 awp optimize-rollback <artifact> <version>        # Outer loop A3: roll an artifact back
+awp refine <seed_run_dir>                         # Refinement mode: iterative y-axis optimization
 ```
 
 ### Design Patterns

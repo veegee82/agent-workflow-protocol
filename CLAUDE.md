@@ -209,6 +209,7 @@ awp compliance <path> --level A2 # Check autonomy level (A0-A4)
 awp visualize <path> --format mermaid  # Render DAG
 awp pack <path>                  # Archive as .awp.zip
 awp run <path>                   # Execute workflow
+awp refine <seed_run_dir>        # Iteratively refine a completed run's deliverable (task-local SGD on y)
 ```
 
 E2E tests that call LLMs require an OpenRouter or OpenAI-compatible API key. Validation-only tests run without external keys.

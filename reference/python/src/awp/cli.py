@@ -209,6 +209,33 @@ def main(argv: list[str] | None = None) -> int:
         help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
     )
 
+    # refine (task-local iterative refinement — y-axis optimization)
+    p_refine = subparsers.add_parser(
+        "refine",
+        help="Iteratively refine a completed run's deliverable (task-local SGD on y)",
+    )
+    p_refine.add_argument(
+        "seed",
+        help="Path to the seed run directory (containing run_completion.json + FINAL/)",
+    )
+    p_refine.add_argument(
+        "--iterations",
+        "-n",
+        type=int,
+        default=3,
+        help="Max refinement iterations, clamped to [1, 10] (default: 3)",
+    )
+    p_refine.add_argument(
+        "--model",
+        default=None,
+        help="Manager model override (default: inherit from seed run)",
+    )
+    p_refine.add_argument(
+        "--worker-model",
+        default=None,
+        help="Worker model override (default: inherit from seed run)",
+    )
+
     # optimize-rollback (manual rollback of an artifact's active version)
     p_opt_rollback = subparsers.add_parser(
         "optimize-rollback",
@@ -257,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_optimize_inspect(args)
         elif args.command == "optimize-rollback":
             return cmd_optimize_rollback(args)
+        elif args.command == "refine":
+            return cmd_refine(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -3100,6 +3129,61 @@ def cmd_optimize_rollback(args: argparse.Namespace) -> int:
     print(f"Artifact: {args.artifact_name}")
     print(f"Active before: v{before.version}")
     print(f"Active after:  v{after.version}")
+    return 0
+
+
+def cmd_refine(args: argparse.Namespace) -> int:
+    """Run the refinement loop against a completed seed run.
+
+    Exit codes:
+      0 — at least one iteration improved loss; BEST/ updated.
+      0 — empty gradient (nothing to refine).
+      1 — no iteration improved loss; BEST still points at seed.
+      2 — setup failure (seed missing, malformed, no FINAL/).
+    """
+    seed_path = Path(args.seed)
+    if not seed_path.exists():
+        print(f"error: seed run not found: {seed_path}", file=sys.stderr)
+        return 2
+    if not (seed_path / "run_completion.json").exists():
+        print(f"error: seed has no run_completion.json: {seed_path}", file=sys.stderr)
+        return 2
+    if not (seed_path / "FINAL").exists():
+        print(f"error: seed has no FINAL/: {seed_path}", file=sys.stderr)
+        return 2
+
+    try:
+        from awp.refinement.loop import NothingToRefine, RefinementLoop
+    except ImportError as exc:
+        print(f"error: awp.refinement is not available: {exc}", file=sys.stderr)
+        return 2
+
+    loop = RefinementLoop(
+        seed_run_dir=seed_path,
+        model=args.model,
+        worker_model=args.worker_model,
+    )
+    try:
+        result = loop.run(iterations=int(args.iterations))
+    except NothingToRefine as exc:
+        print(f"nothing to refine: {exc}")
+        return 0
+
+    print(f"session_id:  {result.session_id}")
+    print(f"stop_reason: {result.stop_reason}")
+    print(f"seed_loss:   {result.seed_loss:.4f}")
+    print(
+        f"best_loss:   {result.best_loss:.4f} "
+        f"(iter {result.best_iter if result.best_iter > 0 else 'seed'})"
+    )
+    for it in result.iterations:
+        print(
+            f"  iter {it.k}: run_id={it.run_id} "
+            f"loss={it.loss:.4f} status={it.status}"
+        )
+
+    if result.best_iter == 0:
+        return 1
     return 0
 
 
