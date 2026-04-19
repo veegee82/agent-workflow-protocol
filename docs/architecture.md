@@ -622,6 +622,69 @@ Every agent in AWP must return a confidence score (0.0-1.0). This is not optiona
 
 ---
 
+<a name="compiler-layer"></a>
+## 8½. The Compiler Layer — Deterministic Phases Between the LLM Loops
+
+AWP has three tiers of execution, each paying cost in a different currency:
+
+| Tier | Name | Cost | Determinism | Typical work |
+|------|------|------|-------------|-------------|
+| Inner | Manager–worker delegation loop (A2–A4) | LLM tokens | None | Creative drafting, analysis, synthesis |
+| **Middle** | **Compiler layer — deterministic phases (R33)** | **CPU seconds** | **Bit-exact** | **Assembly, codegen, validation, fixed-point compilation** |
+| Outer | SGD-style prompt optimiser (A5) | Task-suite runs | Score-monotonic | Learning across runs |
+
+The compiler layer is the answer to a class of failures the inner loop
+*structurally* cannot solve: fixed-point problems with hard structural
+invariants. Examples encountered in practice: "compile this LaTeX
+source to exactly 8 pages", "emit Protobuf stubs whose hash matches the
+`.proto`", "assemble a Docker image from a dockerfile fragment and
+inject the correct `LABEL` from state". These are not creative tasks;
+they are mechanical string and byte manipulations where the LLM spends
+tokens to produce errors a Python function would never make.
+
+A deterministic phase is declared in YAML:
+
+```yaml
+- id: assemble
+  type: deterministic
+  depends_on: [draft]
+  callable: my_workflow.assembler:build
+  timeout_s: 300
+  invariants:
+    - kind: file_exists
+      path: "${output}/artifact.bin"
+    - kind: regex_absent
+      path: "${output}/artifact.bin"
+      pattern: 'TODO|XXX|placeholder'
+```
+
+The runtime loads the callable, runs it in a sandboxed subprocess with
+secrets stripped, enforces the timeout, and then checks every invariant
+against the output. Failures contribute structured reasons to the run's
+terminal status (`partial` / `failed`) — no LLM judge required.
+
+**What AWP does NOT ship.** AWP core contains zero LaTeX, Docker,
+Protobuf, SQL, or OpenAPI code. Those live in user workflow repos as
+the `callable` bodies. AWP contributes only the runner, sandbox,
+invariant kinds, and the YAML schema — the protocol, not the
+implementations. This matches AWP's core principle that the protocol
+is the product; the runtime is an interpreter.
+
+**Layer 0 Output Contract.** The compiler-layer thinking extends to the
+inner loop too. Every worker output — deterministic or LLM — passes a
+chain of linear-time checks (see [critique.md](critique.md#layer-0-output-contract-r34))
+*before* any LLM-based critique runs. Placeholder strings,
+self-repeating text, append-leak growth factors, duplicate headings,
+and unbalanced delimiters are all detectable in O(n), without a single
+token. Cutting these defects at L0 is strictly cheaper than
+re-delegating through the critique engine, and strictly more reliable
+than asking a language model to notice them.
+
+The result: every tier is specialised for the work it is best at, and
+nothing mechanical rides on a model's interpretation.
+
+---
+
 ## 9. What Scientists Can Do Now
 
 AWP was designed with a specific user in mind: the domain expert who needs multi-agent AI but shouldn't need to be a software engineer to use it. Here's what's now possible.

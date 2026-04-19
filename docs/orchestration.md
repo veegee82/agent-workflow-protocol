@@ -472,3 +472,82 @@ path; enable only when reproducibility is not a concern.
 |-------|------|---------|-------------|
 | `pipeline_critique_planning` | bool | `false` | Overlap per-iteration critique with next-iteration manager prompt assembly. See [runtime.md](runtime.md#pipelined-critique--eval-opt-in). |
 | `parallel_gate_chain` | bool | `false` | Run independent Phase-A completion gates concurrently. Canonical first-failure-wins rejection order preserved. See [runtime.md](runtime.md#parallel-completion-gate-chain-opt-in). |
+
+## Phase Types (R33) — LLM vs Deterministic
+
+AWP phases are typed. The default `type: llm` places the phase under the
+manager/worker delegation loop, paying cost in LLM tokens and accepting
+non-deterministic output. A phase may instead be declared
+`type: deterministic`, in which case the runtime invokes a
+workflow-supplied Python callable inside a subprocess sandbox and
+enforces a set of invariants on its output.
+
+**Deterministic phases NEVER invoke LLM clients** — this is enforced as
+validation rule R33 (see
+[validation-rules.md](../spec/versions/1.0/validation-rules.md#r33-deterministic-phase-purity)).
+They exist to give workflow authors a first-class way to:
+
+- Assemble artifacts from LLM drafts (LaTeX, Docker images, Protobuf
+  codegen, SQL migrations, …) without paying LLM tokens for mechanical
+  string manipulation;
+- Guarantee bit-exact, reproducible output;
+- Attach hard invariants (`file_exists`, `file_size_range`,
+  `regex_absent`, `python_predicate`) that become a *structural* part
+  of the terminal-status decision, not an LLM-judge advisory.
+
+### Minimal example
+
+```yaml
+orchestration:
+  phases:
+    - id: draft_report
+      type: llm
+      deliverable: {id: report_md, kind: file}
+
+    - id: assemble_report
+      type: deterministic
+      depends_on: [draft_report]
+      callable: my_workflow.assembler:build_report
+      args:
+        input: "${draft_report.deliverable}"
+      timeout_s: 300
+      invariants:
+        - kind: file_exists
+          path: "${output}/report.final"
+        - kind: regex_absent
+          path: "${output}/report.final"
+          pattern: 'TODO|XXX'
+```
+
+The runner loads the callable via `importlib` (no `eval`, no shell),
+strips `*_API_KEY` env vars, runs with the configured timeout, and
+then evaluates every invariant. Any failure produces a structured
+`partial`/`failed` contribution to the run's terminal status.
+
+Supported invariant kinds (conformant minimum set):
+
+| Kind | Fields | Semantics |
+|------|--------|-----------|
+| `file_exists` | `path` | Non-empty file at `path` |
+| `file_size_range` | `path`, `min_bytes`, `max_bytes` | Size within bounds |
+| `regex_absent` | `path`, `pattern` | `re.search` returns None |
+| `regex_present` | `path`, `pattern` | `re.search` returns match |
+| `exit_code` | `expected` | Callable returned dict with matching `exit_code` |
+| `python_predicate` | `module`, `function` | Importlib-loaded callable is truthy |
+
+Unknown invariant kinds cause phase failure with reason
+`unknown_invariant_kind`. See the normative semantics in
+[validation-rules.md §9](../spec/versions/1.0/validation-rules.md#9-deterministic-phase-type-r33).
+
+### When to use which phase type
+
+| Situation | Phase type |
+|-----------|-----------|
+| Creative drafting, analysis, synthesis | `llm` |
+| LaTeX/Docker/Proto/SQL/OpenAPI assembly | `deterministic` |
+| Fixed-point problems (exact page count, schema validation) | `deterministic` |
+| Any task with bit-exact reproducibility requirement | `deterministic` |
+
+The [Compiler Layer](architecture.md#compiler-layer) section of the
+architecture document motivates why AWP introduces a deterministic tier
+alongside the LLM inner loop and the SGD outer loop.

@@ -226,3 +226,71 @@ See [Example 15: Critique Loop](../examples/workflows/15-critique-loop/) for a c
 - 2 repair attempts per worker
 - 20% repair budget fraction
 - Evaluation metrics + retry policy combined with critique
+
+## Layer 0 Output Contract (R34)
+
+Before the LLM critique runs on a worker's output, a bit-level
+contract chain checks for trivial defects that don't need a language
+model to detect. This is the **Layer 0 Contract**: linear-time,
+domain-agnostic, token-free.
+
+Default checks (bundled with every conformant runtime):
+
+| Check | What it rejects |
+|-------|-----------------|
+| `no_placeholder` | `TODO`, `XXX`, `???`, `Lorem ipsum`, `TBD`, `FIXME`, `TITLE GOES HERE`, `Author Name`, `to be filled` |
+| `no_text_loop` | ≥ 20-word paragraphs whose pairwise `simhash` similarity exceeds 0.85 (detects the "produce more output by repeating yourself" anti-pattern) |
+| `file_size_delta` | A repair output whose size is > 2.5× the previous attempt (detects append-leaks like the 341 MB runaway observed in practice) |
+| `no_duplicate_headings` | Any Markdown `# Title` or LaTeX `\section{Title}` that appears more than once |
+| `balanced_delimiters` | Unbalanced `{}` / `[]` / `()` counts (fast tokenizer, no AST) |
+| `json_valid_if_claimed` | Files ending `.json` (or tools claiming JSON output) that fail `json.loads` |
+
+Every check runs in O(n) and in under 100 ms on a 10 MB output.
+
+### Integration with the completion gate chain
+
+L0 runs **before** `critique → deliverable → placeholder → file →
+deliverable → structural → eval`. A rejection at L0 emits a gate event
+with fields `l0_check`, `l0_reason`, `violating_path` and sends the
+worker back into repair mode with a specific, deterministic reason
+string — no LLM tokens burned.
+
+See [validation-rules.md §10](../spec/versions/1.0/validation-rules.md#10-layer-0-output-contract-r34)
+for normative requirements.
+
+### Workflow-specific extensions
+
+Workflow authors add their own checks via YAML:
+
+```yaml
+observability:
+  output_contract:
+    checks: [default]
+    extra:
+      - name: citation_keys_resolve
+        implementation: my_workflow.contracts:CitationCheck
+```
+
+An `OutputContractCheck` implementation is any Python callable
+conforming to the `Protocol` in
+`packages/awp-runtime/src/awp/runtime/critique/contracts.py`. The
+callable MUST return within 100 ms on a 10 MB output. Extension
+checks live in the workflow repo; AWP core ships only the generic
+default set.
+
+## Repair Fixpoint Detection (R35)
+
+When a repair worker returns an output whose `simhash` similarity to
+the previous repair output is ≥ 0.95, the runtime treats the subtask
+as a fixpoint and aborts further repair. The subtask is marked
+`failed` with reason `repair_fixpoint_detected` and its parent loop
+decides whether to synthesise a differently-scoped subtask or
+contribute the failure to the terminal status aggregation.
+
+This prevents the "keep repairing the same wrong thing" failure mode
+observed in long-running delegation runs: a worker producing
+near-identical output across 4+ repair attempts is not converging, and
+every further iteration burns budget without information gain.
+
+See [validation-rules.md §11](../spec/versions/1.0/validation-rules.md#11-repair-fixpoint-detection-r35)
+for normative semantics.

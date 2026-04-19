@@ -1,6 +1,6 @@
 # Validation Rules
 
-**AWP Specification v1.0.0 — Validation Rules R1–R32**
+**AWP Specification v1.0.0 — Validation Rules R1–R35**
 **Status:** Draft Standard
 
 ---
@@ -503,6 +503,9 @@ orchestration:
 | R30 | Evaluation | MUST | `step_scores.hooks` and `retry_policy.actions` must be valid |
 | R31 | Orchestration (A4) | MUST | `delegation_loop.budget.max_depth` required and `>= 0` |
 | R32 | Orchestration (A4) | MUST | `max_depth` must not exceed the hard ceiling of 10 |
+| R33 | Orchestration | MUST | A phase declared `type: deterministic` MUST NOT invoke LLM tools |
+| R34 | Observability | SHOULD | Every worker output SHOULD pass the Layer-0 contract chain before the LLM critique runs |
+| R35 | Orchestration (repair) | MUST | Two consecutive repair outputs with `simhash` similarity `≥ 0.95` MUST abort the subtask |
 
 ---
 
@@ -697,3 +700,120 @@ These gates govern the delegation-loop runner's acceptance of a manager `COMPLET
   - **`forced_terminate`** — if the plan has no pending subtasks, the runtime MUST terminate the run with status `partial` and reason `plan_loop_stall`.
 - **Event fields:** `transition: "forced_delegate" | "forced_terminate"`, `pre_progress_plans: int`, `pending_subtasks: int`.
 - **Rationale:** Eliminates the ambiguous "plan forever" failure mode by turning the `plan_loop` gate into a deterministic routing decision.
+
+---
+
+## 9. Deterministic Phase Type (R33)
+
+AWP workflows MAY declare orchestration phases as either `type: llm` (default; managed by the manager/worker loop, cost in LLM tokens) or `type: deterministic` (managed by a workflow-supplied Python callable, cost in CPU-seconds). A third value `type: hybrid` is reserved for phases that emit an LLM-generated *spec* which is then executed deterministically; hybrid phases are NOT in scope for v1.0.
+
+### R33: Deterministic Phase Purity
+
+- **Category:** Orchestration
+- **Requirement:** A phase declared `type: deterministic` MUST NOT invoke any LLM client (no `chat()`, no `complete()`, no delegation). The runtime MUST reject a `deterministic` phase whose callable imports `awp.runtime.llm` or any symbol that transitively reaches an LLM call site. Workflow authors MAY request LLM output in an earlier `type: llm` phase and pass it by file path or state variable.
+- **Event fields:** none (static-analysis gate; emitted once at workflow load).
+- **Rationale:** The value proposition of a deterministic phase is bit-exact reproducibility and invariant-check-ability. Admitting hidden LLM calls voids both guarantees and defeats the purpose of the type separation.
+
+### Schema
+
+A deterministic phase node in `orchestration.phases` SHOULD take the form:
+
+```yaml
+- id: assemble_artifact
+  type: deterministic
+  depends_on: [draft]
+  callable: module.path:function_name     # dotted path + colon + attr
+  args:                                    # JSON-serialisable dict
+    input: "${draft.deliverable}"
+  timeout_s: 300                           # hard wall-clock
+  invariants:                              # executed after return
+    - kind: file_exists
+      path: "${output}/final.bin"
+    - kind: file_size_range
+      path: "${output}/final.bin"
+      min_bytes: 1000
+      max_bytes: 10000000
+    - kind: regex_absent
+      path: "${output}/final.bin"
+      pattern: 'TODO|XXX'
+    - kind: python_predicate
+      module: module.path
+      function: verify_result
+```
+
+### Invariant Kinds (normative minimum set)
+
+A conformant runtime MUST support these invariant kinds:
+
+| Kind | Required Fields | Semantics |
+|------|-----------------|-----------|
+| `file_exists` | `path` | File at `path` MUST exist and be non-empty |
+| `file_size_range` | `path`, `min_bytes`, `max_bytes` | `min_bytes <= size(path) <= max_bytes` |
+| `regex_absent` | `path`, `pattern` | `re.search(pattern, content_of(path))` MUST be None |
+| `regex_present` | `path`, `pattern` | `re.search(pattern, content_of(path))` MUST NOT be None |
+| `exit_code` | `expected` | The callable's returned dict MUST have `exit_code == expected` |
+| `python_predicate` | `module`, `function` | Importlib-loaded callable returns truthy |
+
+Runtimes MAY support additional invariant kinds. Unknown kinds MUST cause the phase to fail with reason `unknown_invariant_kind`.
+
+### Sandbox
+
+The runtime MUST execute the callable in an isolated subprocess with:
+
+- Timeout enforcement via `subprocess.run(timeout=...)`;
+- Strictly scoped environment variables (no inheritance of `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or any other secret the deterministic phase should not need);
+- A working directory derived from the workflow's `_workspace_dir`.
+
+### Terminal Status Contribution
+
+A deterministic phase's outcome maps to the run's terminal status as follows:
+
+- All invariants pass → phase contributes `complete` to the run's aggregate;
+- Timeout breach → phase contributes `partial` with reason `deterministic_timeout`;
+- Invariant violation → phase contributes `partial` with reason `invariant_<kind>_violated`;
+- Callable raises / returns non-zero `exit_code` → phase contributes `failed` with reason `deterministic_failure`.
+
+---
+
+## 10. Layer 0 Output Contract (R34)
+
+Every worker output—whether produced by an LLM worker or by a deterministic phase—SHOULD pass a chain of fast, bit-level checks (the **Layer 0 Contract**) before any LLM-based semantic critique runs. L0 checks are O(n) in output size, domain-agnostic, and carry no LLM cost.
+
+### R34: L0 Contract Precedes Critique
+
+- **Category:** Observability
+- **Requirement:** Conformant runtimes SHOULD invoke the L0 contract chain as the first entry of the completion-gate sequence. The chain is defined in `packages/awp-runtime/src/awp/runtime/critique/l0_validator.py` and carries the following default checks (MUST be supported by conformant runtimes):
+  - `no_placeholder` — rejects outputs containing `TODO`, `XXX`, `???`, `Lorem ipsum`, `TBD`, `FIXME`, `TITLE GOES HERE`, `Author Name`, `to be filled`;
+  - `no_text_loop` — computes `simhash` over paragraphs of `>= 20` words; rejects if the maximum pairwise similarity exceeds `0.85`;
+  - `file_size_delta` — compares this repair output's file size with the previous repair attempt; rejects if the growth factor exceeds `2.5`;
+  - `no_duplicate_headings` — rejects if any Markdown `^#+ ` or LaTeX `\section{...}` header string appears twice;
+  - `balanced_delimiters` — rejects unbalanced `{}` / `[]` / `()` counts (simple tokenizer, no AST);
+  - `json_valid_if_claimed` — if the artifact name ends in `.json` or the tool claimed JSON output, the bytes MUST `json.loads` cleanly.
+- **Event fields:** `l0_check: str`, `l0_reason: str`, `violating_path: str`.
+- **Rationale:** ~90% of runtime defects observed in practice (placeholders in LLM-generated LaTeX, text-loops, repair-induced append leaks, duplicate sections from repeated-plan merges) are detectable in O(n) without any LLM inference. Running L0 before critique cuts tokens, reduces wall time, and provides strictly deterministic repair signals.
+
+### Pluggable Extension
+
+Workflow authors MAY supply additional checks via:
+
+```yaml
+observability:
+  output_contract:
+    checks: [default]
+    extra:
+      - name: citation_keys_resolve
+        implementation: my_workflow.contracts:CitationCheck
+```
+
+An extra check MUST implement the `OutputContractCheck` protocol (in `packages/awp-runtime/src/awp/runtime/critique/contracts.py`) and MUST return within 100 ms on a 10 MB output. Extra checks are workflow-specific and MUST NOT live in the AWP core packages.
+
+---
+
+## 11. Repair Fixpoint Detection (R35)
+
+### R35: Consecutive Repair Fixpoint
+
+- **Category:** Orchestration (repair)
+- **Requirement:** When a repair worker produces an output `O_n` whose `simhash` similarity to the previous repair output `O_{n-1}` is `>= 0.95`, the runtime MUST treat the subtask as a repair fixpoint and abort further repair attempts. The subtask MUST transition to `status: failed` with reason `repair_fixpoint_detected`, and the parent loop MUST either synthesise a new differently-scoped subtask or contribute the failure to the run's terminal status aggregation.
+- **Event fields:** `sim: float`, `attempt: int`, `previous_output_path: str`.
+- **Rationale:** A worker that returns a near-identical output across repairs is not making progress; continuing the loop burns budget without information gain. The threshold `0.95` is chosen empirically to tolerate normal LLM paraphrase while still detecting the pathological "produce the same wrong file again" pattern.
