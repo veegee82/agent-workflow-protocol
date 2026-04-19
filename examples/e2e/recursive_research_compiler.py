@@ -26,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import make_experiment_dir, run_e2e  # noqa: E402
 
-
 TASK = """\
 ## Objective
 

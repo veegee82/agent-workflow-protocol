@@ -29,7 +29,6 @@ from awp.models.orchestration import Invariant
 
 from .result import InvariantCheckResult
 
-
 # ---------------------------------------------------------------------------
 # Execution context — small passive holder threaded through checks.
 # ---------------------------------------------------------------------------
@@ -299,7 +298,8 @@ def check_python_predicate(
 # ---------------------------------------------------------------------------
 
 
-INVARIANT_CHECKS: Dict[str, Callable[[Invariant, Dict[str, Any], ExecutionContext], InvariantCheckResult]] = {
+_CheckFn = Callable[[Invariant, Dict[str, Any], ExecutionContext], InvariantCheckResult]
+INVARIANT_CHECKS: Dict[str, _CheckFn] = {
     "file_exists": check_file_exists,
     "file_size_range": check_file_size_range,
     "regex_absent": check_regex_absent,

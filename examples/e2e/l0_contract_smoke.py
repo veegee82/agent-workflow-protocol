@@ -41,7 +41,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import run_e2e  # noqa: E402
 
-
 # Minimal tasks — we want short runs that exercise the L0 gate in each
 # branch. The instructions are explicit so the worker reliably emits
 # the target defect (Case A / B) or clean output (Case C).

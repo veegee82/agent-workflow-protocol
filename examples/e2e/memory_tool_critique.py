@@ -28,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import make_experiment_dir, run_e2e  # noqa: E402
 
-
 TASK_1 = (
     "Research the energy efficiency of three data center cooling methods: "
     "(1) Liquid immersion cooling, (2) Free-air cooling, (3) Rear-door "

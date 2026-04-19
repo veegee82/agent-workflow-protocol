@@ -10,7 +10,6 @@ Tags: e2e, s5, tool-creation, critique, planning
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 

@@ -31,7 +31,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import run_e2e  # noqa: E402
 
-
 TASK = r"""\
 Run a compact text-processing loop that registers a reusable tool, a
 reusable skill, and invokes the tool twice. All deliverables must be

@@ -19,7 +19,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _harness import run_e2e  # noqa: E402
 
-
 TASK = """## Ziel
 Entwirf eine minimale **Aufgabenverwaltungs-API** als OpenAPI-3-Spec und
 erzeuge einen passenden Python-Client als Stub. Alle Artefakte sollen

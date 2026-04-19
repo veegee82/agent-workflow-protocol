@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import run_e2e  # noqa: E402
 
-
 TASK_A = r"""\
 Run 1 of a multi-run experiment. Register ONE reusable tool and ONE
 reusable skill that a later run of the same experiment will leverage.

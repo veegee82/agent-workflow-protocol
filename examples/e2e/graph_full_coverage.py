@@ -33,7 +33,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import run_e2e  # noqa: E402
 
-
 TASK = r"""\
 Build a tiny text-analytics pipeline. You MUST register two reusable tools
 through the runtime's Dynamic Tool Factory (NOT as plain .py files on

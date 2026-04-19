@@ -44,7 +44,6 @@ from _harness import (  # noqa: E402
     register_experiment,
 )
 
-
 # ---------------------------------------------------------------------------
 # Workflow scaffolding — written fresh into a tmp experiment dir so the
 # run is fully reproducible. We deliberately avoid touching

@@ -352,9 +352,11 @@ def validate_rules(
     orch2 = getattr(manifest, "orchestration", None)
     phases = getattr(orch2, "phases", None) if orch2 is not None else None
     if phases:
-        from ..models.orchestration import DeterministicPhase
-        from pydantic import ValidationError
         import importlib.util
+
+        from pydantic import ValidationError
+
+        from ..models.orchestration import DeterministicPhase
 
         # Build the set of known ids: graph-node ids + phase ids (all phase
         # types, so a deterministic phase may depend on an LLM phase).

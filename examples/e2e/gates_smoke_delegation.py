@@ -19,7 +19,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _harness import run_e2e  # noqa: E402
 
-
 TASK = """## Ziel
 Baue ein **kleines Python-Rechner-Paket** mit ausführbarer Smoke-Test-Suite.
 Der Run darf erst `complete` melden, wenn das Smoke-Skript `RUN.sh` grün

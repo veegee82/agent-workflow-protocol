@@ -21,7 +21,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _harness import run_e2e  # noqa: E402
 
-
 TASK = (
     'Baue einen vollstaendigen Markt-Intelligence-Report zum Thema '
     '"Edge-AI-Inferenz-Chips 2026". Der Report muss vier eigenstaendige '

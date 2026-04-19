@@ -22,8 +22,8 @@ from awp.runtime.critique.contracts import (
     OutputContractCheck,
 )
 from awp.runtime.critique.l0_validator import (
-    BalancedDelimitersCheck,
     DEFAULT_CHECK_NAMES,
+    BalancedDelimitersCheck,
     FileSizeDeltaCheck,
     JsonValidIfClaimedCheck,
     L0Validator,
@@ -31,7 +31,6 @@ from awp.runtime.critique.l0_validator import (
     NoPlaceholderCheck,
     NoTextLoopCheck,
 )
-
 
 # ---------------------------------------------------------------------------
 # Check 1 — no_placeholder

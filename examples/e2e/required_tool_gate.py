@@ -35,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import run_e2e  # noqa: E402
 
-
 TASK = r"""\
 Compact two-phase test that exercises the runtime's
 ``required_tool_invocations`` gate.

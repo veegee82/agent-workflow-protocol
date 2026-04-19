@@ -25,10 +25,8 @@ UI server running.
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import sys
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,8 +42,7 @@ for _sub in (
     sys.path.insert(0, str(_PROJECT_ROOT / _sub))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _harness import run_e2e, load_openrouter_key  # noqa: E402
-
+from _harness import load_openrouter_key, run_e2e  # noqa: E402
 
 # ----- Constants ------------------------------------------------------------
 

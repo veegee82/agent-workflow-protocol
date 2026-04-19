@@ -17,7 +17,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from awp.runtime.builtin_tools.repo_fact import (
     RepoFactIndex,
     clear_index_cache,
@@ -48,12 +47,12 @@ def _build_fixture_inputs(base: Path) -> None:
         "Transformers use self-attention to relate every token to every other token.\n\n"
         "Self-attention is the core computational primitive of the transformer architecture. "
         "It lets the network route information between arbitrary positions in the sequence.\n\n"
-        "Pretraining creates a generalist model; finetuning specialises it for a downstream task.\n",
+        "Pretraining yields a generalist; finetuning specialises it for a downstream task.\n",
         encoding="utf-8",
     )
     (inputs / "sorting.md").write_text(
         "# Sorting algorithms\n\n"
-        "Quicksort is a divide-and-conquer sorting algorithm with average time complexity n log n.\n\n"
+        "Quicksort is a divide-and-conquer algorithm with average time complexity n log n.\n\n"
         "Mergesort also runs in n log n but uses extra memory proportional to the input size.\n\n"
         "Heapsort is another comparison-based sort with guaranteed n log n performance.\n",
         encoding="utf-8",

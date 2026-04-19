@@ -28,7 +28,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _harness import make_experiment_dir, run_e2e  # noqa: E402
 
-
 TASK_1 = (
     "Research three fictional alloys: Vibranium, Adamantium, and Mythril. "
     "For EACH alloy, identify exactly two distinguishing physical or "

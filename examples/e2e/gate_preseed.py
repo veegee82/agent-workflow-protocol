@@ -20,8 +20,7 @@ sys.path.insert(0, str(_project_root / "packages" / "awp-runtime" / "src"))
 sys.path.insert(0, str(_project_root / "packages" / "awp-ui" / "server"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _harness import make_experiment_dir, _ensure_experiment_shared_symlinks, run_e2e  # noqa: E402
-
+from _harness import _ensure_experiment_shared_symlinks, make_experiment_dir, run_e2e  # noqa: E402
 
 TOOL_DESCRIPTOR = {
     "fqn": "dynamic.reverse_text",

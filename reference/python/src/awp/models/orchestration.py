@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from .common import AgentId
 
-
 # ---------------------------------------------------------------------------
 # Phase Types (R33) — LLM vs Deterministic
 # ---------------------------------------------------------------------------

@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .models import CritiqueEnvelope, Defect, PatternMemory, RepairAttempt
-from .simhash import similarity as _simhash_similarity, text_simhash as _text_simhash
+from .simhash import similarity as _simhash_similarity
+from .simhash import text_simhash as _text_simhash
 
 if TYPE_CHECKING:
     from awp.models.orchestration import CritiqueConfig

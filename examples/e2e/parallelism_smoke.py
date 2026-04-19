@@ -26,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _harness import run_e2e  # noqa: E402
 
-
 COMPOUNDS = ["Zylithium", "Auralium", "Pyroxene-X", "Cryogel"]
 
 TASK = (

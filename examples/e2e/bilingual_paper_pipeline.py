@@ -26,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import run_e2e  # noqa: E402
 
-
 PRIOR_INPUTS_DIR = Path(
     "/tmp/awp-experiments/experiment_005a0e20131a/runs/"
     "e59f474d9dcf/workspace/inputs"

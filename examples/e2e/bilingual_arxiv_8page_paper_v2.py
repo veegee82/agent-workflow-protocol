@@ -45,7 +45,6 @@ sys.path.insert(0, str(_E2E_DIR))
 
 from _harness import make_experiment_dir, run_e2e  # noqa: E402
 
-
 # Make tectonic visible to every subprocess the delegation loop + the
 # deterministic phase spawn.
 _LOCAL_BIN = str(Path.home() / ".local" / "bin")

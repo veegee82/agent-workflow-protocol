@@ -19,13 +19,11 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from awp.models.orchestration import DeterministicPhase, Invariant
 from awp.runtime.deterministic import (
     DeterministicPhaseRunner,
     ExecutionContext,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixture: a throwaway module with a handful of deterministic callables.

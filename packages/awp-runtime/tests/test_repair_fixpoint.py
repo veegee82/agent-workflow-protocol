@@ -15,7 +15,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from awp.models.orchestration import CritiqueConfig
 from awp.runtime.critique.engine import CritiqueEngine
 from awp.runtime.critique.models import CritiqueEnvelope, Defect
@@ -278,7 +277,7 @@ def test_fixpoint_event_fields_are_populated(tmp_path):
 
 
 def test_threshold_is_respected(tmp_path):
-    from awp.runtime.critique.simhash import text_simhash, similarity
+    from awp.runtime.critique.simhash import similarity, text_simhash
 
     # Construct two short texts whose similarity is clearly above .95
     # (identical token bags) and two whose similarity is around .5

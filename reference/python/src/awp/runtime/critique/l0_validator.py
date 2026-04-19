@@ -43,7 +43,11 @@ from typing import Any
 from .contracts import CheckResult, OutputContract, OutputContractCheck
 from .simhash import (
     hamming64 as _hamming64,
+)
+from .simhash import (
     simhash64 as _simhash64,
+)
+from .simhash import (
     tokenize as _tokenize,
 )
 

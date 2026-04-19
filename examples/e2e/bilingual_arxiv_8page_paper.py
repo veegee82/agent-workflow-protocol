@@ -25,7 +25,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import run_e2e  # noqa: E402
 
-
 # Make tectonic visible to every subprocess the delegation loop spawns.
 _LOCAL_BIN = str(Path.home() / ".local" / "bin")
 if _LOCAL_BIN not in os.environ.get("PATH", ""):
