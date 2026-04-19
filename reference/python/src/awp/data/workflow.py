@@ -142,6 +142,10 @@ class AgentWorkflow:
         skills: list[str | Path] | None = None,
         external_tools: list[Any] | None = None,
         experiment_context: str | None = None,
+        # Refinement-mode plumbing
+        parent_run_id: str | None = None,
+        tags: list[str] | None = None,
+        manager_prompt_prefix: str | None = None,
         # Critique
         critique_enabled: bool = True,
         critique_max_repair_attempts: int = 2,
@@ -207,6 +211,10 @@ class AgentWorkflow:
         self.skills = skills or []
         self.external_tools = external_tools or []
         self.experiment_context = experiment_context
+        # Refinement-mode plumbing
+        self.parent_run_id = parent_run_id
+        self.tags = list(tags) if tags else []
+        self.manager_prompt_prefix = manager_prompt_prefix
         # Critique
         self.critique_enabled = critique_enabled
         self.critique_max_repair_attempts = critique_max_repair_attempts
@@ -424,6 +432,9 @@ class AgentWorkflow:
             eval_config=eval_cfg,
             llm_client=eval_llm,
             profile=self.profile,
+            parent_run_id=self.parent_run_id,
+            tags=self.tags,
+            manager_prompt_prefix=self.manager_prompt_prefix,
         )
 
         # Apply reasoning effort to manager LLM if configured

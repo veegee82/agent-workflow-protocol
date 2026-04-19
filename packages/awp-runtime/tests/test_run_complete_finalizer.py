@@ -44,6 +44,10 @@ def _make_runner() -> DelegationLoopRunner:
     r._dir.__truediv__ = lambda self, other: MagicMock()
     r._failed_signatures = []
     r._run_started_at = 0.0
+    # Refinement-mode plumbing (Task 0 of refinement-mode implementation).
+    r._parent_run_id = None
+    r._tags = []
+    r._manager_prompt_prefix = None
     return r
 
 

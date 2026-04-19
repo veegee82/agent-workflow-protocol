@@ -2077,6 +2077,10 @@ class RunLogger:
         budget: BudgetSnapshot,
         total_iterations: int,
         status: str,
+        *,
+        parent_run_id: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        task: Optional[str] = None,
     ) -> None:
         # Fix E/H: persist a ``reason`` field on every terminal event so
         # downstream consumers (UI, finalizer, E2E harness) can distinguish
@@ -2092,7 +2096,14 @@ class RunLogger:
             "total_iterations": total_iterations,
             "final_budget": budget.to_dict(),
             "completed": datetime.now(timezone.utc).isoformat(),
+            # Refinement-mode plumbing: parent_run_id links iterations into
+            # a refinement chain; tags let the UI and E2E harness filter
+            # refinement runs. Both default to None/[] for standard runs.
+            "parent_run_id": parent_run_id,
+            "tags": list(tags) if tags else [],
         }
+        if task is not None:
+            summary["task"] = task
         # Framework-Fix β: expose auto-induced tools on the run summary
         # so downstream consumers (UI, experiment DB, memory) can see
         # which tools the inducer synthesised from repeated
@@ -2299,8 +2310,15 @@ class DelegationLoopRunner:
         profile: bool = False,
         run_dir_override: Optional[Path] = None,
         inherited_state: Optional[Dict[str, Any]] = None,
+        parent_run_id: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        manager_prompt_prefix: Optional[str] = None,
     ) -> None:
         self._dir = workflow_dir
+        # Refinement-mode plumbing
+        self._parent_run_id = parent_run_id
+        self._tags = list(tags) if tags else []
+        self._manager_prompt_prefix = manager_prompt_prefix
         self._config = config
         self._profiler = PerformanceProfiler(enabled=profile)
         self._tools = tool_registry
@@ -2976,6 +2994,9 @@ class DelegationLoopRunner:
             self._budget,
             self._iter_counter,
             terminal_status,
+            parent_run_id=self._parent_run_id,
+            tags=self._tags,
+            task=task,
         )
         # Phase D: emit the deliverable scorecard for this run.
         try:

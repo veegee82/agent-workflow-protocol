@@ -276,6 +276,19 @@ The Python code lives in `packages/` as two independent, publishable packages:
 - **Phase A3 (landed)**: TextGrad LLM-as-optimizer + rollback on regression. `textgrad.py` (`TextGradOptimizer.propose_update` — one `chat_text` call per candidate, strict-JSON parsing with markdown-fence tolerance, `argmax(expected_loss_reduction * confidence)` selection, hard constraints: wrong name / unchanged / > 20 000 chars → drop). `SuiteRunner.optimize` drives the multi-epoch SGD loop: apply one update per epoch, on `mean_loss` regression roll back the last update and halve the learning rate. `epochs.child_artifacts_json` is now a structured payload (`{"artifacts": name->version, "events": [...]}`), not just a name-to-version map. CLI surface: `awp optimize --with-textgrad --epochs N --learning-rate F [--no-rollback] [--manager-model M]`, `awp optimize-rollback ARTIFACT VERSION`, `awp optimize-inspect --artifact NAME` (unified-diff history). Authoritative code: `packages/awp-runtime/src/awp/outer_loop/textgrad.py`, `packages/awp-runtime/src/awp/outer_loop/runner.py` (`SuiteRunner.optimize`, `_apply_update`, `_rollback_last_update`).
 - **OFF by default**: outer-loop code paths are only entered through `awp optimize` / `awp optimize-inspect` / `awp optimize-rollback`; a normal `awp run` never imports the runner. `--with-textgrad` is opt-in — without it `awp optimize` still runs the A2-compatible path.
 
+### Refinement Mode (y-axis optimization, under construction)
+
+Task-local counterpart to the outer loop: `awp refine <seed_run_dir>` (entry
+point planned) iteratively refines a completed run's deliverable. Gradient
+is extracted deterministically from the prior run's critique defects, last
+3 `gate.reject` events, and per-metric eval deltas, then injected as a
+deterministic prefix into the refinement iteration's first manager PLAN
+via `AgentWorkflow(manager_prompt_prefix=...)`. Iterations are independent
+experiments linked via `run_completion.json.parent_run_id` (plumbed through
+`AgentWorkflow` + `DelegationLoopRunner`). Authoritative doc:
+`docs/refinement.md`. Implementation plan:
+`docs/superpowers/plans/2026-04-19-awp-refine-mode.md`.
+
 ### Tool Registry UI Surface
 
 Dynamic-tool JSON under `shared/dynamic_tools/*.json` carries a nested `provenance.creator_agent` field written by `DynamicToolFactory._persist_tool`. The UI tool-registry panel reads it via `packages/awp-ui/server/services/graph_builder.py::_build_tool_registry`, with legacy fallback to a flat `creator_agent` key and final default `"persisted"`. When `signature` is absent in the persisted JSON, the panel falls back to the raw `parameters` object so tooltips always have something renderable.
