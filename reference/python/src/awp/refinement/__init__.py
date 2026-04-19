@@ -8,6 +8,12 @@ from awp.refinement.gradient import (
     render_refinement_prefix,
 )
 from awp.refinement.budget import budget_for_iteration
+from awp.refinement.loop import (
+    IterationOutcome,
+    NothingToRefine,
+    RefinementLoop,
+    RefinementResult,
+)
 from awp.refinement.seed import prepare_iteration_workspace
 from awp.refinement.session import (
     RefinementIteration,
@@ -18,8 +24,12 @@ from awp.refinement.session import (
 
 __all__ = [
     "Defect",
+    "IterationOutcome",
+    "NothingToRefine",
     "RefinementGradient",
     "RefinementIteration",
+    "RefinementLoop",
+    "RefinementResult",
     "RefinementSession",
     "RejectedGate",
     "budget_for_iteration",
