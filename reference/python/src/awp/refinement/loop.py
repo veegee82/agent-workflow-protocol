@@ -250,13 +250,39 @@ class RefinementLoop:
     # ------------------------------------------------------------------
 
     def _read_seed_context(self) -> tuple[dict[str, Any], float, str, float]:
+        """Extract seed budget + wall-time + task + loss from run_completion.json.
+
+        Supports two shapes of ``run_completion.json``:
+
+        * Real runtime — ``final_budget`` with nested dicts::
+
+              {
+                "loops":      {"used": N,      "max": M},
+                "workers":    {"spawned": N,   "max": M},
+                "tokens":     {"consumed": N,  "max": M},
+                "tool_calls": {"used": N,      "max": M},
+                "wall_time":  {"elapsed_s": N, "max_s": M}
+              }
+
+        * Synthetic (unit-test fixtures) — flat keys on ``rc`` or on
+          ``rc.budget``: ``max_loops``, ``max_total_workers`` etc.
+        """
         rc = json.loads((self._seed / "run_completion.json").read_text(encoding="utf-8"))
         budget_cfg = rc.get("budget") or {}
+        final = rc.get("final_budget") or {}
+        # ``final`` may be nested (real runtime) or flat (synthetic).
+        final_loops = final.get("loops") if isinstance(final.get("loops"), dict) else {}
+        final_workers = final.get("workers") if isinstance(final.get("workers"), dict) else {}
+        final_tokens = final.get("tokens") if isinstance(final.get("tokens"), dict) else {}
+        final_tool = final.get("tool_calls") if isinstance(final.get("tool_calls"), dict) else {}
+        final_wall = final.get("wall_time") if isinstance(final.get("wall_time"), dict) else {}
+
         observed_wall = float(
             budget_cfg.get("observed_wall_time")
             or rc.get("wall_time")
             or rc.get("wall_time_elapsed")
-            or (rc.get("final_budget") or {}).get("wall_time_elapsed")
+            or final_wall.get("elapsed_s")
+            or final.get("wall_time_elapsed")
             or 0.0
         )
         seed_task = str(rc.get("task") or "")
@@ -267,30 +293,37 @@ class RefinementLoop:
             "max_loops": int(
                 budget_cfg.get("max_loops")
                 or rc.get("max_loops")
-                or (rc.get("final_budget") or {}).get("max_loops")
+                or final_loops.get("max")
+                or final.get("max_loops")
                 or 20
             ),
             "max_total_workers": int(
                 budget_cfg.get("max_total_workers")
-                or (rc.get("final_budget") or {}).get("max_total_workers")
+                or final_workers.get("max")
+                or final.get("max_total_workers")
                 or 20
             ),
             "max_total_tokens": int(
                 budget_cfg.get("max_total_tokens")
-                or (rc.get("final_budget") or {}).get("max_total_tokens")
+                or final_tokens.get("max")
+                or final.get("max_total_tokens")
                 or 1_000_000
             ),
             "max_wall_time": int(
                 budget_cfg.get("max_wall_time")
-                or (rc.get("final_budget") or {}).get("max_wall_time")
+                or final_wall.get("max_s")
+                or final.get("max_wall_time")
                 or 3600
             ),
             "max_depth": int(
-                budget_cfg.get("max_depth") or (rc.get("final_budget") or {}).get("max_depth") or 4
+                budget_cfg.get("max_depth")
+                or final.get("max_depth")
+                or 4
             ),
             "max_tool_calls": int(
                 budget_cfg.get("max_tool_calls")
-                or (rc.get("final_budget") or {}).get("max_tool_calls")
+                or final_tool.get("max")
+                or final.get("max_tool_calls")
                 or 600
             ),
         }
