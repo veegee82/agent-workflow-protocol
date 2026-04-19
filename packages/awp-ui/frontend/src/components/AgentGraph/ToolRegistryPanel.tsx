@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Wrench, ChevronDown, ChevronRight, Sparkles, Repeat } from 'lucide-react';
 import clsx from 'clsx';
 import { useWorkflowStore } from '@/stores/workflowStore';
@@ -11,9 +11,15 @@ import { useWorkflowStore } from '@/stores/workflowStore';
  */
 export function ToolRegistryPanel() {
   const registry = useWorkflowStore((s) => s.toolRegistry) ?? [];
-  // Default collapsed so empty registries don't waste vertical space, but the
-  // header button stays rendered as a discoverable toggle.
+  // Auto-expand the first time tools land so users see them without an extra
+  // click; respect manual collapses afterwards via ``userToggled``.
   const [collapsed, setCollapsed] = useState(true);
+  const userToggled = useRef(false);
+  useEffect(() => {
+    if (!userToggled.current && registry.length > 0 && collapsed) {
+      setCollapsed(false);
+    }
+  }, [registry.length, collapsed]);
 
   const total = registry.length;
   const calledCount = registry.filter((t) => t.called).length;
@@ -21,7 +27,10 @@ export function ToolRegistryPanel() {
   return (
     <div className="flex flex-col bg-awp-panel/95 backdrop-blur-md border border-awp-border/60 rounded-xl shadow-xl overflow-hidden">
       <button
-        onClick={() => setCollapsed((v) => !v)}
+        onClick={() => {
+          userToggled.current = true;
+          setCollapsed((v) => !v);
+        }}
         className="flex items-center gap-2 px-3 py-2 border-b border-awp-border/40 hover:bg-awp-border/20"
       >
         <Wrench className="h-4 w-4 text-awp-cyan shrink-0" />

@@ -329,12 +329,25 @@ def _build_tool_registry(
             continue
         fqn = data.get("fqn") or json_file.stem
         call_count = call_counts.get(fqn, 0)
+        # `dynamic_tool_factory._persist_tool` writes creator/created_at into a
+        # nested ``provenance`` object. Mirror the same lookup the runtime uses
+        # in ``_load_persisted_tools`` so the panel shows the real worker name
+        # instead of "?". The flat ``creator_agent`` fallback handles legacy
+        # JSON files written before provenance was introduced.
+        provenance = data.get("provenance") or {}
         registry.append(
             {
                 "fqn": fqn,
-                "creator_agent": data.get("creator_agent") or "?",
+                "creator_agent": (
+                    provenance.get("creator_agent")
+                    or data.get("creator_agent")
+                    or "persisted"
+                ),
                 "description": data.get("description", ""),
-                "signature": data.get("signature"),
+                # Tool JSON only carries ``parameters``; ``signature`` is not
+                # part of the persisted shape. Fall back so the panel always
+                # has something renderable for tooltips/inspectors.
+                "signature": data.get("signature") or data.get("parameters"),
                 "parameters": data.get("parameters"),
                 "called": call_count > 0,
                 "call_count": call_count,

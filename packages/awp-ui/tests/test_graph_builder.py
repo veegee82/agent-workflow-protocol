@@ -12,6 +12,7 @@ from server.services.graph_builder import (
     build_graph,
     build_incremental_graph,
     find_run_dir,
+    _build_tool_registry,
     _confidence_color,
     _truncate,
 )
@@ -521,3 +522,123 @@ class TestTruncate:
 
     def test_non_string(self) -> None:
         assert _truncate(42) == "42"
+
+
+# ---------------------------------------------------------------------------
+# Tool Registry — contract drift between dynamic_tool_factory._persist_tool
+# and graph_builder._build_tool_registry. The runtime writes provenance into
+# a nested object; the panel reads the same JSON. Without this test the two
+# sides have already drifted once (creator_agent showed as "?" in the UI).
+# ---------------------------------------------------------------------------
+
+
+def _persisted_tool_payload(
+    fqn: str,
+    creator_agent: str,
+    description: str = "Sample tool",
+) -> dict[str, Any]:
+    """Return the on-disk shape that ``dynamic_tool_factory._persist_tool``
+    actually writes (verified against /tmp/awp-experiments/.../shared/dynamic_tools/*.json)."""
+    return {
+        "fqn": fqn,
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "required": ["x"],
+        },
+        "code": "def handler(*, x):\n    return {'ok': True, 'data': {'x': x}}",
+        "meta": {},
+        "code_hash": "0" * 64,
+        "repair_attempts": 0,
+        "provenance": {
+            "creator_agent": creator_agent,
+            "created_at": "2026-04-19T00:00:00+00:00",
+        },
+    }
+
+
+def _make_run_with_persisted_tools(
+    base: Path, tools: list[dict[str, Any]]
+) -> Path:
+    """Mirror the on-disk experiment layout that the runtime produces:
+
+    <exp>/workspace/runs/<id>/run_manifest.json   ← graph_builder.run_dir
+    <exp>/workspace/dynamic_tools -> <exp>/shared/dynamic_tools  (symlink)
+    <exp>/shared/dynamic_tools/<fqn>.json         ← persisted tools
+    """
+    exp = base / "exp"
+    shared = exp / "shared" / "dynamic_tools"
+    shared.mkdir(parents=True)
+    (exp / "workspace").mkdir()
+    (exp / "workspace" / "dynamic_tools").symlink_to(shared)
+    run_dir = exp / "workspace" / "runs" / "2026-04-19_00-00-00_test"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"run_id": "test", "task": "t", "models": {}, "budget": {}})
+    )
+    for tool in tools:
+        (shared / f"{tool['fqn']}.json").write_text(json.dumps(tool, indent=2))
+    return run_dir
+
+
+class TestToolRegistryContract:
+    """Pin the JSON contract between the runtime persister and the UI reader."""
+
+    def test_creator_agent_extracted_from_provenance(self, temp_dir: Path) -> None:
+        """The runtime writes ``provenance.creator_agent``; the panel must
+        surface that real worker name, not the literal '?' placeholder."""
+        run_dir = _make_run_with_persisted_tools(
+            temp_dir,
+            [_persisted_tool_payload("dynamic.foo", creator_agent="worker_alpha")],
+        )
+        registry = _build_tool_registry(run_dir, [])
+        assert len(registry) == 1
+        assert registry[0]["fqn"] == "dynamic.foo"
+        assert registry[0]["creator_agent"] == "worker_alpha"
+        assert registry[0]["creator_agent"] != "?"
+
+    def test_legacy_flat_creator_agent_fallback(self, temp_dir: Path) -> None:
+        """Older JSON files (pre-provenance) had a flat ``creator_agent`` key.
+        Reading them must still surface a useful name, not '?'."""
+        legacy = _persisted_tool_payload("dynamic.bar", creator_agent="ignored")
+        del legacy["provenance"]
+        legacy["creator_agent"] = "legacy_worker"
+        run_dir = _make_run_with_persisted_tools(temp_dir, [legacy])
+        registry = _build_tool_registry(run_dir, [])
+        assert registry[0]["creator_agent"] == "legacy_worker"
+
+    def test_missing_creator_falls_back_to_persisted(self, temp_dir: Path) -> None:
+        """When neither shape carries a creator (corrupt or hand-written file),
+        the registry must still render a non-'?' label so the UI is readable."""
+        broken = _persisted_tool_payload("dynamic.baz", creator_agent="x")
+        broken.pop("provenance")
+        run_dir = _make_run_with_persisted_tools(temp_dir, [broken])
+        registry = _build_tool_registry(run_dir, [])
+        assert registry[0]["creator_agent"] == "persisted"
+
+    def test_signature_falls_back_to_parameters(self, temp_dir: Path) -> None:
+        """``signature`` is not part of the persisted shape — only ``parameters``
+        is. The registry should expose parameters when signature is missing so
+        the inspector has a renderable schema."""
+        run_dir = _make_run_with_persisted_tools(
+            temp_dir,
+            [_persisted_tool_payload("dynamic.foo", "worker_alpha")],
+        )
+        registry = _build_tool_registry(run_dir, [])
+        assert registry[0]["signature"] is not None
+        assert registry[0]["signature"] == registry[0]["parameters"]
+
+    def test_build_graph_propagates_tool_registry(self, temp_dir: Path) -> None:
+        """End-to-end: build_graph (the function the API endpoint calls) must
+        carry the resolved tool_registry through to the GraphData payload."""
+        run_dir = _make_run_with_persisted_tools(
+            temp_dir,
+            [
+                _persisted_tool_payload("dynamic.a", "worker_a"),
+                _persisted_tool_payload("dynamic.b", "worker_b"),
+            ],
+        )
+        graph = build_graph(run_dir)
+        creators = sorted(t["creator_agent"] for t in graph.tool_registry)
+        assert creators == ["worker_a", "worker_b"]
