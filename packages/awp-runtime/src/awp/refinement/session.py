@@ -105,9 +105,7 @@ def write_best_pointer(
         "session_id": session_id,
         "winning_run_dir": str(winning_run_dir),
     }
-    (best_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    (best_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return best_dir
 
 

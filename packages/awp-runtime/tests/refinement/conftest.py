@@ -13,9 +13,7 @@ def synthetic_run_dir(tmp_path: Path) -> Path:
     """A prior-run directory with populated critique, gates, and eval signals."""
     run = tmp_path / "run_seed"
     (run / "FINAL").mkdir(parents=True)
-    (run / "FINAL" / "paper.md").write_text(
-        "# Draft paper (missing section 3)\n", encoding="utf-8"
-    )
+    (run / "FINAL" / "paper.md").write_text("# Draft paper (missing section 3)\n", encoding="utf-8")
 
     (run / "run_completion.json").write_text(
         json.dumps(

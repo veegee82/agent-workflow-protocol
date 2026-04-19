@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from awp.refinement.gradient import (
     extract_gradient,
     render_refinement_prefix,

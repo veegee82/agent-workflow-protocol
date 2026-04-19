@@ -107,9 +107,7 @@ class RefinementLoop:
         # R36 — gradient must be non-empty before we even enter the loop.
         gradient = extract_gradient(self._seed)
         if not gradient.is_non_empty():
-            raise NothingToRefine(
-                f"seed {self._seed} has no defects, rejections, or eval gaps"
-            )
+            raise NothingToRefine(f"seed {self._seed} has no defects, rejections, or eval gaps")
 
         seed_budget, seed_wall_time, seed_task, seed_loss = self._read_seed_context()
         self._iterations_root.mkdir(parents=True, exist_ok=True)
@@ -126,19 +124,13 @@ class RefinementLoop:
         stop_reason = "max_iterations"
 
         for k in range(1, iterations + 1):
-            prior_final = (
-                self._seed / "FINAL" if k == 1 else outcomes[-1].run_dir / "FINAL"
-            )
+            prior_final = self._seed / "FINAL" if k == 1 else outcomes[-1].run_dir / "FINAL"
 
             workspace = self._iterations_root / f"iter_{k}"
-            prepare_iteration_workspace(
-                workspace_dir=workspace, prior_final_dir=prior_final
-            )
+            prepare_iteration_workspace(workspace_dir=workspace, prior_final_dir=prior_final)
 
             # Regenerate gradient from the prior iteration for k>1.
-            current_gradient = (
-                gradient if k == 1 else extract_gradient(outcomes[-1].run_dir)
-            )
+            current_gradient = gradient if k == 1 else extract_gradient(outcomes[-1].run_dir)
             # R36 re-check on each iteration — if an iteration somehow
             # produced a "perfect" run, stop here rather than burn budget.
             if not current_gradient.is_non_empty() and k > 1:
@@ -229,9 +221,7 @@ class RefinementLoop:
             stop_reason=stop_reason,
             best_iter=best_iter,
             iterations=[
-                RefinementIteration(
-                    k=o.k, run_id=o.run_id, loss=o.loss, status=o.status
-                )
+                RefinementIteration(k=o.k, run_id=o.run_id, loss=o.loss, status=o.status)
                 for o in outcomes
             ],
         )
@@ -260,9 +250,7 @@ class RefinementLoop:
     # ------------------------------------------------------------------
 
     def _read_seed_context(self) -> tuple[dict[str, Any], float, str, float]:
-        rc = json.loads(
-            (self._seed / "run_completion.json").read_text(encoding="utf-8")
-        )
+        rc = json.loads((self._seed / "run_completion.json").read_text(encoding="utf-8"))
         budget_cfg = rc.get("budget") or {}
         observed_wall = float(
             budget_cfg.get("observed_wall_time")
@@ -298,9 +286,7 @@ class RefinementLoop:
                 or 3600
             ),
             "max_depth": int(
-                budget_cfg.get("max_depth")
-                or (rc.get("final_budget") or {}).get("max_depth")
-                or 4
+                budget_cfg.get("max_depth") or (rc.get("final_budget") or {}).get("max_depth") or 4
             ),
             "max_tool_calls": int(
                 budget_cfg.get("max_tool_calls")
@@ -369,10 +355,7 @@ def _safe_run_id(run_dir: Path) -> str:
     rc = run_dir / "run_completion.json"
     if rc.exists():
         try:
-            return str(
-                json.loads(rc.read_text(encoding="utf-8")).get("run_id")
-                or run_dir.name
-            )
+            return str(json.loads(rc.read_text(encoding="utf-8")).get("run_id") or run_dir.name)
         except json.JSONDecodeError:
             pass
     return run_dir.name
@@ -383,8 +366,6 @@ def _read_status(run_dir: Path) -> str:
     if not rc.exists():
         return "unknown"
     try:
-        return str(
-            json.loads(rc.read_text(encoding="utf-8")).get("status", "unknown")
-        )
+        return str(json.loads(rc.read_text(encoding="utf-8")).get("status", "unknown"))
     except json.JSONDecodeError:
         return "unknown"

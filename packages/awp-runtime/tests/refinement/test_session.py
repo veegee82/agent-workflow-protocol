@@ -47,9 +47,7 @@ def test_best_pointer_contains_manifest_and_winner_files(tmp_path: Path) -> None
     seed = tmp_path / "seed"
     seed.mkdir()
     iterations_root = tmp_path / "iterations"
-    win = _make_fake_iteration_dir(
-        iterations_root, "run_iter_2", {"run_id": "run_iter_2"}
-    )
+    win = _make_fake_iteration_dir(iterations_root, "run_iter_2", {"run_id": "run_iter_2"})
 
     write_best_pointer(
         seed_run_dir=seed,
@@ -72,9 +70,7 @@ def test_best_pointer_only_overwrites_on_improvement(tmp_path: Path) -> None:
     seed.mkdir()
     iterations_root = tmp_path / "iterations"
 
-    win_a = _make_fake_iteration_dir(
-        iterations_root, "run_iter_A", {"run_id": "run_iter_A"}
-    )
+    win_a = _make_fake_iteration_dir(iterations_root, "run_iter_A", {"run_id": "run_iter_A"})
     write_best_pointer(
         seed_run_dir=seed,
         winning_run_dir=win_a,
@@ -83,9 +79,7 @@ def test_best_pointer_only_overwrites_on_improvement(tmp_path: Path) -> None:
         seed_loss=0.50,
     )
 
-    win_b = _make_fake_iteration_dir(
-        iterations_root, "run_iter_B", {"run_id": "run_iter_B"}
-    )
+    win_b = _make_fake_iteration_dir(iterations_root, "run_iter_B", {"run_id": "run_iter_B"})
     write_best_pointer(
         seed_run_dir=seed,
         winning_run_dir=win_b,
@@ -103,9 +97,7 @@ def test_best_pointer_overwrites_when_new_loss_is_lower(tmp_path: Path) -> None:
     seed.mkdir()
     iterations_root = tmp_path / "iterations"
 
-    win_a = _make_fake_iteration_dir(
-        iterations_root, "run_iter_A", {"run_id": "run_iter_A"}
-    )
+    win_a = _make_fake_iteration_dir(iterations_root, "run_iter_A", {"run_id": "run_iter_A"})
     write_best_pointer(
         seed_run_dir=seed,
         winning_run_dir=win_a,
@@ -114,9 +106,7 @@ def test_best_pointer_overwrites_when_new_loss_is_lower(tmp_path: Path) -> None:
         seed_loss=0.50,
     )
 
-    win_b = _make_fake_iteration_dir(
-        iterations_root, "run_iter_B", {"run_id": "run_iter_B"}
-    )
+    win_b = _make_fake_iteration_dir(iterations_root, "run_iter_B", {"run_id": "run_iter_B"})
     write_best_pointer(
         seed_run_dir=seed,
         winning_run_dir=win_b,

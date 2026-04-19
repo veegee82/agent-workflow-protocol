@@ -66,8 +66,6 @@ def test_refine_cli_missing_seed_exit_2(tmp_path: Path) -> None:
 
 def test_refine_cli_help_mentions_iterations() -> None:
     awp_bin = shutil.which("awp") or "awp"
-    result = subprocess.run(
-        [awp_bin, "refine", "--help"], capture_output=True, text=True
-    )
+    result = subprocess.run([awp_bin, "refine", "--help"], capture_output=True, text=True)
     assert result.returncode == 0
     assert "--iterations" in result.stdout

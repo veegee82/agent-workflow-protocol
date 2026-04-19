@@ -15,7 +15,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from awp.data.workflow import AgentWorkflow
 
 
@@ -66,10 +65,13 @@ def _stub_llm_and_capture_messages(
 
     from awp.runtime.llm import LLMClient
 
-    with patch.object(LLMClient, "chat_json", fake_chat), patch.object(
-        LLMClient,
-        "chat_stream_json",
-        side_effect=Exception("stream off — fall back"),
+    with (
+        patch.object(LLMClient, "chat_json", fake_chat),
+        patch.object(
+            LLMClient,
+            "chat_stream_json",
+            side_effect=Exception("stream off — fall back"),
+        ),
     ):
         wf = AgentWorkflow(
             inputs={},
@@ -91,9 +93,7 @@ def _stub_llm_and_capture_messages(
 
 def test_prefix_injected_into_iteration_1_user_message(tmp_path: Path) -> None:
     prefix = "## REFINEMENT CONTEXT\nfix defect X"
-    captured = _stub_llm_and_capture_messages(
-        tmp_path, manager_prompt_prefix=prefix, max_loops=1
-    )
+    captured = _stub_llm_and_capture_messages(tmp_path, manager_prompt_prefix=prefix, max_loops=1)
     assert captured, "LLM was never called"
     first_messages = captured[0]
     user_msg = next(m["content"] for m in first_messages if m["role"] == "user")
@@ -101,9 +101,7 @@ def test_prefix_injected_into_iteration_1_user_message(tmp_path: Path) -> None:
 
 
 def test_no_prefix_leaves_message_unchanged(tmp_path: Path) -> None:
-    captured = _stub_llm_and_capture_messages(
-        tmp_path, manager_prompt_prefix=None, max_loops=1
-    )
+    captured = _stub_llm_and_capture_messages(tmp_path, manager_prompt_prefix=None, max_loops=1)
     assert captured
     user_msg = next(m["content"] for m in captured[0] if m["role"] == "user")
     assert "REFINEMENT CONTEXT" not in user_msg

@@ -178,7 +178,5 @@ def render_refinement_prefix(gradient: RefinementGradient) -> str:
 
     lines.append("Objective: produce an improved deliverable that reduces total loss.")
     lines.append("Preserve what works; fix what the gradient identifies above.")
-    lines.append(
-        "Do not rewrite from scratch — iterate on the prior deliverable in input/."
-    )
+    lines.append("Do not rewrite from scratch — iterate on the prior deliverable in input/.")
     return "\n".join(lines)

@@ -1,5 +1,6 @@
 """AWP Refinement Mode — task-local iterative refinement of a deliverable."""
 
+from awp.refinement.budget import budget_for_iteration
 from awp.refinement.gradient import (
     Defect,
     RefinementGradient,
@@ -7,7 +8,6 @@ from awp.refinement.gradient import (
     extract_gradient,
     render_refinement_prefix,
 )
-from awp.refinement.budget import budget_for_iteration
 from awp.refinement.loop import (
     IterationOutcome,
     NothingToRefine,

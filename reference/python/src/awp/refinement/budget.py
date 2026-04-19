@@ -33,9 +33,7 @@ def budget_for_iteration(
         wall_seed = float(observed_wall_time)
     else:
         wall_seed = float(seed_budget.get("max_wall_time", 0))
-    out["max_wall_time"] = (
-        max(_WALL_FLOOR, int(wall_seed * 0.5)) if wall_seed else _WALL_FLOOR
-    )
+    out["max_wall_time"] = max(_WALL_FLOOR, int(wall_seed * 0.5)) if wall_seed else _WALL_FLOOR
 
     out["max_depth"] = int(seed_budget.get("max_depth", 1))
     return out

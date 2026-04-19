@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from awp.refinement.seed import prepare_iteration_workspace
 
 
@@ -35,9 +34,7 @@ def test_prepare_workspace_falls_back_to_copy_on_crossdevice(tmp_path: Path) -> 
         raise OSError(18, "Invalid cross-device link")
 
     with patch("awp.refinement.seed.os.link", side_effect=fake_link):
-        prepare_iteration_workspace(
-            workspace_dir=workspace, prior_final_dir=prior_final
-        )
+        prepare_iteration_workspace(workspace_dir=workspace, prior_final_dir=prior_final)
 
     assert (workspace / "input" / "a.txt").read_text(encoding="utf-8") == "a"
 
@@ -61,6 +58,4 @@ def test_prepare_workspace_refuses_nonempty_target(tmp_path: Path) -> None:
     (workspace / "input" / "stale.txt").write_text("old", encoding="utf-8")
 
     with pytest.raises(FileExistsError):
-        prepare_iteration_workspace(
-            workspace_dir=workspace, prior_final_dir=prior_final
-        )
+        prepare_iteration_workspace(workspace_dir=workspace, prior_final_dir=prior_final)

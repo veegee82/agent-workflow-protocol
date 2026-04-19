@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from awp.refinement.loop import (
     NothingToRefine,
     RefinementLoop,
@@ -76,9 +75,7 @@ class StubWorkflow:
     ):
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "FINAL").mkdir(exist_ok=True)
-        (output_dir / "FINAL" / "paper.md").write_text(
-            "# improved\n", encoding="utf-8"
-        )
+        (output_dir / "FINAL" / "paper.md").write_text("# improved\n", encoding="utf-8")
         loss = next(self._losses)
         status = next(self._statuses)
         run_id = f"run_iter_{output_dir.name}"
@@ -96,11 +93,7 @@ class StubWorkflow:
                     # non-empty for subsequent iterations; the loop's
                     # stop-condition state machine is what we're testing,
                     # not the empty-gradient short-circuit.
-                    "critique": {
-                        "defects": [
-                            {"summary": "still needs polish", "severity": "low"}
-                        ]
-                    },
+                    "critique": {"defects": [{"summary": "still needs polish", "severity": "low"}]},
                     "evaluation": {
                         "total_score": 1.0 - loss,
                         "per_metric": {"q": max(0.0, 1.0 - loss)},
@@ -152,9 +145,7 @@ def test_loop_runs_until_max_iterations(monkeypatch, tmp_path: Path) -> None:
     assert result.best_iter == 3
 
 
-def test_loop_stops_on_regression_after_two_worse_iterations(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_loop_stops_on_regression_after_two_worse_iterations(monkeypatch, tmp_path: Path) -> None:
     seed = _make_seed(tmp_path)
     # iter 1 improves, iter 2 regresses, iter 3 regresses → stop.
     _patch_loss(monkeypatch, [0.3, 0.4, 0.5])
@@ -198,9 +189,7 @@ def test_loop_aborts_on_empty_gradient(tmp_path: Path) -> None:
         loop.run(iterations=2)
 
 
-def test_loop_writes_gradient_input_and_r36_is_enforced(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_loop_writes_gradient_input_and_r36_is_enforced(monkeypatch, tmp_path: Path) -> None:
     seed = _make_seed(tmp_path)
     _patch_loss(monkeypatch, [0.3])
 
@@ -215,9 +204,7 @@ def test_loop_writes_gradient_input_and_r36_is_enforced(
     # R36: gradient_input.json must have been persisted before iter 1 ran.
     iter1_dir = next((tmp_path / "iters").iterdir())
     assert (iter1_dir / "gradient_input.json").exists()
-    content = json.loads(
-        (iter1_dir / "gradient_input.json").read_text(encoding="utf-8")
-    )
+    content = json.loads((iter1_dir / "gradient_input.json").read_text(encoding="utf-8"))
     assert content["defects"], "gradient must carry defects"
 
 
