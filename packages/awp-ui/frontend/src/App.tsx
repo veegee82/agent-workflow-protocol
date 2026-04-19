@@ -819,6 +819,142 @@ function RightSidebar() {
         </div>
       </Panel>
 
+      {/* Optimizers — two SGD modes run outside a normal `awp run`.
+          θ-axis (outer loop) trains prompt artifacts; y-axis
+          (refinement) polishes one run's deliverable. Disjoint
+          state · compose cleanly. */}
+      <Panel
+        title="Optimizers"
+        icon={<FlaskConical className="h-4 w-4 text-awp-blue" />}
+      >
+        <div className="space-y-4">
+          <p className="text-[10px] text-awp-muted/70 leading-relaxed">
+            Two SGD modes outside <code className="font-mono">awp run</code>:{' '}
+            <strong>θ-axis</strong> trains policy (prompts),{' '}
+            <strong>y-axis</strong> polishes a single deliverable.
+          </p>
+
+          {/* Outer Loop */}
+          <div className="space-y-2 rounded-md border border-awp-border/60 bg-awp-bg/40 p-2.5">
+            <h4 className="text-[11px] font-semibold text-awp-text">
+              Outer Loop — θ-axis SGD{' '}
+              <a
+                href="https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/outer-loop.md"
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 font-normal text-awp-blue hover:underline"
+              >
+                docs →
+              </a>
+            </h4>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.outer_loop_enabled ?? true}
+                onChange={(e) => updateConfig({ outer_loop_enabled: e.target.checked })}
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-blue focus:ring-awp-blue"
+              />
+              Enable Outer Loop
+            </label>
+            <label className="block">
+              <span className="text-[10px] text-awp-muted">Default epochs</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={config.outer_loop_default_epochs ?? 3}
+                onChange={(e) =>
+                  updateConfig({
+                    outer_loop_default_epochs: Number(e.target.value),
+                  })
+                }
+                disabled={isRunning}
+                className="mt-0.5 w-full rounded-md border border-awp-border bg-awp-bg px-2 py-1 text-xs font-mono text-awp-text focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] text-awp-muted">
+                Default learning rate (0.05–1.0)
+              </span>
+              <input
+                type="number"
+                min={0.05}
+                max={1.0}
+                step={0.05}
+                value={config.outer_loop_default_learning_rate ?? 0.5}
+                onChange={(e) =>
+                  updateConfig({
+                    outer_loop_default_learning_rate: Number(e.target.value),
+                  })
+                }
+                disabled={isRunning}
+                className="mt-0.5 w-full rounded-md border border-awp-border bg-awp-bg px-2 py-1 text-xs font-mono text-awp-text focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.outer_loop_with_textgrad ?? true}
+                onChange={(e) =>
+                  updateConfig({ outer_loop_with_textgrad: e.target.checked })
+                }
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-blue focus:ring-awp-blue"
+              />
+              Use TextGrad (LLM-as-optimizer)
+            </label>
+          </div>
+
+          {/* Refinement */}
+          <div className="space-y-2 rounded-md border border-awp-border/60 bg-awp-bg/40 p-2.5">
+            <h4 className="text-[11px] font-semibold text-awp-text">
+              Refinement — y-axis SGD{' '}
+              <a
+                href="https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/refinement.md"
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 font-normal text-awp-blue hover:underline"
+              >
+                docs →
+              </a>
+            </h4>
+            <label className="flex items-center gap-2 text-xs text-awp-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.refinement_enabled ?? true}
+                onChange={(e) =>
+                  updateConfig({ refinement_enabled: e.target.checked })
+                }
+                disabled={isRunning}
+                className="rounded border-awp-border bg-awp-bg text-awp-blue focus:ring-awp-blue"
+              />
+              Enable Refinement (Refine button on history)
+            </label>
+            <label className="block">
+              <span className="text-[10px] text-awp-muted">
+                Default iterations (1–10)
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                step={1}
+                value={config.refinement_default_iterations ?? 3}
+                onChange={(e) =>
+                  updateConfig({
+                    refinement_default_iterations: Number(e.target.value),
+                  })
+                }
+                disabled={isRunning}
+                className="mt-0.5 w-full rounded-md border border-awp-border bg-awp-bg px-2 py-1 text-xs font-mono text-awp-text focus:outline-none focus:ring-1 focus:ring-awp-blue disabled:opacity-50"
+              />
+            </label>
+          </div>
+        </div>
+      </Panel>
+
       {/* Secrets */}
       <Panel
         title="Secrets"
