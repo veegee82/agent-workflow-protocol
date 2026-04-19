@@ -283,10 +283,14 @@ point planned) iteratively refines a completed run's deliverable. Gradient
 is extracted deterministically from the prior run's critique defects, last
 3 `gate.reject` events, and per-metric eval deltas, then injected as a
 deterministic prefix into the refinement iteration's first manager PLAN
-via `AgentWorkflow(manager_prompt_prefix=...)`. Iterations are independent
-experiments linked via `run_completion.json.parent_run_id` (plumbed through
-`AgentWorkflow` + `DelegationLoopRunner`). Authoritative doc:
-`docs/refinement.md`. Implementation plan:
+via `AgentWorkflow(manager_prompt_prefix=...)`. The prefix reaches the
+manager's user message on iteration 1 only (guarded in both
+`_run_inline_manager` and the agent-path construction inside
+`DelegationLoopRunner`); subsequent iterations see the vanilla message.
+Iterations are independent experiments linked via
+`run_completion.json.parent_run_id` (plumbed through `AgentWorkflow` +
+`DelegationLoopRunner`). Authoritative doc: `docs/refinement.md`.
+Implementation plan:
 `docs/superpowers/plans/2026-04-19-awp-refine-mode.md`.
 
 ### Tool Registry UI Surface

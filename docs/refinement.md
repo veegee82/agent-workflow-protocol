@@ -12,3 +12,6 @@ Scope preview:
 - Gradient = critique defects + last 3 gate rejections + eval deltas.
 - New normative rule `R36` — non-empty gradient required before
   dispatching an iteration.
+- Manager prefix injection: the refinement context is prepended to the
+  manager's user message on iteration 1 only. Both the inline and the
+  agent-based manager paths honor this guard.

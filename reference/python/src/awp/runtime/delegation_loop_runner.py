@@ -4910,6 +4910,11 @@ class DelegationLoopRunner:
             else:
                 # Build enhanced task with context
                 enhanced_task = self._build_manager_task(task, state, iteration)
+            # Refinement-mode prefix injection (Task 5): iteration 1 only.
+            if iteration == 1 and getattr(self, "_manager_prompt_prefix", None):
+                enhanced_task = (
+                    self._manager_prompt_prefix.rstrip() + "\n\n" + enhanced_task
+                )
             result = agent.run(enhanced_task, state)
             self._record_llm_tokens_since(llm, tokens_before)
 
@@ -4988,6 +4993,13 @@ class DelegationLoopRunner:
         else:
             system_prompt = self._build_manager_system_prompt()
             user_message = self._build_manager_task(task, state, iteration)
+
+        # Refinement-mode prefix injection (Task 5): prepend the configured
+        # REFINEMENT CONTEXT prefix to the manager's user message on
+        # iteration 1 only. Subsequent iterations do not re-inject it — by
+        # then the refinement intention is carried in the plan and state.
+        if iteration == 1 and getattr(self, "_manager_prompt_prefix", None):
+            user_message = self._manager_prompt_prefix.rstrip() + "\n\n" + user_message
 
         # Context-window guard: compress oversized user messages before
         # they reach the LLM. Protects against silent head-truncation
