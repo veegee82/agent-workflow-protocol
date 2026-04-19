@@ -32,13 +32,52 @@ def _has_llm_key() -> bool:
 
 
 @pytest.fixture(scope="module")
-def seed_run_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Produce (or reuse) a seed run that lands at `partial` with a critique-detectable defect.
+def seed_run_dir() -> Path:
+    """Real seed run (partial) against OpenRouter.
 
-    Task 15 replaces this body with a real AgentWorkflow run. For now
-    the fixture raises so sub-tests skip cleanly until wired up.
+    Task 14 wires the fixture; Task 15 invokes it under active monitoring.
+    The seed run is cached in ``E2E_BASE/seed/`` across invocations so
+    repeated test runs do not re-burn LLM tokens unless the seed is
+    explicitly cleared. If the cached seed is present and well-formed,
+    it is reused; otherwise a fresh AgentWorkflow run is issued.
     """
-    pytest.skip("seed run fixture not yet wired (Task 15)")
+    if not _has_llm_key():
+        pytest.skip("real LLM required; no key configured")
+
+    SEED_RUN_DIR.parent.mkdir(parents=True, exist_ok=True)
+    if SEED_RUN_DIR.exists() and (SEED_RUN_DIR / "run_completion.json").exists():
+        # Reuse the cached seed across test runs to avoid repeated LLM cost.
+        return SEED_RUN_DIR
+
+    if SEED_RUN_DIR.exists():
+        shutil.rmtree(SEED_RUN_DIR)
+
+    from awp.data.workflow import AgentWorkflow
+
+    task = (
+        "Write a 2-page bilingual (English + German) summary of the 1905 "
+        "Einstein relativity paper. Include: (1) English abstract, "
+        "(2) German abstract, (3) three labeled sections with citations."
+    )
+    # Intentionally tight budget so the run lands at 'partial' with a
+    # detectable defect (missing citations / short German abstract).
+    wf = AgentWorkflow(
+        inputs={},
+        task=task,
+        model="openai/gpt-5-mini",
+        worker_model="deepseek/deepseek-chat-v3.1",
+        output_dir=str(SEED_RUN_DIR),
+        max_loops=8,
+        max_total_tokens=400_000,
+        max_wall_time=600,
+        max_total_workers=4,
+        max_depth=2,
+        tags=["e2e", "refinement", "seed"],
+    )
+    wf.run()
+    assert (SEED_RUN_DIR / "run_completion.json").exists(), "seed run did not complete"
+    assert (SEED_RUN_DIR / "FINAL").exists(), "seed run did not produce FINAL/"
+    return SEED_RUN_DIR
 
 
 # -- Assertions the plan's tasks light up one by one --
