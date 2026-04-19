@@ -363,11 +363,23 @@ class DeterministicPhaseRunner:
         env = _scrub_secrets(dict(os.environ))
 
         cwd = context.workspace_dir if context.workspace_dir.exists() else self.workflow_dir
+        # Phase 3.2 — ``max_wall_time_s`` (generic per-phase budget) takes
+        # precedence over ``timeout_s`` (deterministic-only alias) when
+        # both are set. Both paths converge on the same subprocess call;
+        # only the terminal ``reason`` code changes so downstream tooling
+        # can distinguish "legacy deterministic timeout" from "explicit
+        # phase-level wall-time breach".
+        effective_timeout = phase.effective_timeout_s
+        timeout_reason = (
+            "phase_timeout"
+            if phase.max_wall_time_s is not None
+            else "deterministic_timeout"
+        )
         completed = _run_subprocess(
             module=module,
             func=func,
             args=resolved_args,
-            timeout_s=phase.timeout_s,
+            timeout_s=effective_timeout,
             cwd=cwd,
             env=env,
         )
@@ -376,14 +388,15 @@ class DeterministicPhaseRunner:
 
         if completed.timed_out:
             self.logger.warning(
-                "Deterministic phase %s timed out after %ss",
+                "Deterministic phase %s timed out after %ss (reason=%s)",
                 phase.id,
-                phase.timeout_s,
+                effective_timeout,
+                timeout_reason,
             )
             return PhaseResult(
                 phase_id=phase.id,
                 status="partial",
-                reason="deterministic_timeout",
+                reason=timeout_reason,
                 duration_s=duration_s,
                 stdout=completed.stdout,
                 stderr=completed.stderr,

@@ -432,6 +432,15 @@ def validate_rules(
                     f"R33: deterministic phase '{phase.id}' timeout_s="
                     f"{phase.timeout_s} must be in [1, 3600]"
                 )
+            # Phase 3.2 — same bounds apply to the generic
+            # ``max_wall_time_s`` field when provided.
+            if phase.max_wall_time_s is not None and not (
+                1 <= phase.max_wall_time_s <= 3600
+            ):
+                errors.append(
+                    f"R33: deterministic phase '{phase.id}' max_wall_time_s="
+                    f"{phase.max_wall_time_s} must be in [1, 3600]"
+                )
 
             # (4) dependencies must resolve
             for dep in phase.depends_on:

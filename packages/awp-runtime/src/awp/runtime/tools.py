@@ -565,6 +565,44 @@ class ToolRegistry:
             ),
         )
 
+        # -- repo.fact (Phase 3.4) -----------------------------------
+        # TF-IDF snippet lookup over <workspace>/inputs/. Not opt-in by
+        # default — workflows must list ``repo.fact`` in ``tools_allowed``
+        # to expose it to a worker. Per-run JSON cache at
+        # ``<workspace>/.fact_index.json`` avoids rebuilding on every
+        # call within the same run.
+        self._register(
+            "repo.fact",
+            self._repo_fact,
+            {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Natural-language query string. Matched with "
+                            "TF-IDF against every paragraph under "
+                            "<workspace>/inputs/."
+                        ),
+                    },
+                    "max_snippets": {
+                        "type": "integer",
+                        "description": (
+                            "Upper bound on the number of snippets to "
+                            "return. Defaults to 3."
+                        ),
+                        "default": 3,
+                    },
+                },
+                "required": ["query"],
+            },
+            (
+                "Return up to N TF-IDF-ranked text snippets from the "
+                "run's input workspace (<workspace>/inputs/). Read-only; "
+                "no network. Cached per-run at <workspace>/.fact_index.json."
+            ),
+        )
+
     # -- Digest tool implementation ---------------------------------
     def _digest_fetch(self, sha: str, **_: Any) -> dict[str, Any]:
         from .digest import current_digest_store
@@ -610,6 +648,46 @@ class ToolRegistry:
         except Exception as exc:
             return _err(f"board.post failed: {exc}", 500)
         return _ok({"entry_id": entry_id})
+
+    # -- repo.fact tool implementation --------------------------------
+    def _repo_fact(
+        self,
+        query: str,
+        max_snippets: int = 3,
+        **_: Any,
+    ) -> dict[str, Any]:
+        """``repo.fact(query, max_snippets=3)`` — TF-IDF snippet lookup.
+
+        Reads only under ``<workflow_dir>/workspace/inputs/``. A per-run
+        JSON cache at ``<workflow_dir>/workspace/.fact_index.json`` makes
+        follow-up calls cheap (stat-based fingerprint invalidation).
+        Never calls the network; never touches files outside the input
+        workspace.
+        """
+        if not isinstance(query, str) or not query.strip():
+            return _err("query must be a non-empty string", 400)
+        if self._workflow_dir is None:
+            return _err(
+                "repo.fact unavailable: no workflow_dir bound to this registry",
+                503,
+            )
+        try:
+            max_n = int(max_snippets) if max_snippets is not None else 3
+        except (TypeError, ValueError):
+            max_n = 3
+        max_n = max(1, min(max_n, 20))
+        workspace = self._workflow_dir / "workspace"
+        try:
+            from .builtin_tools.repo_fact import repo_fact as _rf_impl
+
+            snippets = _rf_impl(
+                query=query,
+                max_snippets=max_n,
+                workspace_dir=workspace,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"repo.fact failed: {exc}", 500)
+        return _ok({"snippets": snippets, "count": len(snippets), "query": query})
 
     def _board_read(
         self,

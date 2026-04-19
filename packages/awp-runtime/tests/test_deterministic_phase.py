@@ -369,6 +369,32 @@ def test_timeout_returns_partial(tmp_path, user_module):
     assert r.reason == "deterministic_timeout"
 
 
+def test_max_wall_time_s_returns_phase_timeout(tmp_path, user_module):
+    """Phase 3.2 — the generic ``max_wall_time_s`` field applies the
+    same timeout enforcement but surfaces ``reason=phase_timeout`` so
+    downstream tooling can distinguish a per-phase budget breach from
+    the deterministic-only ``timeout_s`` legacy path.
+
+    Spec: ``max_wall_time_s`` overrides ``timeout_s`` when both are
+    set; a 1-second budget on a 5-second callable returns ``partial``.
+    """
+    ctx = _ctx(tmp_path)
+    phase = DeterministicPhase(
+        id="slow_generic",
+        callable=f"{user_module}:sleepy",
+        args={"secs": 5.0},
+        # timeout_s is left at the generous default so the assertion is
+        # purely about max_wall_time_s taking precedence.
+        timeout_s=300,
+        max_wall_time_s=1,
+    )
+    # Property surface is consistent.
+    assert phase.effective_timeout_s == 1
+    r = _runner(tmp_path).run(phase, ctx)
+    assert r.status == "partial"
+    assert r.reason == "phase_timeout"
+
+
 # ---------------------------------------------------------------------------
 # Secret scrubbing
 # ---------------------------------------------------------------------------

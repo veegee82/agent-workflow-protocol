@@ -34,7 +34,6 @@ Default checks (canonical order):
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -42,6 +41,11 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import CheckResult, OutputContract, OutputContractCheck
+from .simhash import (
+    hamming64 as _hamming64,
+    simhash64 as _simhash64,
+    tokenize as _tokenize,
+)
 
 __all__ = [
     "L0Validator",
@@ -173,42 +177,11 @@ class NoPlaceholderCheck:
 # ---------------------------------------------------------------------------
 
 
-_TOKEN_RE = re.compile(r"[A-Za-z0-9']+", re.UNICODE)
-
-
-def _tokenize(text: str) -> list[str]:
-    return [t.lower() for t in _TOKEN_RE.findall(text)]
-
-
-def _simhash64(tokens: list[str]) -> int:
-    """Charikar (2002) simhash over a bag of tokens.
-
-    Each token is hashed to a 64-bit integer (BLAKE2b, first 8 bytes).
-    For every bit position, the +1 votes from tokens with that bit set
-    are weighed against the -1 votes from tokens with it clear. The
-    sign of the aggregate becomes the output bit.
-    """
-    vote = [0] * 64
-    if not tokens:
-        return 0
-    for tok in tokens:
-        h = hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest()
-        bits = int.from_bytes(h, byteorder="big", signed=False)
-        for i in range(64):
-            if (bits >> i) & 1:
-                vote[i] += 1
-            else:
-                vote[i] -= 1
-    out = 0
-    for i in range(64):
-        if vote[i] > 0:
-            out |= 1 << i
-    return out
-
-
-def _hamming64(a: int, b: int) -> int:
-    return ((a ^ b) & 0xFFFFFFFFFFFFFFFF).bit_count()
-
+# NOTE: the ``_tokenize`` / ``_simhash64`` / ``_hamming64`` symbols now live
+# in :mod:`awp.runtime.critique.simhash` and are re-exported under their
+# original private names here so existing imports keep working byte-for-byte.
+# The Phase-3 Repair Fixpoint guard (R35) imports from the shared module
+# directly instead of reaching into this file.
 
 _PARAGRAPH_SEP = re.compile(r"\n\s*\n")
 

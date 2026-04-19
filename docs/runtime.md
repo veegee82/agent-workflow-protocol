@@ -578,6 +578,66 @@ also [critique.md § Layer 0 Output Contract](critique.md#layer-0-output-contrac
 for the normative semantics and
 [validation-rules.md § 10](../spec/versions/1.0/validation-rules.md#10-layer-0-output-contract-r34).
 
+## Robustness additions (Phase 3)
+
+Four domain-agnostic robustness features landed alongside the Compiler-
+Layer spec. They are runtime-only (no new validation rule for 3.2 / 3.3 /
+3.4) and every check stays off by default unless explicitly opted in.
+
+### Repair fixpoint guard (R35)
+
+Before dispatching the Nth repair worker, the critique engine compares
+the 64-bit simhash (Charikar 2002) of output N-1 and N-2. When the
+similarity reaches `0.95` the repair chain is aborted, the subtask is
+marked `status=failed` with reason `repair_fixpoint_detected`, and a
+`metric.gate` event is emitted with `gate="repair_fixpoint"` plus the
+normative fields `sim`, `attempt`, `previous_output_path`. The shared
+hash primitives live in
+`packages/awp-runtime/src/awp/runtime/critique/simhash.py` and are
+reused by both the L0 `NoTextLoopCheck` and this guard. Authoritative
+code path: `CritiqueEngine.attempt_repair` in
+`packages/awp-runtime/src/awp/runtime/critique/engine.py`.
+
+### Per-phase wall-time (`max_wall_time_s`)
+
+`DeterministicPhase` gains an optional `max_wall_time_s: int` field that
+bounds the callable's subprocess runtime exactly like `timeout_s`. When
+both are set, `max_wall_time_s` wins; on breach the phase returns
+`status=partial` with `reason=phase_timeout` (versus the legacy
+`deterministic_timeout` when only `timeout_s` is used). The generic name
+makes the field reusable for future `type: llm` phases — same bounds
+`[1, 3600]` enforced by the R33 static check. Authoritative code path:
+`DeterministicPhaseRunner.run` in
+`packages/awp-runtime/src/awp/runtime/deterministic/runner.py`.
+
+### Canonical output pointer (`output/FINAL/`)
+
+The root manager ends every `complete` / `partial` run by materialising
+`<workflow_dir>/output/FINAL/` with the finalised deliverables. For each
+declared deliverable (from the plan's `required_outputs` or scraped from
+`success_criteria`), the runtime searches the whole `output/` subtree,
+de-duplicates by basename, and promotes the **deepest non-empty
+instance** into `FINAL/`. Sub-manager copies always win over a shallower
+parent-level stub, so downstream consumers (UI, CI, evaluators) have a
+single stable pointer regardless of which sub-manager produced the
+artifact. Hard links are preferred; a copy is the fallback on
+cross-device / filesystem limits. Authoritative code path:
+`DelegationLoopRunner._write_canonical_final_output` in
+`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`.
+
+### `repo.fact` built-in tool
+
+Workers can call `repo.fact(query, max_snippets=3)` to pull up to N
+TF-IDF-ranked text snippets from the run's input workspace (`<workflow_dir>/workspace/inputs/`). Pure Python TF-IDF, no embedding
+model, no network. The index is built lazily on first call and cached
+per-run at `<workspace>/.fact_index.json`; a stat-based fingerprint
+invalidates it automatically when an input changes. Not auto-registered
+— workflows opt in per subtask via `tools_allowed: ["repo.fact"]`.
+Authoritative code paths:
+`packages/awp-runtime/src/awp/runtime/builtin_tools/repo_fact.py`,
+`ToolRegistry._repo_fact` in
+`packages/awp-runtime/src/awp/runtime/tools.py`.
+
 ## Parallel completion gate chain (opt-in)
 
 The Phase-A deliverable gates — `syntax_compile`, `schema`,

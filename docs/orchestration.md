@@ -539,6 +539,23 @@ Unknown invariant kinds cause phase failure with reason
 `unknown_invariant_kind`. See the normative semantics in
 [validation-rules.md §9](../spec/versions/1.0/validation-rules.md#9-deterministic-phase-type-r33).
 
+### Phase schema reference (all phase types)
+
+| Field | Type | Required | Phase types | Purpose |
+|-------|------|----------|-------------|---------|
+| `id` | string | yes | all | Unique identifier |
+| `type` | enum (`llm`, `deterministic`, `hybrid`) | yes | all | Dispatch target |
+| `depends_on` | list[string] | no | all | Topological edges |
+| `callable` | `module:function` | yes | `deterministic` | Importable python callable |
+| `args` | dict | no | `deterministic` | Positional/keyword args with `${…}` substitution |
+| `timeout_s` | int `[1, 3600]` | no (default `300`) | `deterministic` | Legacy deterministic-only timeout |
+| `max_wall_time_s` | int `[1, 3600]` | no | all phase types | **Phase 3.2** — generic per-phase wall-time budget. Overrides `timeout_s` when set. On breach the phase returns `partial` with reason `phase_timeout`. |
+| `invariants` | list[Invariant] | no | `deterministic` | Post-execution invariant chain |
+
+`max_wall_time_s` is the forward-compatible name to use for new
+workflows. `timeout_s` remains a deterministic-only alias for backward
+compatibility; when both are set, `max_wall_time_s` wins.
+
 ### When to use which phase type
 
 | Situation | Phase type |

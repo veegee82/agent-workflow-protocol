@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .models import CritiqueEnvelope, Defect, PatternMemory, RepairAttempt
+from .simhash import similarity as _simhash_similarity, text_simhash as _text_simhash
 
 if TYPE_CHECKING:
     from awp.models.orchestration import CritiqueConfig
@@ -41,6 +42,11 @@ class CritiqueEngine:
     3. ``inject_patterns()`` — enrich next worker skills with learned patterns
     """
 
+    # Phase 3.1 (R35) — similarity threshold above which two consecutive
+    # repair outputs are treated as a fixpoint and the repair chain aborts.
+    # Matches spec §11: ``sim >= 0.95``.
+    REPAIR_FIXPOINT_SIMILARITY: float = 0.95
+
     def __init__(
         self,
         config: "CritiqueConfig",
@@ -49,6 +55,7 @@ class CritiqueEngine:
         worker_model: str = "",
         llm_client: Optional["LLMClient"] = None,
         max_parallel_workers: int = 16,
+        metric_writer: Optional[Callable[[str, dict[str, Any]], None]] = None,
     ) -> None:
         self._config = config
         self._workflow_dir = workflow_dir
@@ -59,6 +66,12 @@ class CritiqueEngine:
         self._pattern_memory = PatternMemory()
         self._repair_history: list[RepairAttempt] = []
         self._total_repair_tokens = 0
+        # Optional observer hook used by Phase 3.1 (R35) to emit
+        # ``metric.gate`` events when a repair fixpoint is detected. The
+        # runner wires ``self._logger.write_metric`` in. Stays ``None``
+        # in stand-alone use (tests, offline critique) where nothing
+        # consumes the metric stream.
+        self._metric_writer = metric_writer
 
     @property
     def enabled(self) -> bool:
@@ -168,6 +181,13 @@ class CritiqueEngine:
         """Run targeted repair cycles for a worker with critical defects.
 
         Returns the (possibly improved) result and list of repair attempts.
+
+        Phase 3.1 / R35: before dispatching each new repair worker, the
+        simhash of the last two outputs in the repair chain is compared;
+        when the similarity reaches ``REPAIR_FIXPOINT_SIMILARITY`` the
+        loop breaks early and a ``metric.gate`` event with
+        ``gate="repair_fixpoint"`` is emitted. This avoids burning
+        budget on a worker that has converged on the same wrong answer.
         """
         if not critique.has_critical_defects:
             return worker_result, []
@@ -176,6 +196,11 @@ class CritiqueEngine:
         attempts: list[RepairAttempt] = []
         current_result = worker_result
         current_critique = critique
+        # R35 fixpoint tracker: ``outputs[-1]`` is the most-recent result
+        # in the chain. The original worker output counts as ``output_0``
+        # so the 2nd attempt compares ``O_1`` vs ``O_0``.
+        output_hashes: list[int] = [_text_simhash(self._output_text_for_hash(worker_result))]
+        output_paths: list[str] = [self._persist_output_for_fixpoint(worker_id, 0, worker_result)]
 
         for attempt_num in range(1, max_attempts + 1):
             # Budget check
@@ -186,6 +211,33 @@ class CritiqueEngine:
 
             if not current_critique.has_critical_defects:
                 break
+
+            # R35 — Repair Fixpoint Detection. Evaluate BEFORE dispatching
+            # the Nth repair worker: compare the simhash of output N-1 and
+            # N-2 when both exist (i.e. from attempt_num == 2 onward). A
+            # similarity >= 0.95 aborts the loop with a targeted metric
+            # event. On the first attempt we only have the original output,
+            # so there is nothing to compare yet.
+            if len(output_hashes) >= 2:
+                prev = output_hashes[-1]
+                prev_prev = output_hashes[-2]
+                sim = _simhash_similarity(prev, prev_prev)
+                if sim >= self.REPAIR_FIXPOINT_SIMILARITY:
+                    logger.warning(
+                        "Repair fixpoint detected for %s (sim=%.4f >= %.2f) "
+                        "— aborting further repair attempts (R35)",
+                        worker_id,
+                        sim,
+                        self.REPAIR_FIXPOINT_SIMILARITY,
+                    )
+                    self._emit_repair_fixpoint_metric(
+                        worker_id=worker_id,
+                        iteration=iteration,
+                        attempt=attempt_num,
+                        sim=sim,
+                        previous_output_path=output_paths[-1],
+                    )
+                    break
 
             logger.info(
                 "  Repair attempt %d/%d for %s (%d critical defects)",
@@ -211,6 +263,13 @@ class CritiqueEngine:
             except Exception as exc:
                 logger.error("Repair worker failed: %s", exc)
                 break
+
+            # Record simhash + on-disk snapshot of the repaired output
+            # so the NEXT iteration can detect a fixpoint (R35).
+            output_hashes.append(_text_simhash(self._output_text_for_hash(repaired_result)))
+            output_paths.append(
+                self._persist_output_for_fixpoint(worker_id, attempt_num, repaired_result)
+            )
 
             # Re-critique the repaired result
             new_critique = self._run_critique(worker_id, repaired_result, task, envelope, iteration)
@@ -300,6 +359,89 @@ class CritiqueEngine:
             "repair_history": [r.to_dict() for r in self._repair_history],
             "total_repair_tokens": self._total_repair_tokens,
         }
+
+    # -- R35 Repair Fixpoint helpers -----------------------------------------
+
+    def _output_text_for_hash(self, worker_result: dict[str, Any]) -> str:
+        """Collapse a worker result into a stable text representation.
+
+        Used as the input to :func:`simhash.text_simhash` for R35.
+        Internal / scaffolding keys prefixed with ``_`` are intentionally
+        dropped so oscillating metadata (timestamps, tool-call counters)
+        does not mask a real payload fixpoint. The result dict is
+        serialised with sorted keys for determinism.
+        """
+        if not isinstance(worker_result, dict):
+            return str(worker_result)
+        payload = {k: v for k, v in worker_result.items() if not str(k).startswith("_")}
+        try:
+            return json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            return repr(payload)
+
+    def _persist_output_for_fixpoint(
+        self,
+        worker_id: str,
+        attempt: int,
+        worker_result: dict[str, Any],
+    ) -> str:
+        """Write the pre-hash textual payload of a repair output to disk.
+
+        Returns the relative path under the workflow dir so the R35
+        metric event can carry ``previous_output_path`` per spec. Best-
+        effort: any filesystem error silently returns an empty string —
+        the fixpoint detection itself still works, only the human-facing
+        pointer is missing.
+        """
+        try:
+            base = self._workflow_dir / "workspace" / "runs" / (self._run_id or "")
+            base = base / "repair_fixpoint" / str(worker_id)
+            base.mkdir(parents=True, exist_ok=True)
+            target = base / f"attempt_{attempt:02d}.json"
+            target.write_text(self._output_text_for_hash(worker_result), encoding="utf-8")
+            try:
+                return str(target.relative_to(self._workflow_dir))
+            except ValueError:
+                return str(target)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _emit_repair_fixpoint_metric(
+        self,
+        *,
+        worker_id: str,
+        iteration: int,
+        attempt: int,
+        sim: float,
+        previous_output_path: str,
+    ) -> None:
+        """Emit the ``metric.gate`` event mandated by R35.
+
+        Pure observer: any exception from the writer is swallowed so the
+        repair path never fails because of an observability hiccup.
+        """
+        writer = self._metric_writer
+        if writer is None:
+            return
+        try:
+            writer(
+                "metric.gate",
+                {
+                    "iteration": int(iteration) if iteration is not None else -1,
+                    "gate": "repair_fixpoint",
+                    "verdict": "rejected",
+                    "worker_id": worker_id,
+                    "sim": round(float(sim), 4),
+                    "attempt": int(attempt),
+                    "previous_output_path": previous_output_path or "",
+                    "reason": (
+                        f"repair_fixpoint_detected: sim={sim:.4f} "
+                        f">= {self.REPAIR_FIXPOINT_SIMILARITY}"
+                    ),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("repair_fixpoint metric emission failed", exc_info=True)
 
     # -- Internal -------------------------------------------------------------
 

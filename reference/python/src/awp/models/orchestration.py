@@ -103,8 +103,16 @@ class DeterministicPhase(BaseModel):
 
     The callable is resolved via ``importlib`` (no ``eval``, no shell),
     invoked in a subprocess sandbox with secrets stripped, constrained by
-    ``timeout_s``, and its output is checked against every invariant.
-    See spec §9 for the full normative semantics.
+    ``timeout_s`` (or the generic ``max_wall_time_s`` when provided), and
+    its output is checked against every invariant. See spec §9 for the
+    full normative semantics.
+
+    Phase 3.2 / R35 — the optional ``max_wall_time_s`` field is a
+    generic per-phase wall-time budget that applies to ``type: llm`` and
+    ``type: deterministic`` phases alike. For a deterministic phase it
+    overrides ``timeout_s`` when both are set; ``timeout_s`` is kept as
+    a deterministic-only alias for backward compatibility. On breach the
+    phase returns ``status="partial"`` with ``reason="phase_timeout"``.
     """
 
     id: str
@@ -113,9 +121,33 @@ class DeterministicPhase(BaseModel):
     callable: str  # "module.path:function_name"
     args: dict[str, Any] = Field(default_factory=dict)
     timeout_s: int = 300
+    # Phase 3.2 — generic per-phase wall-time budget shared with future
+    # ``type: llm`` phases. When set on a deterministic phase it wins
+    # over ``timeout_s``.
+    max_wall_time_s: Optional[int] = None
     invariants: list[Invariant] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def _validate_wall_time_bounds(self) -> "DeterministicPhase":
+        """``max_wall_time_s`` must be a positive integer when provided."""
+        if self.max_wall_time_s is not None and self.max_wall_time_s <= 0:
+            raise ValueError(
+                "DeterministicPhase.max_wall_time_s must be a positive integer"
+            )
+        return self
+
+    @property
+    def effective_timeout_s(self) -> int:
+        """Timeout actually enforced by the runner.
+
+        ``max_wall_time_s`` (generic, Phase 3.2) takes precedence over
+        the deterministic-only ``timeout_s`` so workflow authors can
+        unify all phase types behind one field without rewriting their
+        existing YAML.
+        """
+        return self.max_wall_time_s if self.max_wall_time_s is not None else self.timeout_s
 
 
 class ConditionalDependency(BaseModel):

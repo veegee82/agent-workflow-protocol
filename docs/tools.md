@@ -80,6 +80,10 @@ All AWP tools must return a response conforming to this structure:
 | `arithmetic.subtract` | Subtract two numbers. |
 | `arithmetic.multiply` | Multiply two numbers. |
 | `arithmetic.divide` | Divide two numbers. |
+| `board.post` | Post a signal to the sibling-coordination blackboard for the current manager run (run-scoped). |
+| `board.read` | Read signals from the sibling-coordination blackboard (optional `topic` / `since` filters). |
+| `digest.fetch` | Fetch a Hierarchical Context Digest by its SHA from the current manager run's DigestStore. |
+| `repo.fact` | Return up to `max_snippets` TF-IDF-ranked text snippets from the run's input workspace (`<workspace>/inputs/`). Pure Python; no network. Cached per-run at `<workspace>/.fact_index.json`. Signature: `repo.fact(query: str, max_snippets: int = 3)`. Opt-in via `tools_allowed` — not registered into default workflows. |
 
 ## Tool Configuration in agent.awp.yaml
 

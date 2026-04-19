@@ -2509,6 +2509,11 @@ class DelegationLoopRunner:
                 worker_model=self._worker_model,
                 llm_client=llm_client,
                 max_parallel_workers=self._max_parallel_workers,
+                # Phase 3.1 / R35 — wire the structured logger's
+                # ``write_metric`` so the engine can emit ``metric.gate``
+                # events when a repair fixpoint is detected, matching the
+                # ``gate="repair_fixpoint"`` contract in the spec.
+                metric_writer=self._logger.write_metric,
             )
             logger.info("Critique engine active (max_repair=%d)", critique_cfg.max_repair_attempts)
 
@@ -2977,6 +2982,17 @@ class DelegationLoopRunner:
             self._write_deliverable_scorecard(task, terminal_status)
         except Exception:
             logger.debug("scorecard emission failed", exc_info=True)
+        # Phase 3.3 — canonical output-pointer. The main (root) manager
+        # copies the finalised deliverables into ``output/FINAL/`` so the
+        # UI / downstream consumers have a single, stable pointer
+        # regardless of which sub-manager produced the artifact. Only
+        # runs on the root manager; submanagers contribute their
+        # ``output/<run_id>/`` subtree but never overwrite FINAL.
+        if self._parent_digest_sha is None and terminal_status in ("complete", "partial"):
+            try:
+                self._write_canonical_final_output(task)
+            except Exception:
+                logger.debug("canonical FINAL output emission failed", exc_info=True)
         terminal_emitted = True
         _ = terminal_emitted  # suppress unused-var lint; used for audit
         # Flush all async writes to disk before returning
@@ -9741,6 +9757,113 @@ Rules:
             _os.replace(tmp, target)
         except Exception:
             logger.debug("_persist_gate_result failed", exc_info=True)
+
+    def _write_canonical_final_output(self, task: str) -> None:
+        """Phase 3.3 — materialise ``output/FINAL/`` with the finalised
+        deliverables from this run.
+
+        The root manager is the single source of truth for what the run
+        delivered. Sub-managers may write copies of ``paper.pdf`` under
+        their own ``output/<submgr_run_id>/`` subtrees; this helper
+        de-duplicates by relative path and promotes the **deepest
+        non-empty instance** into ``output/FINAL/<relpath>`` so
+        downstream consumers (UI, CI, evaluators) have one stable
+        location regardless of which submanager produced it.
+
+        "Deepest" is measured as path length (number of path parts under
+        ``output/``) — a submanager's copy of ``paper.pdf`` under
+        ``output/submgr_xyz/paper.pdf`` wins over a parent-level stub at
+        ``output/paper.pdf`` because it sits one level deeper in the run
+        tree.
+
+        Best-effort: any filesystem exception is logged and swallowed —
+        a missing FINAL/ does not turn an otherwise-complete run into a
+        failure.
+        """
+        required, _source = self._derive_required_deliverables(task)
+        if not required:
+            # Nothing declared — do not create an empty FINAL/ directory.
+            return
+
+        output_root = self._dir / "output"
+        if not output_root.is_dir():
+            return
+        final_dir = output_root / "FINAL"
+
+        # Build candidate map: relpath-under-output → list of (depth, path).
+        # Each required deliverable is normalised by basename; we search
+        # the output tree for every matching filename and keep the deepest
+        # non-empty instance.
+        promoted: dict[str, Path] = {}
+        for rel in required:
+            try:
+                rel_name = rel.name
+            except AttributeError:
+                continue
+            if not rel_name:
+                continue
+            # Collect every non-empty file with the same basename
+            # anywhere under output/. We skip the FINAL/ tree itself so
+            # a rerun does not feed its own previous output back in as a
+            # candidate.
+            candidates: list[tuple[int, Path]] = []
+            for p in output_root.rglob(rel_name):
+                try:
+                    if not p.is_file():
+                        continue
+                    if final_dir in p.parents or p == final_dir:
+                        continue
+                    if p.stat().st_size <= 0:
+                        continue
+                    # Path length relative to output/ = "depth in run tree".
+                    depth = len(p.relative_to(output_root).parts)
+                    candidates.append((depth, p))
+                except OSError:
+                    continue
+            if not candidates:
+                continue
+            # Deepest wins; ties broken by newest mtime for determinism.
+            candidates.sort(
+                key=lambda t: (t[0], t[1].stat().st_mtime if t[1].exists() else 0.0),
+                reverse=True,
+            )
+            _, chosen = candidates[0]
+            # De-duplicate by basename — sub-manager outputs with the
+            # same declared relpath collapse to one FINAL entry.
+            promoted.setdefault(rel_name, chosen)
+
+        if not promoted:
+            return
+
+        try:
+            final_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.debug("FINAL/ mkdir failed: %s", exc)
+            return
+
+        for rel_name, src in promoted.items():
+            dst = final_dir / rel_name
+            try:
+                # Replace any stale pointer. Prefer hardlink (cheap,
+                # survives tools that follow links), fall back to copy
+                # on cross-device / filesystem limits.
+                if dst.exists() or dst.is_symlink():
+                    try:
+                        dst.unlink()
+                    except OSError:
+                        pass
+                try:
+                    import os as _os
+
+                    _os.link(src, dst)
+                except OSError:
+                    import shutil as _shutil
+
+                    _shutil.copy2(src, dst)
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "FINAL/ promotion failed for %s -> %s", src, dst, exc_info=True
+                )
 
     def _write_deliverable_scorecard(self, task: str, status: str) -> None:
         """Phase D: produce ``deliverable_scorecard.json`` at run end.
