@@ -217,8 +217,13 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   budget_reservation_enabled: true,
   decision_journal_enabled: true,
   decision_journal_max_entries: 20,
-  // Optimizer defaults
-  outer_loop_enabled: false,
+  // Optimizer defaults — both concepts enabled by default. The
+  // toggles in Settings → Optimizers represent user preference for
+  // whether the concept is *armed*, not whether its UI is visible.
+  // The Optimizer tab and the Refine button stay accessible either
+  // way; downstream logic may use these flags to decide whether to
+  // auto-offer / gate specific actions.
+  outer_loop_enabled: true,
   outer_loop_default_epochs: 3,
   outer_loop_default_learning_rate: 0.5,
   outer_loop_with_textgrad: true,

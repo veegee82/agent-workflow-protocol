@@ -32,10 +32,14 @@ export function RefineModal({
   onStarted,
 }: RefineModalProps) {
   // Pre-fill iterations from Settings → Optimizers → Refinement default.
+  // Fallback to 3 on undefined so cached stores predating this field
+  // still render a sensible default.
   const defaultIterations = useWorkflowStore(
     (s) => s.config.refinement_default_iterations,
   );
-  const [iterations, setIterations] = useState<number>(defaultIterations);
+  const [iterations, setIterations] = useState<number>(
+    defaultIterations ?? 3,
+  );
   const [model, setModel] = useState<string>('');
   const [workerModel, setWorkerModel] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);

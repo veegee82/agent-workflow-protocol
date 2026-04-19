@@ -1097,13 +1097,14 @@ export function SettingsPanel() {
       </Panel>
 
       {/* Optimizers — two SGD modes exposed by awp: θ-axis (outer loop)
-          and y-axis (refinement). Not invoked inline by a single run;
-          these are defaults for the separate awp optimize / awp refine
-          workflows. */}
+          and y-axis (refinement). Both run outside a normal `awp run`
+          and remain accessible regardless of the toggles — the toggles
+          represent user preference for whether the concept is armed;
+          hyperparameters are always editable. */}
       <Panel
         title="Optimizers"
         icon={<Dna className="h-3.5 w-3.5 text-awp-blue" />}
-        defaultOpen={false}
+        defaultOpen
       >
         <div className="space-y-5">
           <p className="text-[11px] text-awp-muted leading-relaxed">
@@ -1112,9 +1113,11 @@ export function SettingsPanel() {
               awp run
             </code>
             . Both reduce the same scalar loss but move different
-            parameters: the outer loop trains the policy (θ — prompt
-            artifacts); refinement polishes a single run's deliverable
-            (y). Disjoint state · compose cleanly.
+            parameters: the <strong>outer loop</strong> trains the
+            policy (<strong>θ</strong> — prompt artifacts);{' '}
+            <strong>refinement</strong> polishes a single run's
+            deliverable (<strong>y</strong>). Disjoint state · compose
+            cleanly.
           </p>
 
           {/* Outer Loop — θ-axis */}
@@ -1146,48 +1149,44 @@ export function SettingsPanel() {
               </a>
             </p>
             <ToggleSwitch
-              label="Surface in UI"
-              description="Show the Optimizer tab and expose the suite/epoch charts"
-              checked={config.outer_loop_enabled}
+              label="Enable Outer Loop"
+              description="User preference — Optimizer tab stays visible regardless"
+              checked={config.outer_loop_enabled ?? true}
               onChange={(v) => updateConfig({ outer_loop_enabled: v })}
             />
-            {config.outer_loop_enabled && (
-              <>
-                <SliderInput
-                  label="Default Epochs"
-                  description="Suite runs per optimize invocation"
-                  value={config.outer_loop_default_epochs}
-                  min={1}
-                  max={20}
-                  step={1}
-                  onChange={(v) =>
-                    updateConfig({ outer_loop_default_epochs: v })
-                  }
-                />
-                <SliderInput
-                  label="Default Learning Rate"
-                  description="Halved on each mean-loss regression"
-                  value={config.outer_loop_default_learning_rate * 100}
-                  min={5}
-                  max={100}
-                  step={5}
-                  onChange={(v) =>
-                    updateConfig({
-                      outer_loop_default_learning_rate: v / 100,
-                    })
-                  }
-                  format={(v) => `${(v / 100).toFixed(2)}`}
-                />
-                <ToggleSwitch
-                  label="Use TextGrad (LLM-as-optimizer)"
-                  description="Without this, epochs still run but no artifact is touched"
-                  checked={config.outer_loop_with_textgrad}
-                  onChange={(v) =>
-                    updateConfig({ outer_loop_with_textgrad: v })
-                  }
-                />
-              </>
-            )}
+            <SliderInput
+              label="Default Epochs"
+              description="Suite runs per optimize invocation"
+              value={config.outer_loop_default_epochs ?? 3}
+              min={1}
+              max={20}
+              step={1}
+              onChange={(v) =>
+                updateConfig({ outer_loop_default_epochs: v })
+              }
+            />
+            <SliderInput
+              label="Default Learning Rate"
+              description="Halved on each mean-loss regression"
+              value={(config.outer_loop_default_learning_rate ?? 0.5) * 100}
+              min={5}
+              max={100}
+              step={5}
+              onChange={(v) =>
+                updateConfig({
+                  outer_loop_default_learning_rate: v / 100,
+                })
+              }
+              format={(v) => `${(v / 100).toFixed(2)}`}
+            />
+            <ToggleSwitch
+              label="Use TextGrad (LLM-as-optimizer)"
+              description="Without this, epochs still run but no artifact is touched"
+              checked={config.outer_loop_with_textgrad ?? true}
+              onChange={(v) =>
+                updateConfig({ outer_loop_with_textgrad: v })
+              }
+            />
           </div>
 
           {/* Refinement — y-axis */}
@@ -1214,24 +1213,22 @@ export function SettingsPanel() {
               </a>
             </p>
             <ToggleSwitch
-              label="Enable Refine button"
-              description="Show 'Refine' + 'Refinements' controls on run-history entries"
-              checked={config.refinement_enabled}
+              label="Enable Refinement"
+              description="User preference — Refine button on run-history entries"
+              checked={config.refinement_enabled ?? true}
               onChange={(v) => updateConfig({ refinement_enabled: v })}
             />
-            {config.refinement_enabled && (
-              <SliderInput
-                label="Default Iterations"
-                description="Pre-filled in the Refine modal (1–10; budget halves per iter)"
-                value={config.refinement_default_iterations}
-                min={1}
-                max={10}
-                step={1}
-                onChange={(v) =>
-                  updateConfig({ refinement_default_iterations: v })
-                }
-              />
-            )}
+            <SliderInput
+              label="Default Iterations"
+              description="Pre-filled in the Refine modal (1–10; budget halves per iter)"
+              value={config.refinement_default_iterations ?? 3}
+              min={1}
+              max={10}
+              step={1}
+              onChange={(v) =>
+                updateConfig({ refinement_default_iterations: v })
+              }
+            />
           </div>
         </div>
       </Panel>
