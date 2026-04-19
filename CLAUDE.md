@@ -74,6 +74,7 @@ Doc sync is part of the **definition of done per logical task**, not per individ
 | Default config value changed | `CLAUDE.md` (Default Model), `skill/SKILL.md` reference values |
 | New example added | `README.md` / `README_NERD.md` (example list), `examples/` README |
 | Security/policy change | `CLAUDE.md` (Security section), `skill/SKILL.md` delegation loop section |
+| Refinement mode code / behavior changed | `CLAUDE.md` (Key Protocols + Refinement Mode section), `docs/refinement.md`, `spec/` (R36 if changed), `skill/SKILL.md` (refine command), `docs/e2e.md` (tag) |
 
 **Enforcement — four mechanical gates + one reminder:**
 
@@ -258,6 +259,7 @@ The Python code lives in `packages/` as two independent, publishable packages:
 - **Validation tiers**: Deterministic validation (schema, R1-R32) always runs. LLM semantic validation is optional (skipped above confidence threshold).
 - **Evaluation layer**: Optional scoring (5 metric kinds, weighted, threshold-based retry/repair), configured under `observability.evaluation`.
 - **Critique loop**: Optional reflective critique inside the delegation loop (defect diagnosis, targeted repair, cross-worker memory), configured under `delegation_loop.critique`.
+- **Refinement Mode (y-axis optimization)**: `awp refine <seed_run_dir>` wraps the existing delegation loop to iteratively refine a completed run's deliverable. Orthogonal to `awp optimize` (which moves θ — the prompt artifacts). Gradient = critique defects + last 3 gate rejections + eval deltas; injected as a deterministic prefix into iteration 1's manager user message only. Budget halved per iteration; stop on regression×2, plateau×2, wall-time cap (2× seed observed), or max iterations. R36 aborts on empty gradient. Iterations are independent experiments linked via `parent_run_id`; winning iteration hard-linked into `<seed>/BEST/`. Authoritative doc: `docs/refinement.md`.
 - **Framework-Fixes α/β/γ/δ** (runtime hardening — see `docs/runtime.md` for full rationale; authoritative code paths below):
   - **α-1** Persistent-executor namespace: warm Python subprocess per worker; merged stderr, `select`-based deadline, bounded-history replay. `packages/awp-runtime/src/awp/runtime/persistent_executor.py`.
   - **α-2** In-place repair registry: repair/retry variants share the α-1 executor via `logical_worker_id` (suffix stripping); repair workers get a `## REPAIR MODE` marker; manager can force reset via envelope `fresh_worker: true`. `packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`.
@@ -277,22 +279,18 @@ The Python code lives in `packages/` as two independent, publishable packages:
 - **Phase A3 (landed)**: TextGrad LLM-as-optimizer + rollback on regression. `textgrad.py` (`TextGradOptimizer.propose_update` — one `chat_text` call per candidate, strict-JSON parsing with markdown-fence tolerance, `argmax(expected_loss_reduction * confidence)` selection, hard constraints: wrong name / unchanged / > 20 000 chars → drop). `SuiteRunner.optimize` drives the multi-epoch SGD loop: apply one update per epoch, on `mean_loss` regression roll back the last update and halve the learning rate. `epochs.child_artifacts_json` is now a structured payload (`{"artifacts": name->version, "events": [...]}`), not just a name-to-version map. CLI surface: `awp optimize --with-textgrad --epochs N --learning-rate F [--no-rollback] [--manager-model M]`, `awp optimize-rollback ARTIFACT VERSION`, `awp optimize-inspect --artifact NAME` (unified-diff history). Authoritative code: `packages/awp-runtime/src/awp/outer_loop/textgrad.py`, `packages/awp-runtime/src/awp/outer_loop/runner.py` (`SuiteRunner.optimize`, `_apply_update`, `_rollback_last_update`).
 - **OFF by default**: outer-loop code paths are only entered through `awp optimize` / `awp optimize-inspect` / `awp optimize-rollback`; a normal `awp run` never imports the runner. `--with-textgrad` is opt-in — without it `awp optimize` still runs the A2-compatible path.
 
-### Refinement Mode (y-axis optimization, under construction)
+### Refinement Mode (y-axis optimization)
 
-Task-local counterpart to the outer loop: `awp refine <seed_run_dir>` (entry
-point planned) iteratively refines a completed run's deliverable. Gradient
-is extracted deterministically from the prior run's critique defects, last
-3 `gate.reject` events, and per-metric eval deltas, then injected as a
-deterministic prefix into the refinement iteration's first manager PLAN
-via `AgentWorkflow(manager_prompt_prefix=...)`. The prefix reaches the
-manager's user message on iteration 1 only (guarded in both
-`_run_inline_manager` and the agent-path construction inside
-`DelegationLoopRunner`); subsequent iterations see the vanilla message.
-Iterations are independent experiments linked via
-`run_completion.json.parent_run_id` (plumbed through `AgentWorkflow` +
-`DelegationLoopRunner`). Authoritative doc: `docs/refinement.md`.
-Implementation plan:
-`docs/superpowers/plans/2026-04-19-awp-refine-mode.md`.
+- **Entry point**: `awp refine <seed_run_dir> [--iterations N] [--model M] [--worker-model M]`. Clamped to `[1, 10]` iterations; default 3.
+- **Gradient** (`awp.refinement.gradient`): deterministically extracted from the prior run's `run_completion.json` (critique defects + eval deltas) and `events.jsonl` (last 3 `gate.reject` entries). No LLM call. Prefix template in `render_refinement_prefix` omits empty sections.
+- **R36 (normative)**: empty gradient → CLI prints `"nothing to refine"` and exits 0; no `AgentWorkflow` is constructed. Spec: `spec/versions/1.0/validation-rules.md §12`.
+- **Injection point**: `DelegationLoopRunner` prepends `manager_prompt_prefix` to the manager's user message on iteration 1 only. Both the inline-manager path (`_run_inline_manager`) and the agent-based path (`_run_manager`) honor the guard; subsequent iterations see the vanilla message.
+- **Budget halving** (`budget_for_iteration`): counts + tokens halved with `ceil`/floor; wall-time halved from the seed's **observed** wall time (floor 60 s); depth unchanged.
+- **Stop conditions** (`RefinementLoop`): `max_iterations`, `regression` (loss rose 2×), `plateau` (|Δloss|<0.01 for 2×), `wall_time_exhausted` (cumulative ≥ 2× seed observed), `empty_gradient` (iter 1, R36), `empty_gradient_midloop` (iter k>1 produced a perfect run).
+- **Storage**: iteration runs are standalone experiments usually under `/tmp/awp-experiments/refine_<ts>/iter_<k>/` linked via `parent_run_id` (seed → iter_1 → iter_2…). Session sidecar at `<seed>/refinement_sessions/<session_id>.json`. Winning iteration hard-linked into `<seed>/BEST/` with `manifest.json`; overwritten only if a future session produces strictly lower loss.
+- **Loss**: `compute_run_loss` from `awp.outer_loop.loss` is reused unchanged with default `LossWeights`.
+- **OFF by default**: refinement code is only imported by the `awp refine` CLI or `RefinementLoop.run()`; `awp run` and `awp optimize` never import it.
+- Authoritative doc: `docs/refinement.md`. Implementation plan: `docs/superpowers/plans/2026-04-19-awp-refine-mode.md`.
 
 ### Tool Registry UI Surface
 

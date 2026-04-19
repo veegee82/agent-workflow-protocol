@@ -970,7 +970,21 @@ awp pack <path>
 
 # Execute workflow
 awp run <path> --task "..."
+
+# Refinement mode (task-local y-axis optimization)
+awp refine <seed_run_dir>
 ```
+
+### Refinement Mode -- y-axis optimization
+
+`awp optimize` implements SGD over **θ** (the six prompt artifacts)
+with rollback on mean-loss regression. `awp refine` is its sibling:
+task-local SGD over **y** (the deliverable), driven by a deterministic
+gradient extracted from the prior run's critique, gate rejections, and
+eval deltas. The two are independent -- refinement does not touch
+prompts; optimize does not carry outputs forward. Together they form
+the full optimization stack. Authoritative protocol:
+[docs/refinement.md](docs/refinement.md).
 
 ---
 

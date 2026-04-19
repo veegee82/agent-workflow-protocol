@@ -30,6 +30,7 @@ Every E2E test **MUST** have one or more **tags**. Tags are passed to `run_e2e(t
 | `memory` | Test exercises cross-run memory persistence |
 | `planning` | Test exercises manager planning features |
 | `quick` | Lightweight smoke test (≤5 loops, ≤1M tokens) |
+| `refinement` | Test exercises `awp refine` (gradient extraction, iteration chain, BEST pointer) |
 
 An E2E test without tags is not valid. Tags are machine-readable metadata for filtering, reporting, and regression tracking.
 

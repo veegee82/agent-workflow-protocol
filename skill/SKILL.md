@@ -1742,8 +1742,21 @@ copy-paste and immediately test the workflow.
 
   # Pack for sharing
   awp pack {workflow_name}/
+
+  # (After a run) refine a `partial` deliverable — task-local y-axis SGD
+  # Only works when the prior run left defects / eval gaps / gate rejections;
+  # a clean run aborts with exit 0 "nothing to refine" (R36).
+  awp refine <seed_run_dir> --iterations 3
   ══════════════════════════════════════════════════════════
 ```
+
+### `awp refine <seed_run_dir>`
+
+Iteratively refines a completed run's deliverable. Use when a seed run
+ends at `partial` with critique defects or eval gaps. R36 aborts if
+the seed is already "complete" with no measurable gap. Budget halved
+per iteration; up to 10 iterations. Winning output hard-linked into
+`<seed>/BEST/`. See `docs/refinement.md`.
 
 Show only the commands relevant to the generated workflow's engine type.
 For delegation loop workflows, always show the `--manager-model` / `--worker-model` variant.
