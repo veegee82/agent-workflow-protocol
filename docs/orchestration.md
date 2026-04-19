@@ -551,3 +551,46 @@ Unknown invariant kinds cause phase failure with reason
 The [Compiler Layer](architecture.md#compiler-layer) section of the
 architecture document motivates why AWP introduces a deterministic tier
 alongside the LLM inner loop and the SGD outer loop.
+
+### Phase 2 scope (implementation status)
+
+Deterministic phases are implemented in the reference runtime as of
+Phase 2 of the Compiler-Layer initiative. The current scope is narrow
+on purpose: Phase 2 wires the runner into the **DAG engine only**, and
+only for a **post-graph** position in the pipeline.
+
+| Capability | Status |
+|------------|--------|
+| Pydantic models (`DeterministicPhase`, `Invariant`) | **Landed** — `packages/awp-core/src/awp/models/orchestration.py` |
+| R33 validator static check (callable format, timeout, import purity, dependency resolution) | **Landed** — `packages/awp-core/src/awp/validator/rules.py` |
+| Phase runner (subprocess, secret scrub, timeout, JSON result protocol) | **Landed** — `packages/awp-runtime/src/awp/runtime/deterministic/runner.py` |
+| 6 normative invariant kinds (`file_exists`, `file_size_range`, `regex_absent`, `regex_present`, `exit_code`, `python_predicate`) | **Landed** — `packages/awp-runtime/src/awp/runtime/deterministic/invariants.py` |
+| DAG-engine integration (phases run in topological order of `depends_on`, after all graph nodes complete) | **Landed** — `packages/awp-runtime/src/awp/runtime/runner.py::_run_deterministic_phases` |
+| Delegation-loop-engine integration (phases as a post-loop, pre-critique tier under `engine: delegation_loop`) | **Phase 2.x (planned)** |
+| `type: hybrid` semantics (LLM-generated spec, then deterministic execution) | **Reserved** — loader accepts the value; runtime raises `NotImplementedError` |
+
+**DAG-engine integration in practice.** When `orchestration.phases` is
+present on a DAG-engine workflow, the runner executes the graph first,
+then executes every `type: deterministic` phase in topological order of
+its `depends_on` list (dependencies on graph nodes are satisfied by
+construction). Each phase's result — stdout, stderr, structured
+callable result, and per-invariant check outcome — is persisted under
+`output/<run_id>/phase_<phase_id>/result.json` plus `stdout.log` /
+`stderr.log`. The aggregate of every phase's status (`complete` >
+`partial` > `failed`) is surfaced on the run's state as `_phase_status`
+and the per-phase dict list as `_phases`.
+
+**Why post-graph and not interleaved.** In the current scope a
+deterministic phase *consumes* LLM-agent output and never *feeds* it —
+the LLM agents run first, the deterministic assembler runs after. An
+interleaved design (e.g. a deterministic phase in the middle of the
+graph, feeding a downstream LLM agent) needs a contract extension: the
+DAG runner would have to treat the phase's `callable_result` as a state
+fragment with a declared `share_output` set. That is deferred to Phase
+2.x along with the delegation-loop integration.
+
+**Phase-only workflows.** A workflow MAY declare `orchestration.phases`
+without any `orchestration.graph` entries; in that case the DAG engine
+skips the (empty) graph and runs the phases directly. This is a
+legitimate use of the engine for pure mechanical-assembly pipelines
+that do not need an LLM drafter at all.

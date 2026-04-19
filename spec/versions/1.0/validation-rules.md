@@ -713,6 +713,7 @@ AWP workflows MAY declare orchestration phases as either `type: llm` (default; m
 - **Requirement:** A phase declared `type: deterministic` MUST NOT invoke any LLM client (no `chat()`, no `complete()`, no delegation). The runtime MUST reject a `deterministic` phase whose callable imports `awp.runtime.llm` or any symbol that transitively reaches an LLM call site. Workflow authors MAY request LLM output in an earlier `type: llm` phase and pass it by file path or state variable.
 - **Event fields:** none (static-analysis gate; emitted once at workflow load).
 - **Rationale:** The value proposition of a deterministic phase is bit-exact reproducibility and invariant-check-ability. Admitting hidden LLM calls voids both guarantees and defeats the purpose of the type separation.
+- **Implementation status (Phase 2, DAG engine):** The static check is implemented in `packages/awp-core/src/awp/validator/rules.py`; the subprocess runner, secret scrubbing, timeout enforcement, and the 6 normative invariant kinds (`file_exists`, `file_size_range`, `regex_absent`, `regex_present`, `exit_code`, `python_predicate`) are implemented under `packages/awp-runtime/src/awp/runtime/deterministic/`. Phases run in topological order of `depends_on` after all graph nodes complete, with per-phase results persisted at `output/<run_id>/phase_<id>/`. Delegation-loop integration lands in Phase 2.x.
 
 ### Schema
 

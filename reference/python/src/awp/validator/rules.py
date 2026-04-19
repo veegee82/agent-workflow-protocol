@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from ..models.agent import AWPAgent
 from ..models.common import RESERVED_TOOL_NAMESPACES
@@ -328,5 +329,175 @@ def validate_rules(
                 f"R32: delegation_loop.budget.max_depth={max_depth} is high. "
                 f"Most A4 workflows complete with depth <= 3."
             )
+
+    # --- R33: Deterministic Phase Type (static purity check) ---------------
+    #
+    # Ref: spec/versions/1.0/validation-rules.md §9 and §R33.
+    #
+    # For every deterministic phase declared under ``orchestration.phases``:
+    #
+    # 1. The ``callable`` MUST parse as ``module.path:func`` with safe
+    #    identifiers on both sides (no arbitrary code, no shell).
+    # 2. ``timeout_s`` MUST be in ``[1, 3600]``.
+    # 3. Every invariant MUST instantiate cleanly (kind-specific required
+    #    fields are checked by the Pydantic model).
+    # 4. Every ``depends_on`` id MUST resolve to another phase or graph
+    #    node in the same workflow.
+    # 5. The callable's source file MUST NOT contain a real import of
+    #    ``awp.runtime.llm`` / ``openai`` / ``anthropic`` / ``langchain``
+    #    or any module whose name contains ``llm`` / ``openai`` /
+    #    ``anthropic`` / ``langchain`` as a word token. If the module
+    #    cannot be located at validation time, this check is skipped
+    #    with a WARNING and re-runs at runtime.
+    orch2 = getattr(manifest, "orchestration", None)
+    phases = getattr(orch2, "phases", None) if orch2 is not None else None
+    if phases:
+        from ..models.orchestration import DeterministicPhase
+        from pydantic import ValidationError
+        import importlib.util
+
+        # Build the set of known ids: graph-node ids + phase ids (all phase
+        # types, so a deterministic phase may depend on an LLM phase).
+        graph_ids: set[str] = set()
+        if orch2 is not None and hasattr(orch2, "graph"):
+            for node in orch2.graph:
+                graph_ids.add(node.id)
+        phase_ids: set[str] = {
+            pd.get("id") for pd in phases if isinstance(pd, dict) and pd.get("id")
+        }
+        known_ids = graph_ids | phase_ids
+
+        callable_re = re.compile(
+            r"^(?P<module>[a-zA-Z_][a-zA-Z0-9_.]*):(?P<func>[a-zA-Z_][a-zA-Z0-9_]*)$"
+        )
+        # Match a real ``import`` / ``from ... import`` line containing any
+        # of these modules. Substring matches inside strings, docstrings,
+        # and comments are intentionally NOT matched.
+        llm_import_re = re.compile(
+            r"^\s*(?:from|import)\s+([a-zA-Z_][a-zA-Z0-9_.]*)"
+        )
+        forbidden_exact = {
+            "awp.runtime.llm",
+            "openai",
+            "anthropic",
+            "langchain",
+        }
+        forbidden_token_re = re.compile(r"\b(llm|openai|anthropic|langchain)\b")
+
+        for idx, pd in enumerate(phases):
+            if not isinstance(pd, dict):
+                errors.append(
+                    f"R33: orchestration.phases[{idx}] must be a mapping with a "
+                    f"'type' discriminator, got {type(pd).__name__}"
+                )
+                continue
+            ptype = pd.get("type", "llm")
+            if ptype not in ("llm", "deterministic", "hybrid"):
+                errors.append(
+                    f"R33: orchestration.phases[{idx}] has unknown type "
+                    f"'{ptype}'. Valid: llm | deterministic | hybrid"
+                )
+                continue
+            if ptype != "deterministic":
+                # llm phases are governed by the existing delegation-loop /
+                # DAG rules; hybrid is reserved (§9) and not yet implemented.
+                continue
+
+            # Instantiate the deterministic phase model — surfaces Pydantic
+            # validation errors (invariant shape, etc.) as R33 errors.
+            phase_id = pd.get("id", f"<phases[{idx}]>")
+            try:
+                phase = DeterministicPhase.model_validate(pd)
+            except ValidationError as ve:
+                errors.append(
+                    f"R33: deterministic phase '{phase_id}' has invalid "
+                    f"invariants / fields: {ve.errors()}"
+                )
+                continue
+
+            # (1) callable format
+            m = callable_re.match(phase.callable)
+            if not m:
+                errors.append(
+                    f"R33: deterministic phase '{phase.id}' callable "
+                    f"'{phase.callable}' must be 'module.path:function_name'"
+                )
+                continue
+            module_name = m.group("module")
+            func_name = m.group("func")
+
+            # (2) timeout sanity
+            if not (1 <= phase.timeout_s <= 3600):
+                errors.append(
+                    f"R33: deterministic phase '{phase.id}' timeout_s="
+                    f"{phase.timeout_s} must be in [1, 3600]"
+                )
+
+            # (4) dependencies must resolve
+            for dep in phase.depends_on:
+                if dep not in known_ids:
+                    errors.append(
+                        f"R33: deterministic phase '{phase.id}' depends_on "
+                        f"'{dep}' does not resolve to any graph node or phase"
+                    )
+
+            # (5) import-purity static check on the callable's source file.
+            try:
+                spec = importlib.util.find_spec(module_name)
+            except (ImportError, ValueError, ModuleNotFoundError):
+                spec = None
+            source_path: Optional[Path] = None  # noqa: F841
+            try:
+                from pathlib import Path as _P
+
+                origin = getattr(spec, "origin", None) if spec is not None else None
+                source_path = _P(origin) if origin and origin != "built-in" else None
+            except Exception:
+                source_path = None
+
+            if source_path is None or not source_path.is_file():
+                warnings.append(
+                    f"R33: deterministic phase '{phase.id}' callable module "
+                    f"'{module_name}' not importable at validation time — "
+                    f"purity check deferred to runtime."
+                )
+                continue
+
+            try:
+                text = source_path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                warnings.append(
+                    f"R33: deterministic phase '{phase.id}' could not read "
+                    f"source '{source_path}': {exc}. Purity check deferred."
+                )
+                continue
+
+            for line in text.splitlines():
+                imatch = llm_import_re.match(line)
+                if not imatch:
+                    continue
+                imported = imatch.group(1)
+                if imported in forbidden_exact:
+                    errors.append(
+                        f"R33: deterministic phase '{phase.id}' callable "
+                        f"'{phase.callable}' imports forbidden module "
+                        f"'{imported}' (source: {source_path})"
+                    )
+                    break
+                # Token-level match on dotted components.
+                tokens = imported.split(".")
+                if any(forbidden_token_re.search(t) for t in tokens):
+                    errors.append(
+                        f"R33: deterministic phase '{phase.id}' callable "
+                        f"'{phase.callable}' imports module '{imported}' "
+                        f"matching forbidden LLM-token pattern "
+                        f"({forbidden_token_re.pattern}); source: {source_path}"
+                    )
+                    break
+
+            # Reference func_name to silence static-analysis warnings — the
+            # function existence is checked at runtime by the phase runner
+            # (we cannot safely import the module here).
+            _ = func_name
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)

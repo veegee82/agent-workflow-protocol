@@ -2,11 +2,120 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .common import AgentId
+
+
+# ---------------------------------------------------------------------------
+# Phase Types (R33) — LLM vs Deterministic
+# ---------------------------------------------------------------------------
+
+# A phase may be declared ``type: llm`` (default; managed by the manager/worker
+# delegation loop) or ``type: deterministic`` (managed by a workflow-supplied
+# Python callable, cost in CPU-seconds). ``hybrid`` is RESERVED for phases that
+# emit an LLM-generated spec which is then executed deterministically; the
+# loader accepts the value but the runtime raises ``NotImplementedError`` if
+# such a phase is dispatched.
+PhaseType = Literal["llm", "deterministic", "hybrid"]
+
+
+# Normative minimum set of invariant kinds (spec §9). Runtimes MAY support
+# additional kinds; unknown kinds cause the phase to fail with reason
+# ``unknown_invariant_kind``.
+InvariantKind = Literal[
+    "file_exists",
+    "file_size_range",
+    "regex_absent",
+    "regex_present",
+    "exit_code",
+    "python_predicate",
+]
+
+
+class Invariant(BaseModel):
+    """A single post-execution invariant check for a deterministic phase.
+
+    The kind-specific required fields are validated on model construction
+    so workflow authors receive a clean error at load time instead of a
+    mid-run failure. See spec §9 for the full semantics.
+    """
+
+    kind: InvariantKind
+    # file_exists / file_size_range / regex_absent / regex_present
+    path: Optional[str] = None
+    # file_size_range
+    min_bytes: Optional[int] = None
+    max_bytes: Optional[int] = None
+    # regex_absent / regex_present
+    pattern: Optional[str] = None
+    # exit_code
+    expected: Optional[int] = None
+    # python_predicate
+    module: Optional[str] = None
+    function: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def _validate_required_fields(self) -> "Invariant":
+        """Enforce kind-specific required fields per spec §9."""
+        k = self.kind
+        if k == "file_exists":
+            if not self.path:
+                raise ValueError("Invariant kind 'file_exists' requires 'path'")
+        elif k == "file_size_range":
+            if not self.path:
+                raise ValueError("Invariant kind 'file_size_range' requires 'path'")
+            if self.min_bytes is None or self.max_bytes is None:
+                raise ValueError(
+                    "Invariant kind 'file_size_range' requires 'min_bytes' and 'max_bytes'"
+                )
+            if self.min_bytes < 0 or self.max_bytes < 0:
+                raise ValueError(
+                    "Invariant 'file_size_range' bounds must be non-negative"
+                )
+            if self.min_bytes > self.max_bytes:
+                raise ValueError(
+                    f"Invariant 'file_size_range' min_bytes ({self.min_bytes}) "
+                    f"exceeds max_bytes ({self.max_bytes})"
+                )
+        elif k in ("regex_absent", "regex_present"):
+            if not self.path:
+                raise ValueError(f"Invariant kind '{k}' requires 'path'")
+            if not self.pattern:
+                raise ValueError(f"Invariant kind '{k}' requires 'pattern'")
+        elif k == "exit_code":
+            if self.expected is None:
+                raise ValueError("Invariant kind 'exit_code' requires 'expected'")
+        elif k == "python_predicate":
+            if not self.module or not self.function:
+                raise ValueError(
+                    "Invariant kind 'python_predicate' requires 'module' and 'function'"
+                )
+        return self
+
+
+class DeterministicPhase(BaseModel):
+    """A phase executed by a workflow-supplied Python callable (R33).
+
+    The callable is resolved via ``importlib`` (no ``eval``, no shell),
+    invoked in a subprocess sandbox with secrets stripped, constrained by
+    ``timeout_s``, and its output is checked against every invariant.
+    See spec §9 for the full normative semantics.
+    """
+
+    id: str
+    type: Literal["deterministic"] = "deterministic"
+    depends_on: list[str] = Field(default_factory=list)
+    callable: str  # "module.path:function_name"
+    args: dict[str, Any] = Field(default_factory=dict)
+    timeout_s: int = 300
+    invariants: list[Invariant] = Field(default_factory=list)
+
+    model_config = {"extra": "allow"}
 
 
 class ConditionalDependency(BaseModel):
@@ -552,6 +661,16 @@ class AWPOrchestrationConfig(BaseModel):
     run_budget: Optional[RunBudgetLimits] = None
     # Context budget — controls inline vs file spillover for agent results
     context_budget: ContextBudget = Field(default_factory=ContextBudget)
+    # Deterministic / hybrid phases (R33). Additive to the classic
+    # ``graph`` DAG: when present, the DAG runner executes these phases
+    # in topological order of ``depends_on`` AFTER the graph completes
+    # (Phase 2 scope: DAG-engine, post-graph). Each entry must be a
+    # dict with a ``type`` discriminator — the runtime resolves the
+    # concrete model (currently ``DeterministicPhase``; ``llm`` /
+    # ``hybrid`` reserved). Kept as ``list[dict]`` at parse time to
+    # stay forward-compatible with future phase types without breaking
+    # existing YAML parsers.
+    phases: Optional[list[dict[str, Any]]] = None
 
     model_config = {"extra": "allow"}
 

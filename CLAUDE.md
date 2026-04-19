@@ -226,14 +226,14 @@ The Python code lives in `packages/` as two independent, publishable packages:
 
 ### Two Orchestration Engines
 
-- **DAG Engine** (`packages/awp-runtime/src/awp/runtime/runner.py`): Topological execution for A0-A1 workflows. Agents run in dependency order with state sharing via `share_output`. Two scheduler modes via `orchestration.execution.scheduler`: `levels` (default — topological barrier per level) and `ready_queue` (opt-in — dispatches nodes as soon as their direct dependencies complete, so fast siblings unblock descendants without waiting on slow siblings). Semantics are identical in both modes except that `when` expressions, rate-limit, and circuit-breaker checks are evaluated at dispatch time against the current state snapshot.
-- **Delegation Loop Engine** (`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`): Manager-worker loop for A2-A4 workflows. Manager dispatches tasks to ephemeral workers with budget enforcement and validation gates.
+- **DAG Engine** (`packages/awp-runtime/src/awp/runtime/runner.py`): Topological execution for A0-A1 workflows. Agents run in dependency order with state sharing via `share_output`. Two scheduler modes via `orchestration.execution.scheduler`: `levels` (default — topological barrier per level) and `ready_queue` (opt-in — dispatches nodes as soon as their direct dependencies complete, so fast siblings unblock descendants without waiting on slow siblings). Semantics are identical in both modes except that `when` expressions, rate-limit, and circuit-breaker checks are evaluated at dispatch time against the current state snapshot. When `orchestration.phases` is declared, the DAG engine ALSO dispatches deterministic phases (R33) in topological order of `depends_on` AFTER all graph nodes complete — see `packages/awp-runtime/src/awp/runtime/deterministic/`.
+- **Delegation Loop Engine** (`packages/awp-runtime/src/awp/runtime/delegation_loop_runner.py`): Manager-worker loop for A2-A4 workflows. Manager dispatches tasks to ephemeral workers with budget enforcement and validation gates. Deterministic-phase integration under this engine is Phase 2.x — NOT yet wired.
 
 ### awp-core Source Layout (`packages/awp-core/src/awp/`)
 
 - `models/` — Pydantic models for all 7 layers (manifest, agent, orchestration, capabilities, communication, memory, security, observability, evaluation)
 - `parser/` — Parses `workflow.awp.yaml` and `agent.awp.yaml` into Pydantic models, resolves imports
-- `validator/` — Rule engine (R1-R32) covering naming, graph structure, confidence, tool namespaces, budgets, evaluation. Key file: `rules.py`
+- `validator/` — Rule engine (R1-R33) covering naming, graph structure, confidence, tool namespaces, budgets, evaluation, and deterministic-phase purity (R33). Key file: `rules.py`
 - `agent.py` — Abstract `AWPAgent` interface: agents must return `{self.name: {result_dict}}` with a `confidence` float (R17)
 - `cli.py` — CLI entry point (`awp` command)
 

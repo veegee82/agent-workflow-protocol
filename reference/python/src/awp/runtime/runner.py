@@ -359,6 +359,15 @@ class WorkflowRunner:
             return self._run_delegation_loop(task, state)
 
         if not orch or not hasattr(orch, "graph") or not orch.graph:
+            # A workflow may declare only deterministic phases (R33) and no
+            # graph nodes at all — phase-only workflows are a legitimate use
+            # of the DAG engine. Dispatch phases and return; otherwise the
+            # run is truly empty.
+            if orch and getattr(orch, "phases", None):
+                obs = ObservabilityContext.from_config(self._manifest, self._dir, run_id)
+                self._run_deterministic_phases(orch, state, obs)
+                obs.flush_all()
+                return state
             logger.warning("No orchestration graph -- nothing to run")
             return state
 
@@ -575,7 +584,176 @@ class WorkflowRunner:
                     except Exception as exc:
                         logger.warning("Failed to save checkpoint for %s: %s", agent_id, exc)
 
+        # Phase 2 scope (R33): deterministic phases run post-graph, in
+        # topological order of their ``depends_on`` lists. The DAG runner
+        # is the only engine that dispatches them in this release; the
+        # delegation-loop hook lands in Phase 2.x.
+        self._run_deterministic_phases(orch, state, obs)
+
         return self._finalize_run(state, obs, root_span, workflow_start, levels, eval_engine)
+
+    # ------------------------------------------------------------------
+    # Deterministic phases (R33, Phase 2)
+    # ------------------------------------------------------------------
+
+    def _run_deterministic_phases(
+        self,
+        orch: AWPOrchestrationConfig,
+        state: Dict[str, Any],
+        obs: "ObservabilityContext",
+    ) -> None:
+        """Dispatch deterministic phases declared under ``orchestration.phases``.
+
+        Invoked once, after all graph nodes complete, before finalization.
+        Phases are executed in topological order of ``depends_on`` (over
+        the phase set only; graph-node dependencies are not re-checked —
+        the graph has already completed). Each phase's result is
+        persisted under ``output/<run_id>/phase_<id>/`` and mirrored
+        into ``state["_phases"]`` for downstream consumption.
+        """
+        phases_raw = getattr(orch, "phases", None)
+        if not phases_raw:
+            return
+
+        # Resolve each entry into a DeterministicPhase (other types are
+        # skipped here; ``llm`` phases flow through the manager loop and
+        # ``hybrid`` is reserved).
+        from awp.models.orchestration import DeterministicPhase
+
+        from .deterministic import (
+            DeterministicPhaseRunner,
+            ExecutionContext,
+        )
+
+        phase_objs: list[DeterministicPhase] = []
+        for pd in phases_raw:
+            if not isinstance(pd, dict):
+                continue
+            ptype = pd.get("type", "llm")
+            if ptype == "deterministic":
+                try:
+                    phase_objs.append(DeterministicPhase.model_validate(pd))
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "Invalid deterministic phase spec %r: %s", pd.get("id"), exc
+                    )
+                    continue
+            elif ptype == "hybrid":
+                raise NotImplementedError(
+                    f"Phase {pd.get('id')!r}: type='hybrid' is reserved and not "
+                    f"yet implemented. Split into an 'llm' phase followed by a "
+                    f"'deterministic' phase."
+                )
+            # llm phases: the DAG engine has no manager loop to dispatch
+            # to — they are a no-op here. Workflow authors targeting LLM
+            # phases should use ``engine: delegation_loop``.
+
+        if not phase_objs:
+            return
+
+        # Topological sort over phase ids — dependencies on graph nodes
+        # are satisfied by construction (graph already completed).
+        phase_ids = {p.id for p in phase_objs}
+        indeg: dict[str, int] = {p.id: 0 for p in phase_objs}
+        adj: dict[str, list[str]] = {p.id: [] for p in phase_objs}
+        for p in phase_objs:
+            for dep in p.depends_on:
+                if dep in phase_ids:
+                    indeg[p.id] += 1
+                    adj[dep].append(p.id)
+        ready = [pid for pid, d in indeg.items() if d == 0]
+        ordered: list[str] = []
+        while ready:
+            pid = ready.pop(0)
+            ordered.append(pid)
+            for nxt in adj[pid]:
+                indeg[nxt] -= 1
+                if indeg[nxt] == 0:
+                    ready.append(nxt)
+        if len(ordered) != len(phase_objs):
+            logger.error(
+                "Cycle detected in orchestration.phases depends_on — "
+                "falling back to declared order"
+            )
+            ordered = [p.id for p in phase_objs]
+
+        by_id = {p.id: p for p in phase_objs}
+
+        # Resolve workspace / output directories for this run.
+        run_id = getattr(self, "_current_run_id", None) or ""
+        output_dir = self._dir / "output" / run_id if run_id else self._dir / "output"
+        workspace_dir = self._dir / "workspace"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        runner = DeterministicPhaseRunner(workflow_dir=self._dir, logger=logger)
+        phase_records: list[dict[str, Any]] = []
+        aggregate_status = "complete"
+
+        for pid in ordered:
+            phase = by_id[pid]
+            ctx = ExecutionContext(
+                workflow_dir=self._dir,
+                workspace_dir=workspace_dir,
+                output_dir=output_dir,
+                state=state,
+            )
+            logger.info("Deterministic phase '%s' starting", pid)
+            result = runner.run(phase, ctx)
+            logger.info(
+                "Deterministic phase '%s' -> %s (%.2fs) reason=%r",
+                pid,
+                result.status,
+                result.duration_s,
+                result.reason,
+            )
+
+            # Persist per-phase artifact.
+            phase_dir = output_dir / f"phase_{pid}"
+            try:
+                phase_dir.mkdir(parents=True, exist_ok=True)
+                import json as _json
+
+                (phase_dir / "result.json").write_text(
+                    _json.dumps(result.to_dict(), indent=2, default=str),
+                    encoding="utf-8",
+                )
+                if result.stdout:
+                    (phase_dir / "stdout.log").write_text(
+                        result.stdout, encoding="utf-8"
+                    )
+                if result.stderr:
+                    (phase_dir / "stderr.log").write_text(
+                        result.stderr, encoding="utf-8"
+                    )
+            except OSError as exc:
+                logger.warning(
+                    "Could not persist phase '%s' artifacts: %s", pid, exc
+                )
+
+            record = result.to_dict()
+            phase_records.append(record)
+
+            if obs.audit:
+                obs.audit.record(
+                    "phase.complete",
+                    details={
+                        "phase_id": pid,
+                        "status": result.status,
+                        "reason": result.reason,
+                        "duration_s": round(result.duration_s, 3),
+                    },
+                )
+
+            # Aggregate status: failed > partial > complete.
+            if result.status == "failed":
+                aggregate_status = "failed"
+            elif result.status == "partial" and aggregate_status != "failed":
+                aggregate_status = "partial"
+
+        state["_phases"] = phase_records
+        if aggregate_status != "complete":
+            state.setdefault("_phase_status", aggregate_status)
 
     def _finalize_run(
         self,
@@ -893,6 +1071,11 @@ class WorkflowRunner:
         if budget_exceeded_reason and self._run_budget:
             state["_run_budget"] = self._run_budget.summary()
             state["_run_budget"]["exceeded"] = budget_exceeded_reason
+        else:
+            # Only dispatch deterministic phases if the graph completed
+            # normally — a budget-exceeded exit skips them (same as the
+            # level-scheduler path).
+            self._run_deterministic_phases(orch, state, obs)
 
         return self._finalize_run(state, obs, root_span, workflow_start, levels, eval_engine)
 
