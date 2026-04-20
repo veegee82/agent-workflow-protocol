@@ -199,6 +199,8 @@ class StoreService:
         db_file.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._db_path)
         self._db.row_factory = aiosqlite.Row
+        # Enable foreign key constraint enforcement for cascading deletes
+        await self._db.execute("PRAGMA foreign_keys = ON")
         await self._db.executescript(_SCHEMA_SQL)
         await self._db.commit()
         # Migrate existing sessions table to add experiment columns
@@ -276,6 +278,58 @@ class StoreService:
 
     async def delete_experiment(self, experiment_id: str) -> None:
         await self.db.execute("DELETE FROM experiments WHERE id = ?", (experiment_id,))
+        await self.db.commit()
+
+    # ---- task CRUD ----
+
+    async def create_task(
+        self,
+        task_id_key: str,
+        experiment_id: str,
+        task_number: int,
+        slug: str,
+        mode: str,
+        user_prompt: str | None,
+        user_feedback: str | None,
+        inputs_json: str,
+        created_at: float,
+    ) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO tasks (
+                id, experiment_id, task_number, slug, mode,
+                user_prompt, user_feedback, inputs_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id_key,
+                experiment_id,
+                task_number,
+                slug,
+                mode,
+                user_prompt,
+                user_feedback,
+                inputs_json,
+                created_at,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_task(self, task_id_key: str) -> dict | None:
+        cur = await self.db.execute("SELECT * FROM tasks WHERE id = ?", (task_id_key,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_tasks(self, experiment_id: str) -> list[dict]:
+        cur = await self.db.execute(
+            "SELECT * FROM tasks WHERE experiment_id = ? ORDER BY task_number ASC",
+            (experiment_id,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_task(self, task_id_key: str) -> None:
+        await self.db.execute("DELETE FROM tasks WHERE id = ?", (task_id_key,))
         await self.db.commit()
 
     async def cleanup_orphan_runs(self) -> int:

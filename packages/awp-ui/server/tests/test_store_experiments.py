@@ -71,7 +71,6 @@ async def test_list_experiments_newest_first(store: StoreService) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="needs create_task from Task 8", strict=False)
 async def test_delete_experiment_cascades(store: StoreService) -> None:
     await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
     await store.create_task(
@@ -90,3 +89,77 @@ async def test_delete_experiment_cascades(store: StoreService) -> None:
     cur = await store.db.execute("SELECT COUNT(*) AS c FROM tasks")
     row = await cur.fetchone()
     assert row["c"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_and_get_task(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        task_id_key="exp_aaaaaaaa:001-draft",
+        experiment_id="exp_aaaaaaaa",
+        task_number=1,
+        slug="draft",
+        mode="seed",
+        user_prompt="p",
+        user_feedback=None,
+        inputs_json="[]",
+        created_at=2.0,
+    )
+    row = await store.get_task("exp_aaaaaaaa:001-draft")
+    assert row["id"] == "exp_aaaaaaaa:001-draft"
+    assert row["mode"] == "seed"
+    assert row["user_prompt"] == "p"
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_for_experiment(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        "exp_aaaaaaaa:001-a", "exp_aaaaaaaa", 1, "a", "seed", "p1", None, "[]", 10.0
+    )
+    await store.create_task(
+        "exp_aaaaaaaa:002-b",
+        "exp_aaaaaaaa",
+        2,
+        "b",
+        "continuation",
+        None,
+        "fb",
+        '[{"from_task":"001-a","role":"primary","bundle":"BEST/"}]',
+        20.0,
+    )
+    rows = await store.list_tasks("exp_aaaaaaaa")
+    assert [r["id"] for r in rows] == [
+        "exp_aaaaaaaa:001-a",
+        "exp_aaaaaaaa:002-b",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unique_task_number_per_experiment(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        "exp_aaaaaaaa:001-a", "exp_aaaaaaaa", 1, "a", "seed", "p", None, "[]", 1.0
+    )
+    with pytest.raises(Exception):
+        await store.create_task(
+            "exp_aaaaaaaa:001-b",
+            "exp_aaaaaaaa",
+            1,
+            "b",
+            "seed",
+            "p",
+            None,
+            "[]",
+            2.0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_delete_task(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        "exp_aaaaaaaa:001-a", "exp_aaaaaaaa", 1, "a", "seed", "p", None, "[]", 1.0
+    )
+    await store.delete_task("exp_aaaaaaaa:001-a")
+    assert await store.get_task("exp_aaaaaaaa:001-a") is None
