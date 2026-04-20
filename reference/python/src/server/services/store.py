@@ -156,6 +156,33 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_session_runs_session ON session_runs(session_id);
+
+
+CREATE TABLE IF NOT EXISTS experiments (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    goal        TEXT NOT NULL DEFAULT '',
+    base_dir    TEXT NOT NULL,
+    created_at  REAL NOT NULL,
+    archived_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id            TEXT PRIMARY KEY,
+    experiment_id TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+    task_number   INTEGER NOT NULL,
+    slug          TEXT NOT NULL,
+    mode          TEXT NOT NULL CHECK(mode IN ('seed','continuation')),
+    user_prompt   TEXT,
+    user_feedback TEXT,
+    inputs_json   TEXT NOT NULL DEFAULT '[]',
+    best_run_id   TEXT,
+    best_reason   TEXT CHECK(best_reason IN ('auto_loss','user_override') OR best_reason IS NULL),
+    created_at    REAL NOT NULL,
+    UNIQUE(experiment_id, task_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_experiment ON tasks(experiment_id);
 """
 
 
@@ -172,10 +199,13 @@ class StoreService:
         db_file.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._db_path)
         self._db.row_factory = aiosqlite.Row
+        # Enable foreign key constraint enforcement for cascading deletes
+        await self._db.execute("PRAGMA foreign_keys = ON")
         await self._db.executescript(_SCHEMA_SQL)
         await self._db.commit()
         # Migrate existing sessions table to add experiment columns
         await self._migrate_sessions()
+        await self._migrate_runs_for_hierarchy()
         logger.info("SQLite database initialized at %s", self._db_path)
 
     async def _migrate_sessions(self) -> None:
@@ -194,6 +224,112 @@ class StoreService:
                 )
             except Exception:
                 pass  # Column already exists
+        await self.db.commit()
+
+    async def _migrate_runs_for_hierarchy(self) -> None:
+        """Add experiment_id / task_id / run_role / parent_run_id / loss to runs."""
+        migrations = [
+            ("runs", "experiment_id", "TEXT"),
+            ("runs", "task_id", "TEXT"),
+            ("runs", "run_role", "TEXT"),
+            ("runs", "parent_run_id", "TEXT"),
+            ("runs", "loss", "REAL"),
+        ]
+        for _table, column, col_type in migrations:
+            try:
+                await self.db.execute(
+                    f"ALTER TABLE runs ADD COLUMN {column} {col_type}"
+                )
+            except Exception:
+                pass  # Column already exists
+        await self.db.commit()
+
+    # ---- experiment CRUD ----
+
+    async def create_experiment(
+        self,
+        experiment_id: str,
+        name: str,
+        goal: str,
+        base_dir: str,
+        created_at: float,
+    ) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO experiments (id, name, goal, base_dir, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (experiment_id, name, goal, base_dir, created_at),
+        )
+        await self.db.commit()
+
+    async def get_experiment(self, experiment_id: str) -> dict | None:
+        cur = await self.db.execute(
+            "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_experiments(self) -> list[dict]:
+        cur = await self.db.execute(
+            "SELECT * FROM experiments ORDER BY created_at DESC"
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_experiment(self, experiment_id: str) -> None:
+        await self.db.execute("DELETE FROM experiments WHERE id = ?", (experiment_id,))
+        await self.db.commit()
+
+    # ---- task CRUD ----
+
+    async def create_task(
+        self,
+        task_id_key: str,
+        experiment_id: str,
+        task_number: int,
+        slug: str,
+        mode: str,
+        user_prompt: str | None,
+        user_feedback: str | None,
+        inputs_json: str,
+        created_at: float,
+    ) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO tasks (
+                id, experiment_id, task_number, slug, mode,
+                user_prompt, user_feedback, inputs_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id_key,
+                experiment_id,
+                task_number,
+                slug,
+                mode,
+                user_prompt,
+                user_feedback,
+                inputs_json,
+                created_at,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_task(self, task_id_key: str) -> dict | None:
+        cur = await self.db.execute("SELECT * FROM tasks WHERE id = ?", (task_id_key,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_tasks(self, experiment_id: str) -> list[dict]:
+        cur = await self.db.execute(
+            "SELECT * FROM tasks WHERE experiment_id = ? ORDER BY task_number ASC",
+            (experiment_id,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_task(self, task_id_key: str) -> None:
+        await self.db.execute("DELETE FROM tasks WHERE id = ?", (task_id_key,))
         await self.db.commit()
 
     async def cleanup_orphan_runs(self) -> int:

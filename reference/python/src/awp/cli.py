@@ -277,6 +277,59 @@ def main(argv: list[str] | None = None) -> int:
         help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
     )
 
+    # experiment
+    p_exp = subparsers.add_parser("experiment", help="Manage experiments")
+    exp_sub = p_exp.add_subparsers(dest="experiment_cmd", required=True)
+
+    p_exp_create = exp_sub.add_parser("create", help="Create a new experiment")
+    p_exp_create.add_argument("name")
+    p_exp_create.add_argument("--goal", default="")
+
+    exp_sub.add_parser("list", help="List experiments")
+
+    p_exp_show = exp_sub.add_parser("show", help="Show experiment detail")
+    p_exp_show.add_argument("experiment_id")
+
+    p_exp_delete = exp_sub.add_parser("delete", help="Delete an experiment")
+    p_exp_delete.add_argument("experiment_id")
+    p_exp_delete.add_argument("--yes", action="store_true", help="skip confirmation")
+
+    # task
+    p_task = subparsers.add_parser("task", help="Manage tasks within an experiment")
+    task_sub = p_task.add_subparsers(dest="task_cmd", required=True)
+
+    p_task_create = task_sub.add_parser("create", help="Create a task")
+    p_task_create.add_argument("experiment_id")
+    p_task_create.add_argument("prompt", help="user_prompt (seed) or user_feedback (continuation)")
+    p_task_create.add_argument("--continuation", action="store_true")
+    p_task_create.add_argument(
+        "--from-task",
+        action="append",
+        default=[],
+        help="source task_id (continuation only; may repeat)",
+    )
+    p_task_create.add_argument(
+        "--primary",
+        default=None,
+        help="primary bundle path (defaults to BEST/ when --from-task given; continuation only)",
+    )
+    p_task_create.add_argument(
+        "--reference",
+        action="append",
+        default=[],
+        help="reference path under source task (may repeat; continuation only)",
+    )
+
+    p_task_list = task_sub.add_parser("list", help="List tasks in an experiment")
+    p_task_list.add_argument("experiment_id")
+
+    p_task_show = task_sub.add_parser("show", help="Show task detail")
+    p_task_show.add_argument("task_key", help="<experiment_id>:<task_id>")
+
+    p_task_delete = task_sub.add_parser("delete", help="Delete a task")
+    p_task_delete.add_argument("task_key", help="<experiment_id>:<task_id>")
+    p_task_delete.add_argument("--yes", action="store_true")
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -310,6 +363,14 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_optimize_rollback(args)
         elif args.command == "refine":
             return cmd_refine(args)
+        elif args.command == "experiment":
+            from .experiment.cli_handlers import handle_experiment_command
+
+            return handle_experiment_command(args)
+        elif args.command == "task":
+            from .experiment.cli_handlers import handle_task_command
+
+            return handle_task_command(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
