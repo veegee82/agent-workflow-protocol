@@ -422,6 +422,7 @@ An E2E test is a full run that exercises the entire system end-to-end:
 
 ### Mandatory Properties
 
+- **E2E runs MUST be started from the UI.** Fire `awp studio`, open the browser at `http://127.0.0.1:8420`, create the experiment and task from the UI (or select an existing one in the Experiments sidebar), then hit Run from there. CLI-only `awp run`/`awp refine`/`awp optimize` invocations do NOT count as E2E — they bypass the UI settings cascade, don't stream events live to the WebSocket the way UI-initiated runs do, and don't let the user observe what's happening in the sidebar. The user must be able to watch the run populate (sidebar entries transitioning `running → complete`, loss curve updating, BEST badge flipping) in the UI at every step. A run that was not triggered from the UI is not a valid E2E observation.
 - **Real LLM calls only** (OpenRouter / OpenAI / Anthropic). Mocked, stubbed, or recorded responses are not valid coverage.
 - **Stored as real experiments in `/tmp/awp-experiments/`** with populated output folders. Pytest-only runs without a populated experiment are not valid — I must be able to open the run in the UI, see its graph, and inspect its artifacts.
 - **Registered in the experiment DB before the run starts** (status `running`, via the same `AgentWorkflow` path the UI uses), so the experiment shows up in the sidebar immediately and transitions `running → complete | partial | failed` live. Intermediate events (iterations, worker spawns, tool calls) persist as they happen.
