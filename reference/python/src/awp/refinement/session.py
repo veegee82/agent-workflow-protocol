@@ -62,6 +62,23 @@ def write_session_sidecar(*, seed_run_dir: Path, session: RefinementSession) -> 
     return path
 
 
+def write_session_sidecar_at(*, target_dir: Path, session: RefinementSession) -> Path:
+    """Write session sidecar to a custom target directory.
+
+    Args:
+        target_dir: Directory where session.json will be written.
+        session: The RefinementSession to persist.
+
+    Returns:
+        Path to the written session.json file.
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / "session.json"
+    payload = asdict(session)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
 def write_best_pointer(
     *,
     seed_run_dir: Path,

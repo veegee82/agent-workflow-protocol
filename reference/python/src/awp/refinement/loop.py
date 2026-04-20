@@ -39,6 +39,7 @@ from awp.refinement.session import (
     RefinementSession,
     write_best_pointer,
     write_session_sidecar,
+    write_session_sidecar_at,
 )
 from awp.refinement.tiers import TierLabel, TierPlan
 
@@ -99,6 +100,7 @@ class RefinementLoop:
         model: str | None = None,
         worker_model: str | None = None,
         tier_plan: TierPlan | None = None,
+        session_sidecar_dir: Path | None = None,
     ) -> None:
         self._seed = seed_run_dir
         self._factory = workflow_factory or default_workflow_factory
@@ -108,6 +110,7 @@ class RefinementLoop:
         self._model = model
         self._worker_model = worker_model
         self._tier_plan = tier_plan
+        self._session_sidecar_dir = session_sidecar_dir
 
     # ------------------------------------------------------------------
 
@@ -322,7 +325,10 @@ class RefinementLoop:
                 tier_plan_used=(self._tier_plan is not None) or None,
             )
             try:
-                write_session_sidecar(seed_run_dir=self._seed, session=session)
+                if self._session_sidecar_dir is not None:
+                    write_session_sidecar_at(target_dir=self._session_sidecar_dir, session=session)
+                else:
+                    write_session_sidecar(seed_run_dir=self._seed, session=session)
             except Exception as sidecar_exc:  # noqa: BLE001
                 logger.warning(
                     "refinement.sidecar.write_failed seed=%s error=%s",

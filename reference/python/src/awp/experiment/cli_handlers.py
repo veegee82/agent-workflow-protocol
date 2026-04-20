@@ -570,6 +570,7 @@ def _post_run_finalise(
     task_key: str,
     task_text: str,
     model: str,
+    run_role: str = "seed",
 ) -> int:
     """Read the freshly-finished run, register it in awp_ui.db, and update BEST/."""
     # Locate run_dir if run_id not known
@@ -612,7 +613,7 @@ def _post_run_finalise(
             run_id=run_id,
             experiment_id=exp_id,
             task_id=task_key,
-            run_role="seed",
+            run_role=run_role,
             loss=loss,
             status=status,
             task=task_text,
@@ -651,3 +652,133 @@ def _post_run_finalise(
         }, indent=2)
     )
     return 0
+
+
+def refine_task_aware(args) -> int:
+    """Handle `awp refine --target <exp>:<task>`."""
+    from awp.experiment.paths import experiment_dir as _exp_dir
+    from awp.experiment.paths import task_dir as _task_dir
+
+    if ":" not in args.target:
+        print("--target must be <experiment_id>:<task_id>", file=sys.stderr)
+        return 2
+    exp_id, tid = args.target.split(":", 1)
+    if not _exp_dir(exp_id).exists():
+        print(f"experiment not found: {exp_id}", file=sys.stderr)
+        return 2
+    td = _task_dir(exp_id, tid)
+    if not td.exists():
+        print(f"task not found: {args.target}", file=sys.stderr)
+        return 2
+
+    best_manifest = td / "BEST" / "manifest.json"
+    if not best_manifest.exists():
+        print(
+            f"task {args.target} has no BEST/ — run it to completion first "
+            f"(refinement requires a completed run to refine)",
+            file=sys.stderr,
+        )
+        return 2
+    manifest = json.loads(best_manifest.read_text())
+    seed_run_dir = Path(manifest.get("winner_source", ""))
+    if not seed_run_dir.exists():
+        print(
+            f"winner_source missing on disk: {seed_run_dir}", file=sys.stderr,
+        )
+        return 2
+
+    import time as _time
+    session_ts = _time.strftime("%Y%m%d_%H%M%S")
+    iterations_root = td / "refinements" / f"session_{session_ts}"
+
+    if os.environ.get("AWP_REFINE_TARGET_DRY_RUN") == "1":
+        print(json.dumps({
+            "target": args.target,
+            "seed_run_dir": str(seed_run_dir),
+            "iterations_root": str(iterations_root),
+        }))
+        return 0
+
+    try:
+        from awp.refinement.loop import RefinementLoop
+    except ImportError as exc:
+        print(f"awp-runtime required: {exc}", file=sys.stderr)
+        return 2
+
+    iterations_root.mkdir(parents=True, exist_ok=True)
+    loop = RefinementLoop(
+        seed_run_dir=seed_run_dir,
+        iterations_root=iterations_root,
+        model=getattr(args, "model", None),
+        worker_model=getattr(args, "worker_model", None),
+        session_sidecar_dir=iterations_root,
+    )
+    n_iters = getattr(args, "iterations", None) or 3
+    result = loop.run(iterations=n_iters)
+
+    # Post-run hook for EACH iteration's winning run(s); simplest:
+    # finalise all iter_k run_dirs the loop produced, so BEST for the
+    # task considers refinement candidates too.
+    for iter_dir in sorted(iterations_root.glob("iter_*")):
+        for run_dir in (iter_dir / "output").glob("*"):
+            if not run_dir.is_dir():
+                continue
+            _post_run_finalise(
+                output_dir=iter_dir,
+                run_id=run_dir.name,
+                exp_id=exp_id,
+                task_key=args.target,
+                task_text=f"refine iteration",
+                model=getattr(args, "model", None) or "openai/gpt-5-mini",
+                run_role="refine_iter",
+            )
+    print(json.dumps({
+        "target": args.target,
+        "iterations_root": str(iterations_root),
+        "session_completed": True,
+    }))
+    return 0
+
+
+def optimize_task_aware(args) -> int:
+    """Handle `awp optimize --target <exp>:<task> SUITE.yaml`."""
+    from awp.experiment.paths import experiment_dir as _exp_dir
+    from awp.experiment.paths import task_dir as _task_dir
+
+    if ":" not in args.target:
+        print("--target must be <experiment_id>:<task_id>", file=sys.stderr)
+        return 2
+    exp_id, tid = args.target.split(":", 1)
+    exp_path = _exp_dir(exp_id)
+    if not exp_path.exists():
+        print(f"experiment not found: {exp_id}", file=sys.stderr)
+        return 2
+    td = _task_dir(exp_id, tid)
+    if not td.exists():
+        print(f"task not found: {args.target}", file=sys.stderr)
+        return 2
+
+    import time as _time
+    suite_ts = _time.strftime("%Y%m%d_%H%M%S")
+    db_path = exp_path / "outer_loop.db"
+    output_dir = td / "optimizations" / f"suite_{suite_ts}"
+
+    if os.environ.get("AWP_OPTIMIZE_TARGET_DRY_RUN") == "1":
+        print(json.dumps({
+            "target": args.target,
+            "db_path": str(db_path),
+            "output_dir": str(output_dir),
+        }))
+        return 0
+
+    # Override args before calling the existing cmd_optimize logic.
+    # Because cmd_optimize owns the SuiteRunner instantiation and A2/A3
+    # branch selection, we rewrite args.db + args.output_dir and then
+    # re-enter cmd_optimize with target cleared (to avoid recursion).
+    args.db = str(db_path)
+    args.output_dir = str(output_dir)
+    args.target = None  # prevent re-entry
+
+    # Lazy import to avoid cyclic
+    from awp.cli import cmd_optimize
+    return cmd_optimize(args)

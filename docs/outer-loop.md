@@ -580,3 +580,20 @@ actually following.
 - **No conformance claim.** The outer loop lives outside
   `compliance.md §2`. A5 will be promoted into the spec only after A3
   shows stable behaviour on a wider set of suites.
+
+---
+
+## 15. Per-experiment DB (Plan 4)
+
+When `awp optimize <suite>.yaml --target <experiment_id>:<task_id>` is
+invoked, the CLI overrides `--db` to point to an isolated DB under the
+experiment hierarchy: `<experiment>/outer_loop.db`. This implements spec
+decision β (isolation) — each experiment/task pair has its own artifact
+store, preventing cross-task contamination and enabling independent
+optimization campaigns. Epoch-runs are persisted under
+`<experiment>/tasks/<task_id>/optimizations/` as timestamped directories.
+
+The per-experiment DB allows an optimization suite to be scoped and
+re-run against a specific task, with loss computed using that task's
+specific workflow artifacts and metrics. Implementation lives in
+`packages/awp-core/src/awp/experiment/cli_handlers.py::optimize_task_aware`.

@@ -191,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
     )
+    p_opt.add_argument(
+        "--target",
+        default=None,
+        help="Attach optimization to a task: <experiment_id>:<task_id>. "
+             "Sets --db and --output-dir from the task's hierarchy.",
+    )
 
     # optimize-inspect (read-only view of past epochs or artifact versions)
     p_opt_inspect = subparsers.add_parser(
@@ -221,7 +227,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_refine.add_argument(
         "seed",
-        help="Path to the seed run directory (containing run_completion.json + FINAL/)",
+        nargs="?",
+        default=None,
+        help="Seed run directory (or use --target)",
+    )
+    p_refine.add_argument(
+        "--target",
+        default=None,
+        help="Attach refinement to a task: <experiment_id>:<task_id>",
     )
     p_refine.add_argument(
         "--iterations",
@@ -2990,6 +3003,10 @@ def _format_loss_table(epoch_result) -> str:
 
 def cmd_optimize(args: argparse.Namespace) -> int:
     """Run a task suite per-epoch; with ``--with-textgrad`` apply updates (A3)."""
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import optimize_task_aware
+        return optimize_task_aware(args)
+
     # Lazy imports — `awp optimize` lives in awp-core but the implementation
     # is in awp-runtime; both share the ``awp.*`` namespace.
     from awp.outer_loop import (  # type: ignore[import-not-found]
@@ -3251,6 +3268,13 @@ def cmd_refine(args: argparse.Namespace) -> int:
       1 — no iteration improved loss; BEST still points at seed.
       2 — setup failure (seed missing, malformed, no FINAL/).
     """
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import refine_task_aware
+        return refine_task_aware(args)
+    if args.seed is None:
+        print("awp refine: either a seed path or --target is required", file=sys.stderr)
+        return 2
+
     seed_path = Path(args.seed)
     if not seed_path.exists():
         print(f"error: seed run not found: {seed_path}", file=sys.stderr)

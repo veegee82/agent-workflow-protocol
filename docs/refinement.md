@@ -523,3 +523,23 @@ deferred until refinement tiers have production runs behind them.
   refinement implements at the task level.
 - `docs/outer-loop.md` — the θ-axis sibling.
 - `spec/versions/1.0/validation-rules.md § R36` — normative R36 text.
+
+---
+
+## 9. Task-attached refinement (Plan 4)
+
+When `awp refine --target <experiment_id>:<task_id>` is invoked, the
+CLI loads the task's BEST run (the run marked as best for that task in
+the experiment hierarchy — see `spec/versions/1.0/experiment-task-hierarchy-design.md`)
+and launches the refinement loop as described in §6. Refinement
+sessions are persisted under `<experiment>/tasks/<task_id>/refinements/`
+as `session_<timestamp>.json`, with one `session.json` file serving as
+the latest-session pointer. Winning iterations are hard-linked into
+`<experiment>/tasks/<task_id>/BEST/`, overwriting the prior best only
+if loss is strictly lower (see `packages/awp-runtime/src/awp/refinement/session.py`).
+
+The target-attached mode allows a refinement loop to be tied to a
+specific task within an experiment hierarchy, enabling downstream
+continuation tasks to read the refined output as their `--primary`
+input (see `spec/versions/1.0/experiment-task-hierarchy-design.md §R37`).
+Implementation lives in `packages/awp-core/src/awp/experiment/cli_handlers.py::refine_task_aware`.
