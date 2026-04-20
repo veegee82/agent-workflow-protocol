@@ -222,3 +222,108 @@ def test_loop_parent_run_id_chain(monkeypatch, tmp_path: Path) -> None:
 
     assert result.iterations[0].parent_run_id == "run_seed"
     assert result.iterations[1].parent_run_id == result.iterations[0].run_id
+
+
+class _PartialNoFinalWorkflow:
+    """Stub that simulates a ``partial`` iteration which produces NO FINAL/.
+
+    Mirrors the real-world failure mode: delegation loop hits a budget cap
+    or a late-stage gate-chain rejection before the file-writing step,
+    so ``output/<run_id>/`` is empty and ``_ensure_final_dir`` has nothing
+    to promote. Before the fallback fix this would abort the loop at iter 2
+    with ``no_prior_deliverable``.
+    """
+
+    def __init__(self, losses: list[float]) -> None:
+        self._losses = iter(losses)
+
+    def __call__(
+        self,
+        *,
+        task: str,
+        inputs,
+        initial_state,
+        output_dir: Path,
+        parent_run_id,
+        tags,
+        manager_prompt_prefix,
+        budget,
+        model,
+        worker_model,
+    ):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        # Deliberately do NOT create FINAL/, and create an EMPTY output/<run_id>/
+        # to mirror a partial iter that produced no deliverable (budget cap
+        # hit before the file-writing gate).
+        run_id = f"run_iter_{output_dir.name}"
+        (output_dir / "output" / run_id).mkdir(parents=True, exist_ok=True)
+        loss = next(self._losses)
+        (output_dir / "run_completion.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "status": "partial",
+                    "confidence": 0.4,
+                    "parent_run_id": parent_run_id,
+                    "tags": tags,
+                    "task": "write a paper",
+                    "loss_total": loss,
+                    # Keep gradient non-empty so the empty-gradient short
+                    # circuit doesn't mask the behavior we're testing.
+                    "critique": {"defects": [{"summary": "still rough", "severity": "high"}]},
+                    "evaluation": {
+                        "total_score": 1.0 - loss,
+                        "per_metric": {"q": 1.0 - loss},
+                        "thresholds": {"q": 0.99},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "events.jsonl").write_text("", encoding="utf-8")
+        return run_id, output_dir
+
+
+def test_loop_reseeds_from_last_good_when_iter_produces_no_final(
+    monkeypatch, tmp_path: Path, caplog
+) -> None:
+    """Partial iterations with no FINAL/ MUST NOT abort the chain.
+
+    Structural fix (spec 2026-04-20 §13.5 follow-up): the refinement loop
+    tracks a ``last_good_final`` pointer initialized to the seed's FINAL/.
+    When iter k fails to produce a non-empty FINAL/, iter k+1 re-seeds
+    from ``last_good_final`` instead of aborting with ``no_prior_deliverable``.
+    This is especially important for tiered refinement: a low-tier
+    iteration that runs out of budget before writing deliverables must
+    not prevent the mid/high tiers from getting a shot at the same seed.
+    """
+    seed = _make_seed(tmp_path)
+    # Seed_loss=0.7; three partial-no-FINAL iterations with distinct losses
+    # so neither plateau nor regression short-circuits first.
+    _patch_loss(monkeypatch, [0.6, 0.55, 0.50])
+
+    workflow = _PartialNoFinalWorkflow(losses=[0.6, 0.55, 0.50])
+
+    import logging as _logging
+    caplog.set_level(_logging.INFO, logger="awp.refinement.loop")
+
+    loop = RefinementLoop(
+        seed_run_dir=seed,
+        workflow_factory=workflow,
+        iterations_root=tmp_path / "iters",
+    )
+    result = loop.run(iterations=3)
+
+    # With the fallback: all 3 iterations run; stop_reason is
+    # max_iterations (not no_prior_deliverable).
+    assert result.stop_reason == "max_iterations", (
+        f"expected max_iterations, got {result.stop_reason!r}"
+    )
+    assert len(result.iterations) == 3
+    # The reseed log fires starting at iter 2 (iter 1 seeds directly from
+    # the seed's FINAL, iter 2+ is where the fallback kicks in).
+    reseed_records = [r for r in caplog.records if "reseed_from_last_good" in r.getMessage()]
+    assert len(reseed_records) >= 2, (
+        f"expected ≥2 reseed log entries (iter 2 and iter 3), "
+        f"got {len(reseed_records)}: {[r.getMessage() for r in reseed_records]}"
+    )

@@ -229,6 +229,13 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   outer_loop_with_textgrad: true,
   refinement_enabled: true,
   refinement_default_iterations: 3,
+  // Refinement model tiers (low/mid/high). Empty strings = fall back
+  // to the seed run's model at resolve-time (see spec §7). With every
+  // tier empty, the UI is effectively off and the legacy single-model
+  // path stays active end-to-end.
+  refinement_tier_low:  { manager: '', worker: '' },
+  refinement_tier_mid:  { manager: '', worker: '' },
+  refinement_tier_high: { manager: '', worker: '' },
 };
 
 const DEFAULT_BUDGET: BudgetState = {

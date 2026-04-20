@@ -40,6 +40,7 @@ from awp.refinement.session import (
     write_best_pointer,
     write_session_sidecar,
 )
+from awp.refinement.tiers import TierLabel, TierPlan
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,14 @@ class IterationOutcome:
     loss: float
     status: str
     parent_run_id: str
+    # Tier metadata (spec 2026-04-20 §8, §11). All optional for
+    # backward-compat with readers that pre-date the tiering feature.
+    # ``tier`` stays ``None`` on the legacy (single-model) path; the
+    # model fields carry the values that were actually passed to the
+    # workflow factory for this iteration regardless of path.
+    tier: TierLabel | None = None
+    model_manager: str | None = None
+    model_worker: str | None = None
 
 
 @dataclass
@@ -89,6 +98,7 @@ class RefinementLoop:
         iterations_root: Path | None = None,
         model: str | None = None,
         worker_model: str | None = None,
+        tier_plan: TierPlan | None = None,
     ) -> None:
         self._seed = seed_run_dir
         self._factory = workflow_factory or default_workflow_factory
@@ -97,6 +107,7 @@ class RefinementLoop:
         )
         self._model = model
         self._worker_model = worker_model
+        self._tier_plan = tier_plan
 
     # ------------------------------------------------------------------
 
@@ -124,6 +135,15 @@ class RefinementLoop:
         parent_run_id = _safe_run_id(self._seed)
         stop_reason = "max_iterations"
         loop_error: str | None = None
+        # Last known-good starting deliverable. Advances only when an
+        # iteration produces a non-empty FINAL/. A ``partial`` iteration
+        # that writes no deliverables (e.g. hit budget cap before the
+        # file-writing step) MUST NOT break the chain — the next iteration
+        # re-seeds from the last good baseline and tries again. This is
+        # structurally correct for tiered refinement: tier=mid should get
+        # a shot against the same seed even if tier=low produced nothing.
+        # Regression / plateau / wall-time guards still bound wasted compute.
+        last_good_final: Path = self._seed / "FINAL"
 
         # try/finally guarantees the session sidecar is written on every
         # exit path (normal completion, mid-iter exception, budget abort).
@@ -134,7 +154,7 @@ class RefinementLoop:
             for k in range(1, iterations + 1):
                 if k == 1:
                     prior_run_dir = self._seed
-                    prior_final = self._seed / "FINAL"
+                    prior_final = last_good_final
                 else:
                     prior_run_dir = outcomes[-1].run_dir
                     # Ensure the prior iteration has a FINAL/ to seed from.
@@ -143,7 +163,23 @@ class RefinementLoop:
                     # starting deliverable unconditionally, so promote
                     # output/<run_id>/ into FINAL/ as a fallback.
                     _ensure_final_dir(prior_run_dir)
-                    prior_final = prior_run_dir / "FINAL"
+                    maybe_final = prior_run_dir / "FINAL"
+                    if maybe_final.exists() and any(maybe_final.iterdir()):
+                        # Prior iteration advanced the deliverable — adopt it.
+                        last_good_final = maybe_final
+                        prior_final = maybe_final
+                    else:
+                        # Prior iteration failed to produce fresh output
+                        # (typical for partial status with budget cap hit
+                        # before the file-writing gate). Re-seed from the
+                        # last known-good final so this iteration still
+                        # has a legitimate baseline.
+                        logger.info(
+                            "refinement.reseed_from_last_good k=%d "
+                            "prior_run_dir=%s fallback=%s",
+                            k, prior_run_dir, last_good_final,
+                        )
+                        prior_final = last_good_final
 
                 if not prior_final.exists() or not any(prior_final.iterdir()):
                     # Cannot seed this iteration — stop gracefully instead
@@ -174,6 +210,21 @@ class RefinementLoop:
                 )
 
                 tags = ["refinement", f"refine-iter-{k}"]
+
+                # Branch on tier_plan presence. The ``tier_plan is None``
+                # path MUST be byte-identical to pre-tiering behavior
+                # (spec §8 stability contract): same factory args, same
+                # model pair, no extra keys.
+                if self._tier_plan is not None:
+                    resolved = self._tier_plan.for_iteration(k, iterations)
+                    iter_manager = resolved.manager_model
+                    iter_worker = resolved.worker_model
+                    iter_tier: TierLabel | None = resolved.tier
+                else:
+                    iter_manager = self._model
+                    iter_worker = self._worker_model
+                    iter_tier = None
+
                 t0 = time.time()
                 run_id, run_dir = self._factory(
                     task=seed_task,
@@ -188,8 +239,8 @@ class RefinementLoop:
                     tags=tags,
                     manager_prompt_prefix=prefix,
                     budget=iter_budget,
-                    model=self._model,
-                    worker_model=self._worker_model,
+                    model=iter_manager,
+                    worker_model=iter_worker,
                 )
                 cumulative_wall += time.time() - t0
 
@@ -204,6 +255,9 @@ class RefinementLoop:
                         loss=loss,
                         status=status,
                         parent_run_id=parent_run_id,
+                        tier=iter_tier,
+                        model_manager=iter_manager,
+                        model_worker=iter_worker,
                     )
                 )
 
@@ -254,9 +308,18 @@ class RefinementLoop:
                 stop_reason=stop_reason,
                 best_iter=best_iter,
                 iterations=[
-                    RefinementIteration(k=o.k, run_id=o.run_id, loss=o.loss, status=o.status)
+                    RefinementIteration(
+                        k=o.k,
+                        run_id=o.run_id,
+                        loss=o.loss,
+                        status=o.status,
+                        tier=o.tier,
+                        model_manager=o.model_manager,
+                        model_worker=o.model_worker,
+                    )
                     for o in outcomes
                 ],
+                tier_plan_used=(self._tier_plan is not None) or None,
             )
             try:
                 write_session_sidecar(seed_run_dir=self._seed, session=session)

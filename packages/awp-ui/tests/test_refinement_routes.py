@@ -122,6 +122,162 @@ async def test_refine_endpoint_404_on_missing_run(client: AsyncClient) -> None:
     assert resp.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Tier handling — spec 2026-04-20 §10
+# ---------------------------------------------------------------------------
+
+
+class _CapturingLoopStub:
+    """Replacement for RefinementLoop that records its kwargs.
+
+    The real constructor call is intercepted in `__init__`; `run` is a
+    no-op so no real LLM call happens.
+    """
+
+    last: "dict" = {}
+
+    def __init__(self, **kwargs):
+        _CapturingLoopStub.last = dict(kwargs)
+
+    def run(self, *, iterations):
+        class R:
+            session_id = "refine_CAPTURED"
+            seed_run_id = "run_seed"
+            seed_loss = 0.5
+            best_iter = 0
+            best_loss = 0.5
+            stop_reason = "max_iterations"
+            iterations: list = []
+
+        return R()
+
+
+@pytest.mark.asyncio
+async def test_refine_endpoint_legacy_body_takes_legacy_path(
+    client: AsyncClient, app, store, temp_dir: Path, caplog
+) -> None:
+    """Case (a): body without tier_* → legacy path, no warning."""
+    seed = _make_partial_seed(temp_dir)
+    run_id = await _register_seed_run(app, store, seed)
+
+    from awp.refinement import loop as loop_mod
+
+    with patch.object(loop_mod, "RefinementLoop", _CapturingLoopStub):
+        with caplog.at_level("WARNING"):
+            resp = await client.post(
+                f"/api/experiments/{run_id}/refine",
+                json={
+                    "iterations": 2,
+                    "model": "legacy_mgr",
+                    "worker_model": "legacy_wkr",
+                },
+            )
+
+    assert resp.status_code == 202
+    assert _CapturingLoopStub.last["tier_plan"] is None
+    assert _CapturingLoopStub.last["model"] == "legacy_mgr"
+    assert _CapturingLoopStub.last["worker_model"] == "legacy_wkr"
+    assert not any("refinement.mixed_body" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_refine_endpoint_tier_high_only_builds_plan(
+    client: AsyncClient, app, store, temp_dir: Path
+) -> None:
+    """Case (b): ``tier_high`` only → TierPlan constructed, seed fallback set."""
+    seed = _make_partial_seed(temp_dir)
+    run_id = await _register_seed_run(app, store, seed)
+
+    from awp.refinement import loop as loop_mod
+
+    with patch.object(loop_mod, "RefinementLoop", _CapturingLoopStub):
+        resp = await client.post(
+            f"/api/experiments/{run_id}/refine",
+            json={
+                "iterations": 3,
+                "tier_high": {"manager": "high_mgr", "worker": "high_wkr"},
+            },
+        )
+
+    assert resp.status_code == 202
+    call = _CapturingLoopStub.last
+    assert call["model"] is None
+    assert call["worker_model"] is None
+    plan = call["tier_plan"]
+    assert plan is not None
+    assert plan.high.manager == "high_mgr"
+    assert plan.high.worker == "high_wkr"
+    # low + mid stay empty → seed fallback applies per §7
+    assert (plan.low.manager, plan.low.worker) == (None, None)
+    assert (plan.mid.manager, plan.mid.worker) == (None, None)
+    # seed fallback was parsed from run_completion.json (no model keys
+    # in the synthetic seed → both stay None, matching §12 row).
+    assert plan.seed_manager is None
+    assert plan.seed_worker is None
+
+
+@pytest.mark.asyncio
+async def test_refine_endpoint_mixed_body_tiers_win_and_warning_emitted(
+    client: AsyncClient, app, store, temp_dir: Path, caplog
+) -> None:
+    """Case (c): ``model`` + ``tier_*`` present → tier_* wins, warning emitted."""
+    seed = _make_partial_seed(temp_dir)
+    run_id = await _register_seed_run(app, store, seed)
+
+    from awp.refinement import loop as loop_mod
+
+    with patch.object(loop_mod, "RefinementLoop", _CapturingLoopStub):
+        with caplog.at_level("WARNING"):
+            resp = await client.post(
+                f"/api/experiments/{run_id}/refine",
+                json={
+                    "iterations": 2,
+                    "model": "legacy_mgr",
+                    "worker_model": "legacy_wkr",
+                    "tier_high": {"manager": "high_mgr", "worker": "high_wkr"},
+                },
+            )
+
+    assert resp.status_code == 202
+    call = _CapturingLoopStub.last
+    # Tier wins: legacy fields are fully ignored on the construction path.
+    assert call["model"] is None
+    assert call["worker_model"] is None
+    assert call["tier_plan"] is not None
+    assert call["tier_plan"].high.manager == "high_mgr"
+    # Warning present.
+    assert any("refinement.mixed_body" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_refine_endpoint_all_tiers_empty_still_builds_plan(
+    client: AsyncClient, app, store, temp_dir: Path
+) -> None:
+    """§12 last row: every tier present but all sub-fields empty → tiered
+    path is still exercised; every iteration resolves to the seed pair.
+    """
+    seed = _make_partial_seed(temp_dir)
+    run_id = await _register_seed_run(app, store, seed)
+
+    from awp.refinement import loop as loop_mod
+
+    with patch.object(loop_mod, "RefinementLoop", _CapturingLoopStub):
+        resp = await client.post(
+            f"/api/experiments/{run_id}/refine",
+            json={
+                "iterations": 3,
+                "tier_low": {"manager": "", "worker": ""},
+                "tier_mid": {"manager": "", "worker": ""},
+                "tier_high": {"manager": "", "worker": ""},
+            },
+        )
+
+    assert resp.status_code == 202
+    plan = _CapturingLoopStub.last["tier_plan"]
+    assert plan is not None
+    assert plan.is_trivial() is True
+
+
 @pytest.mark.asyncio
 async def test_refinement_sessions_endpoint_returns_sessions_and_best(
     client: AsyncClient, app, store, temp_dir: Path

@@ -24,6 +24,9 @@ import {
   Brain,
   Sparkles,
   Dna,
+  Layers,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { Panel } from '@/components/Layout';
@@ -186,6 +189,128 @@ function TextInput({
         placeholder={placeholder}
         className="w-full rounded-lg border border-awp-border bg-awp-bg px-3 py-1.5 text-xs text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Model Tiers block (refinement low/mid/high — spec 2026-04-20)
+// ---------------------------------------------------------------------------
+
+type TierKey = 'refinement_tier_low' | 'refinement_tier_mid' | 'refinement_tier_high';
+
+const TIER_ROWS: Array<{ key: TierKey; label: string; managerPlaceholder: string; workerPlaceholder: string }> = [
+  {
+    key: 'refinement_tier_low',
+    label: 'low',
+    managerPlaceholder: 'e.g. deepseek/deepseek-chat-v3.1',
+    workerPlaceholder: 'e.g. deepseek/deepseek-chat-v3.1',
+  },
+  {
+    key: 'refinement_tier_mid',
+    label: 'mid',
+    managerPlaceholder: 'e.g. openai/gpt-5-mini',
+    workerPlaceholder: 'e.g. deepseek/deepseek-chat-v3.1',
+  },
+  {
+    key: 'refinement_tier_high',
+    label: 'high',
+    managerPlaceholder: 'e.g. anthropic/claude-opus-4',
+    workerPlaceholder: 'e.g. anthropic/claude-sonnet-4',
+  },
+];
+
+function ModelTiersBlock() {
+  const { config, updateConfig } = useWorkflowStore();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-awp-border/60 bg-awp-bg/40 p-3 space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 text-awp-muted" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-awp-muted" />
+        )}
+        <Layers className="h-3.5 w-3.5 text-awp-blue" />
+        <h4 className="text-xs font-semibold text-awp-text flex-1">
+          Model Tiers — low / mid / high
+        </h4>
+        <span className="text-[10px] font-normal text-awp-muted">
+          refinement only
+        </span>
+      </button>
+
+      {open && (
+        <>
+          <p className="text-[10px] text-awp-muted leading-relaxed">
+            Coarse-to-fine annealing across refinement iterations: <strong>low</strong>{' '}
+            runs early (surfaces structural defects for the gradient extractor),{' '}
+            <strong>high</strong> runs late (polishes the residual). Each tier pairs
+            a <em>manager</em> + <em>worker</em> model. Empty fields fall back to the
+            seed run's model.
+          </p>
+
+          <div className="space-y-2">
+            <div className="grid grid-cols-[3rem_1fr_1fr] items-center gap-2">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-awp-muted">
+                Tier
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-awp-muted">
+                Manager
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-awp-muted">
+                Worker
+              </span>
+            </div>
+            {TIER_ROWS.map((row) => {
+              const pair = config[row.key] as { manager: string; worker: string };
+              return (
+                <div
+                  key={row.key}
+                  className="grid grid-cols-[3rem_1fr_1fr] items-center gap-2"
+                >
+                  <span className="text-xs font-mono font-semibold text-awp-blue">
+                    {row.label}
+                  </span>
+                  <input
+                    type="text"
+                    value={pair.manager}
+                    onChange={(e) =>
+                      updateConfig({
+                        [row.key]: { ...pair, manager: e.target.value },
+                      } as Partial<Record<TierKey, { manager: string; worker: string }>>)
+                    }
+                    placeholder={row.managerPlaceholder}
+                    className="w-full rounded-md border border-awp-border bg-awp-panel px-2 py-1 text-[11px] font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+                  />
+                  <input
+                    type="text"
+                    value={pair.worker}
+                    onChange={(e) =>
+                      updateConfig({
+                        [row.key]: { ...pair, worker: e.target.value },
+                      } as Partial<Record<TierKey, { manager: string; worker: string }>>)
+                    }
+                    placeholder={row.workerPlaceholder}
+                    className="w-full rounded-md border border-awp-border bg-awp-panel px-2 py-1 text-[11px] font-mono text-awp-text placeholder:text-awp-muted/50 focus:border-awp-blue/60 focus:outline-none focus:ring-1 focus:ring-awp-blue/30 transition-colors"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-[10px] text-awp-muted leading-relaxed">
+            Mapping across N iterations (thirds, monotonic): low → mid → high. With
+            all fields empty, tiering is a no-op and the legacy single-model path
+            stays active.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -386,11 +511,23 @@ function ApiKeysSection() {
 
   return (
     <Panel
-      title="API Keys"
+      title={
+        <span className="flex items-center gap-2">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-awp-yellow/20 text-[9px] font-bold text-awp-yellow">
+            1
+          </span>
+          Secrets
+        </span>
+      }
       icon={<Key className="h-3.5 w-3.5 text-awp-yellow" />}
       defaultOpen
     >
       <div className="space-y-3">
+        <p className="text-[11px] text-awp-muted leading-relaxed">
+          Step 1 — add the API key for your provider. Below, in{' '}
+          <span className="font-semibold text-awp-text">Model</span>, pick a
+          model that uses this key.
+        </p>
         {!hasOpenRouterKey && secrets.length === 0 && (
           <div className="rounded-lg border border-awp-yellow/30 bg-awp-yellow/5 px-3 py-2">
             <p className="text-[11px] text-awp-yellow font-medium">
@@ -579,7 +716,14 @@ function ModelSection() {
 
   return (
     <Panel
-      title="Model"
+      title={
+        <span className="flex items-center gap-2">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-awp-blue/20 text-[9px] font-bold text-awp-blue">
+            2
+          </span>
+          Model
+        </span>
+      }
       icon={<Cpu className="h-3.5 w-3.5 text-awp-blue" />}
       defaultOpen
     >
@@ -1230,6 +1374,9 @@ export function SettingsPanel() {
               }
             />
           </div>
+
+          {/* Refinement model tiers (low / mid / high) — spec 2026-04-20 */}
+          <ModelTiersBlock />
         </div>
       </Panel>
 

@@ -642,15 +642,22 @@ export async function startRefinement(
   runId: string,
   body: RefinementStartRequest,
 ): Promise<RefinementStartResponse> {
+  // Only serialise tier_* fields when the caller actually set them so
+  // a legacy body stays byte-identical to the pre-tiering payload (the
+  // backend switches on key presence, not on value).
+  const payload: Record<string, unknown> = {
+    iterations: body.iterations,
+    model: body.model ?? null,
+    worker_model: body.worker_model ?? null,
+  };
+  if (body.tier_low !== undefined) payload.tier_low = body.tier_low;
+  if (body.tier_mid !== undefined) payload.tier_mid = body.tier_mid;
+  if (body.tier_high !== undefined) payload.tier_high = body.tier_high;
   return request<RefinementStartResponse>(
     `/api/experiments/${encodeURIComponent(runId)}/refine`,
     {
       method: 'POST',
-      body: JSON.stringify({
-        iterations: body.iterations,
-        model: body.model ?? null,
-        worker_model: body.worker_model ?? null,
-      }),
+      body: JSON.stringify(payload),
     },
   );
 }

@@ -15,8 +15,15 @@ import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Locally aliased to avoid a runtime import cycle with awp.refinement.tiers
+# (tiers.py is a pure module; session.py is consumed by tests that stub out
+# the loop module). The set of valid labels is pinned by the spec §5.
+_TierLabel = Literal["low", "mid", "high"]
 
 
 @dataclass
@@ -25,6 +32,11 @@ class RefinementIteration:
     run_id: str
     loss: float
     status: str
+    # Tier metadata (spec 2026-04-20 §11). Optional for backward-compat
+    # with existing session sidecar readers.
+    tier: Optional[_TierLabel] = None
+    model_manager: Optional[str] = None
+    model_worker: Optional[str] = None
 
 
 @dataclass
@@ -36,6 +48,9 @@ class RefinementSession:
     stop_reason: str
     best_iter: int
     iterations: list[RefinementIteration] = field(default_factory=list)
+    # True iff this session was driven by a TierPlan (even a trivial one).
+    # Absent / None on legacy sessions (pre-tiering).
+    tier_plan_used: Optional[bool] = None
 
 
 def write_session_sidecar(*, seed_run_dir: Path, session: RefinementSession) -> Path:

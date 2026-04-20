@@ -46,6 +46,13 @@ export interface WorkflowConfig {
   outer_loop_with_textgrad: boolean;
   refinement_enabled: boolean;
   refinement_default_iterations: number;
+  // Refinement model tiers (low/mid/high). Each tier carries a
+  // {manager, worker} pair. Empty strings fall back to the seed run's
+  // models at resolve-time (see docs/refinement.md §6.6 and the spec
+  // docs/superpowers/specs/2026-04-20-refinement-model-tiers-design.md).
+  refinement_tier_low:  { manager: string; worker: string };
+  refinement_tier_mid:  { manager: string; worker: string };
+  refinement_tier_high: { manager: string; worker: string };
 }
 
 /** WebSocket event types pushed from the backend during a run. */
@@ -319,11 +326,19 @@ export interface RefinementStartResponse {
   status: string;
 }
 
-/** Request body for `POST /api/experiments/{run_id}/refine`. */
+/** Request body for `POST /api/experiments/{run_id}/refine`.
+ *
+ * Tier handling (spec 2026-04-20 §10): when any `tier_*` field is set,
+ * the backend builds a `TierPlan` and ignores `model`/`worker_model`.
+ * Otherwise the legacy single-model path is used.
+ */
 export interface RefinementStartRequest {
   iterations: number;
   model?: string | null;
   worker_model?: string | null;
+  tier_low?: { manager: string; worker: string } | null;
+  tier_mid?: { manager: string; worker: string } | null;
+  tier_high?: { manager: string; worker: string } | null;
 }
 
 /** Snapshot of per-session state for the in-memory session cache. */

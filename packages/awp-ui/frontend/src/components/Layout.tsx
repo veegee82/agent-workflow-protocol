@@ -7,7 +7,7 @@ import { X, ChevronDown, ChevronRight } from 'lucide-react';
 // ---------------------------------------------------------------------------
 
 interface PanelProps {
-  title: string;
+  title: React.ReactNode;
   /** Whether the panel body is visible. Controlled externally when provided. */
   collapsed?: boolean;
   /** Called when the user toggles the panel. */

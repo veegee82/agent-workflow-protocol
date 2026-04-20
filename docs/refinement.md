@@ -397,6 +397,105 @@ sibling `logs/<run_id>/events.jsonl`. Falls back to a colocated
 the flat legacy `{max_loops, max_total_tokens, …}` shape used by
 unit-test fixtures.
 
+### 6.6 Model tiering (low / mid / high)
+
+Refinement can run each iteration with a different `{manager, worker}`
+model pair — a coarse-to-fine annealing schedule across N iterations.
+The schedule is a pure function of `(k, N)`:
+
+* `N == 1` → `high`
+* `N == 2` → `[low, high]`
+* `N ≥ 3` → thirds-proportional:
+  `low_end = ceil(N / 3)`, `high_start = N − floor(N / 3) + 1`
+
+Full mapping table (`N ∈ [1, 10]`):
+
+| N  | Mapping                              | low | mid | high |
+|----|--------------------------------------|-----|-----|------|
+| 1  | H                                    | 0   | 0   | 1    |
+| 2  | L, H                                 | 1   | 0   | 1    |
+| 3  | L, M, H                              | 1   | 1   | 1    |
+| 4  | L, L, M, H                           | 2   | 1   | 1    |
+| 5  | L, L, M, M, H                        | 2   | 2   | 1    |
+| 6  | L, L, M, M, H, H                     | 2   | 2   | 2    |
+| 7  | L, L, L, M, M, H, H                  | 3   | 2   | 2    |
+| 8  | L, L, L, M, M, M, H, H               | 3   | 3   | 2    |
+| 9  | L, L, L, M, M, M, H, H, H            | 3   | 3   | 3    |
+| 10 | L, L, L, L, M, M, M, H, H, H         | 4   | 3   | 3    |
+
+**Why low → high and not the reverse:** residual loss shrinks per
+iteration, so precision matters most late. Weak early models
+*produce* the defects the gradient extractor (§1.2) needs; a strong
+early model may silently paper over them and starve the loop of
+signal. Budget halving cooperates — the weakest tier has the largest
+headroom; the strongest operates on the smallest residual.
+
+**Fallback semantics (empty tier field).** For a tier `T` resolving
+at iteration `k`:
+
+```
+resolved_manager = T.manager if T.manager else seed.manager
+resolved_worker  = T.worker  if T.worker  else seed.worker
+```
+
+Empty string and `None` are treated identically. All three tiers empty
+→ tiering is a no-op (`TierPlan.is_trivial() == True`); every
+iteration resolves to the seed pair, and the loop behaves identically
+to the legacy single-model path.
+
+**Invariants** (enforced by unit tests in
+`packages/awp-runtime/tests/refinement/test_tiers.py`):
+
+1. For `N ≥ 3`, every tier has ≥ 1 iteration.
+2. The mapping is monotonic: once a later-tier iteration has fired, no
+   earlier-tier iteration follows.
+3. `count(low) ≥ count(mid) ≥ count(high)` for every `N ≥ 3`.
+
+**API body shape** (`POST /api/experiments/<run_id>/refine`):
+
+```json
+{
+  "iterations": 3,
+  "tier_low":  {"manager": "…", "worker": "…"},
+  "tier_mid":  {"manager": "…", "worker": "…"},
+  "tier_high": {"manager": "…", "worker": "…"}
+}
+```
+
+When any `tier_*` is present, the legacy `model` / `worker_model`
+fields are ignored and the seed run's parsed models become the
+fallback baseline. Mixed bodies produce a
+`refinement.mixed_body: tier_* set; ignoring legacy model/worker_model`
+warning but still return 202.
+
+**CLI:**
+
+```
+awp refine <seed_run_dir> \
+  --tier-low  "deepseek/deepseek-chat-v3.1:deepseek/deepseek-chat-v3.1" \
+  --tier-mid  "openai/gpt-5-mini:deepseek/deepseek-chat-v3.1" \
+  --tier-high "anthropic/claude-opus-4:anthropic/claude-sonnet-4"
+```
+
+Each flag takes a `manager:worker` pair (split on the first colon;
+either side may be empty → falls back to seed).
+
+**Observability** — session sidecars gain three per-iteration fields
+(`tier`, `model_manager`, `model_worker`) and one session-level flag
+(`tier_plan_used`). Legacy sidecars without these keys still render
+correctly; consumers must treat them as optional.
+
+**Store + UI** — the workflow store carries defaults in
+`refinement_tier_low/mid/high`; the Settings panel's Optimizers →
+"Model Tiers" block edits those defaults; the RefineModal toggle
+"Use tiered models across iterations" opts a single session in and
+pre-fills the three pairs from the store.
+
+**Out of scope for this mechanism:** the outer loop
+(`awp optimize`) is not tiered; its `manager_model` /
+TextGrad-optimizer-model remains a single value. Revisiting this is
+deferred until refinement tiers have production runs behind them.
+
 ---
 
 ## 7. Files
@@ -408,6 +507,7 @@ unit-test fixtures.
 | Workspace seeding | `packages/awp-runtime/src/awp/refinement/seed.py` |
 | Budget scaling | `packages/awp-runtime/src/awp/refinement/budget.py` |
 | Session + BEST writers | `packages/awp-runtime/src/awp/refinement/session.py` |
+| Model tiering (`TierPlan`) | `packages/awp-runtime/src/awp/refinement/tiers.py` |
 | CLI | `packages/awp-core/src/awp/cli.py::cmd_refine` |
 | Backend API | `packages/awp-ui/server/api/routes.py` (POST `/api/experiments/<run_id>/refine`, GET `/api/experiments/<run_id>/refinement_sessions`) |
 | Frontend | `packages/awp-ui/frontend/src/components/Refinement/` (RefineModal, RefinementSessionsList) + hook on RunHistory |

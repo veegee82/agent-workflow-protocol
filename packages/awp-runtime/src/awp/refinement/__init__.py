@@ -21,10 +21,17 @@ from awp.refinement.session import (
     write_best_pointer,
     write_session_sidecar,
 )
+from awp.refinement.tiers import (
+    ModelPair,
+    TierLabel,
+    TierPlan,
+    TierResolution,
+)
 
 __all__ = [
     "Defect",
     "IterationOutcome",
+    "ModelPair",
     "NothingToRefine",
     "RefinementGradient",
     "RefinementIteration",
@@ -32,6 +39,9 @@ __all__ = [
     "RefinementResult",
     "RefinementSession",
     "RejectedGate",
+    "TierLabel",
+    "TierPlan",
+    "TierResolution",
     "budget_for_iteration",
     "extract_gradient",
     "prepare_iteration_workspace",

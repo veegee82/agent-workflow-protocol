@@ -1727,7 +1727,24 @@ async def start_refinement(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
 
     Request body::
 
-        {"iterations": int [1..10], "model": str | null, "worker_model": str | null}
+        {
+          "iterations":   int [1..10],
+          "model":        str | null,    # legacy single-model path
+          "worker_model": str | null,    # legacy single-model path
+          "tier_low":     {"manager": str, "worker": str} | null,
+          "tier_mid":     {"manager": str, "worker": str} | null,
+          "tier_high":    {"manager": str, "worker": str} | null
+        }
+
+    Tier handling (spec 2026-04-20 §10):
+
+    * If any ``tier_*`` field is present in the body, build a ``TierPlan``
+      with the user-supplied tiers and seed fallbacks (parsed from the
+      seed ``run_completion.json``), and instantiate ``RefinementLoop``
+      with ``tier_plan=plan`` (legacy ``model``/``worker_model`` ignored).
+    * Mixed body (``model``/``worker_model`` AND any ``tier_*``): tier_*
+      wins, legacy fields fully ignored, a warning is logged.
+    * Else: legacy path unchanged — ``tier_plan=None``.
 
     Response (202)::
 
@@ -1771,14 +1788,62 @@ async def start_refinement(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
     # Import the loop lazily — keeps startup cheap and avoids pulling
     # the runtime into every UI server import.
     from awp.refinement.loop import RefinementLoop
+    from awp.refinement.tiers import ModelPair, TierPlan
 
-    model = body.get("model") or None
-    worker_model = body.get("worker_model") or None
-    loop = RefinementLoop(
-        seed_run_dir=seed_dir,
-        model=model,
-        worker_model=worker_model,
-    )
+    legacy_model = body.get("model") or None
+    legacy_worker_model = body.get("worker_model") or None
+
+    # Tier detection — "present" means the key exists in the body, even
+    # if its value is an empty dict. Per spec §10 / §12 last row, an
+    # all-empty tier body still drives the tiered code path (tier_plan
+    # non-None, resolves to seed pair for every iteration).
+    tier_keys = ("tier_low", "tier_mid", "tier_high")
+    has_any_tier = any(k in body for k in tier_keys)
+
+    tier_plan: TierPlan | None = None
+    if has_any_tier:
+        if legacy_model or legacy_worker_model:
+            # Spec §10: tier_* wins, legacy fields are ignored (not even
+            # used as a baseline — seed's parsed model is the fallback).
+            logger.warning(
+                "refinement.mixed_body: tier_* set; ignoring legacy "
+                "model/worker_model"
+            )
+
+        seed_manager, seed_worker = _parse_seed_models(seed_dir)
+
+        def _pair(key: str) -> ModelPair:
+            raw = body.get(key) or {}
+            if not isinstance(raw, dict):
+                return ModelPair()
+            # Treat empty strings and None identically.
+            return ModelPair(
+                manager=(raw.get("manager") or None),
+                worker=(raw.get("worker") or None),
+            )
+
+        tier_plan = TierPlan(
+            low=_pair("tier_low"),
+            mid=_pair("tier_mid"),
+            high=_pair("tier_high"),
+            seed_manager=seed_manager,
+            seed_worker=seed_worker,
+        )
+
+    if tier_plan is not None:
+        loop = RefinementLoop(
+            seed_run_dir=seed_dir,
+            model=None,
+            worker_model=None,
+            tier_plan=tier_plan,
+        )
+    else:
+        loop = RefinementLoop(
+            seed_run_dir=seed_dir,
+            model=legacy_model,
+            worker_model=legacy_worker_model,
+            tier_plan=None,
+        )
     # Generate a session_id up-front so the client can correlate the
     # background run with its sidecar once it lands.
     from awp.refinement.loop import _new_session_id
@@ -1796,6 +1861,50 @@ async def start_refinement(run_id: str, body: dict[str, Any]) -> dict[str, Any]:
     threading.Thread(target=_worker, daemon=True).start()
 
     return {"session_id": session_id, "status": "running"}
+
+
+def _parse_seed_models(seed_dir: Path) -> tuple[str | None, str | None]:
+    """Extract the seed run's manager/worker model strings for tier fallback.
+
+    Reads ``<seed>/run_completion.json`` and looks for the models under
+    any of the shapes the runtime or synthetic fixtures use:
+
+    * ``models.manager`` / ``models.worker``         (runtime shape)
+    * ``model`` / ``worker_model``                    (flat shape)
+    * ``config.model`` / ``config.worker_model``      (UI-init shape)
+
+    Returns ``(None, None)`` if the file is missing, unreadable, or
+    carries no recognizable model keys — the loop then falls through to
+    ``AgentWorkflow``'s default (matches today's empty-model semantics).
+    """
+    import json as _json
+
+    rc = seed_dir / "run_completion.json"
+    if not rc.exists():
+        return None, None
+    try:
+        data = _json.loads(rc.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+
+    models = data.get("models") if isinstance(data.get("models"), dict) else {}
+    config = data.get("config") if isinstance(data.get("config"), dict) else {}
+
+    manager = (
+        models.get("manager")
+        or data.get("model")
+        or config.get("model")
+        or None
+    )
+    worker = (
+        models.get("worker")
+        or data.get("worker_model")
+        or config.get("worker_model")
+        or None
+    )
+    return (str(manager) if manager else None, str(worker) if worker else None)
 
 
 @router.get("/experiments/{run_id}/refinement_sessions")

@@ -228,12 +228,36 @@ def main(argv: list[str] | None = None) -> int:
     p_refine.add_argument(
         "--model",
         default=None,
-        help="Manager model override (default: inherit from seed run)",
+        help="Manager model override (default: inherit from seed run). "
+             "Ignored when any --tier-* flag is given.",
     )
     p_refine.add_argument(
         "--worker-model",
         default=None,
-        help="Worker model override (default: inherit from seed run)",
+        help="Worker model override (default: inherit from seed run). "
+             "Ignored when any --tier-* flag is given.",
+    )
+    # Model tiering (spec 2026-04-20). Format: "manager:worker", either
+    # side may be empty. Multiple flags may be combined; unspecified
+    # tiers fall back to the seed's model per §7.
+    p_refine.add_argument(
+        "--tier-low",
+        default=None,
+        metavar="MANAGER:WORKER",
+        help="Low tier model pair (early iterations). Format 'manager:worker'. "
+             "Either side may be empty. Example: ':deepseek/deepseek-chat-v3.1'",
+    )
+    p_refine.add_argument(
+        "--tier-mid",
+        default=None,
+        metavar="MANAGER:WORKER",
+        help="Mid tier model pair. Format 'manager:worker'.",
+    )
+    p_refine.add_argument(
+        "--tier-high",
+        default=None,
+        metavar="MANAGER:WORKER",
+        help="High tier model pair (late iterations). Format 'manager:worker'.",
     )
 
     # optimize-rollback (manual rollback of an artifact's active version)
@@ -3154,15 +3178,53 @@ def cmd_refine(args: argparse.Namespace) -> int:
 
     try:
         from awp.refinement.loop import NothingToRefine, RefinementLoop
+        from awp.refinement.tiers import ModelPair, TierPlan
     except ImportError as exc:
         print(f"error: awp.refinement is not available: {exc}", file=sys.stderr)
         return 2
 
-    loop = RefinementLoop(
-        seed_run_dir=seed_path,
-        model=args.model,
-        worker_model=args.worker_model,
-    )
+    # Tier flag parsing. Spec 2026-04-20 §15.5: format is ``manager:worker``
+    # (split on first colon). Either side may be empty. A value with no
+    # colon is treated as manager, worker empty.
+    tier_low_raw = getattr(args, "tier_low", None)
+    tier_mid_raw = getattr(args, "tier_mid", None)
+    tier_high_raw = getattr(args, "tier_high", None)
+    has_any_tier = any(v is not None for v in (tier_low_raw, tier_mid_raw, tier_high_raw))
+
+    tier_plan: TierPlan | None = None
+    if has_any_tier:
+        if args.model or args.worker_model:
+            # Match the API's mixed-body contract: tier_* wins, legacy
+            # fields are silently ignored (no exit error).
+            print(
+                "warning: --tier-* set; ignoring --model/--worker-model "
+                "(they are superseded by the tier plan)",
+                file=sys.stderr,
+            )
+
+        seed_manager, seed_worker = _parse_seed_models_for_cli(seed_path)
+
+        tier_plan = TierPlan(
+            low=_parse_tier_flag(tier_low_raw),
+            mid=_parse_tier_flag(tier_mid_raw),
+            high=_parse_tier_flag(tier_high_raw),
+            seed_manager=seed_manager,
+            seed_worker=seed_worker,
+        )
+
+    if tier_plan is not None:
+        loop = RefinementLoop(
+            seed_run_dir=seed_path,
+            model=None,
+            worker_model=None,
+            tier_plan=tier_plan,
+        )
+    else:
+        loop = RefinementLoop(
+            seed_run_dir=seed_path,
+            model=args.model,
+            worker_model=args.worker_model,
+        )
     try:
         result = loop.run(iterations=int(args.iterations))
     except NothingToRefine as exc:
@@ -3185,6 +3247,65 @@ def cmd_refine(args: argparse.Namespace) -> int:
     if result.best_iter == 0:
         return 1
     return 0
+
+
+def _parse_tier_flag(raw: str | None):
+    """Parse a ``--tier-*`` flag value into a :class:`ModelPair`.
+
+    Format: ``manager:worker`` — split on the FIRST colon. Either side
+    may be empty (``""`` / ``None``), which maps to ``None`` in the pair
+    so the loop's per-role seed fallback applies. A value with no colon
+    is treated as manager-only (worker empty).
+
+    Returns a fresh empty :class:`ModelPair` when ``raw`` is ``None``.
+    """
+    from awp.refinement.tiers import ModelPair
+
+    if raw is None:
+        return ModelPair()
+    if ":" in raw:
+        manager, _, worker = raw.partition(":")
+    else:
+        manager, worker = raw, ""
+    return ModelPair(
+        manager=(manager.strip() or None),
+        worker=(worker.strip() or None),
+    )
+
+
+def _parse_seed_models_for_cli(seed_path: Path) -> tuple[str | None, str | None]:
+    """Read ``<seed>/run_completion.json`` and extract the seed models.
+
+    Mirrors the API's ``_parse_seed_models`` helper — the CLI builds the
+    same ``TierPlan`` fallback the route does, so the two entry points
+    behave identically for the same seed.
+    """
+    rc = seed_path / "run_completion.json"
+    if not rc.exists():
+        return None, None
+    try:
+        data = json.loads(rc.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+
+    models = data.get("models") if isinstance(data.get("models"), dict) else {}
+    config = data.get("config") if isinstance(data.get("config"), dict) else {}
+
+    manager = (
+        models.get("manager")
+        or data.get("model")
+        or config.get("model")
+        or None
+    )
+    worker = (
+        models.get("worker")
+        or data.get("worker_model")
+        or config.get("worker_model")
+        or None
+    )
+    return (str(manager) if manager else None, str(worker) if worker else None)
 
 
 def _check_awp_on_path() -> None:
