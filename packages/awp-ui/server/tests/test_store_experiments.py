@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 
 from server.services.store import StoreService
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def store(tmp_path: Path) -> StoreService:
     s = StoreService(db_path=tmp_path / "test.db")
     await s.init_db()
