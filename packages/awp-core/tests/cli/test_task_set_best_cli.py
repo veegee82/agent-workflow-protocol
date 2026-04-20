@@ -40,7 +40,7 @@ def _mk_run_in_task(task_dir: Path, run_id: str, score: float) -> Path:
         "status": "complete",
         "task": "t",
         "final_budget": {"loops": {"used": 1, "cap": 10}, "tokens": {"used": 1, "cap": 100}},
-        "evaluation": {"score": score},
+        "eval": {"score": score},
         "critique": {"defects": []},
         "gate_rejections": 0,
     }))

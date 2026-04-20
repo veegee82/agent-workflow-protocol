@@ -143,7 +143,7 @@ def test_post_run_finalise_updates_db_and_best(env: dict, tmp_path: Path) -> Non
         "status": "complete",
         "task": "t",
         "final_budget": {"loops": {"used": 1, "cap": 10}, "tokens": {"used": 100, "cap": 1000}},
-        "evaluation": {"score": 0.9},
+        "eval": {"score": 0.9},
         "critique": {"defects": []},
         "gate_rejections": 0,
     }))
