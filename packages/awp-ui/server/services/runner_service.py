@@ -1746,7 +1746,8 @@ class RunnerService:
                 if loop and not loop.is_closed():
                     asyncio.run_coroutine_threadsafe(
                         self._persist_result(
-                            run_id, status, result, session_id, experiment_id, task_id
+                            run_id, status, result, session_id, experiment_id, task_id,
+                            run_dir=run_dir, workspace_dir=workspace_dir
                         ),
                         loop,
                     ).result(timeout=30)
@@ -1767,6 +1768,8 @@ class RunnerService:
         session_id: str | None = None,
         experiment_id: str | None = None,
         task_id: str | None = None,
+        run_dir: Path | None = None,
+        workspace_dir: Path | None = None,
     ) -> None:
         """Persist the final result to SQLite."""
         # Import lazily to avoid circular refs at module level
@@ -1812,6 +1815,28 @@ class RunnerService:
                 )
             except Exception:
                 logger.debug("Failed to link run %s to task %s", run_id, task_id, exc_info=True)
+
+            # Fire cascade (refine + optimize) if settings allow it
+            if experiment_id and task_id and run_dir and workspace_dir:
+                try:
+                    settings_data = await store.get_settings() or {}
+                    # settings may be returned as JSON string or already parsed
+                    if isinstance(settings_data, str):
+                        settings_data = json.loads(settings_data)
+                    from server.services.cascade import cascade_after_seed
+                    await cascade_after_seed(
+                        seed_run_id=run_id,
+                        seed_run_dir=run_dir,
+                        experiment_id=experiment_id,
+                        task_key=task_id,
+                        task_text=result.get("task", "") if isinstance(result, dict) else "",
+                        model=result.get("model", "") if isinstance(result, dict) else "",
+                        settings=settings_data,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "cascade_after_seed failed (seed run remains valid): %s", exc,
+                    )
 
         # Also update the parent session status so the sidebar reflects
         # the terminal state (complete / partial / failed / error).
