@@ -229,10 +229,12 @@ awp compliance <path> --level A2 # Check autonomy level (A0-A4)
 awp visualize <path> --format mermaid  # Render DAG
 awp pack <path>                  # Archive as .awp.zip
 awp run <path>                   # Execute workflow
-awp run <workflow_path> --task "<description>" --target <experiment_id>:<task_id>
-                                 # task-aware seed run; landing under
-                                 # <experiment>/tasks/<task>/seed/
-                                 # (continuation rejected — see Plan 3)
+# Continuation task runs (Plan 3)
+awp run <workflow_path> --task "<fallback>" --target <experiment_id>:<continuation_task_id>
+  # Loads prior BEST bundle + user_feedback as manager_prompt_prefix.
+  # --task here is a fallback string that only surfaces if AgentWorkflow
+  # needs a task field for legacy reasons; the Manager's actual task is
+  # user_feedback from task.json. See docs/continuation.md.
 awp refine <seed_run_dir>        # Iteratively refine a completed run's deliverable (task-local SGD on y)
 
 # Experiment + task lifecycle (hierarchy — see spec 2026-04-20-experiment-task-hierarchy-design.md)
