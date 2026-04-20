@@ -839,8 +839,31 @@ def optimize_task_aware(args) -> int:
     # re-enter cmd_optimize with target cleared (to avoid recursion).
     args.db = str(db_path)
     args.output_dir = str(output_dir)
+    original_target = f"{exp_id}:{tid}"
     args.target = None  # prevent re-entry
 
     # Lazy import to avoid cyclic
     from awp.cli import cmd_optimize
-    return cmd_optimize(args)
+    rc = cmd_optimize(args)
+
+    # Post-run finalise for every epoch-run SuiteRunner created under output_dir.
+    # The suite's per-task layout is nested (suite/epoch_n/task_name/output/<run_id>/),
+    # so we glob recursively for any run_completion.json and register each run.
+    if output_dir.exists():
+        from awp.experiment.paths import task_dir as _task_dir_fn
+        td_for_override = _task_dir_fn(exp_id, tid)
+        for completion in output_dir.rglob("run_completion.json"):
+            run_dir = completion.parent
+            # The parent-of-parent gives us output_dir for _post_run_finalise's
+            # expectation of <output_dir>/output/<run_id>.
+            _post_run_finalise(
+                output_dir=run_dir.parent.parent,
+                run_id=run_dir.name,
+                exp_id=exp_id,
+                task_key=original_target,
+                task_text="optimize epoch",
+                model=getattr(args, "manager_model", None) or "openai/gpt-5-mini",
+                run_role="optimize_epoch_run",
+                task_dir_override=td_for_override,
+            )
+    return rc
