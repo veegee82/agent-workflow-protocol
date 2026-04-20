@@ -624,8 +624,11 @@ def _post_run_finalise(
     task_dir_override: Path | None = None,
 ) -> int:
     """Read the freshly-finished run, register it in awp_ui.db, and update BEST/."""
-    # Locate run_dir if run_id not known
-    runs_root = output_dir / "output"
+    # AgentWorkflow writes run artifacts under workspace/runs/<run_id>/;
+    # fake-run test fixtures historically used output/<run_id>/. Accept both
+    # so we survive both the real runtime and the legacy fixture shape.
+    candidates_root = [output_dir / "workspace" / "runs", output_dir / "output"]
+    runs_root = next((p for p in candidates_root if p.exists()), candidates_root[0])
     if run_id is None:
         if not runs_root.exists():
             print(f"no run output directory found at {runs_root}", file=sys.stderr)
@@ -854,10 +857,15 @@ def optimize_task_aware(args) -> int:
         td_for_override = _task_dir_fn(exp_id, tid)
         for completion in output_dir.rglob("run_completion.json"):
             run_dir = completion.parent
-            # The parent-of-parent gives us output_dir for _post_run_finalise's
-            # expectation of <output_dir>/output/<run_id>.
+            # Real runtime layout is <suite_task_dir>/workspace/runs/<run_id>/.
+            # _post_run_finalise prepends "workspace/runs/<run_id>" to what we
+            # pass as output_dir — so we strip those three levels.
+            if run_dir.parent.name == "runs" and run_dir.parent.parent.name == "workspace":
+                output_dir_for_run = run_dir.parent.parent.parent
+            else:
+                output_dir_for_run = run_dir.parent.parent
             _post_run_finalise(
-                output_dir=run_dir.parent.parent,
+                output_dir=output_dir_for_run,
                 run_id=run_dir.name,
                 exp_id=exp_id,
                 task_key=original_target,
