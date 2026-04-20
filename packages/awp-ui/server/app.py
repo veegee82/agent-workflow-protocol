@@ -148,8 +148,10 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
 
     from server.api.routes import router as api_router  # noqa: E402
+    from server.api.experiments import router as experiments_router  # noqa: E402
 
     app.include_router(api_router, prefix="/api")
+    app.include_router(experiments_router, prefix="/api")
 
     # ------------------------------------------------------------------
     # WebSocket endpoint
@@ -280,3 +282,7 @@ def create_app() -> FastAPI:
             return JSONResponse({"error": "Frontend not built"}, status_code=404)
 
     return app
+
+
+# Instantiate the app
+app = create_app()

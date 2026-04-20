@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
 from server.services.store import StoreService
 
@@ -68,3 +69,91 @@ async def test_get_experiment_loss_curve(store: StoreService) -> None:
         {"task_number": 1, "task_id": "exp_a:001-s", "best_loss": pytest.approx(0.5)},
         {"task_number": 2, "task_id": "exp_a:002-t", "best_loss": pytest.approx(0.2)},
     ]
+
+
+# --- Route-level tests ---
+
+
+@pytest_asyncio.fixture
+async def client(tmp_path: Path, monkeypatch) -> AsyncClient:
+    """FastAPI test client backed by an isolated tmp_path DB."""
+    monkeypatch.setenv("AWP_UI_DB_PATH", str(tmp_path / "test.db"))
+    # Force the store + app singletons to rebuild with this path.
+    from server import app as app_mod
+    import importlib
+    importlib.reload(app_mod)
+    # Ensure DB is initialized
+    await app_mod.store.init_db()
+    transport = ASGITransport(app=app_mod.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@pytest.mark.asyncio
+async def test_list_experiments_route(client: AsyncClient) -> None:
+    r = await client.post("/api/experiments", json={"name": "E", "goal": "G"})
+    assert r.status_code == 200
+    exp = r.json()
+    r = await client.get("/api/experiments")
+    assert r.status_code == 200
+    assert any(e["id"] == exp["id"] for e in r.json())
+
+
+@pytest.mark.asyncio
+async def test_experiment_detail_includes_tasks(client: AsyncClient) -> None:
+    r = await client.post("/api/experiments", json={"name": "E", "goal": "G"})
+    exp_id = r.json()["id"]
+    r = await client.post(
+        f"/api/experiments/{exp_id}/tasks",
+        json={"user_prompt": "Write a paper"},
+    )
+    assert r.status_code == 200
+    r = await client.get(f"/api/experiments/{exp_id}")
+    assert r.status_code == 200
+    detail = r.json()
+    assert detail["id"] == exp_id
+    assert len(detail["tasks"]) == 1
+    assert detail["tasks"][0]["mode"] == "seed"
+
+
+@pytest.mark.asyncio
+async def test_set_best_route(client: AsyncClient) -> None:
+    r = await client.post("/api/experiments", json={"name": "E"})
+    exp_id = r.json()["id"]
+    r = await client.post(
+        f"/api/experiments/{exp_id}/tasks", json={"user_prompt": "t"},
+    )
+    task_id = r.json()["id"]
+    # Seed a run row + call set-best
+    from server.services.store import StoreService
+    import os
+    s = StoreService(db_path=os.environ["AWP_UI_DB_PATH"])
+    await s.init_db()
+    await s.upsert_run_for_task("rX", exp_id, task_id, "seed", 0.4, "complete", "t", "m")
+    await s.close()
+    r = await client.post(f"/api/tasks/{task_id}/best", json={"run_id": "rX"})
+    assert r.status_code == 200
+    assert r.json()["best_run_id"] == "rX"
+
+
+@pytest.mark.asyncio
+async def test_experiment_loss_curve_route(client: AsyncClient) -> None:
+    r = await client.post("/api/experiments", json={"name": "E"})
+    exp_id = r.json()["id"]
+    r = await client.get(f"/api/experiments/{exp_id}/loss-curve")
+    assert r.status_code == 200
+    # Empty curve for fresh experiment
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_task_loss_series_route(client: AsyncClient) -> None:
+    r = await client.post("/api/experiments", json={"name": "E"})
+    exp_id = r.json()["id"]
+    r = await client.post(
+        f"/api/experiments/{exp_id}/tasks", json={"user_prompt": "t"},
+    )
+    task_id = r.json()["id"]
+    r = await client.get(f"/api/tasks/{task_id}/loss-series")
+    assert r.status_code == 200
+    assert r.json() == []
