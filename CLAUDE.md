@@ -263,6 +263,18 @@ awp optimize <suite>.yaml --target <experiment_id>:<task_id>
 
 E2E tests that call LLMs require an OpenRouter or OpenAI-compatible API key. Validation-only tests run without external keys.
 
+## UI — Experiment/Task Hierarchy (Plan 5)
+
+The web UI (`packages/awp-ui/`) exposes the three-level hierarchy built by Plans 1-4:
+
+- **ExperimentSidebar** (`packages/awp-ui/frontend/src/components/ExperimentSidebar/`) — tree view of `Experiment → Task → Run`. Toggle with the Sessions/Experiments buttons at the top of the sidebar.
+- **ExperimentDetailView** (`packages/awp-ui/frontend/src/views/ExperimentDetailView.tsx`) — header, best-loss-per-task curve, task table.
+- **TaskDetailView** (`packages/awp-ui/frontend/src/views/TaskDetailView.tsx`) — mode + user_prompt/user_feedback, loss-per-run curve (seed/refine/optimize series), BEST-override action.
+- **LossCurveGeneric** (`packages/awp-ui/frontend/src/components/Charts/LossCurveGeneric.tsx`) — reusable Recharts wrapper used by both views.
+- Backend routes live in `packages/awp-ui/server/api/experiments.py` — `GET /api/experiments[/{id}[/tasks]]`, `POST /api/experiments/{id}/tasks`, `GET /api/tasks/{key}`, `GET /api/tasks/{key}/loss-series`, `POST /api/tasks/{key}/best`.
+
+Toggling "Experiments" in the sidebar shows the hierarchy; "Sessions" keeps the legacy flat-run view. Both coexist in Plan 5.
+
 ## Architecture
 
 ### Two PyPI Packages
