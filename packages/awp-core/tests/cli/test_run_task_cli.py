@@ -189,3 +189,51 @@ def test_post_run_finalise_updates_db_and_best(env: dict, tmp_path: Path) -> Non
     assert row["run_role"] == "seed"
     assert row["status"] == "complete"
     assert row["loss"] is not None
+
+
+def test_post_run_finalise_accepts_run_role(env: dict, tmp_path: Path) -> None:
+    """run_role parameter is plumbed into the DB row."""
+    import os as _os
+    _os.environ["AWP_EXPERIMENTS_ROOT"] = env["AWP_EXPERIMENTS_ROOT"]
+    _os.environ["AWP_UI_DB_PATH"] = env["AWP_UI_DB_PATH"]
+
+    r = _run_cli(["experiment", "create", "E"], env=env)
+    exp_id = json.loads(r.stdout)["experiment_id"]
+    r = _run_cli(["task", "create", exp_id, "seed"], env=env)
+    task_id = json.loads(r.stdout)["task_id"]
+
+    output_dir = tmp_path / exp_id / "tasks" / task_id / "refinements" / "session_x"
+    run_id = "refine_iter_1"
+    run_dir = output_dir / "output" / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "FINAL").mkdir()
+    (run_dir / "FINAL" / "paper.md").write_text("refined")
+    (run_dir / "events.jsonl").write_text("")
+    (run_dir / "metrics.jsonl").write_text("")
+    (run_dir / "run_completion.json").write_text(json.dumps({
+        "run_id": run_id, "status": "complete", "task": "t",
+        "final_budget": {"loops": {"used": 1, "cap": 10}, "tokens": {"used": 1, "cap": 100}},
+        "eval": {"score": 0.95}, "critique": {"defects": []}, "gate_rejections": 0,
+    }))
+
+    import importlib
+    cli_handlers = importlib.import_module("awp.experiment.cli_handlers")
+    rc = cli_handlers._post_run_finalise(
+        output_dir=output_dir,
+        run_id=run_id,
+        exp_id=exp_id,
+        task_key=f"{exp_id}:{task_id}",
+        task_text="t",
+        model="m",
+        run_role="refine_iter",
+    )
+    assert rc == 0
+
+    import sqlite3
+    con = sqlite3.connect(env["AWP_UI_DB_PATH"])
+    con.row_factory = sqlite3.Row
+    row = con.execute(
+        "SELECT run_role FROM runs WHERE id = ?", (run_id,),
+    ).fetchone()
+    con.close()
+    assert row["run_role"] == "refine_iter"

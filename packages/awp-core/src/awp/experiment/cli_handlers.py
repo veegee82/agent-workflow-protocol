@@ -570,6 +570,7 @@ def _post_run_finalise(
     task_key: str,
     task_text: str,
     model: str,
+    run_role: str = "seed",
 ) -> int:
     """Read the freshly-finished run, register it in awp_ui.db, and update BEST/."""
     # Locate run_dir if run_id not known
@@ -612,7 +613,7 @@ def _post_run_finalise(
             run_id=run_id,
             experiment_id=exp_id,
             task_id=task_key,
-            run_role="seed",
+            run_role=run_role,
             loss=loss,
             status=status,
             task=task_text,
