@@ -29,6 +29,12 @@ def env(tmp_path: Path) -> dict:
 
 
 def test_run_rejects_continuation_task(env: dict, tmp_path: Path) -> None:
+    """Plan 3: continuation targets are accepted by the validator.
+
+    The dispatch path (run_task_aware) is exercised in
+    test_run_continuation_cli.py::test_run_continuation_no_longer_rejected.
+    """
+    # Build exp + seed + fake BEST + continuation task
     r = _run_cli(["experiment", "create", "E"], env=env)
     exp_id = json.loads(r.stdout)["experiment_id"]
     r = _run_cli(["task", "create", exp_id, "seed"], env=env)
@@ -45,18 +51,17 @@ def test_run_rejects_continuation_task(env: dict, tmp_path: Path) -> None:
     )
     cont_id = json.loads(r.stdout)["task_id"]
 
+    env2 = env.copy()
+    env2["AWP_RUN_TASK_DRY_RUN"] = "1"
     r = _run_cli(
         [
-            "run", "nonexistent-workflow.yaml",
-            "--task", "dummy",
+            "run", "nonexistent-wf.yaml", "--task", "dummy",
             "--target", f"{exp_id}:{cont_id}",
         ],
-        env=env,
+        env=env2,
     )
-    assert r.returncode != 0
-    combined = r.stderr + r.stdout
-    assert "continuation" in combined.lower()
-    assert "plan 3" in combined.lower()
+    # Validator no longer rejects — dry-run exits 0
+    assert r.returncode == 0, r.stderr + r.stdout
 
 
 def test_run_rejects_unknown_task(env: dict) -> None:

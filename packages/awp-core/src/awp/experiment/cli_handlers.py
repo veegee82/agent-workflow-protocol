@@ -439,18 +439,12 @@ def validate_task_key_for_run(task_key: str) -> int:
         print(f"experiment not found: {exp_id}", file=sys.stderr)
         return 2
     try:
-        manifest = read_task_manifest(exp_id, tid)
+        read_task_manifest(exp_id, tid)
     except FileNotFoundError:
         print(f"task not found: {task_key}", file=sys.stderr)
         return 2
-    if manifest.mode == TaskMode.CONTINUATION:
-        print(
-            f"continuation task runs are not yet supported in this build "
-            f"(scheduled for Plan 3 — continuation-loader). Task {task_key} "
-            f"has mode=continuation.",
-            file=sys.stderr,
-        )
-        return 2
+    # NOTE: Plan 3 lifted the "continuation unsupported" gate — continuation
+    # dispatch happens in run_task_aware.
     return 0
 
 
