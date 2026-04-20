@@ -191,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
     )
+    p_opt.add_argument(
+        "--target",
+        default=None,
+        help="Attach optimization to a task: <experiment_id>:<task_id>. "
+             "Sets --db and --output-dir from the task's hierarchy.",
+    )
 
     # optimize-inspect (read-only view of past epochs or artifact versions)
     p_opt_inspect = subparsers.add_parser(
@@ -2997,6 +3003,10 @@ def _format_loss_table(epoch_result) -> str:
 
 def cmd_optimize(args: argparse.Namespace) -> int:
     """Run a task suite per-epoch; with ``--with-textgrad`` apply updates (A3)."""
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import optimize_task_aware
+        return optimize_task_aware(args)
+
     # Lazy imports — `awp optimize` lives in awp-core but the implementation
     # is in awp-runtime; both share the ``awp.*`` namespace.
     from awp.outer_loop import (  # type: ignore[import-not-found]

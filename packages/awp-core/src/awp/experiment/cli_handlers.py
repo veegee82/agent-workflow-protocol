@@ -738,3 +738,47 @@ def refine_task_aware(args) -> int:
         "session_completed": True,
     }))
     return 0
+
+
+def optimize_task_aware(args) -> int:
+    """Handle `awp optimize --target <exp>:<task> SUITE.yaml`."""
+    from awp.experiment.paths import experiment_dir as _exp_dir
+    from awp.experiment.paths import task_dir as _task_dir
+
+    if ":" not in args.target:
+        print("--target must be <experiment_id>:<task_id>", file=sys.stderr)
+        return 2
+    exp_id, tid = args.target.split(":", 1)
+    exp_path = _exp_dir(exp_id)
+    if not exp_path.exists():
+        print(f"experiment not found: {exp_id}", file=sys.stderr)
+        return 2
+    td = _task_dir(exp_id, tid)
+    if not td.exists():
+        print(f"task not found: {args.target}", file=sys.stderr)
+        return 2
+
+    import time as _time
+    suite_ts = _time.strftime("%Y%m%d_%H%M%S")
+    db_path = exp_path / "outer_loop.db"
+    output_dir = td / "optimizations" / f"suite_{suite_ts}"
+
+    if os.environ.get("AWP_OPTIMIZE_TARGET_DRY_RUN") == "1":
+        print(json.dumps({
+            "target": args.target,
+            "db_path": str(db_path),
+            "output_dir": str(output_dir),
+        }))
+        return 0
+
+    # Override args before calling the existing cmd_optimize logic.
+    # Because cmd_optimize owns the SuiteRunner instantiation and A2/A3
+    # branch selection, we rewrite args.db + args.output_dir and then
+    # re-enter cmd_optimize with target cleared (to avoid recursion).
+    args.db = str(db_path)
+    args.output_dir = str(output_dir)
+    args.target = None  # prevent re-entry
+
+    # Lazy import to avoid cyclic
+    from awp.cli import cmd_optimize
+    return cmd_optimize(args)
