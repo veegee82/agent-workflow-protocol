@@ -460,7 +460,7 @@ from pathlib import Path
 
 import pytest
 
-from awp.experiment.best_finaliser import compute_and_update_best
+from awp.outer_loop.best_finaliser import compute_and_update_best
 
 
 def _mk_run_dir(
@@ -1100,7 +1100,7 @@ def _post_run_finalise(
 
     # Invoke BEST finaliser
     try:
-        from awp.experiment.best_finaliser import compute_and_update_best
+        from awp.outer_loop.best_finaliser import compute_and_update_best
     except ImportError as exc:  # pragma: no cover
         print(f"awp-runtime required: {exc}", file=sys.stderr)
         return 1
@@ -1319,7 +1319,7 @@ def _task_set_best(args) -> int:
         return 2
 
     try:
-        from awp.experiment.best_finaliser import compute_and_update_best
+        from awp.outer_loop.best_finaliser import compute_and_update_best
     except ImportError as exc:
         print(f"awp-runtime required: {exc}", file=sys.stderr)
         return 2
