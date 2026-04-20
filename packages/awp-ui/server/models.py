@@ -125,6 +125,16 @@ class WorkflowConfig(BaseModel):
     decision_journal_enabled: bool = True
     decision_journal_max_entries: int = 20
 
+    # Experiment cascade
+    auto_refine_after_seed: bool = False
+    auto_refine_iterations: int = 2
+    auto_optimize_after_seed: bool = False
+    auto_optimize_epochs: int = 1
+
+    # Experiment/task linkage (for cascade)
+    experiment_id: str | None = Field(None, description="Experiment ID for hierarchy context.")
+    task_id: str | None = Field(None, description="Task ID for hierarchy context.")
+
     # Raw runtime overrides (keyed by section name: "critique", "planning", ...)
     # Needed so UI callers can raise caps like defect_category_hard_cap when
     # running workflows that legitimately need more repair iterations than the

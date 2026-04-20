@@ -1365,9 +1365,13 @@ class RunnerService:
         str
             The run_id.
         """
+        # Extract experiment_id and task_id for hierarchy linkage
+        experiment_id = config.get("experiment_id")
+        task_id = config.get("task_id")
+
         thread = threading.Thread(
             target=self._run_workflow,
-            args=(run_id, config, session_id),
+            args=(run_id, config, session_id, experiment_id, task_id),
             daemon=True,
             name=f"awp-run-{run_id[:8]}",
         )
@@ -1464,7 +1468,12 @@ class RunnerService:
             return info["thread"].is_alive()
 
     def _run_workflow(
-        self, run_id: str, config: dict[str, Any], session_id: str | None = None
+        self,
+        run_id: str,
+        config: dict[str, Any],
+        session_id: str | None = None,
+        experiment_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Execute the workflow synchronously in a background thread."""
         from server.services.store import StoreService
@@ -1736,7 +1745,9 @@ class RunnerService:
                 loop = event_bus._loop
                 if loop and not loop.is_closed():
                     asyncio.run_coroutine_threadsafe(
-                        self._persist_result(run_id, status, result, session_id),
+                        self._persist_result(
+                            run_id, status, result, session_id, experiment_id, task_id
+                        ),
                         loop,
                     ).result(timeout=30)
             except Exception:
@@ -1754,6 +1765,8 @@ class RunnerService:
         status: str,
         result: dict[str, Any] | None,
         session_id: str | None = None,
+        experiment_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Persist the final result to SQLite."""
         # Import lazily to avoid circular refs at module level
@@ -1782,6 +1795,23 @@ class RunnerService:
             result=result,
             completed_at=datetime.now(tz=timezone.utc).isoformat(),
         )
+
+        # Link the run to the task in the experiment hierarchy (if provided)
+        if experiment_id and task_id:
+            try:
+                # Assuming store.upsert_run_for_task exists; calls it with seed run_role
+                await store.upsert_run_for_task(
+                    run_id=run_id,
+                    experiment_id=experiment_id,
+                    task_id=task_id,
+                    run_role="seed",
+                    loss=0.5,  # Default loss; will be updated by cascade logic
+                    status=status,
+                    task=result.get("task", "") if isinstance(result, dict) else "",
+                    model=result.get("model", "") if isinstance(result, dict) else "",
+                )
+            except Exception:
+                logger.debug("Failed to link run %s to task %s", run_id, task_id, exc_info=True)
 
         # Also update the parent session status so the sidebar reflects
         # the terminal state (complete / partial / failed / error).

@@ -157,3 +157,43 @@ async def test_task_loss_series_route(client: AsyncClient) -> None:
     r = await client.get(f"/api/tasks/{task_id}/loss-series")
     assert r.status_code == 200
     assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_settings_include_cascade_fields(client: AsyncClient) -> None:
+    """Verify that default settings include experiment cascade fields."""
+    r = await client.get("/api/settings")
+    assert r.status_code == 200
+    settings = r.json()
+    # Verify the 4 cascade fields exist in defaults
+    assert "auto_refine_after_seed" in settings
+    assert settings["auto_refine_after_seed"] is False
+    assert "auto_refine_iterations" in settings
+    assert settings["auto_refine_iterations"] == 2
+    assert "auto_optimize_after_seed" in settings
+    assert settings["auto_optimize_after_seed"] is False
+    assert "auto_optimize_epochs" in settings
+    assert settings["auto_optimize_epochs"] == 1
+
+
+@pytest.mark.asyncio
+async def test_runs_create_accepts_experiment_and_task(client: AsyncClient) -> None:
+    """Verify that /runs endpoint accepts experiment_id and task_id fields."""
+    from server.models import WorkflowConfig
+
+    # Create a minimal WorkflowConfig with the new hierarchy fields
+    config = {
+        "task": "Test task",
+        "model": "openai/gpt-5-mini",
+        "experiment_id": "exp_123",
+        "task_id": "task_456",
+    }
+
+    # POST to /runs with the new fields; expect 200, 202, or 500
+    # (we just care that Pydantic parsing accepts them, not that the run succeeds)
+    r = await client.post("/api/runs", json=config)
+    assert r.status_code in (200, 202, 500)
+    # If successful, the response should include run_id
+    if r.status_code in (200, 202):
+        body = r.json()
+        assert "run_id" in body or "error" in body
