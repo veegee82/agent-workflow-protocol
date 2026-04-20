@@ -390,6 +390,38 @@ class StoreService:
             return None
         return dict(row)
 
+    async def list_runs_for_task(self, task_id_key: str) -> list[dict]:
+        cur = await self.db.execute(
+            "SELECT id, run_role, loss, status, created_at, completed_at "
+            "FROM runs WHERE task_id = ? ORDER BY created_at ASC",
+            (task_id_key,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def get_task_loss_series(self, task_id_key: str) -> list[dict]:
+        """Loss per run in a task, ordered by created_at."""
+        cur = await self.db.execute(
+            "SELECT id AS run_id, run_role, loss, status, created_at "
+            "FROM runs WHERE task_id = ? AND loss IS NOT NULL "
+            "ORDER BY created_at ASC",
+            (task_id_key,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def get_experiment_loss_curve(self, experiment_id: str) -> list[dict]:
+        """One point per task: (task_number, best_loss). Only tasks with a best_run_id."""
+        cur = await self.db.execute(
+            """
+            SELECT t.task_number, t.id AS task_id, r.loss AS best_loss
+            FROM tasks t
+            LEFT JOIN runs r ON r.id = t.best_run_id
+            WHERE t.experiment_id = ?
+            ORDER BY t.task_number ASC
+            """,
+            (experiment_id,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
     async def cleanup_orphan_runs(self) -> int:
         """Mark runs left in 'running' state by a dead process as 'aborted'.
 
