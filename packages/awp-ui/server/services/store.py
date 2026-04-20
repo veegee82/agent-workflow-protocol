@@ -242,6 +242,42 @@ class StoreService:
                 pass  # Column already exists
         await self.db.commit()
 
+    # ---- experiment CRUD ----
+
+    async def create_experiment(
+        self,
+        experiment_id: str,
+        name: str,
+        goal: str,
+        base_dir: str,
+        created_at: float,
+    ) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO experiments (id, name, goal, base_dir, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (experiment_id, name, goal, base_dir, created_at),
+        )
+        await self.db.commit()
+
+    async def get_experiment(self, experiment_id: str) -> dict | None:
+        cur = await self.db.execute(
+            "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_experiments(self) -> list[dict]:
+        cur = await self.db.execute(
+            "SELECT * FROM experiments ORDER BY created_at DESC"
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_experiment(self, experiment_id: str) -> None:
+        await self.db.execute("DELETE FROM experiments WHERE id = ?", (experiment_id,))
+        await self.db.commit()
+
     async def cleanup_orphan_runs(self) -> int:
         """Mark runs left in 'running' state by a dead process as 'aborted'.
 

@@ -44,3 +44,49 @@ async def test_runs_has_hierarchy_columns(store: StoreService) -> None:
     assert "run_role" in cols
     assert "parent_run_id" in cols
     assert "loss" in cols
+
+
+@pytest.mark.asyncio
+async def test_create_and_get_experiment(store: StoreService) -> None:
+    await store.create_experiment(
+        experiment_id="exp_aaaaaaaa",
+        name="E",
+        goal="G",
+        base_dir="/tmp/awp-experiments/exp_aaaaaaaa",
+        created_at=1_700_000_000.0,
+    )
+    row = await store.get_experiment("exp_aaaaaaaa")
+    assert row["id"] == "exp_aaaaaaaa"
+    assert row["name"] == "E"
+    assert row["goal"] == "G"
+    assert row["archived_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_experiments_newest_first(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "First", "", "/tmp/a", 1_000.0)
+    await store.create_experiment("exp_bbbbbbbb", "Second", "", "/tmp/b", 2_000.0)
+    rows = await store.list_experiments()
+    assert [r["id"] for r in rows] == ["exp_bbbbbbbb", "exp_aaaaaaaa"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(reason="needs create_task from Task 8", strict=False)
+async def test_delete_experiment_cascades(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        task_id_key="exp_aaaaaaaa:001-draft",
+        experiment_id="exp_aaaaaaaa",
+        task_number=1,
+        slug="draft",
+        mode="seed",
+        user_prompt="p",
+        user_feedback=None,
+        inputs_json="[]",
+        created_at=1.0,
+    )
+    await store.delete_experiment("exp_aaaaaaaa")
+    assert await store.get_experiment("exp_aaaaaaaa") is None
+    cur = await store.db.execute("SELECT COUNT(*) AS c FROM tasks")
+    row = await cur.fetchone()
+    assert row["c"] == 0
