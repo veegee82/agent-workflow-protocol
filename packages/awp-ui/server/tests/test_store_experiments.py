@@ -164,3 +164,86 @@ async def test_delete_task(store: StoreService) -> None:
     )
     await store.delete_task("exp_aaaaaaaa:001-a")
     assert await store.get_task("exp_aaaaaaaa:001-a") is None
+
+
+@pytest.mark.asyncio
+async def test_upsert_run_inserts_new(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        "exp_aaaaaaaa:001-s", "exp_aaaaaaaa", 1, "s", "seed", "p", None, "[]", 1.0,
+    )
+    await store.upsert_run_for_task(
+        run_id="2026-04-20_15-00-00_abc12345",
+        experiment_id="exp_aaaaaaaa",
+        task_id="exp_aaaaaaaa:001-s",
+        run_role="seed",
+        loss=0.42,
+        status="complete",
+        task="Write paper",
+        model="openai/gpt-5-mini",
+    )
+    cur = await store.db.execute(
+        "SELECT id, experiment_id, task_id, run_role, loss, status FROM runs WHERE id = ?",
+        ("2026-04-20_15-00-00_abc12345",),
+    )
+    row = await cur.fetchone()
+    assert row is not None
+    assert row["experiment_id"] == "exp_aaaaaaaa"
+    assert row["task_id"] == "exp_aaaaaaaa:001-s"
+    assert row["run_role"] == "seed"
+    assert row["loss"] == pytest.approx(0.42)
+    assert row["status"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_upsert_run_updates_existing(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        "exp_aaaaaaaa:001-s", "exp_aaaaaaaa", 1, "s", "seed", "p", None, "[]", 1.0,
+    )
+    await store.upsert_run_for_task(
+        run_id="rid1",
+        experiment_id="exp_aaaaaaaa",
+        task_id="exp_aaaaaaaa:001-s",
+        run_role="seed",
+        loss=None,
+        status="running",
+        task="t",
+        model="m",
+    )
+    await store.upsert_run_for_task(
+        run_id="rid1",
+        experiment_id="exp_aaaaaaaa",
+        task_id="exp_aaaaaaaa:001-s",
+        run_role="seed",
+        loss=0.3,
+        status="complete",
+        task="t",
+        model="m",
+    )
+    cur = await store.db.execute(
+        "SELECT loss, status FROM runs WHERE id = ?", ("rid1",)
+    )
+    row = await cur.fetchone()
+    assert row["loss"] == pytest.approx(0.3)
+    assert row["status"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_set_and_get_task_best(store: StoreService) -> None:
+    await store.create_experiment("exp_aaaaaaaa", "E", "", "/tmp/a", 1.0)
+    await store.create_task(
+        "exp_aaaaaaaa:001-s", "exp_aaaaaaaa", 1, "s", "seed", "p", None, "[]", 1.0,
+    )
+    await store.upsert_run_for_task(
+        "rid1", "exp_aaaaaaaa", "exp_aaaaaaaa:001-s", "seed", 0.5, "complete", "t", "m",
+    )
+    await store.set_task_best(
+        task_id_key="exp_aaaaaaaa:001-s",
+        run_id="rid1",
+        reason="auto_loss",
+    )
+    best = await store.get_best_for_task("exp_aaaaaaaa:001-s")
+    assert best is not None
+    assert best["best_run_id"] == "rid1"
+    assert best["best_reason"] == "auto_loss"
