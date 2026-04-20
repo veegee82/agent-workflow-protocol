@@ -63,6 +63,8 @@ def handle_experiment_command(args: Namespace) -> int:
         return _exp_show(args.experiment_id)
     if cmd == "delete":
         return _exp_delete(args.experiment_id, args.yes)
+    if cmd == "purge-legacy":
+        return _purge_legacy_experiments(args.yes)
     print(f"unknown experiment subcommand: {cmd}", file=sys.stderr)
     return 2
 
@@ -170,6 +172,54 @@ def _exp_delete(experiment_id: str, yes: bool) -> int:
 
     asyncio.run(_with_store(_del))
     print(f"deleted {experiment_id}")
+    return 0
+
+
+def _purge_legacy_experiments(yes: bool) -> int:
+    """Delete directories without an experiment.json at root + orphan runs rows."""
+    from awp.experiment.paths import EXPERIMENTS_ROOT
+
+    root = EXPERIMENTS_ROOT
+    if not root.exists():
+        print("no experiments root on disk; nothing to purge.")
+        return 0
+
+    legacy_dirs = [
+        p for p in sorted(root.iterdir())
+        if p.is_dir() and not (p / "experiment.json").exists()
+    ]
+
+    if not legacy_dirs:
+        print("no legacy (flat-layout) directories found.")
+        disk_deleted = 0
+    else:
+        print(f"Found {len(legacy_dirs)} legacy dir(s) under {root}:")
+        for p in legacy_dirs:
+            print(f"  - {p.name}")
+        if not yes:
+            resp = input("Delete these directories? [y/N] ").strip().lower()
+            if resp != "y":
+                print("aborted.")
+                return 1
+        for p in legacy_dirs:
+            shutil.rmtree(p)
+        disk_deleted = len(legacy_dirs)
+
+    # Delete orphan runs rows (experiment_id IS NULL)
+    async def _purge_db(store):
+        await store.db.execute("DELETE FROM runs WHERE experiment_id IS NULL")
+        await store.db.commit()
+        cur = await store.db.execute("SELECT changes() AS n")
+        row = await cur.fetchone()
+        return row["n"]
+
+    orphan_rows = asyncio.run(_with_store(_purge_db)) or 0
+    print(
+        json.dumps({
+            "legacy_dirs_deleted": disk_deleted,
+            "orphan_runs_rows_deleted": orphan_rows,
+        }, indent=2)
+    )
     return 0
 
 

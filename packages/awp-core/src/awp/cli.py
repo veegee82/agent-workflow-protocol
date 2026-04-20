@@ -312,6 +312,12 @@ def main(argv: list[str] | None = None) -> int:
     p_exp_delete.add_argument("experiment_id")
     p_exp_delete.add_argument("--yes", action="store_true", help="skip confirmation")
 
+    p_exp_purge = exp_sub.add_parser(
+        "purge-legacy",
+        help="Delete flat-layout (pre-hierarchy) experiment directories and orphan runs rows",
+    )
+    p_exp_purge.add_argument("--yes", action="store_true", help="skip confirmation")
+
     # task
     p_task = subparsers.add_parser("task", help="Manage tasks within an experiment")
     task_sub = p_task.add_subparsers(dest="task_cmd", required=True)
