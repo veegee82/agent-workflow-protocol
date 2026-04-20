@@ -134,3 +134,34 @@ def test_non_terminal_run_is_skipped(tmp_path: Path) -> None:
     assert result.updated is False
     assert result.skip_reason == "non_terminal"
     assert not (task_dir / "BEST" / "manifest.json").exists()
+
+
+def test_workspace_level_final_is_found(tmp_path: Path) -> None:
+    """AgentWorkflow writes FINAL at <workspace>/output/FINAL/ (not <run>/FINAL/).
+
+    Build that layout and verify compute_and_update_best still promotes the
+    deliverables to <task>/BEST/.
+    """
+    task_dir = tmp_path / "task"
+    task_dir.mkdir()
+    workspace = task_dir / "seed"
+    run_dir = workspace / "workspace" / "runs" / "run1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_completion.json").write_text(json.dumps({
+        "run_id": "run1", "status": "complete", "task": "t",
+        "final_budget": {"loops": {"used": 1, "cap": 10}, "tokens": {"used": 1, "cap": 100}},
+        "eval": {"score": 0.9}, "critique": {"defects": []}, "gate_rejections": 0,
+    }))
+    (run_dir / "events.jsonl").write_text("")
+    (run_dir / "metrics.jsonl").write_text("")
+    # FINAL lives at workspace level, NOT under run_dir
+    workspace_final = workspace / "output" / "FINAL"
+    workspace_final.mkdir(parents=True)
+    (workspace_final / "paper.md").write_text("workspace-level deliverable")
+
+    result = compute_and_update_best(task_dir=task_dir, new_run_dir=run_dir)
+
+    assert result.updated is True
+    # BEST/paper.md should now be hardlinked from the workspace-level FINAL
+    assert (task_dir / "BEST" / "paper.md").exists()
+    assert (task_dir / "BEST" / "paper.md").read_text() == "workspace-level deliverable"
