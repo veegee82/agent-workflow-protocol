@@ -189,6 +189,8 @@ def handle_task_command(args: Namespace) -> int:
         return _task_show(args.task_key)
     if cmd == "delete":
         return _task_delete(args.task_key, args.yes)
+    if cmd == "set-best":
+        return _task_set_best(args)
     print(f"unknown task subcommand: {cmd}", file=sys.stderr)
     return 2
 
@@ -299,6 +301,71 @@ def _task_delete(task_key: str, yes: bool) -> int:
     manifest.task_order = [t for t in manifest.task_order if t != tid]
     write_experiment_manifest(manifest)
     print(f"deleted {task_key}")
+    return 0
+
+
+def _task_set_best(args: Namespace) -> int:
+    """Handle `awp task set-best <task_key> [--run ID | --auto]`."""
+    exp_id, tid = _split_key(args.task_key)
+    td = task_dir(exp_id, tid)
+    if not td.exists():
+        print(f"task not found: {args.task_key}", file=sys.stderr)
+        return 2
+
+    try:
+        from awp.outer_loop.best_finaliser import compute_and_update_best
+    except ImportError as exc:
+        print(f"awp-runtime required: {exc}", file=sys.stderr)
+        return 2
+
+    runs_root = td / "seed" / "output"
+
+    if args.run_id:
+        # User override: pin a specific run as BEST
+        new_run_dir = runs_root / args.run_id
+        if not new_run_dir.exists():
+            print(f"run not found: {args.run_id}", file=sys.stderr)
+            return 2
+        result = compute_and_update_best(
+            task_dir=td, new_run_dir=new_run_dir, force_override=True,
+        )
+        if not result.updated:
+            print(
+                f"BEST not updated: skip_reason={result.skip_reason}",
+                file=sys.stderr,
+            )
+            return 1
+        async def _mirror_override(store):
+            await store.set_task_best(
+                task_id_key=args.task_key, run_id=args.run_id, reason="user_override",
+            )
+        asyncio.run(_with_store(_mirror_override))
+        print(json.dumps({"best_run_id": args.run_id, "reason": "user_override"}))
+        return 0
+
+    # --auto: clear any override, reselect based on lowest loss
+    manifest_path = td / "BEST" / "manifest.json"
+    if manifest_path.exists():
+        manifest_path.unlink()
+    if not runs_root.exists():
+        print(f"no runs under {runs_root}", file=sys.stderr)
+        return 2
+    best_run_id = None
+    for run_dir_ in sorted(runs_root.iterdir()):
+        if not run_dir_.is_dir():
+            continue
+        result = compute_and_update_best(task_dir=td, new_run_dir=run_dir_)
+        if result.updated:
+            best_run_id = run_dir_.name
+    if best_run_id is None:
+        print("no eligible terminal runs found", file=sys.stderr)
+        return 1
+    async def _mirror_auto(store):
+        await store.set_task_best(
+            task_id_key=args.task_key, run_id=best_run_id, reason="auto_loss",
+        )
+    asyncio.run(_with_store(_mirror_auto))
+    print(json.dumps({"best_run_id": best_run_id, "reason": "auto_loss"}))
     return 0
 
 

@@ -335,6 +335,12 @@ def main(argv: list[str] | None = None) -> int:
     p_task_delete.add_argument("task_key", help="<experiment_id>:<task_id>")
     p_task_delete.add_argument("--yes", action="store_true")
 
+    p_task_set_best = task_sub.add_parser("set-best", help="Pick the best run of a task")
+    p_task_set_best.add_argument("task_key", help="<experiment_id>:<task_id>")
+    grp = p_task_set_best.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--run", dest="run_id", help="pin this run as BEST (user override)")
+    grp.add_argument("--auto", action="store_true", help="clear override, reselect automatically")
+
     args = parser.parse_args(argv)
 
     if not args.command:
