@@ -98,13 +98,12 @@ D and B are orthogonal. B can be added later. The spec keeps per-experiment oute
     ├── 001-<slug>/
     │   ├── task.json                   # user_prompt, mode, inputs[], created_at
     │   ├── seed/
-    │   │   └── <run_id>/
-    │   │       ├── run_manifest.json
-    │   │       ├── run_completion.json
-    │   │       ├── events.jsonl
-    │   │       ├── iterations/
-    │   │       ├── FINAL/
-    │   │       └── metrics.jsonl
+    │   │   └── output/
+    │   │       └── <run_id>/
+    │   │           ├── run_completion.json
+    │   │           ├── FINAL/
+    │   │           ├── events.jsonl
+    │   │           └── metrics.jsonl
     │   ├── refinements/
     │   │   └── session_<ts>/
     │   │       ├── session.json        # relocated from <seed>/refinement_sessions/
@@ -122,6 +121,8 @@ D and B are orthogonal. B can be added later. The spec keeps per-experiment oute
     └── 002-<slug>/
         └── …
 ```
+
+> Note: the `seed/output/` layer reflects `AgentWorkflow`'s native run-dir shape and is kept for runtime fidelity; it is not a user-facing concept.
 
 Changes relative to today:
 
