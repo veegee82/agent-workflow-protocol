@@ -65,6 +65,9 @@ import { RegistrySidebar } from '@/components/AgentGraph/RegistrySidebar';
 import { RunSelector } from '@/components/RunSelector/RunSelector';
 import { MetricsPanel } from '@/components/MetricsPanel/MetricsPanel';
 import { OptimizerPanel } from '@/components/OptimizerPanel/OptimizerPanel';
+import { ExperimentSidebar } from '@/components/ExperimentSidebar/ExperimentSidebar';
+import { ExperimentDetailView } from '@/views/ExperimentDetailView';
+import { TaskDetailView } from '@/views/TaskDetailView';
 
 // ---------------------------------------------------------------------------
 // Code block with syntax highlighting
@@ -3104,6 +3107,12 @@ export function App() {
   const loadPersistedSettings = useWorkflowStore((s) => s.loadPersistedSettings);
   const saveCurrentSettings = useWorkflowStore((s) => s.saveCurrentSettings);
   const config = useWorkflowStore((s) => s.config);
+  const sidebarMode = useWorkflowStore((s) => s.sidebarMode);
+  const setSidebarMode = useWorkflowStore((s) => s.setSidebarMode);
+  const selectedExperimentId = useWorkflowStore((s) => s.selectedExperimentId);
+  const selectedTaskId = useWorkflowStore((s) => s.selectedTaskId);
+  const setSelectedExperiment = useWorkflowStore((s) => s.setSelectedExperiment);
+  const setSelectedTask = useWorkflowStore((s) => s.setSelectedTask);
 
   // Load sessions, secrets, and persisted settings on mount.
   // Order matters: restore persisted settings first (including last session),
@@ -3184,55 +3193,89 @@ export function App() {
     <div className="flex flex-col h-screen bg-awp-bg text-awp-text">
       <TopBar />
       <div className="flex flex-1 overflow-hidden">
-        {/* Session sidebar (left) */}
+        {/* Session/Experiment sidebar (left) */}
         {sidebarOpen && (
           <div className="w-60 shrink-0 border-r border-awp-border bg-awp-panel overflow-y-auto animate-slide-in-left">
-            <SessionSidebar
-              sessions={sessions}
-              currentSessionId={currentSessionId}
-              onSelectSession={selectSession}
-              onNewSession={handleNewSession}
-              onDeleteSession={deleteSession}
-              onRenameSession={renameSession}
-              activeRunStatus={runStatus}
-              onToggleRun={handleToggleRun}
-              onOpenFolder={(session) => {
-                // Derive base_dir: session's own > current session's > any session with base_dir
-                const currentBase = sessions.find((s) => s.id === currentSessionId)?.base_dir;
-                const anyBase = sessions.find((s) => s.base_dir)?.base_dir;
-                const base = session.base_dir || currentBase || anyBase;
-                if (!base) return;
-                const slug = (session.title || 'experiment')
-                  .toLowerCase()
-                  .replace(/ /g, '_')
-                  .slice(0, 40)
-                  .replace(/[^a-z0-9_-]/g, '') || 'experiment';
-                const folderPath = `${base}/${slug}_${session.id}`;
-                api.openDirectory(folderPath).catch(() => {});
-              }}
-            />
+            <div className="flex gap-1 p-2 border-b border-awp-border">
+              <button
+                onClick={() => setSidebarMode("sessions")}
+                className={`text-xs px-2 py-1 rounded ${sidebarMode === "sessions" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                Sessions
+              </button>
+              <button
+                onClick={() => setSidebarMode("experiments")}
+                className={`text-xs px-2 py-1 rounded ${sidebarMode === "experiments" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                Experiments
+              </button>
+            </div>
+            {sidebarMode === "experiments" ? (
+              <ExperimentSidebar
+                selectedExperimentId={selectedExperimentId}
+                selectedTaskId={selectedTaskId}
+                onSelectExperiment={setSelectedExperiment}
+                onSelectTask={setSelectedTask}
+              />
+            ) : (
+              <SessionSidebar
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                onSelectSession={selectSession}
+                onNewSession={handleNewSession}
+                onDeleteSession={deleteSession}
+                onRenameSession={renameSession}
+                activeRunStatus={runStatus}
+                onToggleRun={handleToggleRun}
+                onOpenFolder={(session) => {
+                  // Derive base_dir: session's own > current session's > any session with base_dir
+                  const currentBase = sessions.find((s) => s.id === currentSessionId)?.base_dir;
+                  const anyBase = sessions.find((s) => s.base_dir)?.base_dir;
+                  const base = session.base_dir || currentBase || anyBase;
+                  if (!base) return;
+                  const slug = (session.title || 'experiment')
+                    .toLowerCase()
+                    .replace(/ /g, '_')
+                    .slice(0, 40)
+                    .replace(/[^a-z0-9_-]/g, '') || 'experiment';
+                  const folderPath = `${base}/${slug}_${session.id}`;
+                  api.openDirectory(folderPath).catch(() => {});
+                }}
+              />
+            )}
           </div>
         )}
 
         {/* Main content + task input */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <RunSelector />
-          <main className="flex-1 min-h-0 overflow-hidden relative">
-            {/* Use display:none (hidden) instead of visibility:hidden to
-                fully remove inactive panels from the rendering layer.
-                ReactFlow's canvas bleeds through with visibility:hidden.
-                Components stay mounted so React state is preserved. */}
-            <div className={`absolute inset-0 ${activePanel === 'protocol' ? '' : 'hidden'}`}><ProtocolPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'results' ? '' : 'hidden'}`}><ResultsPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'workspace' ? '' : 'hidden'}`}><WorkspacePanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'output' ? '' : 'hidden'}`}><OutputPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'graph' ? '' : 'hidden'}`}><GraphPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'graphvis' ? '' : 'hidden'}`}><GraphVisPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'memory' ? '' : 'hidden'}`}><MemoryPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'hidden'}`}><HistoryPanel /></div>
-            <div className={`absolute inset-0 ${activePanel === 'optimizer' ? '' : 'hidden'}`}><OptimizerPanel /></div>
-          </main>
-          <TaskInputBar />
+          {sidebarMode === "experiments" && selectedTaskId ? (
+            <TaskDetailView taskIdKey={selectedTaskId} />
+          ) : sidebarMode === "experiments" && selectedExperimentId ? (
+            <ExperimentDetailView
+              experimentId={selectedExperimentId}
+              onSelectTask={setSelectedTask}
+            />
+          ) : (
+            <>
+              <RunSelector />
+              <main className="flex-1 min-h-0 overflow-hidden relative">
+                {/* Use display:none (hidden) instead of visibility:hidden to
+                    fully remove inactive panels from the rendering layer.
+                    ReactFlow's canvas bleeds through with visibility:hidden.
+                    Components stay mounted so React state is preserved. */}
+                <div className={`absolute inset-0 ${activePanel === 'protocol' ? '' : 'hidden'}`}><ProtocolPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'results' ? '' : 'hidden'}`}><ResultsPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'workspace' ? '' : 'hidden'}`}><WorkspacePanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'output' ? '' : 'hidden'}`}><OutputPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'graph' ? '' : 'hidden'}`}><GraphPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'graphvis' ? '' : 'hidden'}`}><GraphVisPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'memory' ? '' : 'hidden'}`}><MemoryPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'history' ? '' : 'hidden'}`}><HistoryPanel /></div>
+                <div className={`absolute inset-0 ${activePanel === 'optimizer' ? '' : 'hidden'}`}><OptimizerPanel /></div>
+              </main>
+              <TaskInputBar />
+            </>
+          )}
         </div>
 
         {/* Settings sidebar (right) */}
