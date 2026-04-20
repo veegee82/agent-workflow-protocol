@@ -332,6 +332,64 @@ class StoreService:
         await self.db.execute("DELETE FROM tasks WHERE id = ?", (task_id_key,))
         await self.db.commit()
 
+    # ---- run registration (task-aware) ----
+
+    async def upsert_run_for_task(
+        self,
+        run_id: str,
+        experiment_id: str,
+        task_id: str,
+        run_role: str,
+        loss: float | None,
+        status: str,
+        task: str,
+        model: str,
+    ) -> None:
+        """Insert or update a run row with hierarchy metadata."""
+        now = datetime.now(timezone.utc).isoformat()
+        await self.db.execute(
+            """
+            INSERT INTO runs (
+                id, task, model, status, experiment_id, task_id, run_role, loss,
+                config_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                loss = excluded.loss,
+                experiment_id = excluded.experiment_id,
+                task_id = excluded.task_id,
+                run_role = excluded.run_role
+            """,
+            (
+                run_id, task, model, status, experiment_id, task_id, run_role, loss,
+                now,
+            ),
+        )
+        await self.db.commit()
+
+    async def set_task_best(
+        self,
+        task_id_key: str,
+        run_id: str,
+        reason: str,
+    ) -> None:
+        await self.db.execute(
+            "UPDATE tasks SET best_run_id = ?, best_reason = ? WHERE id = ?",
+            (run_id, reason, task_id_key),
+        )
+        await self.db.commit()
+
+    async def get_best_for_task(self, task_id_key: str) -> dict | None:
+        cur = await self.db.execute(
+            "SELECT best_run_id, best_reason FROM tasks WHERE id = ?",
+            (task_id_key,),
+        )
+        row = await cur.fetchone()
+        if row is None or row["best_run_id"] is None:
+            return None
+        return dict(row)
+
     async def cleanup_orphan_runs(self) -> int:
         """Mark runs left in 'running' state by a dead process as 'aborted'.
 

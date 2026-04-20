@@ -189,6 +189,8 @@ def handle_task_command(args: Namespace) -> int:
         return _task_show(args.task_key)
     if cmd == "delete":
         return _task_delete(args.task_key, args.yes)
+    if cmd == "set-best":
+        return _task_set_best(args)
     print(f"unknown task subcommand: {cmd}", file=sys.stderr)
     return 2
 
@@ -302,6 +304,71 @@ def _task_delete(task_key: str, yes: bool) -> int:
     return 0
 
 
+def _task_set_best(args: Namespace) -> int:
+    """Handle `awp task set-best <task_key> [--run ID | --auto]`."""
+    exp_id, tid = _split_key(args.task_key)
+    td = task_dir(exp_id, tid)
+    if not td.exists():
+        print(f"task not found: {args.task_key}", file=sys.stderr)
+        return 2
+
+    try:
+        from awp.outer_loop.best_finaliser import compute_and_update_best
+    except ImportError as exc:
+        print(f"awp-runtime required: {exc}", file=sys.stderr)
+        return 2
+
+    runs_root = td / "seed" / "output"
+
+    if args.run_id:
+        # User override: pin a specific run as BEST
+        new_run_dir = runs_root / args.run_id
+        if not new_run_dir.exists():
+            print(f"run not found: {args.run_id}", file=sys.stderr)
+            return 2
+        result = compute_and_update_best(
+            task_dir=td, new_run_dir=new_run_dir, force_override=True,
+        )
+        if not result.updated:
+            print(
+                f"BEST not updated: skip_reason={result.skip_reason}",
+                file=sys.stderr,
+            )
+            return 1
+        async def _mirror_override(store):
+            await store.set_task_best(
+                task_id_key=args.task_key, run_id=args.run_id, reason="user_override",
+            )
+        asyncio.run(_with_store(_mirror_override))
+        print(json.dumps({"best_run_id": args.run_id, "reason": "user_override"}))
+        return 0
+
+    # --auto: clear any override, reselect based on lowest loss
+    manifest_path = td / "BEST" / "manifest.json"
+    if manifest_path.exists():
+        manifest_path.unlink()
+    if not runs_root.exists():
+        print(f"no runs under {runs_root}", file=sys.stderr)
+        return 2
+    best_run_id = None
+    for run_dir_ in sorted(runs_root.iterdir()):
+        if not run_dir_.is_dir():
+            continue
+        result = compute_and_update_best(task_dir=td, new_run_dir=run_dir_)
+        if result.updated:
+            best_run_id = run_dir_.name
+    if best_run_id is None:
+        print("no eligible terminal runs found", file=sys.stderr)
+        return 1
+    async def _mirror_auto(store):
+        await store.set_task_best(
+            task_id_key=args.task_key, run_id=best_run_id, reason="auto_loss",
+        )
+    asyncio.run(_with_store(_mirror_auto))
+    print(json.dumps({"best_run_id": best_run_id, "reason": "auto_loss"}))
+    return 0
+
+
 def _task_create_continuation(args: Namespace) -> int:
     if not args.from_task:
         print(
@@ -352,3 +419,192 @@ def _task_create_continuation(args: Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     return _persist_task(args.experiment_id, manifest, slug)
+
+
+# ---------------------------------------------------------------------------
+# Task validation for `awp run --task`
+# ---------------------------------------------------------------------------
+
+
+def validate_task_key_for_run(task_key: str) -> int:
+    """Validate --task argument for `awp run`. Returns 0 on OK, non-zero on error."""
+    if ":" not in task_key:
+        print(
+            "--task must be <experiment_id>:<task_id>",
+            file=sys.stderr,
+        )
+        return 2
+    exp_id, tid = task_key.split(":", 1)
+    if not experiment_dir(exp_id).exists():
+        print(f"experiment not found: {exp_id}", file=sys.stderr)
+        return 2
+    try:
+        manifest = read_task_manifest(exp_id, tid)
+    except FileNotFoundError:
+        print(f"task not found: {task_key}", file=sys.stderr)
+        return 2
+    if manifest.mode == TaskMode.CONTINUATION:
+        print(
+            f"continuation task runs are not yet supported in this build "
+            f"(scheduled for Plan 3 — continuation-loader). Task {task_key} "
+            f"has mode=continuation.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
+def run_task_aware(args: Namespace) -> int:
+    """Handle `awp run --target <exp>:<task_id>` by delegating to AgentWorkflow."""
+    exp_id, tid = args.target.split(":", 1)
+    td = task_dir(exp_id, tid)
+    output_dir = td / "seed"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if os.environ.get("AWP_RUN_TASK_DRY_RUN") == "1":
+        print(json.dumps({"output_dir": str(output_dir), "target": args.target}))
+        return 0
+
+    try:
+        from awp.data.workflow import AgentWorkflow
+    except ImportError as exc:  # pragma: no cover
+        print(
+            f"awp-runtime is required for task-aware runs: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Read task.json for the actual prompt
+    manifest = read_task_manifest(exp_id, tid)
+    # For seed tasks (continuation is rejected earlier by validator)
+    task_text = args.task or manifest.user_prompt or "run task"
+
+    model = args.manager_model or args.model or "openai/gpt-5-mini"
+    worker_model = args.worker_model or "deepseek/deepseek-chat-v3.1"
+
+    workflow_path = Path(args.path)
+    inputs: dict = {}
+    if workflow_path.is_file():
+        inputs["workflow_path"] = str(workflow_path)
+    elif workflow_path.is_dir():
+        inputs["workflow_dir"] = str(workflow_path)
+
+    wf = AgentWorkflow(
+        inputs=inputs,
+        task=task_text,
+        model=model,
+        worker_model=worker_model,
+        output_dir=str(output_dir),
+        tags=["task", exp_id, tid],
+    )
+    try:
+        result = wf.run()
+    except Exception as exc:  # surface the error but let post-run attempt
+        print(f"AgentWorkflow.run failed: {exc}", file=sys.stderr)
+        result = None
+
+    # Recover run_id — try result attribute, else newest output subdir
+    run_id: str | None = None
+    if result is not None:
+        run_id = getattr(result, "run_id", None)
+        if run_id is None and isinstance(result, dict):
+            run_id = result.get("run_id")
+
+    return _post_run_finalise(
+        output_dir=output_dir,
+        run_id=run_id,
+        exp_id=exp_id,
+        task_key=args.target,
+        task_text=task_text,
+        model=model,
+    )
+
+
+def _post_run_finalise(
+    output_dir: Path,
+    run_id: str | None,
+    exp_id: str,
+    task_key: str,
+    task_text: str,
+    model: str,
+) -> int:
+    """Read the freshly-finished run, register it in awp_ui.db, and update BEST/."""
+    # Locate run_dir if run_id not known
+    runs_root = output_dir / "output"
+    if run_id is None:
+        if not runs_root.exists():
+            print(f"no run output directory found at {runs_root}", file=sys.stderr)
+            return 1
+        candidates = sorted(
+            (p for p in runs_root.iterdir() if p.is_dir()),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if not candidates:
+            print(f"no run output found under {runs_root}", file=sys.stderr)
+            return 1
+        run_dir = candidates[-1]
+        run_id = run_dir.name
+    else:
+        run_dir = runs_root / run_id
+
+    completion_path = run_dir / "run_completion.json"
+    if not completion_path.exists():
+        print(f"missing run_completion.json at {completion_path}", file=sys.stderr)
+        return 1
+    completion = json.loads(completion_path.read_text())
+    status = completion.get("status", "unknown")
+
+    # Compute loss (skip for non-terminal)
+    loss: float | None = None
+    if status in ("complete", "partial"):
+        try:
+            from awp.outer_loop.loss import compute_run_loss
+            loss = compute_run_loss(run_dir).total
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"compute_run_loss failed: {exc}", file=sys.stderr)
+
+    # Upsert DB row
+    async def _upsert(store):
+        await store.upsert_run_for_task(
+            run_id=run_id,
+            experiment_id=exp_id,
+            task_id=task_key,
+            run_role="seed",
+            loss=loss,
+            status=status,
+            task=task_text,
+            model=model,
+        )
+
+    asyncio.run(_with_store(_upsert))
+
+    # Invoke BEST finaliser
+    try:
+        from awp.outer_loop.best_finaliser import compute_and_update_best
+    except ImportError as exc:  # pragma: no cover
+        print(f"awp-runtime required: {exc}", file=sys.stderr)
+        return 1
+
+    task_dir_path = output_dir.parent  # <exp>/tasks/<task>/
+    result = compute_and_update_best(task_dir=task_dir_path, new_run_dir=run_dir)
+
+    # Mirror BEST to DB if it changed
+    if result.updated:
+        async def _set_best(store):
+            await store.set_task_best(
+                task_id_key=task_key,
+                run_id=run_id,
+                reason=result.reason,
+            )
+        asyncio.run(_with_store(_set_best))
+
+    print(
+        json.dumps({
+            "run_id": run_id,
+            "status": status,
+            "loss": loss,
+            "best_updated": result.updated,
+            "best_reason": result.reason,
+        }, indent=2)
+    )
+    return 0

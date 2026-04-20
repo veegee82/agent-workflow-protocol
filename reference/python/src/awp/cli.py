@@ -109,6 +109,11 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("path", help="Path to workflow directory")
     p_run.add_argument("--task", "-t", required=True, help="Task description")
     p_run.add_argument(
+        "--target",
+        default=None,
+        help="Attach this run to a task in the hierarchy (format: <experiment_id>:<task_id>)",
+    )
+    p_run.add_argument(
         "--model", "-m", help="LLM model to use (skips model wizard, sets LLM_MODEL)"
     )
     p_run.add_argument(
@@ -329,6 +334,12 @@ def main(argv: list[str] | None = None) -> int:
     p_task_delete = task_sub.add_parser("delete", help="Delete a task")
     p_task_delete.add_argument("task_key", help="<experiment_id>:<task_id>")
     p_task_delete.add_argument("--yes", action="store_true")
+
+    p_task_set_best = task_sub.add_parser("set-best", help="Pick the best run of a task")
+    p_task_set_best.add_argument("task_key", help="<experiment_id>:<task_id>")
+    grp = p_task_set_best.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--run", dest="run_id", help="pin this run as BEST (user override)")
+    grp.add_argument("--auto", action="store_true", help="clear override, reselect automatically")
 
     args = parser.parse_args(argv)
 
@@ -915,6 +926,20 @@ def cmd_studio(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Run an AWP workflow using the standalone runtime."""
+    # --- Task target validation (--target <exp>:<task_id>) ---
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import validate_task_key_for_run
+
+        rc = validate_task_key_for_run(args.target)
+        if rc != 0:
+            return rc
+
+    # --- Dispatch to task-aware path if --target is set ---
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import run_task_aware
+
+        return run_task_aware(args)
+
     # --- Pre-flight: auto-update from PyPI (opt-in) ---
     if getattr(args, "auto_update", False):
         print("  Checking for updates...")
