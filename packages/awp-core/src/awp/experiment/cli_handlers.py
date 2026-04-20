@@ -352,3 +352,36 @@ def _task_create_continuation(args: Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     return _persist_task(args.experiment_id, manifest, slug)
+
+
+# ---------------------------------------------------------------------------
+# Task validation for `awp run --task`
+# ---------------------------------------------------------------------------
+
+
+def validate_task_key_for_run(task_key: str) -> int:
+    """Validate --task argument for `awp run`. Returns 0 on OK, non-zero on error."""
+    if ":" not in task_key:
+        print(
+            "--task must be <experiment_id>:<task_id>",
+            file=sys.stderr,
+        )
+        return 2
+    exp_id, tid = task_key.split(":", 1)
+    if not experiment_dir(exp_id).exists():
+        print(f"experiment not found: {exp_id}", file=sys.stderr)
+        return 2
+    try:
+        manifest = read_task_manifest(exp_id, tid)
+    except FileNotFoundError:
+        print(f"task not found: {task_key}", file=sys.stderr)
+        return 2
+    if manifest.mode == TaskMode.CONTINUATION:
+        print(
+            f"continuation task runs are not yet supported in this build "
+            f"(scheduled for Plan 3 — continuation-loader). Task {task_key} "
+            f"has mode=continuation.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
