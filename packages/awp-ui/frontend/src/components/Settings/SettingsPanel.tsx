@@ -1437,6 +1437,68 @@ export function SettingsPanel() {
           />
         </div>
       </Panel>
+
+      {/* Cascade — auto-chain awp refine / awp optimize after a seed run */}
+      <Panel
+        title="Cascade"
+        icon={<Layers className="h-3.5 w-3.5 text-awp-purple" />}
+        defaultOpen={false}
+      >
+        <div className="space-y-4">
+          <p className="text-[11px] text-awp-muted leading-relaxed">
+            Automatically chain <code className="rounded bg-awp-border/40 px-1 font-mono text-[10px]">awp refine</code>{' '}
+            or <code className="rounded bg-awp-border/40 px-1 font-mono text-[10px]">awp optimize</code>{' '}
+            after a seed run completes. Requires a task to be selected in the
+            Experiments sidebar. Legacy Sessions-based runs cannot cascade.
+          </p>
+
+          {/* Auto-refine */}
+          <div className="space-y-2">
+            <ToggleSwitch
+              label="Auto-refine after seed"
+              description="Run awp refine on the completed seed run (y-axis SGD)"
+              checked={config.auto_refine_after_seed ?? false}
+              onChange={(v) => updateConfig({ auto_refine_after_seed: v })}
+            />
+            {(config.auto_refine_after_seed ?? false) && (
+              <div className="ml-6">
+                <SliderInput
+                  label="Refine iterations"
+                  description="Number of refinement iterations (1–10)"
+                  value={config.auto_refine_iterations ?? 3}
+                  min={1}
+                  max={10}
+                  step={1}
+                  onChange={(v) => updateConfig({ auto_refine_iterations: v })}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Auto-optimize */}
+          <div className="space-y-2">
+            <ToggleSwitch
+              label="Auto-optimize after seed"
+              description="Run awp optimize on the completed seed run (θ-axis SGD)"
+              checked={config.auto_optimize_after_seed ?? false}
+              onChange={(v) => updateConfig({ auto_optimize_after_seed: v })}
+            />
+            {(config.auto_optimize_after_seed ?? false) && (
+              <div className="ml-6">
+                <SliderInput
+                  label="Optimize epochs"
+                  description="Number of optimizer epochs (1–20)"
+                  value={config.auto_optimize_epochs ?? 3}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onChange={(v) => updateConfig({ auto_optimize_epochs: v })}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </Panel>
     </div>
   );
 }

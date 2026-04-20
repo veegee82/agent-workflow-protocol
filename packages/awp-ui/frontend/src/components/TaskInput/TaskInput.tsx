@@ -74,6 +74,7 @@ export function TaskInput() {
   const removeFile = useWorkflowStore((s) => s.removeFile);
   const isRefactoring = useWorkflowStore((s) => s.isRefactoring);
   const refactorTask = useWorkflowStore((s) => s.refactorTask);
+  const selectedTaskId = useWorkflowStore((s) => s.selectedTaskId);
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -294,6 +295,15 @@ export function TaskInput() {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Cascade hint — shown when a Task is selected and at least one cascade toggle is on */}
+      {selectedTaskId && (config.auto_refine_after_seed || config.auto_optimize_after_seed) && (
+        <div className="text-xs text-violet-600 px-1">
+          Cascade: seed
+          {config.auto_refine_after_seed ? ' → refine' : ''}
+          {config.auto_optimize_after_seed ? ' → optimize' : ''}
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="space-y-2">

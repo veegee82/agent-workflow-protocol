@@ -53,6 +53,12 @@ export interface WorkflowConfig {
   refinement_tier_low:  { manager: string; worker: string };
   refinement_tier_mid:  { manager: string; worker: string };
   refinement_tier_high: { manager: string; worker: string };
+  // Cascade — automatically chain awp refine / awp optimize after seed run
+  // completes, scoped to the currently-selected Task in the Experiments sidebar.
+  auto_refine_after_seed: boolean;
+  auto_refine_iterations: number;
+  auto_optimize_after_seed: boolean;
+  auto_optimize_epochs: number;
 }
 
 /** WebSocket event types pushed from the backend during a run. */

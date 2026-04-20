@@ -237,6 +237,11 @@ const DEFAULT_CONFIG: WorkflowConfig = {
   refinement_tier_low:  { manager: '', worker: '' },
   refinement_tier_mid:  { manager: '', worker: '' },
   refinement_tier_high: { manager: '', worker: '' },
+  // Cascade defaults — off by default; user opts in via Settings → Cascade
+  auto_refine_after_seed: false,
+  auto_refine_iterations: 3,
+  auto_optimize_after_seed: false,
+  auto_optimize_epochs: 3,
 };
 
 const DEFAULT_BUDGET: BudgetState = {
@@ -2218,6 +2223,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         ...state.config,
         output_dir: state.config.output_dir?.trim() || '',
         input_files: uploadedPaths,
+        // Thread experiment/task hierarchy IDs when a Task is selected in the
+        // Experiments sidebar. Backend ignores null values gracefully.
+        experiment_id: state.selectedExperimentId ?? null,
+        task_id: state.selectedTaskId ?? null,
       } as WorkflowConfig;
 
       // Pre-flight: check API key is available for the selected model
