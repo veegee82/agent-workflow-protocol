@@ -5,6 +5,7 @@ from .capabilities import DataSourceConfig, SkillsCapability, ToolsCapability
 from .common import AgentId, SemVer, ToolFQN
 from .communication import BusConfig, Channel, CommunicationConfig, MessageEnvelope
 from .custom_tools import CustomToolDeclaration, CustomToolsConfig
+from .experiment import ExperimentManifest
 from .evaluation import (
     EvalMetricConfig,
     EvalThresholds,
@@ -40,6 +41,7 @@ from .orchestration import (
 )
 from .security import CircuitBreakerConfig, SecurityConfig
 from .state import PersistenceConfig, SharingConfig, StateModel
+from .task import InputRole, TaskInput, TaskManifest, TaskMode
 
 __all__ = [
     "AWPManifest",
@@ -89,4 +91,9 @@ __all__ = [
     "RetryPolicyConfig",
     "RetryActionConfig",
     "RubricJudgeConfig",
+    "ExperimentManifest",
+    "TaskManifest",
+    "TaskMode",
+    "TaskInput",
+    "InputRole",
 ]
