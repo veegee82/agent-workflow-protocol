@@ -711,6 +711,7 @@ def refine_task_aware(args) -> int:
         iterations_root=iterations_root,
         model=getattr(args, "model", None),
         worker_model=getattr(args, "worker_model", None),
+        session_sidecar_dir=iterations_root,
     )
     n_iters = getattr(args, "iterations", None) or 3
     result = loop.run(iterations=n_iters)
