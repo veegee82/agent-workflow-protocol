@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Layer 6**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) · **Non-normative explainer**: [docs/observability.md](../../../../docs/observability.md) · **Event sources**: [05-orchestration.md](05-orchestration.md), [03-communication.md](03-communication.md) · **Cross-cutting mechanisms surfaced here (non-normative)**: [docs/evaluation.md](../../../../docs/evaluation.md), [docs/critique.md](../../../../docs/critique.md), [docs/manager-intelligence.md](../../../../docs/manager-intelligence.md) · **UI consumer**: [docs/ui.md](../../../../docs/ui.md) · **Sibling layers**: [00-manifest.md](00-manifest.md), [01-agent-identity.md](01-agent-identity.md), [02-capabilities.md](02-capabilities.md), [04-memory-state.md](04-memory-state.md), [05-orchestration.md](05-orchestration.md), [security.md](security.md)
+
 ---
 
 ## 1. Overview

@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Security**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) (cross-cutting — wraps every numbered layer) · **Non-normative explainer**: [docs/security.md](../../../../docs/security.md) · **Per-layer touchpoints**: [02-capabilities.md](02-capabilities.md) (tool permissions, forbidden tools), [03-communication.md](03-communication.md) (channel ACLs), [04-memory-state.md](04-memory-state.md) (scoped access), [05-orchestration.md](05-orchestration.md) (circuit breaker, rate limiting), [06-observability.md](06-observability.md) (audit) · **Runtime envelope**: [docs/runtime.md](../../../../docs/runtime.md) (budget envelope as safety boundary)
+
 ---
 
 ## 1. Overview

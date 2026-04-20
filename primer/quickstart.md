@@ -1,5 +1,7 @@
 # Quickstart: Build Your First Workflow in 5 Minutes
 
+> **See also** — **Parent (primer)**: [README.md](README.md), [concepts.md](concepts.md) · **Authoritative YAML references**: [docs/manifest.md](../docs/manifest.md) (workflow.awp.yaml — Layer 0), [docs/agent.md](../docs/agent.md) (agent.awp.yaml — Layer 1), [docs/orchestration.md](../docs/orchestration.md) (Layer 5) · **On-disk layout**: [docs/file-structure.md](../docs/file-structure.md) · **Validate before running**: [docs/validation.md](../docs/validation.md) (R1–R32) · **Run & observe**: [docs/runtime.md](../docs/runtime.md), [docs/observability.md](../docs/observability.md), [docs/ui.md](../docs/ui.md) · **Next in primer**: [faq.md](faq.md)
+
 This guide walks you through creating a minimal AWP workflow from scratch. By the end, you will have a valid, executable workflow with one agent, a prompt file, and an output schema.
 
 ## Prerequisites

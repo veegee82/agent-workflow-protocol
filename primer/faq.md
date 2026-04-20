@@ -1,5 +1,7 @@
 # Frequently Asked Questions
 
+> **See also** — **Parent (primer)**: [README.md](README.md) · **Authoritative docs for most answers**: [docs/README.md](../docs/README.md) (concept map), [docs/overview.md](../docs/overview.md), [docs/architecture.md](../docs/architecture.md) · **Primer siblings**: [motivation.md](motivation.md), [concepts.md](concepts.md), [comparison.md](comparison.md), [quickstart.md](quickstart.md)
+
 ## General
 
 ### Do I need Python to use AWP?

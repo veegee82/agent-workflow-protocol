@@ -1,5 +1,7 @@
 # AWP Built-in Tools Reference
 
+> **See also** — **Parent**: [skill/SKILL.md](../SKILL.md) · **Full non-normative tool reference**: [docs/tools.md](../../docs/tools.md) · **Dynamic tool factory (A3+)**: [docs/runtime-tool-generation.md](../../docs/runtime-tool-generation.md) · **Normative spec**: [spec/versions/1.0/layers/02-capabilities.md](../../spec/versions/1.0/layers/02-capabilities.md) · **Security envelope**: [docs/security.md](../../docs/security.md), [spec/versions/1.0/layers/security.md](../../spec/versions/1.0/layers/security.md) · **Sibling skill references**: [architecture.md](architecture.md), [compliance-levels.md](compliance-levels.md), [spec-summary.md](spec-summary.md), [validation-rules.md](validation-rules.md)
+
 AWP-compliant runtimes SHOULD provide the following built-in tools. All tools use the `namespace.action` naming convention and return the standard AWP tool result format.
 
 ## Standard Tool Result Format

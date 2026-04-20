@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Layer 3**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) · **Non-normative explainer**: [docs/communication.md](../../../../docs/communication.md) · **Alternative state-sharing mechanism**: [04-memory-state.md](04-memory-state.md) (`share_output`), [docs/memory.md](../../../../docs/memory.md) · **Sibling layers**: [00-manifest.md](00-manifest.md), [01-agent-identity.md](01-agent-identity.md), [02-capabilities.md](02-capabilities.md), [05-orchestration.md](05-orchestration.md), [06-observability.md](06-observability.md), [security.md](security.md)
+
 ---
 
 ## 1. Overview

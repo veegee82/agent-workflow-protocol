@@ -1,5 +1,7 @@
 # AWP Architecture Overview
 
+> **See also** — **Parent**: [skill/SKILL.md](../SKILL.md) · **Full non-normative architecture**: [docs/architecture.md](../../docs/architecture.md), [docs/layer-model.md](../../docs/layer-model.md), [docs/README.md](../../docs/README.md) (concept map) · **Normative spec**: [spec/versions/1.0/spec.md](../../spec/versions/1.0/spec.md) · **Sibling skill references**: [compliance-levels.md](compliance-levels.md), [spec-summary.md](spec-summary.md), [validation-rules.md](validation-rules.md), [tools-reference.md](tools-reference.md)
+
 ## Protocol Structure
 
 AWP workflows are defined by two YAML documents and supporting files:

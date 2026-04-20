@@ -51,6 +51,8 @@
 
 ---
 
+> **See also** — **Authoritative docs (concept map)**: [docs/README.md](docs/README.md) · **Start here**: [docs/overview.md](docs/overview.md), [docs/layer-model.md](docs/layer-model.md), [docs/architecture.md](docs/architecture.md) · **Autonomy & validation**: [docs/compliance.md](docs/compliance.md) (A0–A4), [docs/validation.md](docs/validation.md) (R1–R32) · **Engines & runtime**: [docs/ORCHESTRATION_ENGINES.md](docs/ORCHESTRATION_ENGINES.md), [docs/runtime.md](docs/runtime.md), [docs/manager-intelligence.md](docs/manager-intelligence.md), [docs/critique.md](docs/critique.md), [docs/evaluation.md](docs/evaluation.md) · **Optimization axes**: [docs/outer-loop.md](docs/outer-loop.md) (θ), [docs/refinement.md](docs/refinement.md) (y) · **Primer for newcomers**: [primer/README.md](primer/README.md) · **Normative spec**: [spec/versions/1.0/spec.md](spec/versions/1.0/spec.md) · **Governance / sync contract**: [CLAUDE.md](CLAUDE.md) §2
+
 ## Key Features
 
 ### The Core Idea: Agents That Build What They Need

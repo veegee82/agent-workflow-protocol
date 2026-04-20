@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Layer 4**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) · **Non-normative explainer**: [docs/memory.md](../../../../docs/memory.md) · **Push-based alternative**: [03-communication.md](03-communication.md) · **Consumer layer**: [05-orchestration.md](05-orchestration.md) (nodes read/write state via `share_output`) · **Agent-level memory config**: [01-agent-identity.md](01-agent-identity.md) · **Agent output contract R17 (normative)**: [../validation-rules.md](../validation-rules.md)
+
 ---
 
 ## 1. Overview

@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — File Structure**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](spec.md) · **Non-normative explainer**: [docs/file-structure.md](../../../docs/file-structure.md) · **Related normative artifacts**: [packaging.md](packaging.md) (how this layout packs into `.awp.zip`), [layers/00-manifest.md](layers/00-manifest.md) (the root document at the top of this layout) · **Runtime consumers**: [docs/runtime.md](../../../docs/runtime.md), [docs/observability.md](../../../docs/observability.md)
+
 ---
 
 ## 1. Overview

@@ -14,6 +14,8 @@ allowed-tools: Read Write Edit Bash Glob Grep
 
 # AWP Workflow Builder
 
+> **See also** — **Authoritative non-normative docs**: [docs/README.md](../docs/README.md) (concept map), [docs/overview.md](../docs/overview.md), [docs/layer-model.md](../docs/layer-model.md) · **Normative spec**: [spec/versions/1.0/spec.md](../spec/versions/1.0/spec.md), [spec/versions/1.0/validation-rules.md](../spec/versions/1.0/validation-rules.md), [spec/versions/1.0/compliance.md](../spec/versions/1.0/compliance.md) · **Per-layer references consumed by this skill**: [architecture](references/architecture.md), [compliance-levels](references/compliance-levels.md), [spec-summary](references/spec-summary.md), [validation-rules](references/validation-rules.md), [tools-reference](references/tools-reference.md) · **Runtime contracts a generated workflow must satisfy**: [docs/runtime.md](../docs/runtime.md) (budget envelope, completion gate chain, R17 agent contract), [docs/validation.md](../docs/validation.md), [docs/critique.md](../docs/critique.md), [docs/evaluation.md](../docs/evaluation.md) · **Sync contract**: [CLAUDE.md](../CLAUDE.md) §Skill Synchronization — every change to runtime, models, or features MUST update this file and [templates/](templates/)
+
 ## AWP 7-Layer Model
 
 AWP organizes a workflow into seven protocol layers. Each layer answers one question:

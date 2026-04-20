@@ -7,6 +7,8 @@ Define workflows in YAML. Run them in Python. Scale from a single agent to recur
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
+> **See also** — Full docs on GitHub: [docs/README.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/README.md) (concept map) · [docs/overview.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/overview.md) · [docs/layer-model.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/layer-model.md) · [docs/compliance.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/compliance.md) (A0–A4) · [docs/validation.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/validation.md) (R1–R32) · Normative spec: [spec/versions/1.0/spec.md](https://github.com/veegee82/agent-workflow-protocol/blob/main/spec/versions/1.0/spec.md)
+
 ---
 
 ## Installation

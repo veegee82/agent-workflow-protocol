@@ -1,5 +1,7 @@
 # Why AWP Exists
 
+> **See also** — **Parent (primer)**: [README.md](README.md) · **Next in primer**: [concepts.md](concepts.md), [comparison.md](comparison.md) · **Authoritative docs**: [docs/overview.md](../docs/overview.md), [docs/architecture.md](../docs/architecture.md) (why the separation matters at depth) · **Design principles in action**: [docs/layer-model.md](../docs/layer-model.md), [docs/compliance.md](../docs/compliance.md), [docs/validation.md](../docs/validation.md)
+
 ## The Fragmentation Problem
 
 Building multi-agent workflows today means stitching together half a dozen standards, each covering only a fraction of what a complete workflow needs. No single standard describes the full picture -- from agent identity through orchestration to observability.

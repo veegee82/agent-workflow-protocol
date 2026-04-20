@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Packaging**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](spec.md) · **Non-normative explainer**: [docs/packaging.md](../../../docs/packaging.md) · **Related normative artifacts**: [file-structure.md](file-structure.md) (layout that gets packaged), [layers/00-manifest.md](layers/00-manifest.md) (root document inside the package), [validation-rules.md](validation-rules.md) · **Distribution**: [docs/skill-system.md](../../../docs/skill-system.md) (ClawHub registry)
+
 ---
 
 ## 1. Overview

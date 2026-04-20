@@ -1,5 +1,7 @@
 # Core Concepts
 
+> **See also** — **Parent (primer)**: [README.md](README.md), [motivation.md](motivation.md) · **Authoritative non-normative docs**: [docs/layer-model.md](../docs/layer-model.md), [docs/compliance.md](../docs/compliance.md), [docs/README.md](../docs/README.md) (concept map with authoritative-doc pointers per concept) · **Deeper next**: [comparison.md](comparison.md), [quickstart.md](quickstart.md) · **Normative (for detail)**: [spec/versions/1.0/spec.md](../spec/versions/1.0/spec.md)
+
 AWP organizes the concerns of a multi-agent workflow into seven layers. Each layer answers a specific question, builds on the layers below it, and can be adopted independently. Autonomy levels (A0-A4) measure how autonomous the workflow is, while features like communication, memory, and observability are cross-cutting concerns available at any level.
 
 ## The 7-Layer Model

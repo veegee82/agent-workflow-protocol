@@ -1,5 +1,7 @@
 # AWP Validation Rules -- R1 through R32
 
+> **See also** — **Parent**: [skill/SKILL.md](../SKILL.md) · **Authoritative normative source**: [spec/versions/1.0/validation-rules.md](../../spec/versions/1.0/validation-rules.md) (R1–R36) · **Non-normative explainer**: [docs/validation.md](../../docs/validation.md) · **Where each rule lands (layer)**: see [docs/layer-model.md](../../docs/layer-model.md) and the per-layer docs · **Runtime enforcement**: [docs/runtime.md](../../docs/runtime.md) (completion gate chain — L0/R34, R35 repair fixpoint), [docs/critique.md](../../docs/critique.md), [docs/refinement.md](../../docs/refinement.md) (R36) · **Sibling skill references**: [architecture.md](architecture.md), [compliance-levels.md](compliance-levels.md), [spec-summary.md](spec-summary.md), [tools-reference.md](tools-reference.md)
+
 Use this checklist to validate AWP workflow correctness. All rules are mandatory unless noted.
 The authoritative source is `spec/versions/1.0/validation-rules.md`; this file is a condensed
 skill-local reference.

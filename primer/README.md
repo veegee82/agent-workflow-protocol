@@ -1,5 +1,7 @@
 # AWP Primer -- Reading Guide
 
+> **See also** — **After the primer, the authoritative docs**: [docs/README.md](../docs/README.md) (concept map), [docs/overview.md](../docs/overview.md), [docs/layer-model.md](../docs/layer-model.md) · **Normative spec (eventually)**: [spec/versions/1.0/spec.md](../spec/versions/1.0/spec.md) · **Primer files**: [motivation.md](motivation.md) · [concepts.md](concepts.md) · [comparison.md](comparison.md) · [quickstart.md](quickstart.md) · [faq.md](faq.md)
+
 This primer introduces the Agent Workflow Protocol (AWP) from motivation through hands-on practice. Read the documents in order for the best experience.
 
 ## Recommended Reading Order

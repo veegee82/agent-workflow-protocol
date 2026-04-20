@@ -2,6 +2,8 @@
 
 *This document is for the reader who wants to understand not just what AWP does, but why it matters at the deepest level — and what entirely new categories of computation it unlocks in data science, enterprise, and beyond.*
 
+> **See also** — **Load-bearing companions**: [README_NERD.md](README_NERD.md) (protocol depth), [docs/architecture.md](docs/architecture.md) (design decisions) · **Concept map**: [docs/README.md](docs/README.md) · **Where philosophy meets code**: [docs/runtime.md](docs/runtime.md), [docs/manager-intelligence.md](docs/manager-intelligence.md), [docs/outer-loop.md](docs/outer-loop.md), [docs/refinement.md](docs/refinement.md) · **Normative anchor**: [spec/versions/1.0/spec.md](spec/versions/1.0/spec.md)
+
 ---
 
 ## Table of Contents

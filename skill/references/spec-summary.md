@@ -1,5 +1,7 @@
 # AWP Specification Summary
 
+> **See also** — **Parent**: [skill/SKILL.md](../SKILL.md) · **Authoritative normative spec**: [spec/versions/1.0/spec.md](../../spec/versions/1.0/spec.md) (this file is a condensed mirror) · **Per-layer normative refs**: [spec/versions/1.0/layers/](../../spec/versions/1.0/layers/) · **Non-normative explainers (by layer)**: [manifest](../../docs/manifest.md), [agent](../../docs/agent.md), [tools](../../docs/tools.md), [communication](../../docs/communication.md), [memory](../../docs/memory.md), [orchestration](../../docs/orchestration.md), [observability](../../docs/observability.md), [security](../../docs/security.md) · **Sibling skill references**: [architecture.md](architecture.md), [compliance-levels.md](compliance-levels.md), [validation-rules.md](validation-rules.md), [tools-reference.md](tools-reference.md)
+
 This document provides a condensed overview of the Agent Workflow Protocol (AWP) for use as AI context. It covers all seven layers of the protocol.
 
 ## What is AWP?

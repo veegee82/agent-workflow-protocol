@@ -1,5 +1,7 @@
 # AWP Autonomy Levels -- Quick Reference
 
+> **See also** — **Parent**: [skill/SKILL.md](../SKILL.md) · **Full non-normative explainer**: [docs/compliance.md](../../docs/compliance.md), [docs/layer-model.md](../../docs/layer-model.md) (which layers each level requires) · **Normative spec**: [spec/versions/1.0/compliance.md](../../spec/versions/1.0/compliance.md) · **Sibling skill references**: [architecture.md](architecture.md), [spec-summary.md](spec-summary.md), [validation-rules.md](validation-rules.md), [tools-reference.md](tools-reference.md) · **Per-level engine**: [docs/ORCHESTRATION_ENGINES.md](../../docs/ORCHESTRATION_ENGINES.md), [docs/manager-intelligence.md](../../docs/manager-intelligence.md) (A2+), [docs/runtime-tool-generation.md](../../docs/runtime-tool-generation.md) (A3+)
+
 ## A0 Prescribed
 
 **What it measures:** Static workflow with predefined agents and fixed tools.

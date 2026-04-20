@@ -4,6 +4,8 @@
 
 AWP solves a fundamental problem in modern AI development: How do you orchestrate multiple autonomous agents safely, traceably, and scalably? The answer is a layered model that separates *what* (declarative definition) from *how* (runtime engine) and scales safety proportionally with autonomy.
 
+> **See also** — **Concept-level mental model**: [docs/README.md](docs/README.md) (authoritative concept map — which concept lives where and what its neighbors are), [docs/layer-model.md](docs/layer-model.md), [docs/architecture.md](docs/architecture.md), [docs/compliance.md](docs/compliance.md) · **Runtime & engines**: [docs/ORCHESTRATION_ENGINES.md](docs/ORCHESTRATION_ENGINES.md), [docs/runtime.md](docs/runtime.md), [docs/manager-intelligence.md](docs/manager-intelligence.md), [docs/critique.md](docs/critique.md), [docs/evaluation.md](docs/evaluation.md), [docs/runtime-tool-generation.md](docs/runtime-tool-generation.md) · **Optimization axes**: [docs/outer-loop.md](docs/outer-loop.md) (θ), [docs/refinement.md](docs/refinement.md) (y), [docs/iterative-optimization.md](docs/iterative-optimization.md) (inside a single run) · **Normative spec**: [spec/versions/1.0/spec.md](spec/versions/1.0/spec.md), [spec/versions/1.0/validation-rules.md](spec/versions/1.0/validation-rules.md) · **Validation (R1–R32)**: [docs/validation.md](docs/validation.md) · **Governance / sync contract**: [CLAUDE.md](CLAUDE.md) §2
+
 ---
 
 ## Table of Contents

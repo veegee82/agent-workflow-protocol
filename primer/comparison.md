@@ -1,5 +1,7 @@
 # AWP vs Existing Standards
 
+> **See also** — **Parent (primer)**: [README.md](README.md), [motivation.md](motivation.md) · **Authoritative comparison doc**: [docs/architecture.md](../docs/architecture.md) §1 (The Landscape) · **What AWP actually adds (concretely)**: [docs/overview.md](../docs/overview.md), [docs/layer-model.md](../docs/layer-model.md), [docs/compliance.md](../docs/compliance.md) · **Next in primer**: [quickstart.md](quickstart.md)
+
 AWP does not exist in a vacuum. It builds on lessons from existing protocols and frameworks, and in several cases, directly incorporates them. This document provides a detailed comparison to help you understand where AWP fits in the ecosystem.
 
 ## Feature Comparison Matrix

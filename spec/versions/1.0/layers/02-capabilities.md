@@ -3,6 +3,8 @@
 **AWP Specification v1.0.0 — Layer 2**
 **Status:** Draft Standard
 
+> **See also** — **Parent**: [spec.md](../spec.md), [docs/layer-model.md](../../../../docs/layer-model.md) · **Non-normative explainer**: [docs/tools.md](../../../../docs/tools.md) · **Dynamic tool factory (A3+, cross-cutting)**: [docs/runtime-tool-generation.md](../../../../docs/runtime-tool-generation.md) · **Security envelope**: [security.md](security.md), [docs/security.md](../../../../docs/security.md) · **Sibling layers**: [00-manifest.md](00-manifest.md), [01-agent-identity.md](01-agent-identity.md), [03-communication.md](03-communication.md), [04-memory-state.md](04-memory-state.md), [05-orchestration.md](05-orchestration.md), [06-observability.md](06-observability.md) · **Validation rules**: [../validation-rules.md](../validation-rules.md)
+
 ---
 
 ## 1. Overview
