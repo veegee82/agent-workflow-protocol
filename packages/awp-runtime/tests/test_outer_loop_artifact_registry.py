@@ -190,13 +190,27 @@ def test_manager_prompt_is_stable_across_registry_calls() -> None:
 
 
 def test_manager_prompt_uses_default_worker_pitfalls() -> None:
-    """v0 default must be the substring surfaced by the builder flow."""
-    # The pitfalls artifact is injected into the WORKER prompt, not the
-    # manager prompt. Here we just assert the attribute access path that
-    # the delegation_loop_runner relies on still works byte-identically.
+    """v0 default CONTENT must equal DEFAULTS — that's the in-repo contract.
+
+    We do NOT compare `awp.data.prompts.WORKER_PITFALLS` (which is routed
+    through the runtime ArtifactRegistry and may legitimately diverge from
+    the v0 default once `awp optimize` has evolved the active version on
+    the local machine). The invariant we care about here is that the file
+    under `defaults/worker_pitfalls.py` and the `DEFAULTS` mapping remain
+    byte-identical — a repo-level fact independent of any user's DB state.
+    """
+    from awp.outer_loop.defaults.worker_pitfalls import CONTENT
+
+    assert CONTENT == DEFAULTS["worker_pitfalls"]
+
+    # Separately, verify the legacy `from awp.data.prompts import
+    # WORKER_PITFALLS` access path still resolves to a non-empty string
+    # with the expected header (registry-served OR default-fallback — both
+    # are valid for the active runtime).
     from awp.data.prompts import WORKER_PITFALLS
 
-    assert WORKER_PITFALLS == DEFAULTS["worker_pitfalls"]
+    assert isinstance(WORKER_PITFALLS, str)
+    assert WORKER_PITFALLS.startswith("## Critical Pitfalls")
 
 
 def test_experiment_context_hint_matches_default() -> None:
