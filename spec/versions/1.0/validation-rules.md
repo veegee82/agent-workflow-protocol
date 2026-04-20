@@ -833,3 +833,12 @@ An extra check MUST implement the `OutputContractCheck` protocol (in `packages/a
   If the gradient is empty, the refinement loop SHALL abort with a `"nothing to refine"` signal and SHALL NOT dispatch the iteration's agent workflow.
 - **Rationale:** Prevents zero-signal reruns — a refinement call against an already-perfect run wastes budget and confuses loss attribution between policy (θ) and output (y) axes.
 - **Enforcement:** Runtime: `awp.refinement.loop.RefinementLoop.run` raises `NothingToRefine` before constructing `AgentWorkflow`. `awp refine` CLI prints `"nothing to refine: <reason>"` and exits 0. R36 is a runtime rule; `awp validate` does not evaluate it.
+
+## 13. Continuation Rules
+
+### R37 — Continuation-Task Input Non-Emptiness
+
+- **Category:** Orchestration (experiment hierarchy)
+- **Requirement:** A task with `mode == "continuation"` **MUST** have a non-empty `inputs` array, and every entry **MUST** reference a `from_task` that exists in the same experiment and has produced a terminal run recorded in `BEST/manifest.json`. Tasks violating R37 are rejected at task-create time and **MUST NOT** produce a run.
+- **Rationale:** Silent "continuation-as-seed" tasks (created with `--continuation` but no inputs, or with a dangling `from_task`) would produce a Manager prompt containing the continuation scaffolding but no actual prior material. R37 makes the invariant load-bearing and refuses the run at creation time rather than at Manager-prompt time.
+- **Enforcement:** Pydantic validator on `TaskManifest` (`packages/awp-core/src/awp/models/task.py`) plus the CLI handler in `packages/awp-core/src/awp/experiment/cli_handlers.py`.
