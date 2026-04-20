@@ -95,3 +95,101 @@ def test_task_delete_removes_dir(env: dict, tmp_path: Path) -> None:
     )
     assert r_del.returncode == 0
     assert not task_path.exists()
+
+
+def test_continuation_requires_from_task(env: dict) -> None:
+    exp_id = _mk_exp(env)
+    _run_cli(["task", "create", exp_id, "seed"], env=env)
+    r = _run_cli(
+        ["task", "create", exp_id, "fb", "--continuation"], env=env
+    )
+    assert r.returncode != 0
+    assert "requires at least one --from-task" in (r.stderr + r.stdout)
+
+
+def test_continuation_rejects_nonexistent_from_task(env: dict) -> None:
+    exp_id = _mk_exp(env)
+    r = _run_cli(
+        [
+            "task",
+            "create",
+            exp_id,
+            "fb",
+            "--continuation",
+            "--from-task",
+            "001-nope",
+        ],
+        env=env,
+    )
+    assert r.returncode != 0
+    assert "not found" in (r.stderr + r.stdout).lower()
+
+
+def test_continuation_with_valid_parent(env: dict, tmp_path: Path) -> None:
+    exp_id = _mk_exp(env)
+    r1 = _run_cli(["task", "create", exp_id, "seed"], env=env)
+    seed_id = json.loads(r1.stdout)["task_id"]
+    # Fake a BEST/ directory so R37 parent-has-BEST check passes.
+    best = tmp_path / exp_id / "tasks" / seed_id / "BEST"
+    best.mkdir(parents=True)
+    (best / "manifest.json").write_text('{"winner_run_id":"dummy"}')
+
+    r2 = _run_cli(
+        [
+            "task",
+            "create",
+            exp_id,
+            "improve",
+            "--continuation",
+            "--from-task",
+            seed_id,
+            "--primary",
+            "BEST/",
+        ],
+        env=env,
+    )
+    assert r2.returncode == 0, r2.stderr + r2.stdout
+    task_id = json.loads(r2.stdout)["task_id"]
+    assert task_id.startswith("002-")
+    manifest = json.loads(
+        (tmp_path / exp_id / "tasks" / task_id / "task.json").read_text()
+    )
+    assert manifest["mode"] == "continuation"
+    assert manifest["user_feedback"] == "improve"
+    assert manifest["inputs"][0]["from_task"] == seed_id
+    assert manifest["inputs"][0]["role"] == "primary"
+    assert manifest["inputs"][0]["bundle"] == "BEST/"
+
+
+def test_continuation_reference_paths(env: dict, tmp_path: Path) -> None:
+    exp_id = _mk_exp(env)
+    r1 = _run_cli(["task", "create", exp_id, "seed"], env=env)
+    seed_id = json.loads(r1.stdout)["task_id"]
+    best = tmp_path / exp_id / "tasks" / seed_id / "BEST"
+    best.mkdir(parents=True)
+    (best / "manifest.json").write_text("{}")
+
+    r2 = _run_cli(
+        [
+            "task",
+            "create",
+            exp_id,
+            "improve",
+            "--continuation",
+            "--from-task",
+            seed_id,
+            "--primary",
+            "BEST/",
+            "--reference",
+            "BEST/analysis/facts.json",
+        ],
+        env=env,
+    )
+    assert r2.returncode == 0, r2.stderr + r2.stdout
+    task_id = json.loads(r2.stdout)["task_id"]
+    manifest = json.loads(
+        (tmp_path / exp_id / "tasks" / task_id / "task.json").read_text()
+    )
+    roles = [inp["role"] for inp in manifest["inputs"]]
+    assert "primary" in roles
+    assert "reference" in roles

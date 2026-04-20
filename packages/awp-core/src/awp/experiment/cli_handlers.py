@@ -303,4 +303,52 @@ def _task_delete(task_key: str, yes: bool) -> int:
 
 
 def _task_create_continuation(args: Namespace) -> int:
-    raise NotImplementedError("continuation tasks land in Task 11")
+    if not args.from_task:
+        print(
+            "continuation task requires at least one --from-task (R37)",
+            file=sys.stderr,
+        )
+        return 2
+
+    inputs: list[TaskInput] = []
+    for src in args.from_task:
+        parent_dir = task_dir(args.experiment_id, src)
+        if not parent_dir.exists():
+            print(f"from_task not found: {src}", file=sys.stderr)
+            return 2
+        best = parent_dir / "BEST"
+        if not best.exists():
+            print(
+                f"from_task {src} has no BEST/ — run it to completion first",
+                file=sys.stderr,
+            )
+            return 2
+        bundle = args.primary or "BEST/"
+        inputs.append(
+            TaskInput(from_task=src, role=InputRole.PRIMARY, bundle=bundle)
+        )
+        for ref in args.reference:
+            inputs.append(
+                TaskInput(
+                    from_task=src, role=InputRole.REFERENCE, paths=[ref]
+                )
+            )
+
+    number = _next_task_number(args.experiment_id)
+    slug = slug_from_prompt(args.prompt)
+    tid = task_id_for(number, slug)
+    try:
+        manifest = TaskManifest(
+            task_id=tid,
+            experiment_id=args.experiment_id,
+            task_number=number,
+            mode=TaskMode.CONTINUATION,
+            user_prompt=None,
+            user_feedback=args.prompt,
+            inputs=inputs,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    return _persist_task(args.experiment_id, manifest, slug)
