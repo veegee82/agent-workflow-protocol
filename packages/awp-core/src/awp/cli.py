@@ -277,6 +277,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Outer-loop SQLite DB path (default: $AWP_OUTER_LOOP_DB or ~/.awp/outer_loop.db)",
     )
 
+    # experiment
+    p_exp = subparsers.add_parser("experiment", help="Manage experiments")
+    exp_sub = p_exp.add_subparsers(dest="experiment_cmd", required=True)
+
+    p_exp_create = exp_sub.add_parser("create", help="Create a new experiment")
+    p_exp_create.add_argument("name")
+    p_exp_create.add_argument("--goal", default="")
+
+    exp_sub.add_parser("list", help="List experiments")
+
+    p_exp_show = exp_sub.add_parser("show", help="Show experiment detail")
+    p_exp_show.add_argument("experiment_id")
+
+    p_exp_delete = exp_sub.add_parser("delete", help="Delete an experiment")
+    p_exp_delete.add_argument("experiment_id")
+    p_exp_delete.add_argument("--yes", action="store_true", help="skip confirmation")
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -310,6 +327,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_optimize_rollback(args)
         elif args.command == "refine":
             return cmd_refine(args)
+        elif args.command == "experiment":
+            from .experiment.cli_handlers import handle_experiment_command
+
+            return handle_experiment_command(args)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
