@@ -67,3 +67,51 @@ def test_run_continuation_no_longer_rejected(env: dict, tmp_path: Path) -> None:
     assert r.returncode == 0, combined
     assert "continuation" not in combined.lower() or "mode=continuation" not in combined.lower()
     assert str(tmp_path / exp_id / "tasks" / cont_id / "seed") in combined
+
+
+def test_continuation_dispatch_passes_prefix_to_agentworkflow(
+    env: dict, tmp_path: Path, monkeypatch
+) -> None:
+    """Verify that continuation mode calls AgentWorkflow with manager_prompt_prefix set."""
+    r = _run_cli(["experiment", "create", "E"], env=env)
+    exp_id = json.loads(r.stdout)["experiment_id"]
+    r = _run_cli(["task", "create", exp_id, "seed"], env=env)
+    seed_id = json.loads(r.stdout)["task_id"]
+
+    best = tmp_path / exp_id / "tasks" / seed_id / "BEST"
+    best.mkdir(parents=True)
+    (best / "manifest.json").write_text('{"winner_run_id":"fake"}')
+    (best / "paper.md").write_text("prior draft body")
+
+    r = _run_cli(
+        [
+            "task", "create", exp_id, "deepen section 2",
+            "--continuation", "--from-task", seed_id, "--primary", "BEST/",
+        ],
+        env=env,
+    )
+    cont_id = json.loads(r.stdout)["task_id"]
+
+    # Use a runtime hook that captures AgentWorkflow kwargs and exits before LLM
+    env2 = env.copy()
+    env2["AWP_CONTINUATION_CAPTURE_ONLY"] = str(tmp_path / "captured_kwargs.json")
+
+    r = _run_cli(
+        [
+            "run", "nonexistent-wf.yaml",
+            "--task", "fallback",
+            "--target", f"{exp_id}:{cont_id}",
+        ],
+        env=env2,
+    )
+    assert r.returncode == 0, r.stderr + r.stdout
+    captured = json.loads((tmp_path / "captured_kwargs.json").read_text())
+    prefix = captured["manager_prompt_prefix"]
+    assert "## Continuation Context" in prefix
+    assert "paper.md" in prefix
+    assert "prior draft body" in prefix
+    assert "deepen section 2" in prefix
+    # Confirm AgentWorkflow also got output_dir pointing at the continuation task's seed
+    assert captured["output_dir"].endswith(f"{cont_id}/seed")
+    # Task text becomes the user_feedback for continuation
+    assert captured["task"] == "deepen section 2"
