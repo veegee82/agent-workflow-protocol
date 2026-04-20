@@ -1,4 +1,4 @@
-"""CLI handlers for ``awp experiment ...`` subcommands."""
+"""CLI handlers for ``awp experiment ...`` and ``awp task ...`` subcommands."""
 
 from __future__ import annotations
 
@@ -9,14 +9,19 @@ import shutil
 import sys
 import time
 from argparse import Namespace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from awp.experiment.disk import (
+    append_task_to_order,
     read_experiment_manifest,
+    read_task_manifest,
     write_experiment_manifest,
+    write_task_manifest,
 )
-from awp.experiment.paths import experiment_dir
+from awp.experiment.paths import experiment_dir, slug_from_prompt, task_dir, task_id_for
 from awp.models.experiment import ExperimentManifest
+from awp.models.task import InputRole, TaskInput, TaskManifest, TaskMode
 
 
 # ---------------------------------------------------------------------------
@@ -166,3 +171,136 @@ def _exp_delete(experiment_id: str, yes: bool) -> int:
     asyncio.run(_with_store(_del))
     print(f"deleted {experiment_id}")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# task subcommands
+# ---------------------------------------------------------------------------
+
+def handle_task_command(args: Namespace) -> int:
+    cmd = args.task_cmd
+    if cmd == "create":
+        if args.continuation:
+            return _task_create_continuation(args)
+        return _task_create_seed(args)
+    if cmd == "list":
+        return _task_list(args.experiment_id)
+    if cmd == "show":
+        return _task_show(args.task_key)
+    if cmd == "delete":
+        return _task_delete(args.task_key, args.yes)
+    print(f"unknown task subcommand: {cmd}", file=sys.stderr)
+    return 2
+
+
+def _next_task_number(experiment_id: str) -> int:
+    manifest = read_experiment_manifest(experiment_id)
+    return len(manifest.task_order) + 1
+
+
+def _task_create_seed(args: Namespace) -> int:
+    if args.from_task or args.primary or args.reference:
+        print(
+            "--from-task/--primary/--reference require --continuation", file=sys.stderr
+        )
+        return 2
+    number = _next_task_number(args.experiment_id)
+    slug = slug_from_prompt(args.prompt)
+    tid = task_id_for(number, slug)
+    manifest = TaskManifest(
+        task_id=tid,
+        experiment_id=args.experiment_id,
+        task_number=number,
+        mode=TaskMode.SEED,
+        user_prompt=args.prompt,
+        user_feedback=None,
+        inputs=[],
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return _persist_task(args.experiment_id, manifest, slug)
+
+
+def _persist_task(experiment_id: str, manifest: TaskManifest, slug: str) -> int:
+    path = write_task_manifest(experiment_id, manifest)
+    append_task_to_order(experiment_id, manifest.task_id)
+
+    async def _insert(store):
+        await store.create_task(
+            task_id_key=f"{experiment_id}:{manifest.task_id}",
+            experiment_id=experiment_id,
+            task_number=manifest.task_number,
+            slug=slug,
+            mode=manifest.mode.value,
+            user_prompt=manifest.user_prompt,
+            user_feedback=manifest.user_feedback,
+            inputs_json=json.dumps(
+                [inp.model_dump(mode="json") for inp in manifest.inputs]
+            ),
+            created_at=time.time(),
+        )
+
+    asyncio.run(_with_store(_insert))
+    print(
+        json.dumps(
+            {
+                "task_id": manifest.task_id,
+                "manifest_path": str(path),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _task_list(experiment_id: str) -> int:
+    async def _fetch(store):
+        return await store.list_tasks(experiment_id)
+
+    rows = asyncio.run(_with_store(_fetch)) or []
+    print(json.dumps(rows, indent=2, default=str))
+    return 0
+
+
+def _split_key(task_key: str) -> tuple[str, str]:
+    if ":" not in task_key:
+        raise SystemExit("task key must be <experiment_id>:<task_id>")
+    exp_id, tid = task_key.split(":", 1)
+    return exp_id, tid
+
+
+def _task_show(task_key: str) -> int:
+    exp_id, tid = _split_key(task_key)
+    try:
+        manifest = read_task_manifest(exp_id, tid)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(manifest.model_dump_json(indent=2))
+    return 0
+
+
+def _task_delete(task_key: str, yes: bool) -> int:
+    exp_id, tid = _split_key(task_key)
+    td = task_dir(exp_id, tid)
+    if not yes:
+        resp = input(f"Delete {td}? [y/N] ").strip().lower()
+        if resp != "y":
+            return 1
+    if td.exists():
+        shutil.rmtree(td)
+
+    async def _del(store):
+        await store.delete_task(f"{exp_id}:{tid}")
+
+    asyncio.run(_with_store(_del))
+
+    # Remove from task_order
+    manifest = read_experiment_manifest(exp_id)
+    manifest.task_order = [t for t in manifest.task_order if t != tid]
+    write_experiment_manifest(manifest)
+    print(f"deleted {task_key}")
+    return 0
+
+
+def _task_create_continuation(args: Namespace) -> int:
+    raise NotImplementedError("continuation tasks land in Task 11")
