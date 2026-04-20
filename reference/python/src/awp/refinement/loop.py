@@ -146,7 +146,12 @@ class RefinementLoop:
         # structurally correct for tiered refinement: tier=mid should get
         # a shot against the same seed even if tier=low produced nothing.
         # Regression / plateau / wall-time guards still bound wasted compute.
-        last_good_final: Path = self._seed / "FINAL"
+        last_good_final = self._seed / "FINAL"
+        if not last_good_final.exists():
+            # AgentWorkflow writes FINAL at workspace-level, not run-level.
+            workspace_candidate = self._seed.parent.parent.parent / "output" / "FINAL"
+            if workspace_candidate.exists():
+                last_good_final = workspace_candidate
 
         # try/finally guarantees the session sidecar is written on every
         # exit path (normal completion, mid-iter exception, budget abort).

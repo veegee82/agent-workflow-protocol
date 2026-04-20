@@ -68,6 +68,11 @@ _default_settings: dict[str, Any] = {
     "budget_reservation_enabled": True,
     "decision_journal_enabled": True,
     "decision_journal_max_entries": 20,
+    # Experiment cascade (disabled by default)
+    "auto_refine_after_seed": False,
+    "auto_refine_iterations": 2,
+    "auto_optimize_after_seed": False,
+    "auto_optimize_epochs": 1,
     # UI state
     "sidebar_open": True,
     "inspector_open": True,

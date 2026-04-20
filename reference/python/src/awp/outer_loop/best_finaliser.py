@@ -150,7 +150,15 @@ def _rewrite_best(
     best_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy artifacts from winner's FINAL/ directory.
+    # AgentWorkflow writes FINAL at <workspace>/output/FINAL/. Fall back to
+    # the run-dir location for fixture-shaped tests that pre-date that finding.
     final_src = winner_run_dir / "FINAL"
+    if not final_src.exists():
+        # Walk up: <run>/workspace/runs/<id> → <run>/../.. is workspace,
+        # then workspace/output/FINAL is the canonical location.
+        workspace_candidate = winner_run_dir.parent.parent.parent / "output" / "FINAL"
+        if workspace_candidate.exists():
+            final_src = workspace_candidate
     if final_src.exists() and final_src.is_dir():
         for src in final_src.rglob("*"):
             if src.is_dir():
