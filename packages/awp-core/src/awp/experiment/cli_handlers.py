@@ -621,6 +621,7 @@ def _post_run_finalise(
     task_text: str,
     model: str,
     run_role: str = "seed",
+    task_dir_override: Path | None = None,
 ) -> int:
     """Read the freshly-finished run, register it in awp_ui.db, and update BEST/."""
     # Locate run_dir if run_id not known
@@ -679,10 +680,18 @@ def _post_run_finalise(
         print(f"awp-runtime required: {exc}", file=sys.stderr)
         return 1
 
-    # Compute task_dir: for any run (seed, refine, optimize), walk back to <exp>/tasks/<task>/
-    from awp.experiment.paths import experiment_dir as exp_dir_fn, task_dir as task_dir_fn
-    task_id = task_key.split(":", 1)[1] if ":" in task_key else task_key
-    task_dir_path = task_dir_fn(exp_id, task_id)
+    # Compute task_dir. Layers:
+    #   seed:                <task>/seed               → output_dir.parent
+    #   refine_iter:         <task>/refinements/session_X/iter_K → .parent^3
+    #   optimize_epoch_run:  <task>/optimizations/suite_X/epoch_N → .parent^3
+    # Callers that know the task_dir explicitly can bypass the inference by
+    # passing task_dir_override (test isolation, cross-process env state).
+    if task_dir_override is not None:
+        task_dir_path = task_dir_override
+    elif run_role in ("refine_iter", "optimize_epoch_run"):
+        task_dir_path = output_dir.parent.parent.parent
+    else:
+        task_dir_path = output_dir.parent
     result = compute_and_update_best(task_dir=task_dir_path, new_run_dir=run_dir)
 
     # Mirror BEST to DB if it changed
