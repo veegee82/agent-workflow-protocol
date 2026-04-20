@@ -439,30 +439,71 @@ def validate_task_key_for_run(task_key: str) -> int:
         print(f"experiment not found: {exp_id}", file=sys.stderr)
         return 2
     try:
-        manifest = read_task_manifest(exp_id, tid)
+        read_task_manifest(exp_id, tid)
     except FileNotFoundError:
         print(f"task not found: {task_key}", file=sys.stderr)
         return 2
-    if manifest.mode == TaskMode.CONTINUATION:
-        print(
-            f"continuation task runs are not yet supported in this build "
-            f"(scheduled for Plan 3 — continuation-loader). Task {task_key} "
-            f"has mode=continuation.",
-            file=sys.stderr,
-        )
-        return 2
+    # NOTE: Plan 3 lifted the "continuation unsupported" gate — continuation
+    # dispatch happens in run_task_aware.
     return 0
 
 
 def run_task_aware(args: Namespace) -> int:
     """Handle `awp run --target <exp>:<task_id>` by delegating to AgentWorkflow."""
+    from awp.experiment.paths import experiment_dir as _exp_dir
+
     exp_id, tid = args.target.split(":", 1)
     td = task_dir(exp_id, tid)
     output_dir = td / "seed"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    manifest = read_task_manifest(exp_id, tid)
+    is_continuation = manifest.mode.value == "continuation"
+
+    # Build the continuation prefix if applicable
+    manager_prompt_prefix: str | None = None
+    if is_continuation:
+        try:
+            from awp.continuation import (
+                load_continuation_bundle,
+                render_continuation_prefix,
+            )
+        except ImportError as exc:  # pragma: no cover
+            print(
+                f"awp-runtime required for continuation: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        bundle = load_continuation_bundle(
+            task_dir=td, experiment_dir=_exp_dir(exp_id),
+        )
+        manager_prompt_prefix = render_continuation_prefix(bundle)
+
     if os.environ.get("AWP_RUN_TASK_DRY_RUN") == "1":
-        print(json.dumps({"output_dir": str(output_dir), "target": args.target}))
+        print(json.dumps({
+            "output_dir": str(output_dir),
+            "target": args.target,
+            "mode": manifest.mode.value,
+            "has_prefix": manager_prompt_prefix is not None,
+        }))
+        return 0
+
+    # Capture-only path for tests that want to inspect the AgentWorkflow kwargs
+    # without actually running the LLM.
+    capture_path = os.environ.get("AWP_CONTINUATION_CAPTURE_ONLY")
+    if capture_path:
+        # Resolve task_text the same way the real path will
+        task_text = manifest.user_feedback if is_continuation else (
+            args.task or manifest.user_prompt or "run task"
+        )
+        model = args.manager_model or args.model or "openai/gpt-5-mini"
+        Path(capture_path).write_text(json.dumps({
+            "output_dir": str(output_dir),
+            "task": task_text,
+            "manager_prompt_prefix": manager_prompt_prefix or "",
+            "mode": manifest.mode.value,
+            "model": model,
+        }, indent=2))
         return 0
 
     try:
@@ -474,10 +515,12 @@ def run_task_aware(args: Namespace) -> int:
         )
         return 2
 
-    # Read task.json for the actual prompt
-    manifest = read_task_manifest(exp_id, tid)
-    # For seed tasks (continuation is rejected earlier by validator)
-    task_text = args.task or manifest.user_prompt or "run task"
+    # For continuation, the Manager's task is the user_feedback;
+    # for seed, it's the CLI --task or the stored user_prompt.
+    if is_continuation:
+        task_text = manifest.user_feedback or ""
+    else:
+        task_text = args.task or manifest.user_prompt or "run task"
 
     model = args.manager_model or args.model or "openai/gpt-5-mini"
     worker_model = args.worker_model or "deepseek/deepseek-chat-v3.1"
@@ -495,15 +538,15 @@ def run_task_aware(args: Namespace) -> int:
         model=model,
         worker_model=worker_model,
         output_dir=str(output_dir),
-        tags=["task", exp_id, tid],
+        tags=["task", exp_id, tid] + (["continuation"] if is_continuation else []),
+        manager_prompt_prefix=manager_prompt_prefix,
     )
     try:
         result = wf.run()
-    except Exception as exc:  # surface the error but let post-run attempt
+    except Exception as exc:
         print(f"AgentWorkflow.run failed: {exc}", file=sys.stderr)
         result = None
 
-    # Recover run_id — try result attribute, else newest output subdir
     run_id: str | None = None
     if result is not None:
         run_id = getattr(result, "run_id", None)
