@@ -19,6 +19,7 @@ import type {
 import * as api from '@/api/client';
 import type { ToolRegistryEntry, SkillRegistryEntry } from '@/api/client';
 import { connectToRun } from '@/api/websocket';
+import { experimentApi, taskApi, type Experiment, type ExperimentDetail, type TaskDetail } from '@/api/experiments';
 
 // ---------------------------------------------------------------------------
 // Helpers – result formatting
@@ -481,6 +482,21 @@ export interface WorkflowStore {
   // Periodic poll of /api/sessions while at least one experiment is running.
   // The handle is stored so we can clear it on reset/no-running-experiments.
   _sessionPollIntervalId: ReturnType<typeof setInterval> | null;
+
+  // Experiment/Task hierarchy (Plan 5)
+  experiments: Experiment[];
+  experimentDetails: Record<string, ExperimentDetail>;
+  taskDetails: Record<string, TaskDetail>;
+  selectedExperimentId: string | null;
+  selectedTaskId: string | null;
+  sidebarMode: "sessions" | "experiments";
+  loadExperiments: () => Promise<void>;
+  loadExperimentDetail: (experimentId: string) => Promise<void>;
+  loadTaskDetail: (taskIdKey: string) => Promise<void>;
+  setSelectedExperiment: (id: string | null) => void;
+  setSelectedTask: (key: string | null) => void;
+  setSidebarMode: (mode: "sessions" | "experiments") => void;
+  overrideTaskBest: (taskIdKey: string, runId: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -3204,4 +3220,65 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   _wsPool: new Map(),
   _runToSession: new Map(),
   _sessionPollIntervalId: null,
+
+  // -- Experiment/Task hierarchy (Plan 5) -----------------------------------
+  experiments: [],
+  experimentDetails: {},
+  taskDetails: {},
+  selectedExperimentId: null,
+  selectedTaskId: null,
+  sidebarMode: 'sessions',
+
+  loadExperiments: async () => {
+    try {
+      const items = await experimentApi.list();
+      set(() => ({ experiments: items }));
+    } catch (err) {
+      console.error('Failed to load experiments:', err);
+    }
+  },
+
+  loadExperimentDetail: async (experimentId: string) => {
+    try {
+      const detail = await experimentApi.detail(experimentId);
+      set((state) => ({
+        experimentDetails: { ...state.experimentDetails, [experimentId]: detail },
+      }));
+    } catch (err) {
+      console.error(`Failed to load experiment detail for ${experimentId}:`, err);
+    }
+  },
+
+  loadTaskDetail: async (taskIdKey: string) => {
+    try {
+      const detail = await taskApi.detail(taskIdKey);
+      set((state) => ({
+        taskDetails: { ...state.taskDetails, [taskIdKey]: detail },
+      }));
+    } catch (err) {
+      console.error(`Failed to load task detail for ${taskIdKey}:`, err);
+    }
+  },
+
+  setSelectedExperiment: (id: string | null) =>
+    set(() => ({ selectedExperimentId: id })),
+
+  setSelectedTask: (key: string | null) =>
+    set(() => ({ selectedTaskId: key })),
+
+  setSidebarMode: (mode: 'sessions' | 'experiments') =>
+    set(() => ({ sidebarMode: mode })),
+
+  overrideTaskBest: async (taskIdKey: string, runId: string) => {
+    try {
+      await taskApi.setBest(taskIdKey, runId);
+      // refresh the task detail to reflect new best_run_id + reason
+      const detail = await taskApi.detail(taskIdKey);
+      set((state) => ({
+        taskDetails: { ...state.taskDetails, [taskIdKey]: detail },
+      }));
+    } catch (err) {
+      console.error(`Failed to override task best for ${taskIdKey}:`, err);
+    }
+  },
 }));
