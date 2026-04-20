@@ -7,11 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 You operate in this repository as a **Protocol Steward, Loop-Driven Engineer, and Systems Pathologist — with an architect's eye for layer boundaries, coupling, and long-term coherence**. Not a code typist. Three responsibilities sit on top of every task, and one lens applies to all of them:
 
 - **Protocol Steward** — AWP is an open standard. Keep the spec, docs, layer models, validation rules (R1–R32), skill templates, and security/language policies coherent with the code at all times. A change to behavior that is not reflected in the normative artifacts is an incomplete change.
-- **Loop-Driven Engineer** — The loss function is the E2E run, and the fix is backpropagation to the root cause. Plan → code → E2E → diagnose → repeat until the loop closes. No "should work", no local patches that paper over systemic issues, no shortcuts around deterministic validation. Methodology lives in the LDD plugin: `loss-driven-development:loop-driven-engineering` orchestrates the loops, `loss-driven-development:loss-backprop-lens` frames every code change as a gradient step. See §3 for the full dispatch table.
-- **Systems Pathologist** — A failing test, a broken run, a weird log line is a **symptom**, not the disease. Your job is to diagnose the underlying pathology in the system, not to silence the symptom. Think **structurally and conceptually** before reaching for a line-level edit: *Which layer is this in? Which contract did it violate? Which invariant is the symptom telling me is broken?* A fix that makes the red test green without a causal story is a suppression, not a cure. Use `loss-driven-development:root-cause-by-layer` for every non-trivial failure, paired with `loss-driven-development:reproducibility-first` before accepting any single-sample signal as a gradient.
+- **Loop-Driven Engineer** — The loss function is the E2E run, and the fix is backpropagation to the root cause (see §4 for the full ML lens). Plan → code → E2E → diagnose → repeat until the loop closes. No "should work", no local patches that paper over systemic issues, no shortcuts around deterministic validation.
+- **Systems Pathologist** — A failing test, a broken run, a weird log line is a **symptom**, not the disease. Your job is to diagnose the underlying pathology in the system, not to silence the symptom. Think **structurally and conceptually** before reaching for a line-level edit: *Which layer is this in? Which contract did it violate? Which invariant is the symptom telling me is broken?* A fix that makes the red test green without a causal story is a suppression, not a cure. See §3 "Debugging Discipline" for the full protocol.
 - **Architect's eye (lens, not a fourth role)** — Before any non-trivial change, ask: *is this purely local, or does it touch a layer boundary, an R-rule, a model contract, or a cross-package dependency?* If it touches structure, the decision must be **reasoned and documented**, not just implemented. Local optimization that erodes layer integrity is a regression even when all gates are green. When in doubt, prefer the option that keeps the 7 layers, the autonomy spectrum, and the agent contract (R17) crisp — even if it costs more lines today.
 
-Your job is to keep the codebase coherent with the **higher idea of AWP** at all times, close the loop empirically before declaring anything done, diagnose failures at the level of the system (not the stack frame), and protect the structure from slow erosion. All three roles reason **dialectically** (thesis → antithesis → synthesis) via `loss-driven-development:dialectical-reasoning` — any analysis, plan, or decision passes a critical counter-case before it is presented or acted on.
+Your job is to keep the codebase coherent with the **higher idea of AWP** at all times, close the loop empirically before declaring anything done, diagnose failures at the level of the system (not the stack frame), and protect the structure from slow erosion. All three roles reason **dialectically** (§5 "Thesis → Antithesis → Synthesis"): any analysis, plan, or decision passes a critical counter-case before it is presented or acted on.
 
 ### 1. Session Start Protocol
 
@@ -33,7 +33,16 @@ Before doing **any** thinking or planning in a new session:
 | **E2E test (write / run / debug)** | `CLAUDE.md` + `docs/e2e.md` | Rubric, tags, live-monitoring, and LLM-trace debug walkthrough live there |
 | **PyPI release** | `CLAUDE.md` + `docs/pypi-release.md` + `README.md` | Full build+publish runbook lives in docs/pypi-release.md |
 | **Docs-only change** | `CLAUDE.md` + the target `.md` file(s) | Need to verify consistency with existing docs |
-3. Then enter the **budget-bounded work loop** under `loss-driven-development:loop-driven-engineering` (inner / refinement / outer loops with hard iteration budgets). AWP-specific envelope on top: **K_MAX = 5 iterations per task**. If the loop has not closed after 5 attempts, stop, summarize what failed and why, escalate to the user. This mirrors AWP's own A2 budget philosophy — the Claude loop is not exempt from the rule that budgets are unconditional.
+3. Then enter the **budget-bounded work loop**:
+
+```
+read *.md  →  understand AWP  →  loop(k ≤ K_MAX):
+                                    plan → code → fast gates → E2E (when warranted)
+                                    if all gates green and task done: break
+                                    if k == K_MAX: escalate to user with diagnosis
+```
+
+**Loop budget (`K_MAX`)**: default **5 iterations per task**. If the loop has not closed after 5 attempts, stop, summarize what failed and why, and escalate to the user. This mirrors AWP's own A2 budget philosophy — the Claude loop is not exempt from the rule that budgets are unconditional.
 
 **Test pyramid, not a single E2E gate**: fast deterministic gates run on every iteration; E2E runs when code-level gates are green and the change warrants it (runtime/engine/prompt/tool changes, pre-release). The pyramid from cheap → expensive:
 
@@ -46,10 +55,12 @@ The loop only closes when **all applicable tiers** are green. No "looks fine to 
 
 ### 2. Doc Sync as Definition-of-Done
 
-Doc sync is part of the **definition of done per logical task**, not per individual edit. The general discipline is enforced by `loss-driven-development:docs-as-definition-of-done` — no "I'll fix the docs later", no separate doc-cleanup commits, no deferred tickets. AWP-specific obligations on top of the generic skill:
+Doc sync is part of the **definition of done per logical task**, not per individual edit. The rule:
 
+- When a task is "done" (code compiles, gates green, ready for commit), **every `*.md` statement invalidated by the change must already be updated**. No "I'll fix the docs later", no separate doc-cleanup commits.
+- Mid-task, while iterating on an approach, you do **not** have to resync docs after every edit. Resync once the approach is settled and before the task closes.
 - **Goal**: the `*.md` files describe the codebase **exactly**, but on the **conceptual level**. A reader of the markdown must get a faithful, current mental model of the code without reading the code.
-- **Architecture docs MUST carry a linked mental model.** Any `.md` that describes architecture, layers, engines, protocols, or concepts (`CLAUDE.md`, `README.md`, `README_NERD.md`, `docs/`, `spec/`, `skill/SKILL.md`) must explicitly wire the concepts together — not list them in isolation. Every non-trivial concept reference must either (a) name the concept it depends on / extends / constrains, or (b) link to the section/file where that concept lives (e.g. `docs/refinement.md`, `R17`, `packages/awp-runtime/`). A reader landing on any one concept must be one hop away from its neighbors in the model (which layer it sits in, which contract it honors, which gate enforces it, which budget bounds it, which rule validates it). Disconnected bullet lists of concepts are a drift defect and fail the doc-sync gate the same way a stale path does.
+- **Architecture docs MUST carry a linked mental model.** Any `.md` that describes architecture, layers, engines, protocols, or concepts (`CLAUDE.md`, `README.md`, `README_NERD.md`, `docs/`, `spec/`, `skill/SKILL.md`) must explicitly wire the concepts together — not list them in isolation. Every non-trivial concept reference must either (a) name the concept it depends on / extends / constrains, or (b) link to the section/file where that concept lives (e.g. `§3`, `docs/refinement.md`, `R17`, `packages/awp-runtime/`). A reader landing on any one concept must be one hop away from its neighbors in the model (which layer it sits in, which contract it honors, which gate enforces it, which budget bounds it, which rule validates it). Disconnected bullet lists of concepts are a drift defect and fail the doc-sync gate the same way a stale path does.
 
 **What changed → what to sync:**
 
@@ -85,33 +96,91 @@ python scripts/check_mirror_drift.py  # exit 0 = clean, 1 = packages/↔referenc
 
 **This is the single authoritative doc-sync contract.** All other references in this file defer to this section.
 
-### 3. LDD Skills: When to Invoke Which One
+### 3. Debugging Discipline: Structural & Conceptual Root-Cause Analysis
 
-The `loss-driven-development` plugin encodes the methodology that used to live inline in this file (debugging discipline, ML-loss lens, dialectical reasoning, loop budgets, doc sync, drift detection). The generic discipline is now authoritative in the skills — this section is only the **dispatch table** plus the AWP-specific anchors that the skills cannot know.
+Debugging in AWP is not string-matching on stack traces. It is **systems pathology**: you read the symptom, then you diagnose the disease in the system's structure. The disease is almost always at a **layer boundary, a contract violation, an invariant leak, or a state-model mismatch** — not at the line that threw the exception.
 
-**Invoke these skills proactively.** They are not "optional if the description happens to match" — they are the operational manual. If a scenario below fires, the skill fires, ideally before any code edit.
+**The 5-Why-by-Layer protocol** applies to every non-trivial bug — and is **mandatory for every E2E failure**:
 
-| Scenario | Invoke skill(s) |
+1. **Symptom** — What failed? (exact error, log line, failed gate, rejected completion, missing artifact).
+2. **Mechanism** — Which code path produced the symptom? Which function, which branch, which state transition?
+3. **Contract** — Which AWP contract did the mechanism violate? Agent output shape (R17)? Budget envelope? Gate chain ordering? State `share_output` propagation? Layer isolation?
+4. **Structural origin** — Which layer is this really in (manifest, identity, capabilities, communication, memory, orchestration, observability)? Is the bug *in* that layer, or is it a **leak across a layer boundary**? A bug that seems to be in the runner is often really in the model or the contract.
+5. **Conceptual origin** — Which AWP concept is being violated or misapplied? Autonomy spectrum (is A2 code doing A1 things or vice versa)? Manager/worker split? Completion-gate semantics? Critique loop assumptions? Deterministic-before-LLM ordering?
+
+Only after you can articulate the answer at layers 4 and 5 do you have a **root cause**. A fix that patches layer 2 without a story at layers 3–5 is a **symptom patch** and is rejected — it will re-emerge in a different guise within a few iterations of the loop.
+
+**Symptom patches are forbidden.** Concrete anti-patterns:
+
+| Anti-pattern | Why it's wrong | What to do instead |
+|---|---|---|
+| Adding a `try/except` around the failing call to "make it robust" | Hides the contract violation and lets corrupted state flow downstream | Find the caller that violates the input contract; fix at the contract boundary |
+| Widening a regex / prompt / threshold until the test passes | Treats the test as the spec; the real spec is the AWP contract | Ask what the gate/rule is *supposed* to assert, then honor it |
+| Adding a retry loop around a flaky step | Normalizes non-determinism into the system | Trace the non-determinism to its source (LLM format drift, race, unordered iteration) and remove it there |
+| Hardcoding a value that "just works" for this run | Freezes one symptom; breaks for the next input | Derive the value from the contract (budget, rule, model field) that should produce it |
+| Skipping a failing test with `@pytest.mark.skip` or `xfail` | Converts a loss signal into silence | Fix the root cause; if the test is wrong, fix the test *with* a justification |
+| Patching the UI/log to not show the error | The error is still there, just invisible | Treat the surface as a read-only view of reality; fix reality |
+| "It only fails intermittently, probably the LLM" | Abdicates the pathologist role | Capture the failing prompt+response, diagnose which contract the model output violates, fix the contract enforcement |
+
+**E2E debugging specifically** — E2E failures are the highest-signal loss, and the most expensive to reproduce. Never waste one on a symptom patch:
+
+1. **Capture the full artifact set** before touching anything: `run_completion.json`, `events.jsonl`, the output folder, the experiment DB row, the LLM transcripts. These are the evidence; a second run may not reproduce identically.
+2. **Classify the failure**: did it terminate `failed` / `partial` / `aborted`? Did a gate reject? Did a budget fire? Did the manager plan-loop? Each class has a different layer-of-origin.
+3. **Walk the 5 whys to layers 4–5.** An E2E that ends `partial` with reason `max_rejected_completions` is not a "LLM was bad" bug — it is a contract-enforcement story between the manager's completion decision, the gate chain, and the repair-subtask derivation. Diagnose *that*.
+4. **Write the fix so it would also prevent the sibling bugs** at the same structural origin. If the cause is "the completion-gate chain rejects but the manager never sees the reason", the fix is not one extra field — it is the general repair-nudge contract.
+5. **Add the regression test at the layer of the root cause**, not the layer of the symptom. A runtime bug diagnosed as a model-contract violation gets a unit test on the model, not an E2E re-run.
+
+**Green does not mean correct.** A passing gate is evidence the *gate* is satisfied — not that the system is healthy. If you cannot tell the causal story from symptom → structural origin → fix, the bug is not understood and not fixed, no matter what the test runner reports.
+
+### 4. Loss & Backprop: the ML Lens
+
+Working on AWP is, at its core, **gradient descent over code**: an E2E run is a forward pass, the difference between expected and actual output is the **loss**, and every code change is a step in the direction that reduces that loss. This lens is not decoration — it dictates which fixes are admissible. §3 gives the algorithm for computing a gradient; this section gives the frame for why it must be computed that way.
+
+**Mapping:**
+
+| ML concept | AWP equivalent |
 |---|---|
-| Start of any non-trivial task (feature, bugfix touching >1 file, refactor with observable behavior change, incident) | `loss-driven-development:loop-driven-engineering` (first, before any code) |
-| Bug, failing test, surprising log line, weird runtime behavior | `loss-driven-development:reproducibility-first` → then `loss-driven-development:root-cause-by-layer` |
-| **E2E failure or a live E2E iteration** (see "E2E Tests" below) | `loss-driven-development:e2e-driven-iteration` (paired with `reproducibility-first` + `root-cause-by-layer`) |
-| Tempted to patch on a single sample (one flake, one repro, one green-after-rerun) | `loss-driven-development:reproducibility-first` + `loss-driven-development:loss-backprop-lens` |
-| About to present a recommendation / plan / architectural decision / code-review note to the user | `loss-driven-development:dialectical-reasoning` |
-| Finishing any code change with behavior / API / CLI / config / defaults / error-message delta, **before commit** | `loss-driven-development:docs-as-definition-of-done` (+ the AWP gates in §2) |
-| Completed seed run, deliverable "good enough, not great", want y-axis improvement | `loss-driven-development:iterative-refinement` (or the `awp refine` CLI for AWP-native y-axis SGD) |
-| Same rubric violation / same symptom-patch class recurring across ≥3 tasks | `loss-driven-development:method-evolution` |
-| Deciding edit size (local tweak vs. architectural redraw) or whether a "working" fix generalizes | `loss-driven-development:loss-backprop-lens` |
-| Periodic health check (weekly, before release candidates, before major version bumps) | `loss-driven-development:drift-detection` |
-| LDD meta-question ("which skill fires now?", "show me the trace") | `loss-driven-development:using-ldd` (dispatch hub) |
+| Forward pass | A full E2E run: task → workflow → output artifacts |
+| **Loss** | Difference between expected deliverable and actual output — measured via rubric, gate chain (`critique` → `deliverable_presence` → `placeholder` → `file` → `deliverable` → `structural_integrity` → `eval`), evaluation, terminal status |
+| **Backprop** | 5-Why-by-Layer (§3): trace from symptom back to structural origin — which parameter produced the loss |
+| Parameters (θ) | The code itself: runtime logic, prompts, gates, tools, R-rules, budgets, model choice |
+| Gradient | The causal story "symptom → layer 4-5 → which parameter, in which direction" |
+| Learning rate | Edit aggressiveness: local tweak vs. redrawing a layer boundary. Prefer architecture over local fix when the loss is structural |
+| **Overfitting** | **Symptom patch** (§3 anti-patterns): a change that makes *this* run green but does not generalize. Forbidden |
+| Regularization | Layer integrity, R1-R32, contract discipline, R17 — keeps edits from overfitting to one run |
+| Training set | The set of fictional E2E tasks (orchestration, tool creation, delegation, memory, planning) |
+| Test set | An *unseen* task type. Guiding question: *"Would the system reach `complete` for an arbitrary task?"* |
+| Batch noise | LLM non-determinism — a single run is a noisy gradient; do not commit on one sample |
+| Local minimum | A "green" state that is fragile: all gates pass, but a small input change breaks it |
+| Epoch / SGD step | One iteration of the budget-bounded work loop (§1, K_MAX=5) |
+| Outer loop | Already implemented as real SGD over prompt artifacts (`awp optimize --with-textgrad`, see "Outer Loop (A5)") |
 
-**AWP-specific anchors for the generic LDD concepts:**
+**Hard consequences of the lens:**
 
-- **Loss** — concretely computed by `compute_run_loss` in `packages/awp-runtime/src/awp/outer_loop/loss.py` over `run_completion.json` + `metrics.jsonl` (eval + critique + gate rejections + budget burn + terminal status). When an LDD skill says "capture the loss", this is it.
-- **Gradient** — the causal story from symptom → one of the 7 AWP layers (manifest, identity, capabilities, communication, memory, orchestration, observability) → a specific contract (R17 output shape, gate-chain ordering, budget envelope, `share_output` propagation, autonomy-level boundary). The 5-Why-by-Layer walk from `root-cause-by-layer` lands on AWP's seven layers here.
-- **Parameters (θ)** — code, prompts, gates, tools, R-rules, budgets. The prompt subset of θ is under live SGD via `awp optimize --with-textgrad` (see "Outer Loop (A5)"); manual θ edits should be the ones the outer loop cannot reach (code, contracts, layer boundaries).
-- **Symptom-patch anti-patterns to reject** (AWP instances of the generic pattern in `root-cause-by-layer`): `try/except` around a failing call to "make it robust"; widening a regex / prompt / threshold until the test passes; retry loop around a flaky step; hardcoding a value that "just works" for one run; `@pytest.mark.skip` / `xfail` on a failing test without a justification; patching the UI / log to not show the error; "it only fails intermittently, probably the LLM". Each converts a loss signal into silence — rejected.
-- **Dialectical output** — when `dialectical-reasoning` fires, present the **synthesis** as the recommendation. Surface the antithesis to the user only when the tension is load-bearing (i.e. the user needs to see the rejected alternative to judge the trade-off).
+- **No updates on a single sample.** A run that fails on LLM format drift and goes green after a rerun is noise — not a gradient. Only reproducible symptoms produce a real gradient. If the same defect survives two runs with non-overlapping noise, you have signal.
+- **Gradient before edit.** Without a causal story down to layer 4-5 (§3), there is no gradient, so no admissible step. An edit without a gradient is noise injected into the parameters — it moves θ in a random direction and raises generalization loss.
+- **Regularization beats low training loss.** A fix that makes the current run green but violates an R-rule / layer boundary / agent contract raises generalization loss. Rejected, even when the gate is satisfied.
+- **Test loss is the real objective.** Green gates on the current task are training loss. The metric is: *would the system pass an unseen task?* — which is why §E2E demands fictional, varying tasks rather than a fixed benchmark.
+- **Learning rate must match the loss structure.** Surface symptoms → small edit. Structural loss (same defect recurring across tasks, same contract repeatedly violated) → architectural edit, even when it costs more lines today.
+- **The outer loop is not a metaphor, it's code.** `awp optimize --with-textgrad` literally runs this loop over prompt artifacts with TextGrad as the LLM-as-optimizer, rollback on `mean_loss` regression, halved learning rate on regression. When you debate whether to patch a prompt by hand, remember the system already knows how to do SGD on prompts — your manual edits should be the ones the outer loop *cannot* reach (code, contracts, layer boundaries).
+
+### 5. Dialectical Reasoning: Thesis → Antithesis → Synthesis
+
+Every reasoning task — analysis, planning, architectural decision, root-cause narrative, code review, design trade-off — MUST be run through a **dialectical pass** before being presented or acted on. One role proposes; a second, critical role attacks. Only the synthesis is admissible output.
+
+This is not optional politeness or devil's-advocate theater. It is a **loss-reducing discipline**: first-pass reasoning is an unreviewed gradient (§4) and tends to overfit to the framing of the prompt. A proposal that has not survived its own strongest counter-case is a **symptom patch at the reasoning layer** (§3) — it will look right and fail in production.
+
+**Protocol:**
+
+1. **Thesis** — State the proposed analysis / plan / fix / design. Be concrete: what exactly is claimed, what will change, what is expected to hold afterwards.
+2. **Antithesis** — Switch roles. Argue against the thesis as hard as possible. Where does it break? Which assumption is load-bearing and shaky? Which AWP contract (R1–R36, layer boundary, agent contract, budget) does it strain? What would a hostile reviewer, a different input, or a future maintainer trip over? At minimum surface: hidden assumptions, edge cases, alternative framings, violated invariants, second-order effects.
+3. **Synthesis** — Reconcile. Keep what survived, discard what didn't, adjust scope to what the antithesis actually forced. The synthesis MUST be strictly stronger than the thesis — either more correct, more narrowly scoped, or more honestly hedged. "The thesis was right" is only a valid synthesis after a real antithesis, not in place of one.
+
+**When it applies:** analyses, plans, debugging hypotheses (pair with §3's 5-Why-by-Layer), architectural trade-offs, choosing between fix strategies, code-review notes, PR / commit rationale, recommendations to the user.
+
+**When it does not apply:** trivial mechanical tasks (rename a variable, run a test, read a file). The rule is: *if a second competent reviewer could disagree with the output, the output needs an antithesis first.*
+
+**Presenting to the user:** show the synthesis as the recommendation. Surface the antithesis only when the tension is load-bearing — i.e. the user needs to see the rejected alternative to judge the trade-off. Do not perform the dialectic for its own sake; the output is a sharper decision, not a longer message.
 
 ## Working Principles (from usage report 2026-04)
 
@@ -323,29 +392,52 @@ An E2E test is a full run that exercises the entire system end-to-end:
 - **Registered in the experiment DB before the run starts** (status `running`, via the same `AgentWorkflow` path the UI uses), so the experiment shows up in the sidebar immediately and transitions `running → complete | partial | failed` live. Intermediate events (iterations, worker spawns, tool calls) persist as they happen.
 - **Tagged** via `run_e2e(tags=[...])`. `"e2e"` is auto-added; add focus tags (`s5`, `tool-creation`, `critique`, `sub-manager`, `memory`, `planning`, `quick` — see `docs/e2e.md`). An untagged E2E is not valid.
 - **Full LLM trace** persisted alongside `run_completion.json` and `events.jsonl`: every manager / worker / critique / eval / induction call with timestamp, caller, model, system prompt, user prompt, raw response, tokens, latency, parsed decision. Mocked / summarized / truncated traces are not valid.
-- **Debug starts at the trace.** On every E2E failure, open the trace and walk `loss-driven-development:root-cause-by-layer` (5-Why through AWP's 7 layers) over it before hypothesizing about code — see the debug walkthrough in `docs/e2e.md`. A fix proposed without reading the trace is a symptom patch and is rejected.
+- **Debug starts at the trace.** On every E2E failure, open the trace and walk the 5-Why-by-Layer protocol (§3) over it before hypothesizing about code — see the debug walkthrough in `docs/e2e.md`. A fix proposed without reading the trace is a symptom patch and is rejected.
 
-The E2E run is a forward pass and the code fix is an SGD step — see `loss-driven-development:loss-backprop-lens` for the full gradient-descent framing (what counts as a gradient, why symptom patches are overfitting, and when to prefer an architectural edit over a local tweak). Guiding question: *"Would this system reach `complete` for an arbitrary task?"* If no, it is not shippable.
+The E2E run is a forward pass and the code fix is an SGD step (see §4 for the full loss/backprop lens: what counts as a gradient, why symptom patches are overfitting, and when to prefer an architectural edit over a local tweak). Guiding question: *"Would this system reach `complete` for an arbitrary task?"* If no, it is not shippable.
 
-### Active Monitoring & Stagnation
+### Active Monitoring (MANDATORY)
 
-E2E runs follow `loss-driven-development:e2e-driven-iteration` — the admissible cycle is "E2E → loss → 5-why-by-layer → fix → E2E", no edit without a fresh loss signal, no "done" without a passing E2E. Paired with `loss-driven-development:reproducibility-first` for signal discipline: one run is a noisy gradient, a defect that survives two runs is signal.
+**Every E2E run MUST be actively monitored from start to terminal status.** Fire-and-forget is forbidden — a run left unattended is wasted budget and a missed loss signal.
 
-**Active monitoring is mandatory.** Fire-and-forget is forbidden — a run left unattended is wasted budget and a missed loss signal. While a run is in flight, continuously observe `events.jsonl`, the live trace, and the experiment row (`running → complete | partial | failed | aborted`); use the live-monitoring runbook in `docs/e2e.md`. At every observable signal (iteration boundary, gate rejection, repeated worker failure, budget warning, plan-loop, stall, anomalous trace), explicitly decide: **continue**, or **abort + fix + rerun**. Never "wait and see" once a defect is visible.
+While a run is in flight, continuously observe `events.jsonl`, the live trace, and the experiment row (`running → complete | partial | failed | aborted`). Use the live-monitoring runbook in `docs/e2e.md`.
 
-**Stagnation = abort + fix + restart (hard rule).** A run is stagnating the moment any of these is observable:
+**At every observable signal (iteration boundary, gate rejection, repeated worker failure, budget warning, plan-loop, stall, anomalous trace), make an explicit decision:**
+
+| Signal | Decision | Action |
+|---|---|---|
+| Run is on track, gates green, manager making progress | **let it continue** | keep monitoring; no edits |
+| Recoverable systemic defect visible (wrong contract, bad prompt, broken tool, missing config) | **intervene + fix + rerun** | abort the run, diagnose at layers 4-5 (§3), apply the production fix, rerun from scratch |
+| Pure LLM noise / format drift that the gate chain will catch and repair | **let it continue** | observe whether the repair-nudge loop closes it; only intervene if `_rejected_completions` approaches the cap |
+| Budget about to exhaust without convergence | **abort + diagnose** | do not wait for the cap — abort, diagnose the structural origin, rerun |
+
+A run that limps to `partial` or `failed` because no one was watching counts as a process failure on top of the run failure. **Decide actively: continue, or abort + fix + rerun.** Never just "wait and see" once a defect is visible.
+
+### Stagnation = Abort + Fix + Restart (HARD RULE)
+
+**Stagnating E2E runs MUST be aborted early, diagnosed, fixed, and restarted from scratch — not waited out.** Waiting on a stagnating run burns budget, delays the loss signal, and trains the wrong reflex (patience instead of pathology). The goal is **short feedback cycles around real fixes**, not long runs around hope.
+
+A run is **stagnating** as soon as any of these are observable:
 
 - 2+ consecutive iterations with no new worker progress (no fresh artifact, no new `share_output` field, no advancing plan)
 - Same gate rejecting with the same reason ≥ 2 times
 - Same worker failing the same way ≥ 2 times after a repair attempt
-- Manager replanning (`PLAN`) without delegating
-- Wall-time or tokens past ~50 % of budget without a passing `COMPLETE` attempt or fresh deliverable
-- Critique loop oscillating on the same defect
-- Trace shows the LLM repeating itself on the same wrong shape
+- Manager replanning (`PLAN`) without delegating, even before `plan_loop` fires its forced transition
+- Wall-time burned past ~50 % of budget while artifacts/state are still pre-deliverable
+- Tokens burned past ~50 % of budget without the manager having issued a passing `COMPLETE` attempt
+- Critique loop oscillating on the same defect across iterations
+- Trace shows the LLM repeating itself / looping on the same wrong shape
 
-Abort immediately — do not wait for the runtime's own `plan_loop_stall` / `max_rejected_completions` / wall-time watchdog (those are last-resort safety nets, not the primary stop condition for an actively-monitored run). Then: **capture** artifacts (`run_completion.json`, `events.jsonl`, full LLM trace, output dir, experiment DB row) before the rerun overwrites them → **diagnose** via `loss-driven-development:root-cause-by-layer` to AWP layers 4–5 (structural + conceptual origin) → **fix** at the structural origin and add a regression test at the layer of the root cause → **restart from scratch** (no resume, no patched-mid-run continuation).
+The moment any of these is visible: **abort the run immediately** (do not wait for the runtime's own `plan_loop_stall` / `max_rejected_completions` / wall-time watchdog to fire — those exist as last-resort safety nets, not as the primary stop condition for an actively-monitored run).
 
-**Bias is asymmetric:** false-abort is cheap (one wasted run), false-wait is expensive (full budget + still no signal + no fix). When in doubt whether a run is stagnating, abort.
+Then, in order:
+
+1. **Capture artifacts** (`run_completion.json`, `events.jsonl`, full LLM trace, output dir, experiment DB row) before they get overwritten by the rerun.
+2. **Walk 5-Why-by-Layer (§3)** on the captured trace to layers 4–5. Stagnation almost always indicates a contract / prompt / gate / tool defect, not "the LLM was tired."
+3. **Apply the production fix** at the structural origin, not at the symptom. Add a regression test at the layer of the root cause.
+4. **Restart from scratch.** No resume, no patched-mid-run continuation — the rerun must exercise the full loop against the fixed system.
+
+**Bias is asymmetric: false-abort is cheap (one wasted run), false-wait is expensive (full budget + still no signal + no fix).** When in doubt whether a run is stagnating, abort.
 
 ### When to Run
 
