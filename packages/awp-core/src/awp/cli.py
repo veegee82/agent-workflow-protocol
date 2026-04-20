@@ -221,7 +221,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_refine.add_argument(
         "seed",
-        help="Path to the seed run directory (containing run_completion.json + FINAL/)",
+        nargs="?",
+        default=None,
+        help="Seed run directory (or use --target)",
+    )
+    p_refine.add_argument(
+        "--target",
+        default=None,
+        help="Attach refinement to a task: <experiment_id>:<task_id>",
     )
     p_refine.add_argument(
         "--iterations",
@@ -3251,6 +3258,13 @@ def cmd_refine(args: argparse.Namespace) -> int:
       1 — no iteration improved loss; BEST still points at seed.
       2 — setup failure (seed missing, malformed, no FINAL/).
     """
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import refine_task_aware
+        return refine_task_aware(args)
+    if args.seed is None:
+        print("awp refine: either a seed path or --target is required", file=sys.stderr)
+        return 2
+
     seed_path = Path(args.seed)
     if not seed_path.exists():
         print(f"error: seed run not found: {seed_path}", file=sys.stderr)

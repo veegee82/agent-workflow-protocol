@@ -652,3 +652,88 @@ def _post_run_finalise(
         }, indent=2)
     )
     return 0
+
+
+def refine_task_aware(args) -> int:
+    """Handle `awp refine --target <exp>:<task>`."""
+    from awp.experiment.paths import experiment_dir as _exp_dir
+    from awp.experiment.paths import task_dir as _task_dir
+
+    if ":" not in args.target:
+        print("--target must be <experiment_id>:<task_id>", file=sys.stderr)
+        return 2
+    exp_id, tid = args.target.split(":", 1)
+    if not _exp_dir(exp_id).exists():
+        print(f"experiment not found: {exp_id}", file=sys.stderr)
+        return 2
+    td = _task_dir(exp_id, tid)
+    if not td.exists():
+        print(f"task not found: {args.target}", file=sys.stderr)
+        return 2
+
+    best_manifest = td / "BEST" / "manifest.json"
+    if not best_manifest.exists():
+        print(
+            f"task {args.target} has no BEST/ — run it to completion first "
+            f"(refinement requires a completed run to refine)",
+            file=sys.stderr,
+        )
+        return 2
+    manifest = json.loads(best_manifest.read_text())
+    seed_run_dir = Path(manifest.get("winner_source", ""))
+    if not seed_run_dir.exists():
+        print(
+            f"winner_source missing on disk: {seed_run_dir}", file=sys.stderr,
+        )
+        return 2
+
+    import time as _time
+    session_ts = _time.strftime("%Y%m%d_%H%M%S")
+    iterations_root = td / "refinements" / f"session_{session_ts}"
+
+    if os.environ.get("AWP_REFINE_TARGET_DRY_RUN") == "1":
+        print(json.dumps({
+            "target": args.target,
+            "seed_run_dir": str(seed_run_dir),
+            "iterations_root": str(iterations_root),
+        }))
+        return 0
+
+    try:
+        from awp.refinement.loop import RefinementLoop
+    except ImportError as exc:
+        print(f"awp-runtime required: {exc}", file=sys.stderr)
+        return 2
+
+    iterations_root.mkdir(parents=True, exist_ok=True)
+    loop = RefinementLoop(
+        seed_run_dir=seed_run_dir,
+        iterations_root=iterations_root,
+        model=getattr(args, "model", None),
+        worker_model=getattr(args, "worker_model", None),
+    )
+    n_iters = getattr(args, "iterations", None) or 3
+    result = loop.run(iterations=n_iters)
+
+    # Post-run hook for EACH iteration's winning run(s); simplest:
+    # finalise all iter_k run_dirs the loop produced, so BEST for the
+    # task considers refinement candidates too.
+    for iter_dir in sorted(iterations_root.glob("iter_*")):
+        for run_dir in (iter_dir / "output").glob("*"):
+            if not run_dir.is_dir():
+                continue
+            _post_run_finalise(
+                output_dir=iter_dir,
+                run_id=run_dir.name,
+                exp_id=exp_id,
+                task_key=args.target,
+                task_text=f"refine iteration",
+                model=getattr(args, "model", None) or "openai/gpt-5-mini",
+                run_role="refine_iter",
+            )
+    print(json.dumps({
+        "target": args.target,
+        "iterations_root": str(iterations_root),
+        "session_completed": True,
+    }))
+    return 0
