@@ -443,25 +443,101 @@ def run_task_aware(args: Namespace) -> int:
         if run_id is None and isinstance(result, dict):
             run_id = result.get("run_id")
 
-    # Post-run hook (Task 5 implements _post_run_finalise; for this task we
-    # only need the dispatch path. Stub the call: if _post_run_finalise is
-    # not yet present, just return 0 after wf.run()).
-    try:
-        return _post_run_finalise(
-            output_dir=output_dir,
+    return _post_run_finalise(
+        output_dir=output_dir,
+        run_id=run_id,
+        exp_id=exp_id,
+        task_key=args.target,
+        task_text=task_text,
+        model=model,
+    )
+
+
+def _post_run_finalise(
+    output_dir: Path,
+    run_id: str | None,
+    exp_id: str,
+    task_key: str,
+    task_text: str,
+    model: str,
+) -> int:
+    """Read the freshly-finished run, register it in awp_ui.db, and update BEST/."""
+    # Locate run_dir if run_id not known
+    runs_root = output_dir / "output"
+    if run_id is None:
+        if not runs_root.exists():
+            print(f"no run output directory found at {runs_root}", file=sys.stderr)
+            return 1
+        candidates = sorted(
+            (p for p in runs_root.iterdir() if p.is_dir()),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if not candidates:
+            print(f"no run output found under {runs_root}", file=sys.stderr)
+            return 1
+        run_dir = candidates[-1]
+        run_id = run_dir.name
+    else:
+        run_dir = runs_root / run_id
+
+    completion_path = run_dir / "run_completion.json"
+    if not completion_path.exists():
+        print(f"missing run_completion.json at {completion_path}", file=sys.stderr)
+        return 1
+    completion = json.loads(completion_path.read_text())
+    status = completion.get("status", "unknown")
+
+    # Compute loss (skip for non-terminal)
+    loss: float | None = None
+    if status in ("complete", "partial"):
+        try:
+            from awp.outer_loop.loss import compute_run_loss
+            loss = compute_run_loss(run_dir).total
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"compute_run_loss failed: {exc}", file=sys.stderr)
+
+    # Upsert DB row
+    async def _upsert(store):
+        await store.upsert_run_for_task(
             run_id=run_id,
-            exp_id=exp_id,
-            task_key=args.target,
-            task_text=task_text,
+            experiment_id=exp_id,
+            task_id=task_key,
+            run_role="seed",
+            loss=loss,
+            status=status,
+            task=task_text,
             model=model,
         )
-    except NameError:
-        # Task 5 not yet implemented — that's fine; the run itself completed.
-        print(
-            json.dumps({
-                "note": "_post_run_finalise not yet implemented (Plan 2 Task 5)",
-                "run_id": run_id,
-                "output_dir": str(output_dir),
-            })
-        )
-        return 0
+
+    asyncio.run(_with_store(_upsert))
+
+    # Invoke BEST finaliser
+    try:
+        from awp.outer_loop.best_finaliser import compute_and_update_best
+    except ImportError as exc:  # pragma: no cover
+        print(f"awp-runtime required: {exc}", file=sys.stderr)
+        return 1
+
+    task_dir_path = output_dir.parent  # <exp>/tasks/<task>/
+    result = compute_and_update_best(task_dir=task_dir_path, new_run_dir=run_dir)
+
+    # Mirror BEST to DB if it changed
+    if result.updated:
+        async def _set_best(store):
+            await store.set_task_best(
+                task_id_key=task_key,
+                run_id=run_id,
+                reason=result.reason,
+            )
+        asyncio.run(_with_store(_set_best))
+
+    print(
+        json.dumps({
+            "run_id": run_id,
+            "status": status,
+            "loss": loss,
+            "best_updated": result.updated,
+            "best_reason": result.reason,
+        }, indent=2)
+    )
+    return 0
