@@ -80,3 +80,10 @@ time and at runtime (bundle loader refuses without BEST). See
 - `packages/awp-runtime/src/awp/continuation/bundle_loader.py` — `load_continuation_bundle`
 - `packages/awp-runtime/src/awp/continuation/prompt_injection.py` — `render_continuation_prefix`
 - `packages/awp-core/src/awp/experiment/cli_handlers.py` — CLI dispatch (`run_task_aware`)
+
+## See also
+
+- `docs/refinement.md` — y-axis optimisation within a single run (auto-extracted gradient). Continuation is the cross-task analogue.
+- `docs/outer-loop.md` — θ-axis optimisation over prompt artifacts. Runs per-experiment after Plan 4.
+- `docs/superpowers/specs/2026-04-20-experiment-task-hierarchy-design.md` — the design this mechanism implements, §7.1–§7.4.
+- `spec/versions/1.0/validation-rules.md` — R37 (continuation input non-emptiness).

@@ -275,6 +275,29 @@ The web UI (`packages/awp-ui/`) exposes the three-level hierarchy built by Plans
 
 Toggling "Experiments" in the sidebar shows the hierarchy; "Sessions" keeps the legacy flat-run view. Both coexist in Plan 5.
 
+### Hierarchy — one-line map
+
+```
+Experiment (campaign)
+  └── Task N (user intention: seed | continuation)
+        └── Run M (role: seed | refine_iter | optimize_epoch_run)
+              └── FINAL/     deliverable artifacts
+  └── BEST/ per task         auto lowest-loss, user-overridable (reason: auto_loss|user_override)
+  └── shared/                memory, dynamic_tools, skills — accumulate across tasks
+  └── outer_loop.db          per-experiment artifact registry (after Plan 4)
+```
+
+| Plan | Landed |
+|---|---|
+| 1 | `ExperimentManifest` / `TaskManifest` models, DB tables, CLI CRUD |
+| 2 | `awp run --target`, BEST finaliser, `awp task set-best` |
+| 3 | Continuation loader (bundle + prefix), `awp run --target <cont>` |
+| 4 | `awp refine --target`, `awp optimize --target`, `run_role` param |
+| 5 | UI sidebar tree + Experiment/Task views + BEST override |
+| 6 | `awp experiment purge-legacy`, cross-link sweep, full-arc smoke |
+
+Normative rules: **R37** (continuation input non-emptiness; `spec/versions/1.0/validation-rules.md`).
+
 ## Architecture
 
 ### Two PyPI Packages

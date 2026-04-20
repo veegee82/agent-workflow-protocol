@@ -597,3 +597,10 @@ The per-experiment DB allows an optimization suite to be scoped and
 re-run against a specific task, with loss computed using that task's
 specific workflow artifacts and metrics. Implementation lives in
 `packages/awp-core/src/awp/experiment/cli_handlers.py::optimize_task_aware`.
+
+## See also
+
+- `docs/refinement.md` — y-axis optimisation (a single run's deliverable).
+- `docs/continuation.md` — y-axis carry-over across tasks.
+- `packages/awp-runtime/src/awp/outer_loop/runner.py` — `SuiteRunner`.
+- After Plan 4: use `awp optimize --target <exp>:<task> SUITE.yaml` to attach optimizations under `<task>/optimizations/suite_<ts>/`, using the per-experiment `<experiment>/outer_loop.db` (decision β).

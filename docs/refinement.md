@@ -543,3 +543,10 @@ specific task within an experiment hierarchy, enabling downstream
 continuation tasks to read the refined output as their `--primary`
 input (see `spec/versions/1.0/experiment-task-hierarchy-design.md §R37`).
 Implementation lives in `packages/awp-core/src/awp/experiment/cli_handlers.py::refine_task_aware`.
+
+## See also
+
+- `docs/continuation.md` — y-axis carry-over across tasks (user-feedback gradient). Related but distinct from refinement's auto-gradient within one run.
+- `docs/outer-loop.md` — θ-axis optimisation. Now per-experiment (decision β).
+- `packages/awp-runtime/src/awp/refinement/loop.py` — `RefinementLoop` implementation.
+- After Plan 4: use `awp refine --target <exp>:<task>` to attach sessions under `<task>/refinements/session_<ts>/`.

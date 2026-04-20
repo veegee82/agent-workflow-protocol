@@ -679,7 +679,10 @@ def _post_run_finalise(
         print(f"awp-runtime required: {exc}", file=sys.stderr)
         return 1
 
-    task_dir_path = output_dir.parent  # <exp>/tasks/<task>/
+    # Compute task_dir: for any run (seed, refine, optimize), walk back to <exp>/tasks/<task>/
+    from awp.experiment.paths import experiment_dir as exp_dir_fn, task_dir as task_dir_fn
+    task_id = task_key.split(":", 1)[1] if ":" in task_key else task_key
+    task_dir_path = task_dir_fn(exp_id, task_id)
     result = compute_and_update_best(task_dir=task_dir_path, new_run_dir=run_dir)
 
     # Mirror BEST to DB if it changed
