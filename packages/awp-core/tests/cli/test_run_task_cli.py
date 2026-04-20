@@ -1,4 +1,4 @@
-"""CLI-level tests for `awp run --task`."""
+"""CLI-level tests for `awp run --target <exp>:<task_id>`."""
 
 from __future__ import annotations
 
@@ -46,7 +46,11 @@ def test_run_rejects_continuation_task(env: dict, tmp_path: Path) -> None:
     cont_id = json.loads(r.stdout)["task_id"]
 
     r = _run_cli(
-        ["run", "nonexistent-workflow.yaml", "--task", f"{exp_id}:{cont_id}"],
+        [
+            "run", "nonexistent-workflow.yaml",
+            "--task", "dummy",
+            "--target", f"{exp_id}:{cont_id}",
+        ],
         env=env,
     )
     assert r.returncode != 0
@@ -57,7 +61,11 @@ def test_run_rejects_continuation_task(env: dict, tmp_path: Path) -> None:
 
 def test_run_rejects_unknown_task(env: dict) -> None:
     r = _run_cli(
-        ["run", "nonexistent-workflow.yaml", "--task", "exp_nosuch1:001-x"],
+        [
+            "run", "nonexistent-workflow.yaml",
+            "--task", "dummy",
+            "--target", "exp_nosuch1:001-x",
+        ],
         env=env,
     )
     assert r.returncode != 0
@@ -67,7 +75,11 @@ def test_run_rejects_unknown_task(env: dict) -> None:
 
 def test_run_rejects_malformed_task_key(env: dict) -> None:
     r = _run_cli(
-        ["run", "nonexistent-workflow.yaml", "--task", "not-a-key"],
+        [
+            "run", "nonexistent-workflow.yaml",
+            "--task", "dummy",
+            "--target", "not-a-key",
+        ],
         env=env,
     )
     assert r.returncode != 0

@@ -1,6 +1,11 @@
-# Plan 2 — Runtime Integration: `awp run --task`, DB Registration, BEST Finaliser
+# Plan 2 — Runtime Integration: `awp run --target`, DB Registration, BEST Finaliser
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+> **IMPORTANT — Flag Rename Applied Post-Draft:**
+> The new hierarchy-attach flag is **`--target`**, NOT `--task`. `awp run --task "<free text>"` already exists pre-Plan-2 as a **required positional** for the task description — we must NOT collide with it. Everywhere this plan document says `--task` in the context of "attach this run to a task in the hierarchy", read it as **`--target`**. Correspondingly, `args.task` (the key validation target) becomes `args.target`. The attribute `args.task` still holds the legacy free-text task description and is passed to the runner as before.
+>
+> Task 1 was already implemented with this rename applied (commit `113831f` + follow-up `70a77b1` — see git log). Subsequent tasks MUST use `--target` / `args.target` anywhere code below references `--task` as a key-attach flag.
 
 **Goal:** A seed task run via `awp run --task <exp>:<task>` lands under `<experiment>/tasks/<task>/seed/output/<run_id>/`, the row is registered in `awp_ui.db` with `experiment_id`/`task_id`/`run_role`/`loss`, and `<task>/BEST/manifest.json` auto-updates to point at the lowest-loss run.
 

@@ -107,10 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         "run", help="Run an AWP workflow (standalone runtime)"
     )
     p_run.add_argument("path", help="Path to workflow directory")
+    p_run.add_argument("--task", "-t", required=True, help="Task description")
     p_run.add_argument(
-        "--task",
+        "--target",
         default=None,
-        help="Target task key (format: <experiment_id>:<task_id>)",
+        help="Attach this run to a task in the hierarchy (format: <experiment_id>:<task_id>)",
     )
     p_run.add_argument(
         "--model", "-m", help="LLM model to use (skips model wizard, sets LLM_MODEL)"
@@ -919,11 +920,11 @@ def cmd_studio(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Run an AWP workflow using the standalone runtime."""
-    # --- Task validation (--task <exp>:<task>) ---
-    if getattr(args, "task", None) is not None:
+    # --- Task target validation (--target <exp>:<task_id>) ---
+    if getattr(args, "target", None) is not None:
         from .experiment.cli_handlers import validate_task_key_for_run
 
-        rc = validate_task_key_for_run(args.task)
+        rc = validate_task_key_for_run(args.target)
         if rc != 0:
             return rc
 
