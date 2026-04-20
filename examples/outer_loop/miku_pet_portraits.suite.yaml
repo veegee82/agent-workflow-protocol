@@ -1,0 +1,100 @@
+# Pet-profile JSON task suite for the AWP outer loop (A3 + Refinement coverage).
+#
+# Two near-isomorphic JSON-card tasks (Miku the dog + Luna the cat).
+# Same proven pattern as octopi/neutron_stars/silk_road in
+# outer_loop_full_coverage.py — JSON profiles produce stable critique
+# signals (the SVG variant tripped on sub-manager output wrapping
+# triggering false-positive defects). Two tasks instead of one so
+# TextGrad sees a mean_loss over more than one sample; perfectly-on-
+# policy single-task runs would look like a noiseless gradient and
+# mislead the optimizer.
+#
+# Run via the suite runner (no UI registration):
+#   awp optimize examples/outer_loop/miku_pet_portraits.suite.yaml \
+#     --epochs 3 --with-textgrad --learning-rate 0.5
+#
+# Run via the dedicated E2E driver (UI-visible + chained refinement):
+#   python examples/e2e/miku_outer_refine.py
+#
+# Per-task budget mirrors the proven outer_loop_full_coverage.py
+# settings: max_loops=6, max_total_workers=5, max_depth=2 — enough
+# headroom for sub-manager + leaf worker + at least one repair pass.
+
+name: miku_pet_portraits
+description: |
+  Pet-profile JSON suite. Each task forces use of code.execute to
+  compute three numeric facts plus a derived statistic and write a
+  validated JSON profile-card. Tasks share structure but differ in
+  subject (dog vs cat) so a TextGrad update on a manager/worker
+  artifact must generalise across both to reduce mean loss.
+
+# Pin every artifact to v0 so this suite is reproducible across machines
+# regardless of any locally-applied outer-loop updates.
+baseline_artifacts:
+  worker_pitfalls: 0
+  manager_planning_preamble: 0
+  experiment_context_hint_template: 0
+  pattern_library: 0
+  tool_description_templates: 0
+  critique_rubric: 0
+
+tasks:
+  - name: miku_dog_card
+    task: |
+      Build a profile-card JSON about Miku the dog. Use code.execute to:
+      1. Compute 3 numeric 'fun facts' (approximate weight kg ~ 12,
+         age years ~ 4, average daily walk km ~ 3). Derive at least
+         one combined statistic (e.g. total walk distance over a year
+         = daily_walk * 365).
+      2. Write the final JSON to workspace/output/miku_card.json with
+         fields:
+         - title (str, e.g. "Profile of Miku the dog")
+         - facts (list of exactly 3 strings, each describing one of
+           the numeric facts: weight, age, daily-walk distance)
+         - computed_stats (dict of 3 numbers, including the combined
+           stat)
+         - sources (list of 2+ strings, short bibliographic or
+           URL-style)
+         - confidence (float 0-1, must be >= 0.7)
+      Your result must pass critique + evaluation before completion.
+      Include confidence in the top-level agent output.
+    budget:
+      max_loops: 6
+      max_total_workers: 5
+      max_total_tokens: 600000
+      max_wall_time: 300
+      max_tool_calls: 80
+      max_depth: 2
+
+  - name: luna_cat_card
+    task: |
+      Build a profile-card JSON about Luna the cat. Use code.execute to:
+      1. Compute 3 numeric 'fun facts' (approximate weight kg ~ 4,
+         age years ~ 7, average daily nap hours ~ 14). Derive at
+         least one combined statistic (e.g. total nap hours over a
+         year = daily_nap * 365).
+      2. Write the final JSON to workspace/output/luna_card.json with
+         fields:
+         - title (str, e.g. "Profile of Luna the cat")
+         - facts (list of exactly 3 strings, each describing one of
+           the numeric facts: weight, age, daily-nap hours)
+         - computed_stats (dict of 3 numbers, including the combined
+           stat)
+         - sources (list of 2+ strings, short bibliographic or
+           URL-style)
+         - confidence (float 0-1, must be >= 0.7)
+      Your result must pass critique + evaluation before completion.
+      Include confidence in the top-level agent output.
+    budget:
+      max_loops: 6
+      max_total_workers: 5
+      max_total_tokens: 600000
+      max_wall_time: 300
+      max_tool_calls: 80
+      max_depth: 2
+    weights:
+      eval: 0.4
+      critique: 0.3
+      gate_rejections: 0.15
+      budget: 0.05
+      status: 0.1

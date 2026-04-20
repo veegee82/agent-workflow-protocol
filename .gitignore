@@ -12,6 +12,9 @@ secrets.yaml
 *.db-shm
 *.db-wal
 
+# Claude Code local state (session locks, scheduled-task runtime files)
+.claude/*.lock
+
 # IDE
 .idea/
 

@@ -1,0 +1,102 @@
+# Outer-loop suite for optimizing the 6 prompt artifacts on the AWP-paper
+# domain. Runs as: awp optimize examples/outer_loop/awp_paper_artifacts.suite.yaml
+#                    --with-textgrad --epochs 5 --learning-rate 0.5
+#
+# Scope rationale: the full bilingual-paper task takes ~3-4 h per run;
+# 5 epochs x 2 tasks = 10 runs would be ~30 h even before any rollback.
+# Instead we train the artifacts on two in-domain MICRO-tasks that
+# exercise the same prompt artifacts (planning, critique, worker
+# discipline, tool descriptions) without needing seeded inputs. The
+# learned artifacts then transfer to the full paper task via the global
+# ArtifactRegistry.
+
+name: awp_paper_artifacts_v1
+description: |
+  Five-epoch TextGrad optimization pass over worker_pitfalls,
+  manager_planning_preamble, experiment_context_hint_template,
+  pattern_library, tool_description_templates, and critique_rubric.
+  Tasks are in-domain (AWP-style scientific writing) but small enough
+  that each epoch finishes well under an hour.
+
+# Pin to v0 so the first epoch has a well-defined baseline.
+baseline_artifacts:
+  worker_pitfalls: 0
+  manager_planning_preamble: 0
+  experiment_context_hint_template: 0
+  pattern_library: 0
+  tool_description_templates: 0
+  critique_rubric: 0
+
+tasks:
+  - name: awp_autonomy_abstract
+    task: |
+      Write a structured 500-word English abstract for a paper titled
+      "Autonomy extension through tool- and skill-generation: an
+      analysis of the Agent Workflow Protocol (AWP)". Save it as
+      ``output/abstract.md`` with a level-2 heading ``## Abstract``.
+
+      Requirements:
+        * Exactly one level-2 heading; no subheadings.
+        * Enumerate the five autonomy levels A0-A4 with one sentence each.
+        * Mention the delegation loop (manager -> workers -> tools),
+          the completion gate chain, and the six optimizable prompt
+          artifacts.
+        * Include one inline formula for the loss signal
+          ``L = w_eval * (1 - eval) + w_crit * (1 - crit) + w_gates * rejects``.
+        * No placeholder tokens (TODO, FIXME, Lorem ipsum, ???, XXX).
+        * No duplicate sentences (moving-window similarity check).
+    model: openai/gpt-5-mini
+    worker_model: deepseek/deepseek-chat-v3.1
+    budget:
+      max_loops: 10
+      max_total_workers: 6
+      max_total_tokens: 800000
+      max_wall_time: 1200
+      max_tool_calls: 200
+      max_depth: 2
+    weights:
+      eval: 0.4
+      critique: 0.35
+      gate_rejections: 0.15
+      budget: 0.05
+      status: 0.05
+
+  - name: awp_delegation_loop_explainer
+    task: |
+      Write a 1000-word English explainer about the AWP delegation loop
+      engine suitable for the Methodology section of a research paper.
+      Save it as ``output/delegation_loop.md`` with a level-2 heading
+      ``## Delegation Loop``.
+
+      Requirements:
+        * Level-2 heading must be unique (no duplicates).
+        * Cover: manager PLAN/DELEGATE/COMPLETE decisions, budget
+          envelope (``max_loops``, ``max_total_tokens``, ``max_wall_time``),
+          the completion gate chain
+          (l0 -> critique -> deliverable_presence -> placeholder ->
+          file -> deliverable -> structural_integrity -> eval), and the
+          repair-fixpoint guard (R35) with the 64-bit simhash
+          similarity threshold 0.95.
+        * Include at least one ASCII diagram block showing
+          manager -> workers -> tools.
+        * Include the budget inequality
+          ``tokens_consumed + pending_reserved <= max_total_tokens``
+          and state when token reservation is active.
+        * No placeholder tokens; no duplicate paragraphs.
+        * Every structural claim must be concrete (names the file,
+          field, or rule) - generic prose is rejected by critique.
+    model: openai/gpt-5-mini
+    worker_model: deepseek/deepseek-chat-v3.1
+    budget:
+      max_loops: 14
+      max_total_workers: 8
+      max_total_tokens: 1400000
+      max_wall_time: 1800
+      max_tool_calls: 300
+      max_depth: 2
+    weights:
+      eval: 0.4
+      critique: 0.35
+      gate_rejections: 0.15
+      budget: 0.05
+      status: 0.05
