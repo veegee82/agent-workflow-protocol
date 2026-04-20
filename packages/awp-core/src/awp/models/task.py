@@ -10,6 +10,25 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 
+def _reject_unsafe_path(p: str) -> None:
+    """Reject paths with traversal, absolute, home, or encoding attacks."""
+    if not p:
+        raise ValueError("path traversal rejected: empty path")
+    if "\x00" in p:
+        raise ValueError(f"path traversal rejected: NUL in {p!r}")
+    if "\\" in p:
+        raise ValueError(f"path traversal rejected: backslash in {p!r}")
+    if p.startswith(("/", "~")):
+        raise ValueError(f"path traversal rejected: absolute/home in {p!r}")
+    if len(p) >= 2 and p[1] == ":":  # Windows drive letter
+        raise ValueError(f"path traversal rejected: drive letter in {p!r}")
+    if "%" in p:
+        raise ValueError(f"path traversal rejected: percent-encoded in {p!r}")
+    parts = p.split("/")
+    if ".." in parts:
+        raise ValueError(f"path traversal rejected: .. in {p!r}")
+
+
 class TaskMode(str, Enum):
     SEED = "seed"
     CONTINUATION = "continuation"
@@ -27,17 +46,12 @@ class TaskInput(BaseModel):
     paths: list[str] | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> "TaskInput":
+    def _validate_source(self) -> "TaskInput":
         if (self.bundle is None) == (self.paths is None):
             raise ValueError("TaskInput requires exactly one of 'bundle' or 'paths'")
-        return self
-
-    @model_validator(mode="after")
-    def _no_path_traversal(self) -> "TaskInput":
         if self.paths:
             for p in self.paths:
-                if ".." in p.split("/") or p.startswith("/"):
-                    raise ValueError(f"path traversal rejected: {p!r}")
+                _reject_unsafe_path(p)
         return self
 
 

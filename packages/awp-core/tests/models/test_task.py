@@ -91,9 +91,31 @@ def test_task_input_requires_exactly_one_source() -> None:
         TaskInput(from_task="001", role=InputRole.PRIMARY, bundle="BEST/", paths=["a.md"])
 
 
-def test_task_input_path_traversal_rejected() -> None:
-    with pytest.raises(ValidationError, match="traversal"):
-        TaskInput(from_task="001", role=InputRole.REFERENCE, paths=["../secrets.txt"])
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "../secrets.txt",
+        "a/../b",
+        "..\\secrets.txt",          # backslash
+        "%2e%2e/x",                  # URL-encoded
+        "a\x00../b",                 # NUL injection
+        "~/.ssh/id_rsa",             # home expansion
+        "/absolute/path",            # absolute POSIX
+        "C:\\Windows",               # absolute Windows
+    ],
+)
+def test_task_input_path_traversal_rejected(bad_path: str) -> None:
+    with pytest.raises(ValidationError, match="traversal|reject"):
+        TaskInput(from_task="001", role=InputRole.REFERENCE, paths=[bad_path])
+
+
+def test_task_input_accepts_safe_paths() -> None:
+    safe = TaskInput(
+        from_task="001",
+        role=InputRole.REFERENCE,
+        paths=["BEST/analysis/facts.json", "BEST/paper.md"],
+    )
+    assert safe.paths == ["BEST/analysis/facts.json", "BEST/paper.md"]
 
 
 def test_roundtrip_continuation_json() -> None:
