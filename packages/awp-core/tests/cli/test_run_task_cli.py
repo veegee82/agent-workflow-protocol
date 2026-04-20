@@ -84,3 +84,33 @@ def test_run_rejects_malformed_task_key(env: dict) -> None:
     )
     assert r.returncode != 0
     assert "<experiment_id>:<task_id>" in (r.stderr + r.stdout)
+
+
+def test_run_with_target_calls_agentworkflow_with_task_output_dir(
+    env: dict, tmp_path: Path
+) -> None:
+    """Verify cmd_run with --target routes through the task-aware path."""
+    r = _run_cli(["experiment", "create", "E"], env=env)
+    exp_id = json.loads(r.stdout)["experiment_id"]
+    r = _run_cli(["task", "create", exp_id, "seed"], env=env)
+    task_id = json.loads(r.stdout)["task_id"]
+
+    wf = tmp_path / "wf"
+    wf.mkdir()
+    (wf / "workflow.awp.yaml").write_text("name: test\n")
+
+    env2 = env.copy()
+    env2["AWP_RUN_TASK_DRY_RUN"] = "1"
+
+    r = _run_cli(
+        [
+            "run", str(wf),
+            "--task", "dummy task text",
+            "--target", f"{exp_id}:{task_id}",
+        ],
+        env=env2,
+    )
+    combined = r.stdout + r.stderr
+    expected_prefix = str(tmp_path / exp_id / "tasks" / task_id / "seed")
+    assert r.returncode == 0, combined
+    assert expected_prefix in combined

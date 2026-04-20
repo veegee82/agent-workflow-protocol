@@ -928,6 +928,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         if rc != 0:
             return rc
 
+    # --- Dispatch to task-aware path if --target is set ---
+    if getattr(args, "target", None) is not None:
+        from .experiment.cli_handlers import run_task_aware
+
+        return run_task_aware(args)
+
     # --- Pre-flight: auto-update from PyPI (opt-in) ---
     if getattr(args, "auto_update", False):
         print("  Checking for updates...")
