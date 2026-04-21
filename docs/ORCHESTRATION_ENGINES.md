@@ -552,6 +552,16 @@ clean `status=partial` exit with `reason=max_wall_time` and a written
 unaffected by main-thread deadlocks — it is the structural guarantee
 that `max_wall_time` is honored under every failure mode.
 
+**Embedded-mode guard (`allow_process_kill=False`):** When the runner is
+constructed via `AgentWorkflow(allow_process_kill=False)` — the path the
+Studio UI server uses so the runner lives as a thread inside a long-lived
+web process — the watchdog still hard-breaches on budget overrun but
+swaps the `SIGTERM`/`SIGKILL` sequence for `LLMClient.close_all()`. All
+in-flight HTTP calls raise `ReadError`; the runner's `except`/`finally`
+blocks run as in the CLI path and produce the same
+`status=partial`/`reason=max_wall_time` terminal — without killing the
+host server. CLI invocations keep the original signal path.
+
 ### Hard Per-Call Executor Timeout Killer (Framework-Fix δ-2)
 
 Inside `PersistentExecutor.execute()` a `threading.Timer` is armed for

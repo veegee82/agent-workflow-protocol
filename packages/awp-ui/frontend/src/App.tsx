@@ -220,6 +220,8 @@ function TopBar() {
   const budget = useWorkflowStore((s) => s.budget);
   const activePanel = useWorkflowStore((s) => s.activePanel);
   const setActivePanel = useWorkflowStore((s) => s.setActivePanel);
+  const setSelectedExperiment = useWorkflowStore((s) => s.setSelectedExperiment);
+  const setSelectedTask = useWorkflowStore((s) => s.setSelectedTask);
   const sidebarOpen = useWorkflowStore((s) => s.sidebarOpen);
   const toggleSidebar = useWorkflowStore((s) => s.toggleSidebar);
   const inspectorOpen = useWorkflowStore((s) => s.inspectorOpen);
@@ -297,7 +299,13 @@ function TopBar() {
       <TabBar
         tabs={tabs}
         activeId={activePanel}
-        onChange={(id) => setActivePanel(id as ActivePanel)}
+        onChange={(id) => {
+          setActivePanel(id as ActivePanel);
+          // Clicking a panel tab should drop out of experiment/task
+          // detail view — otherwise the overlay hides all panels.
+          setSelectedExperiment(null);
+          setSelectedTask(null);
+        }}
         className="border-b-0 bg-transparent"
       />
 
@@ -550,6 +558,7 @@ function RightSidebar() {
   const updateConfig = useWorkflowStore((s) => s.updateConfig);
   const runStatus = useWorkflowStore((s) => s.runStatus);
   const secrets = useWorkflowStore((s) => s.secrets);
+  const secretsLoaded = useWorkflowStore((s) => s.secretsLoaded);
   const addSecret = useWorkflowStore((s) => s.addSecret);
   const removeSecret = useWorkflowStore((s) => s.removeSecret);
   const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
@@ -558,8 +567,29 @@ function RightSidebar() {
   const isRunning = runStatus === 'running';
   const selectedNode = graphNodes.find((n) => n.id === selectedNodeId);
 
+  // Provider API keys gate every run; if none is present, unfold the Secrets
+  // panel so the user fixes the blocker before touching model/budget settings.
+  const hasApiKey = secrets.some((s) =>
+    ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'].includes(s.key),
+  );
+
   return (
     <aside className="flex flex-col gap-3 p-3">
+      {/* Secrets — keyed on load state so the Panel remounts with the correct
+          defaultOpen once we actually know whether a provider key exists. */}
+      <Panel
+        key={secretsLoaded ? 'secrets-loaded' : 'secrets-pending'}
+        title="Secrets"
+        icon={<Key className="h-4 w-4 text-awp-yellow" />}
+        defaultOpen={secretsLoaded && !hasApiKey}
+      >
+        <SecretsPanel
+          secrets={secrets}
+          onAdd={addSecret}
+          onDelete={removeSecret}
+        />
+      </Panel>
+
       {/* Model settings */}
       <Panel
         title="Settings"
@@ -956,19 +986,6 @@ function RightSidebar() {
             </label>
           </div>
         </div>
-      </Panel>
-
-      {/* Secrets */}
-      <Panel
-        title="Secrets"
-        icon={<Key className="h-4 w-4 text-awp-yellow" />}
-        defaultOpen={false}
-      >
-        <SecretsPanel
-          secrets={secrets}
-          onAdd={addSecret}
-          onDelete={removeSecret}
-        />
       </Panel>
 
       {/* Inspector (shown when a node is selected) */}

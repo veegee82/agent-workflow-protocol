@@ -463,6 +463,7 @@ export interface WorkflowStore {
 
   // Secrets
   secrets: SecretEntry[];
+  secretsLoaded: boolean;
   loadSecrets: () => Promise<void>;
   addSecret: (key: string, value: string) => Promise<void>;
   removeSecret: (key: string) => Promise<void>;
@@ -3105,13 +3106,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   // -- Secrets --------------------------------------------------------------
   secrets: [],
+  secretsLoaded: false,
 
   loadSecrets: async () => {
     try {
       const secrets = await api.listSecrets();
-      set({ secrets });
+      set({ secrets, secretsLoaded: true });
     } catch {
-      // silently ignore
+      // mark as loaded anyway so the Secrets panel doesn't stay in pending state forever
+      set({ secretsLoaded: true });
     }
   },
 

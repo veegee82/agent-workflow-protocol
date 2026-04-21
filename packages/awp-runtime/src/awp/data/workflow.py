@@ -166,6 +166,9 @@ class AgentWorkflow:
         reasoning_effort: str | None = None,
         # Raw config overrides (keyed by section name, e.g. "critique", "planning")
         extra_config: dict[str, Any] | None = None,
+        # δ-1 watchdog: embedded callers (Studio) pass False so the watchdog
+        # does not signal the host process. CLI defaults to True.
+        allow_process_kill: bool = True,
     ) -> None:
         if not model:
             raise ValueError(
@@ -234,6 +237,7 @@ class AgentWorkflow:
         self.profile = profile
         self.reasoning_effort = reasoning_effort
         self.extra_config = extra_config or {}
+        self.allow_process_kill = allow_process_kill
 
     def run(self) -> dict[str, Any]:
         """Execute the workflow and return results as a dict.
@@ -435,6 +439,7 @@ class AgentWorkflow:
             parent_run_id=self.parent_run_id,
             tags=self.tags,
             manager_prompt_prefix=self.manager_prompt_prefix,
+            allow_process_kill=self.allow_process_kill,
         )
 
         # Apply reasoning effort to manager LLM if configured

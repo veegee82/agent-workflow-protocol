@@ -1747,7 +1747,8 @@ class RunnerService:
                     asyncio.run_coroutine_threadsafe(
                         self._persist_result(
                             run_id, status, result, session_id, experiment_id, task_id,
-                            run_dir=run_dir, workspace_dir=workspace_dir
+                            run_dir=run_dir, workspace_dir=workspace_dir,
+                            config=config,
                         ),
                         loop,
                     ).result(timeout=30)
@@ -1770,10 +1771,27 @@ class RunnerService:
         task_id: str | None = None,
         run_dir: Path | None = None,
         workspace_dir: Path | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
         """Persist the final result to SQLite."""
         # Import lazily to avoid circular refs at module level
         from server.app import store
+
+        # The seed's original task text + model are in `config` (from the
+        # WorkflowConfig that created the run); `result.get('task')` is
+        # workflow-synthesized and may be empty. Cascade's SuiteTask
+        # requires task_text min_length=1, so prefer config.
+        cfg = config or {}
+        seed_task_text = (
+            cfg.get("task")
+            or (result.get("task") if isinstance(result, dict) else "")
+            or ""
+        )
+        seed_model = (
+            cfg.get("model")
+            or (result.get("model") if isinstance(result, dict) else "")
+            or ""
+        )
 
         # If the user already marked this run as 'stopped' via the stop endpoint,
         # do not overwrite that terminal status with the thread's natural exit
@@ -1810,8 +1828,8 @@ class RunnerService:
                     run_role="seed",
                     loss=0.5,  # Default loss; will be updated by cascade logic
                     status=status,
-                    task=result.get("task", "") if isinstance(result, dict) else "",
-                    model=result.get("model", "") if isinstance(result, dict) else "",
+                    task=seed_task_text,
+                    model=seed_model,
                 )
             except Exception:
                 logger.debug("Failed to link run %s to task %s", run_id, task_id, exc_info=True)
@@ -1828,9 +1846,9 @@ class RunnerService:
                         seed_run_id=run_id,
                         seed_run_dir=run_dir,
                         experiment_id=experiment_id,
-                        task_key=task_id,
-                        task_text=result.get("task", "") if isinstance(result, dict) else "",
-                        model=result.get("model", "") if isinstance(result, dict) else "",
+                        task_key=f"{experiment_id}:{task_id}",
+                        task_text=seed_task_text,
+                        model=seed_model,
                         settings=settings_data,
                     )
                 except Exception as exc:
@@ -1962,6 +1980,19 @@ class RunnerService:
         # Experiment context (injected by session-aware runs)
         if config.get("experiment_context"):
             kwargs["experiment_context"] = config["experiment_context"]
+
+        # δ-1 watchdog: Studio is always embedded — never let the wall-time
+        # watchdog signal the host process (see DelegationLoopRunner docstring).
+        # Forwarded only if AgentWorkflow supports the parameter (older installed
+        # awp-runtime versions still work without it).
+        try:
+            import inspect as _inspect2
+            from awp.data.workflow import AgentWorkflow as _AW2
+
+            if "allow_process_kill" in _inspect2.signature(_AW2.__init__).parameters:
+                kwargs["allow_process_kill"] = False
+        except Exception:
+            pass
 
         # Raw runtime overrides (critique.defect_category_hard_cap, …).
         # Forwarded only if AgentWorkflow actually accepts the parameter —

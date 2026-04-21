@@ -2313,12 +2313,20 @@ class DelegationLoopRunner:
         parent_run_id: Optional[str] = None,
         tags: Optional[list[str]] = None,
         manager_prompt_prefix: Optional[str] = None,
+        allow_process_kill: bool = True,
     ) -> None:
         self._dir = workflow_dir
         # Refinement-mode plumbing
         self._parent_run_id = parent_run_id
         self._tags = list(tags) if tags else []
         self._manager_prompt_prefix = manager_prompt_prefix
+        # δ-1 watchdog guard: the wall-time watchdog does os.kill(getpid(), SIGTERM)
+        # which is correct for CLI (process == workflow) but fatal for embedded
+        # callers like the Studio server (process == long-running web server).
+        # Embedded callers pass allow_process_kill=False; the cooperative
+        # budget check inside the delegation loop handles wall-time breaches
+        # without killing the host process.
+        self._allow_process_kill = allow_process_kill
         self._config = config
         self._profiler = PerformanceProfiler(enabled=profile)
         self._tools = tool_registry
@@ -2708,6 +2716,7 @@ class DelegationLoopRunner:
         if budget is None or not getattr(budget, "max_wall_time", 0):
             return None
 
+        allow_process_kill = getattr(self, "_allow_process_kill", True)
         if kill_fn is None:
             kill_fn = os.kill
 
@@ -2750,9 +2759,36 @@ class DelegationLoopRunner:
                     continue
                 if elapsed < limit:
                     continue
-                # Breach. Log with exact margin, SIGTERM self, wait, then
-                # SIGKILL if still alive.
+                # Breach. Embedded callers (Studio) must not signal the host
+                # process — instead abort in-flight LLM HTTP calls via
+                # ``LLMClient.close_all()``; the httpx ReadError propagates to
+                # the runner's except/finally blocks, which produce a clean
+                # terminal. CLI callers still SIGTERM self and SIGKILL escalate.
                 margin = elapsed - limit
+                if not allow_process_kill:
+                    log.warning(
+                        "δ1 watchdog [%s]: wall-time breach (elapsed=%.1fs,"
+                        " limit=%ds, margin=%.1fs) — aborting LLM clients"
+                        " (embedded-mode, no process signal)",
+                        run_id,
+                        elapsed,
+                        limit,
+                        margin,
+                    )
+                    try:
+                        from .llm import LLMClient as _LLMClient
+
+                        aborted = _LLMClient.close_all()
+                        log.warning(
+                            "δ1 watchdog [%s]: aborted %d LLM client(s)",
+                            run_id,
+                            aborted,
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.error(
+                            "δ1 watchdog [%s]: close_all() raised", run_id, exc_info=True
+                        )
+                    return
                 log.warning(
                     "δ1 watchdog [%s]: wall-time breach (elapsed=%.1fs,"
                     " limit=%ds, margin=%.1fs) — SIGTERM pid=%d",

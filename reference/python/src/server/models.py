@@ -382,6 +382,12 @@ class SettingsUpdate(BaseModel):
     # Experiment base directory
     base_dir: str | None = None
 
+    # Cascade (Plan 7)
+    auto_refine_after_seed: bool | None = None
+    auto_refine_iterations: int | None = None
+    auto_optimize_after_seed: bool | None = None
+    auto_optimize_epochs: int | None = None
+
 
 # ---------------------------------------------------------------------------
 # Skills / Tools / MCP

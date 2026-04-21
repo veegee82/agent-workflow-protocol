@@ -295,8 +295,16 @@ Experiment (campaign)
 | 4 | `awp refine --target`, `awp optimize --target`, `run_role` param |
 | 5 | UI sidebar tree + Experiment/Task views + BEST override |
 | 6 | `awp experiment purge-legacy`, cross-link sweep, full-arc smoke |
+| 7 | UI cascade — settings `auto_refine_after_seed` / `auto_optimize_after_seed` in `server/services/cascade.py::cascade_after_seed`; fires refine + optimize (A2) automatically after a hierarchy-attached seed run completes |
 
 Normative rules: **R37** (continuation input non-emptiness; `spec/versions/1.0/validation-rules.md`).
+
+### UI Cascade (Plan 7)
+
+- **Trigger**: set `auto_refine_after_seed` and/or `auto_optimize_after_seed` in Settings (or in the POST /api/runs payload). Only fires when the seed run is hierarchy-attached (`experiment_id` + `task_id` provided).
+- **Refine phase**: runs `RefinementLoop` against the seed's deliverable for `auto_refine_iterations` iterations (default 2). Iterations land under `<task>/refinements/session_<ts>/iter_k/`. See `docs/refinement.md`.
+- **Optimize phase**: builds a 1-task `TaskSuiteSpec` from the seed's task text and runs `SuiteRunner.run_epoch` for `auto_optimize_epochs` (default 1) against `<experiment>/outer_loop.db`. This is the A2 path (no TextGrad — pure epoch-run accounting). For TextGrad updates, use `awp optimize --with-textgrad --target <exp>:<task>`.
+- **Embedded-mode safety**: Studio constructs `AgentWorkflow(allow_process_kill=False)`, which switches the δ-1 wall-time watchdog from `os.kill(getpid(), SIGTERM)` to `LLMClient.close_all()` — the watchdog still hard-breaches on budget overrun but aborts in-flight HTTP calls instead of signaling the host server. CLI invocations keep the original SIGTERM → SIGKILL path.
 
 ## Architecture
 
