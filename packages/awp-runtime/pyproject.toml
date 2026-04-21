@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "awp-runtime"
-version = "1.0.55"
+version = "1.0.56"
 description = "Agent Workflow Protocol — execution runtime (DAG + delegation loop engines)"
 readme = "README.md"
 license = "MIT"
@@ -27,7 +27,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "awp-core>=1.0.55",
+    "awp-core>=1.0.56",
     "httpx>=0.25",
     "pyvis>=0.3.2",
     "pandas>=2.0",
