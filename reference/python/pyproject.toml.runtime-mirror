@@ -7,7 +7,7 @@ name = "awp-runtime"
 version = "1.0.34"
 description = "Agent Workflow Protocol — execution runtime (DAG + delegation loop engines)"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{name = "Silvio Jurk"}, {name = "AWP Contributors"}]
 keywords = [

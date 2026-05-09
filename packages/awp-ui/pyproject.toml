@@ -7,7 +7,7 @@ name = "awp-ui"
 version = "1.0.56"
 description = "Agent Workflow Protocol — Web UI server with real-time WebSocket streaming"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{name = "AWP Contributors"}]
 keywords = [

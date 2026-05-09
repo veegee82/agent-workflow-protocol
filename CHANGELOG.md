@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **License: MIT → Apache-2.0.** AWP is positioned as an open standard;
+  Apache-2.0 carries an explicit patent grant (Section 3) that MIT lacks,
+  giving implementers durable protection against submarine patent claims.
+  All previously released versions (≤ 1.0.56) remain available under MIT
+  for users who already received them under that license. The relicensing
+  was performed by the sole copyright holder. Added `NOTICE` file per
+  Apache-2.0 convention. Updated license references across `LICENSE`,
+  `README.md`, `PYPI_README.md`, all four `pyproject.toml` files, the
+  spec header, and the clawhub adapter compatibility note.
+
 ## [1.0.2] - 2026-04-01
 
 ### Fixed

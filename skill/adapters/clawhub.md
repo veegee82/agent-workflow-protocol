@@ -314,5 +314,5 @@ clawhub explore --sort trending --limit 20
 | Slug: `^[a-z0-9][a-z0-9-]*$` | AWP `workflow.name` uses same pattern |
 | Text files only | AWP workflows are YAML/MD/JSON/Python -- all text |
 | 50MB limit | AWP workflows are typically <1MB |
-| MIT-0 license | AWP is MIT -- compatible |
+| MIT-0 license | AWP is Apache-2.0 -- compatible (Apache-2.0 ↔ MIT-0 are mutually combinable) |
 | SemVer versioning | AWP uses SemVer for `workflow.version` |

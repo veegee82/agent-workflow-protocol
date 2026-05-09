@@ -42,4 +42,4 @@ result = AgentWorkflow(
 
 ## License
 
-MIT -- see [LICENSE](https://github.com/veegee82/agent-workflow-protocol/blob/main/LICENSE).
+Apache License 2.0 — see [LICENSE](https://github.com/veegee82/agent-workflow-protocol/blob/main/LICENSE) and [NOTICE](https://github.com/veegee82/agent-workflow-protocol/blob/main/NOTICE). (Versions ≤ 1.0.56 were released under MIT.)

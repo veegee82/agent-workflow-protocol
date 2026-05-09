@@ -134,4 +134,4 @@ agent = parse_agent("agents/researcher/agent.awp.yaml")
 
 ## License
 
-MIT
+Apache License 2.0 (formerly MIT through version 1.0.56)

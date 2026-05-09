@@ -7,7 +7,7 @@ name = "awp-core"
 version = "1.0.56"
 description = "Agent Workflow Protocol — models, parser, validator, and schema tools"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{name = "Silvio Jurk"}, {name = "AWP Contributors"}]
 keywords = [

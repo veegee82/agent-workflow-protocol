@@ -7,7 +7,7 @@ name = "awp-agents"
 version = "1.0.56"
 description = "Agent Workflow Protocol — an open standard for orchestrating multi-agent AI workflows with YAML definitions, DAG execution, and recursive delegation loops (A0-A4 autonomy)"
 readme = "PYPI_README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{name = "Silvio Jurk"}, {name = "AWP Contributors"}]
 keywords = [

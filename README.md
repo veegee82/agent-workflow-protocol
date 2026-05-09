@@ -14,7 +14,7 @@
   <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/v/awp-agents?color=blue&label=PyPI" alt="PyPI version"/></a>
   <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/pyversions/awp-agents" alt="Python versions"/></a>
   <a href="https://pypi.org/project/awp-agents/"><img src="https://img.shields.io/pypi/dm/awp-agents?color=green&label=Downloads" alt="Downloads"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"/></a>
   <a href="https://github.com/veegee82/agent-workflow-protocol/stargazers"><img src="https://img.shields.io/github/stars/veegee82/agent-workflow-protocol?style=flat&color=orange" alt="GitHub stars"/></a>
   <a href="https://github.com/sponsors/veegee82"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=github" alt="Sponsor"/></a>
 </p>
@@ -1428,4 +1428,10 @@ Sponsors get a shoutout in the README, early access to new features, and priorit
 
 ### License
 
-MIT License. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+> **License history:** AWP was originally released under the MIT License
+> (versions ≤ 1.0.56). Starting with the next release, AWP is licensed
+> under Apache-2.0 to give implementers an explicit patent grant — the
+> appropriate choice for an open standard. The relicensing was performed
+> by the sole copyright holder.
