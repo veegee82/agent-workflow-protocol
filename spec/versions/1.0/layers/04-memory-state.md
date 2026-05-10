@@ -67,6 +67,7 @@ The following state keys are reserved by the runtime. Agents MUST NOT write to t
 | `_errors` | Error accumulator for the current run. |
 | `_trace` | Trace context for distributed tracing. |
 | `_workflow` | Workflow-level metadata (name, version). |
+| `worker_engine_factory` | OPTIONAL host-injected callable. When present, callers wrapping AWP (e.g. AtelierOS) inject a factory `factory(engine_id: str | None = None) -> WorkerEngine | None` that workers MAY call to obtain an LLM-CLI engine instance for their LLM step. Workers calling the factory route their LLM calls through the host's engine layer; workers ignoring it use whatever LLM client they were built against. The reference helper is `awp.atelier_integration` (`extract_engine_factory`, `resolve_engine`). Spec status: OPTIONAL convention; absence is the legacy single-LLM-source behaviour. |
 
 ### 2.4 Persistence
 
