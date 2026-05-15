@@ -4,5 +4,31 @@ Copyright 2026 Silvio Jurk
 This product includes software developed by Silvio Jurk
 and the AWP contributors.
 
-Licensed under the Apache License, Version 2.0.
-See LICENSE for the full license text.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+────────────────────────────────────────────────────────────────────────
+
+Trademark notice
+────────────────
+
+"AWP" and "Agent Workflow Protocol" are the project names used by the
+copyright holder to identify this software. The Apache License does
+not grant permission to use the trade names, trademarks, service
+marks, or product names of the licensor, except as required for
+describing the origin of the Work and reproducing the content of this
+NOTICE file (see License § 6).
+
+Forks intended for redistribution under a different name remain
+permitted by the License; the trademark restriction only prevents
+unauthorized use of the "AWP" / "Agent Workflow Protocol" identifier
+to brand derivative or third-party products.
+
+────────────────────────────────────────────────────────────────────────
+
+Third-party components
+──────────────────────
+
+This software depends on third-party components distributed under
+their own licenses. Each package retains its upstream license; see
+the dependency manifests under reference/ (per language) for the
+canonical inventory.
