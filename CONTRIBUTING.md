@@ -35,6 +35,43 @@ Once the issue has been discussed and the approach is agreed upon:
 4. Ensure all validation checks pass
 5. Submit a pull request referencing the issue
 
+## License and CLA
+
+AWP is licensed under the [Apache License, Version 2.0](LICENSE).
+
+[`CLA.md`](CLA.md) is a short Contributor License Agreement (one page,
+two load-bearing clauses) that mirrors the Apache Software Foundation
+ICLA. Two things to know:
+
+- **§2 (Outbound License):** your contribution is licensed under
+  Apache-2.0 — the same terms as the project itself. This is the same
+  outcome as Apache § 5 ("inbound = outbound").
+- **§3 (Relicense Right):** you additionally grant the Maintainer the
+  non-exclusive right to relicense your contribution under any future
+  OSI-approved or source-available license (e.g. BSL, FSL) for
+  *future* releases of the project. Apache-2.0 versions stay
+  Apache-2.0 forever; you can always use your own contribution under
+  Apache-2.0 indefinitely.
+
+§3 is the optionality clause that lets AWP adapt to future market
+conditions (hyperscaler-clone defence, enterprise procurement)
+without coordinating with every past contributor. The same path
+Sentry, HashiCorp, and MariaDB MaxScale took.
+
+**How to sign:** no bot, no signing ceremony. Opening a PR IS the
+acceptance. Adding `Signed-off-by:` (`git commit -s`) is the cleanest
+audit trail and is encouraged for security-sensitive changes. See
+[`CLA.md`](CLA.md) for the full text and the plain-language
+explanation at the end.
+
+## Trademark
+
+"AWP" and "Agent Workflow Protocol" remain identifiers of the project
+as published by the copyright holder. The Apache License explicitly
+does not grant trademark rights (§ 6). Forks under a different name
+are permitted and welcome; forks marketed under the "AWP" /
+"Agent Workflow Protocol" name are not.
+
 ## Code Style -- Reference Implementation
 
 The reference implementation is written in Python. Follow these conventions:
